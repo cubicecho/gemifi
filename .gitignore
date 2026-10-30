@@ -1,0 +1,28 @@
+# Vendor firmware and dumps of stock firmware are copyrighted: keep them local, never commit.
+research/devices/*/backup/
+research/devices/m-audio-code61/firmware/
+research/devices/m-audio-code61/vendor/
+research/devices/m-audio-code61/tables/*.bin
+research/devices/m-audio-code61/analysis/app_*_full.s
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Builds
+build/
+dist/
+node_modules/
+*.elf
+*.map
+*.gfw
+
+# Editors / OS
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# SWD session logs and read-back scratch
+tools/swd/nuvoton-nuc1xx/logs/

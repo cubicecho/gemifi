@@ -1,0 +1,13 @@
+Open On-Chip Debugger 0.12.0
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : Buspirate SWD mode enabled
+adapter speed: 100 kHz
+
+Info : Buspirate SWD Interface ready!
+Info : This adapter doesn't support configurable speed
+Info : SWD DPIDR 0xdeadbeef
+
+
+Info : Shutting down buspirate.

@@ -1,0 +1,138 @@
+/**
+ * The words and fixed numbers of the gemifi SysEx protocol, v1 (`protocol/sysex.md`).
+ * Facts, not tunables: a different value here is a different protocol.
+ */
+
+/** SysEx start byte. */
+export const SYSEX_START = 0xf0;
+/** SysEx end byte. */
+export const SYSEX_END = 0xf7;
+/** MIDI "non-commercial / development" ID (§1). A build constant so a real manufacturer ID can replace it. */
+export const MANUFACTURER_ID = 0x7d;
+/** First project signature byte, ASCII `g` (§1). */
+const SIGNATURE_G = 0x67;
+/** Second project signature byte, ASCII `m` (§1). */
+const SIGNATURE_M = 0x6d;
+/** Project signature, ASCII `g` `m` (§1). */
+export const SIGNATURE = [SIGNATURE_G, SIGNATURE_M] as const;
+/** The protocol version this module speaks (§1). */
+export const PROTOCOL_VERSION = 1;
+
+/** Bytes before the payload: F0, ID, two signature bytes, ver, cmd, seq, len_lo, len_hi. */
+export const HEADER_BYTES = 9;
+/** Bytes after the payload: chk, F7. */
+export const TRAILER_BYTES = 2;
+/** Offset of `ver` in a frame: the first byte the checksum covers. */
+export const VERSION_OFFSET = 4;
+/** The largest value a 7-bit byte holds. */
+export const DATA_MASK = 0x7f;
+/** The largest `seq` (§1). */
+export const MAX_SEQ = 127;
+/** The largest payload a 14-bit length can describe. */
+export const MAX_PAYLOAD_BYTES = 0x3fff;
+
+/** The largest request `cmd` (§1); replies are therefore 0x40–0x5F. */
+export const REQUEST_LAST = 0x1f;
+/** Added to a request's `cmd` to make its reply's (§1). */
+export const REPLY_FLAG = 0x40;
+/** Unsolicited device → host messages start here (§1). */
+export const UNSOLICITED_FIRST = 0x60;
+
+/** Request commands (§4). */
+export const Command = {
+  Hello: 0x01,
+  Reboot: 0x10,
+  FwBegin: 0x18,
+  FwData: 0x19,
+  FwEnd: 0x1a,
+  FwAbort: 0x1b,
+} as const;
+export type Command = (typeof Command)[keyof typeof Command];
+
+/** Unsolicited device → host messages (§4). */
+export const Unsolicited = {
+  Log: 0x60,
+  Event: 0x61,
+} as const;
+export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
+
+/** Reply status codes (§3). */
+export const Status = {
+  Ok: 0,
+  BadChecksum: 1,
+  BadCmd: 2,
+  BadLen: 3,
+  BadState: 4,
+  BadAddr: 5,
+  FlashErr: 6,
+  BadImage: 7,
+  BadBoard: 8,
+  Busy: 9,
+} as const;
+export type Status = (typeof Status)[keyof typeof Status];
+
+/** The spec's name for each status code, for error messages. */
+export const STATUS_NAMES: Readonly<Record<number, string>> = Object.freeze({
+  0: 'OK',
+  1: 'BAD_CHECKSUM',
+  2: 'BAD_CMD',
+  3: 'BAD_LEN',
+  4: 'BAD_STATE',
+  5: 'BAD_ADDR',
+  6: 'FLASH_ERR',
+  7: 'BAD_IMAGE',
+  8: 'BAD_BOARD',
+  9: 'BUSY',
+});
+
+/** What each status code means, in a reader's words (§3). */
+export const STATUS_MEANINGS: Readonly<Record<number, string>> = Object.freeze({
+  0: 'OK',
+  1: 'the device saw a wrong frame checksum',
+  2: 'the device does not know this command in its current role',
+  3: 'the payload length is wrong for the command',
+  4: 'the command is not allowed now',
+  5: 'the offset is out of range, misaligned or out of order',
+  6: 'erasing or programming flash failed',
+  7: 'the final CRC or header check failed',
+  8: "the image's board id does not match this device",
+  9: 'the device is busy',
+});
+
+/** The role a device answers HELLO with (§4). */
+export const Role = { App: 0, Boot: 1 } as const;
+export type Role = (typeof Role)[keyof typeof Role];
+
+/** REBOOT's `mode` (§4). */
+export const RebootMode = { App: 0, Boot: 1 } as const;
+export type RebootMode = (typeof RebootMode)[keyof typeof RebootMode];
+
+/** LOG levels (§4). */
+export const LogLevel = { Error: 0, Warn: 1, Info: 2, Debug: 3 } as const;
+export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
+
+/** EVENT types (§4). */
+export const EventType = { Button: 1, Key: 2, Pot: 3 } as const;
+export type EventType = (typeof EventType)[keyof typeof EventType];
+
+/** Capability bits in HELLO's `caps` (§4.1). */
+export const Capability = {
+  FirmwareUpload: 1 << 0,
+  Config: 1 << 1,
+  Log: 1 << 2,
+  Event: 1 << 3,
+} as const;
+export type Capability = (typeof Capability)[keyof typeof Capability];
+
+/** Flash page size the upload rules are written against (§4.2). */
+export const PAGE_BYTES = 512;
+/** FW_DATA chunks are a multiple of this many bytes (§4). */
+export const CHUNK_ALIGN_BYTES = 4;
+/** Hex digits in a board id as the spec writes it (`0x0001`). */
+export const BOARD_ID_DIGITS = 4;
+/** Radix of hex output. */
+export const HEX_RADIX = 16;
+/** One more than the largest u32. */
+export const U32_LIMIT = 0x1_0000_0000;
+/** Bytes in the chip UID HELLO carries, before packing (§4). */
+export const UID_BYTES = 12;

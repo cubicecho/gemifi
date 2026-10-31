@@ -4,7 +4,7 @@ This bootloader runs from the 4 KB LDROM of a NUC1xx part. It hands off to the a
 
 First board: M-Audio Keystation Mini 32 MK3 (NUC120LC1BN). Its board file is [`platform/nuvoton-nuc1xx/boards/keystation-mini32-mk3.h`](../../platform/nuvoton-nuc1xx/boards/keystation-mini32-mk3.h).
 
-> **Status: built and checked on the host only. Nothing here has run on hardware yet.** Test it in APROM first (`TEST_IN_APROM=1`, below) before putting it in LDROM.
+> **Status: running on hardware (Keystation Mini 32 MK3, 2026-10-31).** The `TEST_IN_APROM` build passed the upload and error-path checks on the board (M3). The real build is in LDROM, verified by ISP read-back: it uploads and starts `midi-controller.gfw` over USB (about 4 s), and app → bootloader → app reboots work (M4).
 
 ## Build
 

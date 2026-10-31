@@ -46,7 +46,7 @@ HUB_KEYS = {
 }
 HUB_COMMON_KEYS = {"id", "type", "shared"}
 
-TOP_KEYS = ["gemifi", "name", "description", "board_id", "platform", "chip", "usb", "midi", "i2c",
+TOP_KEYS = ["gemifi", "name", "description", "version", "board_id", "platform", "chip", "usb", "midi", "i2c",
             "scan_us", "boot_combo", "hubs", "buttons", "leds", "analog", "encoders", "key_matrix"]
 PIN_KEYS = ["pin", "hub", "channel", "inverted", "pullup", "pulldown"]
 
@@ -344,6 +344,7 @@ class Device:
     def __init__(self):
         self.hubs, self.buttons, self.leds, self.analogs, self.encoders = [], [], [], [], []
         self.matrix = None
+        self.version = None
         self.boot_combo = []
         self.i2c = None
 
@@ -610,6 +611,7 @@ def validate(data, file=None):
     dev.name = v.string(data, "name", "", required=True) or "?"
     dev.description = v.string(data, "description", "")
     dev.board_id = v.integer(data, "board_id", "", 0, 0x3FFF, required=True) or 0
+    dev.version = validate_version(v, data)
     pname = data.get("platform")
     if pname is None:
         v.err("platform", data.line, f"is required ({' | '.join(PLATFORMS)})")
@@ -892,6 +894,28 @@ def validate_hub(v, dev, h, p, line, index):
                                                          f"(usually 0x20-0x27{'' if typ == 'mcp23017' else ', PCF8574A 0x38-0x3F'})")
 
 
+VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def validate_version(v, data):
+    """version: "X.Y.Z" -> (major, minor, patch), or None when not given (the build's default is used).
+    Packed as major << 24 | minor << 16 | patch, so major and minor 0..255, patch 0..65535."""
+    if data.get("version") is None:
+        return None
+    x = data["version"]
+    line = data.line_of("version")
+    m = VERSION_RE.match(x) if isinstance(x, str) else None
+    if not m:
+        hint = " (quote it: version: \"1.0.0\")" if isinstance(x, (int, float)) and not isinstance(x, bool) else ""
+        v.err("version", line, f"must be major.minor.patch, like 0.1.0 (got {x!r}){hint}")
+        return None
+    ver = tuple(int(g) for g in m.groups())
+    if ver[0] > 255 or ver[1] > 255 or ver[2] > 0xFFFF:
+        v.err("version", line, f"{x} is out of range (major and minor 0..255, patch 0..65535)")
+        return None
+    return ver
+
+
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
     d = v.mapping(d, p, line, ["kind", "rows", "cols", "keys", "first_note", "settle_us", "velocity"])
@@ -1017,6 +1041,8 @@ def generate(dev, source="device.yaml"):
     h = [head, "#ifndef GM_DEVICE_CONFIG_H", "#define GM_DEVICE_CONFIG_H", "",
          f"#define GM_DEVICE_NAME {c_str(dev.name)}",
          f"#define GM_BOARD_ID 0x{dev.board_id:04X}",
+         *([f"#define GM_FW_VERSION 0x{dev.version[0] << 24 | dev.version[1] << 16 | dev.version[2]:08X}u",
+            f"#define GM_FW_VERSION_STR \"{'.'.join(map(str, dev.version))}\""] if dev.version else []),
          f"#define GM_PLATFORM {c_str(dev.platform.name)}",
          f"#define GM_USB_VID 0x{dev.usb[0]:04X}",
          f"#define GM_USB_PID 0x{dev.usb[1]:04X}",

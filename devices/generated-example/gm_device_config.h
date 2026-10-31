@@ -5,6 +5,8 @@
 
 #define GM_DEVICE_NAME "Keystation Mini 32"
 #define GM_BOARD_ID 0x0001
+#define GM_FW_VERSION 0x00010004u
+#define GM_FW_VERSION_STR "0.1.4"
 #define GM_USB_VID 0x1209
 #define GM_USB_PID 0x0002
 #define GM_N_HUBS 0

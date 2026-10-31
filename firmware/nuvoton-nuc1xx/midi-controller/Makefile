@@ -7,13 +7,17 @@
 # Output: $(BUILD)/midi-controller.gfw, for the bootloader / flash-aprom.sh.
 
 TARGET     := midi-controller
-FW_VERSION ?= 0.1.3
 PLAT       := ../../../platform/nuvoton-nuc1xx
 CORE       := ../../../core
 DEVICE_DIR ?= ../../../devices/generated-example
 
 # board_id for the image header comes from the device config.
 MKIMAGE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_ID[ \t]*//p' $(DEVICE_DIR)/gm_device_config.h)
+
+# Firmware version: the device YAML's `version:` (GM_FW_VERSION_STR in the
+# device config), else 0.1.0. `make FW_VERSION=x.y.z` overrides it.
+DEVICE_FW_VERSION := $(shell sed -n 's/^\#define GM_FW_VERSION_STR[ \t]*"\(.*\)"/\1/p' $(DEVICE_DIR)/gm_device_config.h)
+FW_VERSION ?= $(or $(DEVICE_FW_VERSION),0.1.0)
 
 CFLAGS += -I$(DEVICE_DIR)
 

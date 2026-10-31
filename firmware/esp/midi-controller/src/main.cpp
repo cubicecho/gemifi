@@ -10,7 +10,7 @@ extern "C" {
 #include "gm_device.h"
 }
 
-#ifndef GM_FW_VERSION
+#ifndef GM_FW_VERSION                       /* the device YAML's version: */
 #define GM_FW_VERSION 0x00010000u           /* 0.1.0 */
 #endif
 

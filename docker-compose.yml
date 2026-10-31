@@ -1,6 +1,7 @@
 # gemifi builder: dashboard + web updater on http(s)://<host>:6055/
 #   docker compose up -d --build
 # tools/builder/README.md "Docker" has the details (TLS, password, first ESP build).
+# This file builds from the source tree. To run the published GHCR image, use docker-compose.ghcr.yml.
 services:
   gemifi:
     build: .

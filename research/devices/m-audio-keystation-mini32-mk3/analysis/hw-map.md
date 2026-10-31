@@ -2,7 +2,7 @@
 
 Source: `backup/aprom-read1.bin` (NUC120LC1BN APROM, base 0x0). This is static analysis only, with no hardware access.
 Listing tools: `analysis/scripts/dis.py` (capstone linear Thumb sweep, base 0) and `analysis/scripts/rng.sh`.
-The relevant routines are saved in `analysis/excerpts-hw.txt`.
+The routine listings are kept locally in `analysis/excerpts-hw.txt` (gitignored: they are copied from the stock firmware).
 Register meanings were checked against the NUC100/120 TRM V2.02 and the datasheet V2.03 pin diagram (Fig. 3-6, Low Density LQFP48).
 
 Confidence levels: **H** means it is read directly from register writes. **M** means it is inferred from code behaviour. **L** means it is a guess.

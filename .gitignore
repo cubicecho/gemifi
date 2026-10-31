@@ -4,6 +4,17 @@ research/devices/m-audio-code61/firmware/
 research/devices/m-audio-code61/vendor/
 research/devices/m-audio-code61/tables/*.bin
 research/devices/m-audio-code61/analysis/app_*_full.s
+# Anything copied or extracted from vendor firmware: disassembly listings, raw
+# images, tables pulled from a dump. Kept locally next to the notes, never in git.
+research/**/*.bin
+research/**/*.hex
+research/**/*.s
+research/**/excerpts*.txt
+research/devices/m-audio-code61/tables/*.csv
+# Raw OpenOCD debug logs (noise, and they hold local paths)
+research/devices/*/captures/swd-debug*.txt
+# Private scratch folder for anything else that must never be published
+research/**/private/
 
 # Python
 .venv/
@@ -20,6 +31,7 @@ node_modules/
 *.gfw
 
 # Editors / OS
+.claude/worktrees/
 .DS_Store
 *.swp
 .vscode/

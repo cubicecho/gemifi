@@ -56,7 +56,7 @@ Each fix is a change of a byte or two. Candidate patches are listed in the analy
 
 ## Velocity tables
 
-`tables/velocity_tables.csv`. There are two identical banks of 7 × 128-byte tables (curve0-3, then flat 64 / 100 / 127):
+`tables/velocity_tables.csv` (kept locally, gitignored: the values come from the vendor image). There are two identical banks of 7 × 128-byte tables (curve0-3, then flat 64 / 100 / 127):
 
 - Bank A, 0x08014C58: keys (0x080097D0)
 - Bank B, 0x08014FD8: pads (0x08009E48)
@@ -77,7 +77,7 @@ firmware/  FirmwareFile_v1.2.1.hex.txt   as shipped
            update_blocks_v1.2.1.bin      hex decoded (blocks with headers)
            app_v1.2.1_0x08002400.bin     flat app image, load at 0x08002400
 vendor/    updater GUI exe (holds the checksum + protocol), release notes PDF
-tables/    velocity_tables.csv, raw table region dump from 0x08014B00
+tables/    velocity_tables.csv, raw table region dump from 0x08014B00 (both gitignored)
 analysis/  mushy-feel.md, app_v1.2.1_full.s (full disassembly)
 scripts/   extract_firmware.py (installer → app image), fwdis.py, xref.py, cabscan.py
 ```

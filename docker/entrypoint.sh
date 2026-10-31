@@ -20,21 +20,43 @@ if [ "${GEMIFI_TLS:-}" = "self-signed" ] && [ -z "${GEMIFI_TLS_CERT:-}" ]; then
     if [ ! -s "$tls/cert.pem" ] || [ ! -s "$tls/key.pem" ] || [ "$(cat "$tls/hosts" 2>/dev/null)" != "$hosts" ]; then
         san="" cn=""
         for h in $(echo "$hosts" | tr ',' ' '); do
-            [ -n "$cn" ] || cn=$h
+            # Same forms as GEMIFI_ALLOWED_HOSTS: a port is allowed and dropped
+            # (a certificate has no ports). IPv6 as [::1], [::1]:6055 or bare ::1.
             case $h in
-                *[!0-9.]*) case $h in *:*) san="$san,IP:$h" ;; *) san="$san,DNS:$h" ;; esac ;;
-                *) san="$san,IP:$h" ;;
+                \[*\]*) h=${h#\[}; h=${h%%\]*}; kind=IP ;;
+                *:*:*) kind=IP ;;
+                *:*) h=${h%:*}; kind= ;;
+                *) kind= ;;
             esac
+            if [ -z "$kind" ]; then
+                case $h in
+                    "") continue ;;
+                    *[!0-9.]*) kind=DNS ;;
+                    *) kind=IP ;;
+                esac
+            fi
+            case $h in
+                *[!0-9A-Za-z.:*-]*)
+                    echo "gemifi: GEMIFI_TLS_HOSTS: '$h' is not a host name or IP address" >&2
+                    exit 1 ;;
+            esac
+            [ -n "$cn" ] || cn=$h
+            case "$san," in *",$kind:$h,"*) ;; *) san="$san,$kind:$h" ;; esac
         done
         case "$san," in *,DNS:localhost,*) ;; *) san="$san,DNS:localhost" ;; esac
         case "$san," in *,IP:127.0.0.1,*) ;; *) san="$san,IP:127.0.0.1" ;; esac
         san=${san#,}
         echo "gemifi: making a self-signed certificate for $san in $tls"
         umask 077
-        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 825 \
+        if ! err=$(openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 825 \
             -subj "/CN=${cn:-localhost}/O=gemifi self-signed" \
             -addext "subjectAltName=$san" -addext "extendedKeyUsage=serverAuth" \
-            -keyout "$tls/key.pem" -out "$tls/cert.pem" 2>/dev/null
+            -keyout "$tls/key.pem" -out "$tls/cert.pem" 2>&1); then
+            echo "gemifi: openssl could not make the certificate (check GEMIFI_TLS_HOSTS):" >&2
+            echo "$err" >&2
+            rm -f "$tls/key.pem" "$tls/cert.pem"
+            exit 1
+        fi
         umask 022
         echo "$hosts" > "$tls/hosts"
         chmod 644 "$tls/cert.pem" "$tls/hosts"

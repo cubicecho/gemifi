@@ -164,8 +164,9 @@ class HostCheck:
         return any(name == an and (ap is None or ap == port) for an, ap in self.allowed)
 
 
-def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=None, auth=None):
-    """auth: (username, password) to require HTTP Basic auth, or None."""
+def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=None, auth=None, tls=None):
+    """auth: (username, password) to require HTTP Basic auth, or None.
+    tls: an ssl.SSLContext to serve https; plain http on the same port is then redirected to https."""
     hosts = HostCheck(bind, port, allowed_hosts)
     web_root = os.path.realpath(web_dir) if web_dir else None
     want_auth = None
@@ -176,14 +177,53 @@ def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=Non
         server_version = "gemifi-dashboard"
         timeout = 120   # a stalled client can't hold a thread forever
 
-        def handle(self):
-            if isinstance(self.connection, ssl.SSLSocket):
+        def setup(self):
+            # With TLS, one port serves both: a TLS handshake starts with 0x16, anything
+            # else is plain http and gets a redirect to https (handle_plain).
+            self.plain = self.tls_failed = False
+            if tls is not None:
+                self.request.settimeout(self.timeout)
                 try:
-                    self.connection.do_handshake()
-                except (ssl.SSLError, OSError) as e:
-                    self.log_message("TLS handshake failed: %s", e)
-                    return
+                    first = self.request.recv(1, socket.MSG_PEEK)
+                except OSError:
+                    first = b""
+                if first == b"\x16":
+                    try:
+                        self.request = tls.wrap_socket(self.request, server_side=True)
+                    except (ssl.SSLError, OSError) as e:
+                        self.log_message("TLS handshake failed: %s", e)
+                        self.tls_failed = True
+                else:
+                    self.plain = True
+            super().setup()
+
+        def handle(self):
+            if self.tls_failed:
+                return
+            if self.plain:
+                self.handle_plain()
+                return
             super().handle()
+
+        def handle_plain(self):
+            """Plain http on the https port: redirect to the same URL over https."""
+            self.close_connection = True
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+            except OSError:
+                return
+            if not self.raw_requestline or not self.parse_request():
+                return
+            host = self.headers.get("Host")
+            if not hosts.ok(host):
+                self.fail(403, "bad Host header (see --allowed-host / GEMIFI_ALLOWED_HOSTS)")
+                return
+            path = self.path if self.path.startswith("/") else "/"
+            self.send_response(308)
+            self.send_header("Location", f"https://{host}{path}")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
 
         def log_message(self, fmt, *args):
             sys.stderr.write("dashboard: " + fmt % args + "\n")
@@ -426,17 +466,17 @@ def serve(port, user_dir, *, host="127.0.0.1", web_dir=None, build_dir=None, all
     web = find_web_dir(web_dir)
     if bool(tls_cert) != bool(tls_key):
         raise SystemExit("gemifi dashboard: --tls-cert and --tls-key go together")
-    handler = make_handler(roots, port, bind=host, allowed_hosts=allowed_hosts, web_dir=web, auth=auth)
-    server_cls = type("Server", (ThreadingHTTPServer,), {
-        "address_family": socket.AF_INET6 if ":" in host else socket.AF_INET, "daemon_threads": True})
-    srv = server_cls((host, port), handler)
-    scheme = "http"
+    ctx = None
     if tls_cert:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(tls_cert, tls_key)
-        # Handshake in the handler thread, not in accept() on the main loop.
-        srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
-        scheme = "https"
+    # TLS is set up per connection in the handler thread (not in accept() on the main loop),
+    # which also lets plain http on the same port get a redirect.
+    handler = make_handler(roots, port, bind=host, allowed_hosts=allowed_hosts, web_dir=web, auth=auth, tls=ctx)
+    server_cls = type("Server", (ThreadingHTTPServer,), {
+        "address_family": socket.AF_INET6 if ":" in host else socket.AF_INET, "daemon_threads": True})
+    srv = server_cls((host, port), handler)
+    scheme = "https" if ctx else "http"
     shown = "localhost" if host in ("0.0.0.0", "::") else (f"[{host}]" if ":" in host else host)
     print(f"gemifi dashboard: {scheme}://{shown}:{port}/  (presets: {gb.rel(roots.dirs['presets'])}"
           f"{' read-only' if roots.readonly_presets else ''}, yours: {user_dir}, builds: {roots.build_dir}, "

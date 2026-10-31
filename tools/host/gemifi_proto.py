@@ -3,6 +3,8 @@
 Frame:  F0 7D 67 6D  ver cmd seq len_lo len_hi  payload...  chk  F7
 chk = (sum of ver..last payload byte) & 0x7F; len = payload length in SysEx bytes (u14).
 """
+import struct
+import zlib
 from dataclasses import dataclass, field
 
 MANUFACTURER = bytes([0x7D])        # MIDI non-commercial ID; build constant, replace for a release
@@ -18,30 +20,44 @@ FW_BEGIN = 0x18
 FW_DATA = 0x19
 FW_END = 0x1A
 FW_ABORT = 0x1B
+# Config (app only, sysex.md 4.3)
+GET_SCHEMA = 0x02
+GET_PARAM = 0x03
+SET_PARAM = 0x04
+GET_PARAMS = 0x09
+SET_PARAMS = 0x0A
+COMMIT = 0x07
+FACTORY_RESET = 0x08
 REPLY = 0x40
 UNSOLICITED_FIRST = 0x60
 # Unsolicited device -> host
 LOG = 0x60
 EVENT = 0x61
+PARAM_CHANGED = 0x62
 
 CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "FW_DATA",
-             FW_END: "FW_END", FW_ABORT: "FW_ABORT", LOG: "LOG", EVENT: "EVENT"}
+             FW_END: "FW_END", FW_ABORT: "FW_ABORT", GET_SCHEMA: "GET_SCHEMA", GET_PARAM: "GET_PARAM",
+             SET_PARAM: "SET_PARAM", GET_PARAMS: "GET_PARAMS",
+             SET_PARAMS: "SET_PARAMS", COMMIT: "COMMIT", FACTORY_RESET: "FACTORY_RESET", LOG: "LOG",
+             EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED"}
 
 STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE", 5: "BAD_ADDR",
-          6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY"}
-OK, BAD_CHECKSUM, BAD_CMD, BAD_LEN, BAD_STATE, BAD_ADDR, FLASH_ERR, BAD_IMAGE, BAD_BOARD, BUSY = range(10)
+          6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE"}
+(OK, BAD_CHECKSUM, BAD_CMD, BAD_LEN, BAD_STATE, BAD_ADDR, FLASH_ERR, BAD_IMAGE, BAD_BOARD, BUSY,
+ BAD_PARAM, BAD_VALUE) = range(12)
 
 ROLE_APP, ROLE_BOOT = 0, 1
 REBOOT_APP, REBOOT_BOOT = 0, 1
 CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
-EVENT_TYPES = {1: "button", 2: "key", 3: "pot"}
+EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder"}
+EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
 
 APROM_SIZE = 32 * 1024
 PAGE_SIZE = 512
 REPLY_TIMEOUT_S = 0.200
-LONG_REPLY_TIMEOUT_S = 2.000   # sysex.md 1: FW_BEGIN (page erase) and FW_END (read-back + CRC)
-LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END)
+LONG_REPLY_TIMEOUT_S = 2.000   # sysex.md 1: FW_BEGIN, FW_END, COMMIT, FACTORY_RESET (erase/program flash)
+LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END, COMMIT, FACTORY_RESET)
 MAX_RESENDS = 5                # sysex.md 1: up to 5 resends of the same seq, so 6 sends in all
 MAX_TRIES = MAX_RESENDS + 1
 
@@ -97,6 +113,21 @@ def dec_u32(d):
     if v >> 32:
         raise ProtocolError("u32 top byte has bits above bit 3 set")
     return v
+
+
+S32_MIN, S32_MAX = -(1 << 31), (1 << 31) - 1
+
+
+def s32(v):
+    """Signed 32-bit: the u32 of its two's-complement bit pattern (-1 -> 7F 7F 7F 7F 0F)."""
+    if not S32_MIN <= v <= S32_MAX:
+        raise ValueError(f"{v} does not fit in a signed 32-bit int")
+    return u32(v & 0xFFFFFFFF)
+
+
+def dec_s32(d):
+    v = dec_u32(d)
+    return v - (1 << 32) if v & 0x80000000 else v
 
 
 # ---- 8->7 packing (Korg/Elektron: MSB byte first, then up to 7 low-7-bit bytes) ----
@@ -177,7 +208,9 @@ class Frame:
 
 
 # Reply payload lengths when status is OK (None = any). A non-OK reply is the status byte only (sysex.md 3).
-REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_ABORT: 1}
+REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_ABORT: 1,
+                GET_SCHEMA: None, GET_PARAM: 10, SET_PARAM: 10, GET_PARAMS: None, SET_PARAMS: 7,
+                COMMIT: 1, FACTORY_RESET: 1}
 
 
 def reply_matches(frame, cmd, seq):
@@ -236,6 +269,46 @@ def req_fw_data(offset, data):
     if not data or len(data) % 4:
         raise ValueError("FW_DATA data must be 1.. bytes and a multiple of 4")
     return u28(offset) + pack7(data)
+
+
+SCHEMA_WINDOW = 64     # sysex.md 4: GET_SCHEMA `max` is 1..64 unpacked bytes
+
+
+MAX_RUN = 16           # sysex.md 4: GET_PARAMS / SET_PARAMS `n` is 1..16
+
+
+def req_get_schema(offset, max_bytes=SCHEMA_WINDOW):
+    if not 1 <= max_bytes <= SCHEMA_WINDOW:
+        raise ValueError(f"GET_SCHEMA max must be 1..{SCHEMA_WINDOW}")
+    return u28(offset) + u14(max_bytes)
+
+
+def req_get_param(pid, index=0):
+    return u14(pid) + u14(index)
+
+
+def req_set_param(pid, index, value):
+    return u14(pid) + u14(index) + s32(value)
+
+
+def req_get_params(pid, index, n):
+    if not 1 <= n <= MAX_RUN:
+        raise ValueError(f"GET_PARAMS n must be 1..{MAX_RUN}")
+    return u14(pid) + u14(index) + u14(n)
+
+
+def req_set_params(pid, index, values):
+    if not 1 <= len(values) <= MAX_RUN:
+        raise ValueError(f"SET_PARAMS takes 1..{MAX_RUN} values")
+    return u14(pid) + u14(index) + u14(len(values)) + b"".join(s32(v) for v in values)
+
+
+def req_commit():
+    return b""
+
+
+def req_factory_reset():
+    return b""
 
 
 # ---- reply / message decoding ----
@@ -297,8 +370,14 @@ class EventMsg:
     value: int
     t_ms: int
 
+    @property
+    def delta(self):
+        """Encoder events: `value` is a signed delta, 14-bit two's complement."""
+        return self.value - 0x4000 if self.value & 0x2000 else self.value
+
     def __str__(self):
-        return f"[{self.t_ms:8d} ms] EVENT {EVENT_TYPES.get(self.type, f'type{self.type}')} {self.index} = {self.value}"
+        v = f"{self.delta:+d}" if self.type == EV_ENCODER else str(self.value)
+        return f"[{self.t_ms:8d} ms] EVENT {EVENT_TYPES.get(self.type, f'type{self.type}')} {self.index} = {v}"
 
 
 def parse_log(payload):
@@ -319,6 +398,400 @@ def parse_event(payload):
 
 def build_event(etype, index, value, t_ms):
     return bytes([etype]) + u14(index) + u14(value) + u28(t_ms)
+
+
+# ---- config replies and PARAM_CHANGED (sysex.md 4, 4.3) ----
+
+@dataclass
+class ParamValue:
+    """One (id, index, value): the GET_PARAM / SET_PARAM reply and the PARAM_CHANGED payload."""
+    id: int
+    index: int
+    value: int
+
+    def __str__(self):
+        return f"PARAM_CHANGED id {self.id}[{self.index}] = {self.value}"
+
+
+def _param_value(p, what):
+    if len(p) != 9:
+        raise ProtocolError(f"{what} needs 9 bytes (id u14, index u14, value s32), got {len(p)}")
+    return ParamValue(dec_u14(p[0:2]), dec_u14(p[2:4]), dec_s32(p[4:9]))
+
+
+def _param_value_bytes(pid, index, value):
+    return u14(pid) + u14(index) + s32(value)
+
+
+def parse_param_reply(payload):
+    """GET_PARAM / SET_PARAM reply payload (status OK) -> ParamValue."""
+    if not payload or payload[0] != OK:
+        raise ProtocolError("not an OK reply")
+    return _param_value(payload[1:], "GET_PARAM/SET_PARAM reply")
+
+
+def build_param_reply(pid, index, value, status=OK):
+    """Device side; used by tests and the simulator."""
+    return bytes([status]) + (_param_value_bytes(pid, index, value) if status == OK else b"")
+
+
+def parse_param_changed(payload):
+    return _param_value(payload, "PARAM_CHANGED")
+
+
+def build_param_changed(pid, index, value):
+    return _param_value_bytes(pid, index, value)
+
+
+def parse_params_reply(payload):
+    """GET_PARAMS reply payload (status OK) -> (id, index, [values])."""
+    if len(payload) < 7 or payload[0] != OK:
+        raise ProtocolError("GET_PARAMS reply too short or not OK")
+    n = dec_u14(payload[5:7])
+    if len(payload) != 7 + 5 * n:
+        raise ProtocolError(f"GET_PARAMS reply says n={n} but has {len(payload) - 7} value bytes")
+    return dec_u14(payload[1:3]), dec_u14(payload[3:5]), [dec_s32(payload[7 + 5 * i:12 + 5 * i]) for i in range(n)]
+
+
+def build_params_reply(pid, index, values, status=OK):
+    """Device side (GET_PARAMS)."""
+    if status != OK:
+        return bytes([status])
+    return bytes([OK]) + u14(pid) + u14(index) + u14(len(values)) + b"".join(s32(v) for v in values)
+
+
+def parse_set_params_reply(payload):
+    """SET_PARAMS reply payload (status OK) -> (id, index, n)."""
+    if len(payload) != 7 or payload[0] != OK:
+        raise ProtocolError("SET_PARAMS reply must be OK + 6 bytes")
+    return dec_u14(payload[1:3]), dec_u14(payload[3:5]), dec_u14(payload[5:7])
+
+
+def build_set_params_reply(pid, index, n, status=OK):
+    """Device side (SET_PARAMS)."""
+    return bytes([status]) + (u14(pid) + u14(index) + u14(n) if status == OK else b"")
+
+
+def parse_schema_reply(payload):
+    """GET_SCHEMA reply payload (status OK) -> (total, offset, unpacked data)."""
+    if len(payload) < 9 or payload[0] != OK:
+        raise ProtocolError("GET_SCHEMA reply too short or not OK")
+    return dec_u28(payload[1:5]), dec_u28(payload[5:9]), unpack7(payload[9:]) if len(payload) > 9 else b""
+
+
+def build_schema_reply(schema_bytes, offset, max_bytes):
+    """Device side: the window [offset, offset+max) of the schema (empty at or past the end)."""
+    data = bytes(schema_bytes[offset:offset + max_bytes])
+    return bytes([OK]) + u28(len(schema_bytes)) + u28(offset) + pack7(data)
+
+
+# ---- schema (sysex.md 4.4) ----
+
+SCHEMA_VERSION = 1
+T_INT, T_BOOL, T_ENUM, T_NOTE = 0, 1, 2, 3
+TYPE_NAMES = {T_INT: "int", T_BOOL: "bool", T_ENUM: "enum", T_NOTE: "note"}
+F_READ_ONLY, F_VOLATILE, F_PER_INDEX_DEFAULT, F_INDEX_LABELS, F_HAS_UNIT = 1, 2, 4, 8, 16
+FLAG_NAMES = ((F_READ_ONLY, "read-only"), (F_VOLATILE, "volatile"), (F_PER_INDEX_DEFAULT, "per-index-default"),
+              (F_INDEX_LABELS, "index-labels"), (F_HAS_UNIT, "unit"))
+MAX_COUNT = 0xFFFF
+MAX_STRING = 63
+
+
+@dataclass
+class Param:
+    id: int
+    type: int
+    group: int
+    count: int
+    flags: int
+    min: int
+    max: int
+    defaults: list          # one entry, or `count` entries with PER_INDEX_DEFAULT
+    name: str
+    label: str
+    unit: str = ""                                     # only with HAS_UNIT
+    index_labels: list = field(default_factory=list)   # `count` strings with INDEX_LABELS, else []
+    options: list = field(default_factory=list)        # enum only: option i has value min + i
+
+    @property
+    def type_name(self):
+        """Unknown types are shown as plain ints (sysex.md 4.4)."""
+        return TYPE_NAMES.get(self.type, "int")
+
+    @property
+    def read_only(self):
+        return bool(self.flags & F_READ_ONLY)
+
+    @property
+    def volatile(self):
+        return bool(self.flags & F_VOLATILE)
+
+    def default(self, index=0):
+        return self.defaults[index] if len(self.defaults) > 1 else self.defaults[0]
+
+    def index_label(self, index):
+        return self.index_labels[index] if index < len(self.index_labels) else str(index)
+
+    def to_json(self):
+        return {"id": self.id, "type": self.type, "group": self.group, "count": self.count, "flags": self.flags,
+                "min": self.min, "max": self.max, "defaults": list(self.defaults), "name": self.name,
+                "label": self.label, "unit": self.unit, "index_labels": list(self.index_labels), "options": list(self.options)}
+
+
+@dataclass
+class Schema:
+    version: int
+    groups: list
+    params: list
+
+    def by_name(self, name):
+        return next((p for p in self.params if p.name == name), None)
+
+    def by_id(self, pid):
+        return next((p for p in self.params if p.id == pid), None)
+
+    def to_json(self):
+        return {"version": self.version, "groups": list(self.groups), "params": [p.to_json() for p in self.params]}
+
+    @classmethod
+    def from_json(cls, j):
+        return cls(j["version"], list(j["groups"]), [Param(**p) for p in j["params"]])
+
+
+def make_param(pid, name, ptype, group, min, max=None, default=0, label="", count=1, index_labels=None,
+               options=None, flags=0, unit=""):
+    """Convenience constructor that derives the layout flags: a list `default` sets PER_INDEX_DEFAULT,
+    `index_labels` sets INDEX_LABELS, `unit` sets HAS_UNIT; an enum's max defaults to min + len(options) - 1."""
+    defaults = list(default) if isinstance(default, (list, tuple)) else [default]
+    if isinstance(default, (list, tuple)):
+        flags |= F_PER_INDEX_DEFAULT
+    if index_labels:
+        flags |= F_INDEX_LABELS
+    if unit:
+        flags |= F_HAS_UNIT
+    options = list(options or [])
+    if max is None:
+        if ptype != T_ENUM:
+            raise ValueError("max is required for non-enum params")
+        max = min + len(options) - 1
+    return Param(pid, ptype, group, count, flags, min, max, defaults, name, label or name, unit,
+                 list(index_labels or []), options)
+
+
+class _Reader:
+    def __init__(self, data):
+        self.data, self.pos = bytes(data), 0
+
+    def take(self, n, what):
+        if self.pos + n > len(self.data):
+            raise ProtocolError(f"schema truncated at byte {self.pos} of {len(self.data)} reading {what}")
+        b = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return b
+
+    def u8(self, what):
+        return self.take(1, what)[0]
+
+    def u16(self, what):
+        return struct.unpack("<H", self.take(2, what))[0]
+
+    def i32(self, what):
+        return struct.unpack("<i", self.take(4, what))[0]
+
+    def string(self, what):
+        n = self.u8(what + " length")
+        return self.take(n, what).decode("ascii", "replace")
+
+
+def parse_schema(data):
+    """Binary schema v1 (sysex.md 4.4) -> Schema. Unknown flag bits are kept but ignored, unknown types are
+    treated as int (no enum trailer). Raises ProtocolError on truncated or inconsistent data."""
+    r = _Reader(data)
+    version = r.u8("schema_version")
+    if version != SCHEMA_VERSION:
+        raise ProtocolError(f"unsupported schema version {version} (this tool reads version {SCHEMA_VERSION})")
+    group_count = r.u8("group_count")
+    param_count = r.u16("param_count")
+    groups = [r.string(f"group {i} label") for i in range(group_count)]
+    params = []
+    for i in range(param_count):
+        where = f"param {i}"
+        pid = r.u16(f"{where} id")
+        where = f"param {i} (id {pid})"
+        ptype = r.u8(f"{where} type")
+        group = r.u8(f"{where} group")
+        count = r.u16(f"{where} count")
+        flags = r.u8(f"{where} flags")
+        if count < 1:
+            raise ProtocolError(f"{where}: count is 0")
+        if group >= group_count:
+            raise ProtocolError(f"{where}: group {group} but only {group_count} groups")
+        pmin = r.i32(f"{where} min")
+        pmax = r.i32(f"{where} max")
+        ndef = count if flags & F_PER_INDEX_DEFAULT else 1
+        defaults = [r.i32(f"{where} default {k}") for k in range(ndef)]
+        name = r.string(f"{where} name")
+        label = r.string(f"{where} label")
+        unit = r.string(f"{where} unit") if flags & F_HAS_UNIT else ""
+        index_labels = [r.string(f"{where} index label {k}") for k in range(count)] if flags & F_INDEX_LABELS else []
+        options = []
+        if ptype == T_ENUM:
+            n = r.u8(f"{where} option_count")
+            options = [r.string(f"{where} option {k}") for k in range(n)]
+        params.append(Param(pid, ptype, group, count, flags, pmin, pmax, defaults, name, label, unit,
+                            index_labels, options))
+    return Schema(version, groups, params)
+
+
+def _enc_string(s, what):
+    b = s.encode("ascii")
+    if len(b) > MAX_STRING or any(c & 0x80 for c in b):
+        raise ValueError(f"{what} {s!r}: strings are 0..{MAX_STRING} bytes of 7-bit ASCII")
+    return bytes([len(b)]) + b
+
+
+def build_schema(schema):
+    """Schema -> binary v1 (the firmware's layout; used by tests, the simulator and the vectors)."""
+    out = bytearray(struct.pack("<BBH", schema.version, len(schema.groups), len(schema.params)))
+    for g in schema.groups:
+        out += _enc_string(g, "group label")
+    for p in schema.params:
+        if not 1 <= p.id <= 0x3FFF or not 1 <= p.count <= MAX_COUNT or not 0 <= p.group < len(schema.groups):
+            raise ValueError(f"param {p.name}: id, count or group out of range")
+        ndef = p.count if p.flags & F_PER_INDEX_DEFAULT else 1
+        if len(p.defaults) != ndef:
+            raise ValueError(f"param {p.name}: {len(p.defaults)} defaults, layout needs {ndef}")
+        if bool(p.flags & F_INDEX_LABELS) != bool(p.index_labels) or (p.index_labels and len(p.index_labels) != p.count):
+            raise ValueError(f"param {p.name}: INDEX_LABELS flag needs exactly `count` index labels")
+        if bool(p.flags & F_HAS_UNIT) != bool(p.unit):
+            raise ValueError(f"param {p.name}: HAS_UNIT flag and unit string disagree")
+        if p.options and p.type != T_ENUM:
+            raise ValueError(f"param {p.name}: options on a non-enum param")
+        out += struct.pack("<HBBHBii", p.id, p.type, p.group, p.count, p.flags, p.min, p.max)
+        out += b"".join(struct.pack("<i", d) for d in p.defaults)
+        out += _enc_string(p.name, "name") + _enc_string(p.label, "label")
+        if p.flags & F_HAS_UNIT:
+            out += _enc_string(p.unit, "unit")
+        for s in p.index_labels:
+            out += _enc_string(s, "index label")
+        if p.type == T_ENUM:
+            out.append(len(p.options))
+            for s in p.options:
+                out += _enc_string(s, "option")
+    return bytes(out)
+
+
+# ---- values as text (MIDI note 60 = C4, the Yamaha/scientific-pitch convention) ----
+
+NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+_NOTE_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def note_name(n):
+    """MIDI note number -> name, 60 = C4 (so 0 = C-1, 127 = G9)."""
+    return f"{NOTE_NAMES[n % 12]}{n // 12 - 1}"
+
+
+def parse_note(s):
+    """'C4' -> 60, 'F#4' -> 66, 'Bb3' -> 58, 'C-1' -> 0. Raises ValueError."""
+    s = s.strip()
+    if len(s) >= 2 and s[0].upper() in _NOTE_SEMITONE:
+        acc, rest = 0, s[1:]
+        if rest[:1] == "#":
+            acc, rest = 1, rest[1:]
+        elif rest[:1] == "b":
+            acc, rest = -1, rest[1:]
+        if rest.lstrip("-").isdigit() and rest.count("-") <= 1:
+            n = (int(rest) + 1) * 12 + _NOTE_SEMITONE[s[0].upper()] + acc
+            if 0 <= n <= 127:
+                return n
+            raise ValueError(f"note {s} is outside MIDI 0..127")
+    raise ValueError(f"{s!r} is not a note name (like C4, F#3 or Bb2; 60 = C4)")
+
+
+def format_value(p, v, unit=True):
+    """A value as text: enum by option label, note by name, bool as on/off, otherwise the number
+    (followed by the param's unit, if it has one and `unit`)."""
+    if p.type == T_ENUM:
+        i = v - p.min
+        return p.options[i] if 0 <= i < len(p.options) else str(v)
+    if p.type == T_NOTE and 0 <= v <= 127:
+        return f"{note_name(v)} ({v})"
+    if p.type == T_BOOL and v in (0, 1):
+        return "on" if v else "off"
+    return f"{v} {p.unit}" if unit and p.unit else str(v)
+
+
+_BOOL_WORDS = {"on": 1, "off": 0, "true": 1, "false": 0, "yes": 1, "no": 0}
+
+
+def _int(s):
+    try:
+        return int(s, 10)
+    except ValueError:
+        return int(s, 0)        # 0x.., 0b..
+
+
+def parse_value(p, text, check_range=True):
+    """Text -> int for param p: ints everywhere, enum option labels (case-insensitive), note names for
+    note params (60 = C4), on/off/true/false/yes/no for bool. Raises ValueError."""
+    t = text.strip()
+    if p.unit and t.lower().endswith(p.unit.lower()) and len(t) > len(p.unit):
+        t = t[:-len(p.unit)].strip()          # "80ms" / "80 ms" for a param with unit "ms"
+    v = None
+    if p.type == T_ENUM:
+        hits = [i for i, o in enumerate(p.options) if o.lower() == t.lower()]
+        if hits:
+            v = p.min + hits[0]
+    elif p.type == T_NOTE:
+        try:
+            v = parse_note(t)
+        except ValueError:
+            pass
+    elif p.type == T_BOOL and t.lower() in _BOOL_WORDS:
+        v = _BOOL_WORDS[t.lower()]
+    if v is None:
+        try:
+            v = _int(t)
+        except ValueError:
+            hint = ""
+            if p.type == T_ENUM:
+                hint = " (options: " + ", ".join(p.options) + ")"
+            elif p.type == T_NOTE:
+                hint = " (a number or a note name like C4; 60 = C4)"
+            raise ValueError(f"{p.name}: can't read {text!r}{hint}") from None
+    if check_range and not p.min <= v <= p.max:
+        raise ValueError(f"{p.name}: {v} is outside {p.min}..{p.max}")
+    return v
+
+
+def parse_index(p, text):
+    """An index as a number or an index label (case-insensitive). Raises ValueError."""
+    t = text.strip()
+    hits = [i for i, s in enumerate(p.index_labels) if s.lower() == t.lower()]
+    if hits:
+        i = hits[0]
+    else:
+        try:
+            i = int(t, 10)
+        except ValueError:
+            raise ValueError(f"{p.name}: no index {text!r}" +
+                             (f" (labels: {', '.join(p.index_labels)})" if p.index_labels else "")) from None
+    if not 0 <= i < p.count:
+        raise ValueError(f"{p.name}: index {i} is outside 0..{p.count - 1}")
+    return i
+
+
+def find_param(schema, ref):
+    """'name', 'id', 'name:index' or 'id:index' -> (Param, index or None). Raises ValueError."""
+    key, sep, idx = ref.partition(":")
+    key = key.strip()
+    p = schema.by_name(key)
+    if p is None and key.isdigit():
+        p = schema.by_id(int(key))
+    if p is None:
+        raise ValueError(f"no param {key!r} in this device's schema")
+    return p, (parse_index(p, idx) if sep else None)
 
 
 # ---- upload plan (sysex.md 4.2) ----
@@ -345,6 +818,33 @@ def chunk_plan(size, max_chunk):
     for page in range(PAGE_SIZE, size, PAGE_SIZE):
         plan += page_chunks(page)
     return plan + page_chunks(0)
+
+
+def ab_chunk(max_chunk):
+    """Chunk length for an A/B device (sysex.md 4.2, "A/B devices"): the largest multiple of 4 <= max_chunk."""
+    n = max_chunk - max_chunk % 4
+    if n < 4:
+        raise ValueError(f"max_chunk {max_chunk} is below 4")
+    return n
+
+
+def pad4(data):
+    """The image as sent to an A/B device: padded with 0xFF to a multiple of 4 (FW_BEGIN size = the padded size)."""
+    return bytes(data) + b"\xff" * (-len(data) % 4)
+
+
+def ab_crc32(data):
+    """CRC-32 (zlib) over the whole padded file; no header field is skipped (there is no header)."""
+    return zlib.crc32(pad4(data)) & 0xFFFFFFFF
+
+
+def linear_chunk_plan(size, max_chunk):
+    """[(offset, length)] for an A/B device: plain order from offset 0, every length a multiple of 4 and
+    <= max_chunk; no page rule. `size` is the padded size."""
+    if size <= 0 or size % 4:
+        raise ValueError("size must be non-zero and a multiple of 4 (pad the image first)")
+    step = ab_chunk(max_chunk)
+    return [(o, min(step, size - o)) for o in range(0, size, step)]
 
 
 class SysexAssembler:

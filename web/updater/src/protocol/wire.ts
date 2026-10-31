@@ -41,6 +41,13 @@ export const UNSOLICITED_FIRST = 0x60;
 /** Request commands (§4). */
 export const Command = {
   Hello: 0x01,
+  GetSchema: 0x02,
+  GetParam: 0x03,
+  SetParam: 0x04,
+  Commit: 0x07,
+  FactoryReset: 0x08,
+  GetParams: 0x09,
+  SetParams: 0x0a,
   Reboot: 0x10,
   FwBegin: 0x18,
   FwData: 0x19,
@@ -53,6 +60,7 @@ export type Command = (typeof Command)[keyof typeof Command];
 export const Unsolicited = {
   Log: 0x60,
   Event: 0x61,
+  ParamChanged: 0x62,
 } as const;
 export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
 
@@ -68,6 +76,8 @@ export const Status = {
   BadImage: 7,
   BadBoard: 8,
   Busy: 9,
+  BadParam: 10,
+  BadValue: 11,
 } as const;
 export type Status = (typeof Status)[keyof typeof Status];
 
@@ -83,6 +93,8 @@ export const STATUS_NAMES: Readonly<Record<number, string>> = Object.freeze({
   7: 'BAD_IMAGE',
   8: 'BAD_BOARD',
   9: 'BUSY',
+  10: 'BAD_PARAM',
+  11: 'BAD_VALUE',
 });
 
 /** What each status code means, in a reader's words (§3). */
@@ -97,6 +109,8 @@ export const STATUS_MEANINGS: Readonly<Record<number, string>> = Object.freeze({
   7: 'the final CRC or header check failed',
   8: "the image's board id does not match this device",
   9: 'the device is busy',
+  10: 'the param is unknown, the index is out of range, or the param is read-only',
+  11: "the value is outside the param's range",
 });
 
 /** The role a device answers HELLO with (§4). */
@@ -111,8 +125,8 @@ export type RebootMode = (typeof RebootMode)[keyof typeof RebootMode];
 export const LogLevel = { Error: 0, Warn: 1, Info: 2, Debug: 3 } as const;
 export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
-/** EVENT types (§4). */
-export const EventType = { Button: 1, Key: 2, Pot: 3 } as const;
+/** EVENT types (§4). Others are reserved and shown as numbers. */
+export const EventType = { Button: 1, Key: 2, Analog: 3, Encoder: 4 } as const;
 export type EventType = (typeof EventType)[keyof typeof EventType];
 
 /** Capability bits in HELLO's `caps` (§4.1). */
@@ -136,3 +150,29 @@ export const HEX_RADIX = 16;
 export const U32_LIMIT = 0x1_0000_0000;
 /** Bytes in the chip UID HELLO carries, before packing (§4). */
 export const UID_BYTES = 12;
+
+/** The largest signed 32-bit value (§2, s32). */
+export const S32_MAX = 0x7fff_ffff;
+/** The smallest signed 32-bit value (§2, s32). */
+export const S32_MIN = -0x8000_0000;
+
+/** The schema layout this module parses (§4.4). */
+export const SCHEMA_VERSION = 1;
+/** The most unpacked schema bytes one GET_SCHEMA may ask for (§4.3). */
+export const SCHEMA_WINDOW_BYTES = 64;
+/** The most values one GET_PARAMS or SET_PARAMS carries (§4.3). */
+export const PARAMS_RUN_MAX = 16;
+
+/** A param's `type` in the schema (§4.4). Unknown values are shown as plain ints. */
+export const ParamType = { Int: 0, Bool: 1, Enum: 2, Note: 3 } as const;
+export type ParamType = (typeof ParamType)[keyof typeof ParamType];
+
+/** A param's `flags` bits in the schema (§4.4). Unknown bits are ignored. */
+export const ParamFlag = {
+  ReadOnly: 1 << 0,
+  Volatile: 1 << 1,
+  PerIndexDefault: 1 << 2,
+  IndexLabels: 1 << 3,
+  HasUnit: 1 << 4,
+} as const;
+export type ParamFlag = (typeof ParamFlag)[keyof typeof ParamFlag];

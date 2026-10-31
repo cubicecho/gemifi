@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   DecodeError,
+  decodeS32,
   decodeText,
   decodeU14,
   decodeU28,
   decodeU32,
+  encodeS32,
   encodeU14,
   encodeU28,
   encodeU32,
+  PayloadReader,
   pack,
   packedLength,
   toHex,
@@ -53,6 +56,38 @@ describe('7-bit integers (§2)', () => {
   it('refuses a u32 whose fifth byte overflows, and bytes with bit 7 set', () => {
     expect(() => decodeU32([0, 0, 0, 0, 0x10])).toThrow(DecodeError);
     expect(() => decodeU14([0x80, 0])).toThrow(DecodeError);
+  });
+});
+
+describe('s32 (§2)', () => {
+  it("sends the u32 of the two's-complement pattern", () => {
+    expect(encodeS32(-1)).toEqual([0x7f, 0x7f, 0x7f, 0x7f, 0x0f]);
+    expect(encodeS32(0)).toEqual([0, 0, 0, 0, 0]);
+    expect(encodeS32(1)).toEqual([1, 0, 0, 0, 0]);
+    expect(encodeS32(-24)).toEqual(encodeU32(0xffff_ffe8));
+    expect(encodeS32(0x7fff_ffff)).toEqual([0x7f, 0x7f, 0x7f, 0x7f, 0x07]);
+    expect(encodeS32(-0x8000_0000)).toEqual([0, 0, 0, 0, 0x08]);
+  });
+
+  it('round-trips', () => {
+    for (const v of [0, 1, -1, 127, -128, 16, -24, 0x7fff_ffff, -0x8000_0000, 123456789, -987654321]) {
+      expect(decodeS32(encodeS32(v))).toBe(v);
+    }
+  });
+
+  it('refuses values that do not fit, and a fifth byte that overflows', () => {
+    expect(() => encodeS32(0x8000_0000)).toThrow(RangeError);
+    expect(() => encodeS32(-0x8000_0001)).toThrow(RangeError);
+    expect(() => encodeS32(1.5)).toThrow(RangeError);
+    expect(() => decodeS32([0, 0, 0, 0, 0x10])).toThrow(DecodeError);
+    expect(() => decodeS32([0, 0, 0])).toThrow(DecodeError);
+  });
+
+  it('reads through PayloadReader', () => {
+    const reader = new PayloadReader([...encodeS32(-5), ...encodeS32(42)]);
+    expect(reader.s32()).toBe(-5);
+    expect(reader.s32()).toBe(42);
+    expect(reader.remaining).toBe(0);
   });
 });
 

@@ -1,0 +1,46 @@
+# gemifi builder: dashboard + web updater on http(s)://<host>:6055/
+#   docker compose up -d --build
+# tools/builder/README.md "Docker" has the details (TLS, password, first ESP build).
+services:
+  gemifi:
+    build: .
+    image: gemifi
+    container_name: gemifi
+    restart: unless-stopped
+    ports:
+      - "6055:6055"
+    volumes:
+      # Your device YAMLs; builds go in ./config/.build, the self-signed cert in ./config/.tls
+      - ./config:/config
+      # PlatformIO toolchains (~6 GB, downloaded on the first ESP build) and caches
+      - gemifi-cache:/cache
+    environment:
+      # Run as this user/group (owner of ./config). Or remove these and set `user: "1000:1000"`
+      # (then the cache volume must be writable by that user).
+      PUID: "1000"
+      PGID: "1000"
+
+      # Basic auth for everything (strongly recommended when the port is reachable from the LAN).
+      # GEMIFI_PASSWORD: "change-me"
+      # GEMIFI_USERNAME: "gemifi"
+
+      # Accepted Host headers (comma-separated, name or name:port). Unset: any host is
+      # accepted and a warning is printed. localhost always works.
+      # GEMIFI_ALLOWED_HOSTS: "gemifi.lan,192.168.1.20"
+
+      # Web MIDI / Web Serial only work on https:// or http://localhost. To flash from another
+      # machine, serve https with a self-signed cert (made once in ./config/.tls/) ...
+      # GEMIFI_TLS: "self-signed"
+      # GEMIFI_TLS_HOSTS: "gemifi.lan,192.168.1.20"
+      # ... or your own:
+      # GEMIFI_TLS_CERT: "/config/tls/fullchain.pem"
+      # GEMIFI_TLS_KEY: "/config/tls/privkey.pem"
+
+      # Set in the image; change only if you know why:
+      # GEMIFI_PORT: "6055"
+      # GEMIFI_CONFIG_DIR: "/config"
+      # GEMIFI_BUILD_DIR: "/config/.build"
+      # GEMIFI_READONLY_PRESETS: "1"   # presets are copied with New, never edited in place
+
+volumes:
+  gemifi-cache:

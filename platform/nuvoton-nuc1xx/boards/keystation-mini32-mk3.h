@@ -2,8 +2,8 @@
  * Board: M-Audio Keystation Mini 32 MK3 (Nuvoton NUC120LC1BN, 12 MHz HXT).
  *
  * Pins from research/devices/m-audio-keystation-mini32-mk3/analysis/hw-map.md
- * (static analysis of the stock firmware; LED polarity is "probably
- * active-low" and still to be confirmed on hardware).
+ * (static analysis of the stock firmware). LEDs active-low and Oct+ on PA4
+ * confirmed on hardware (M1, 2026-10-30). Key matrix and knob: not yet.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -70,5 +70,9 @@ static inline void board_led(uint32_t mask, int on)
     else
         GPIO_DOUT(PORTA) |= mask;
 }
+
+/* The key matrix, knob and LED behaviour live in the device description
+ * (devices/keystation-mini32-mk3.yaml), used by the midi-controller
+ * firmware. This header is for the bootloader and the small test apps. */
 
 #endif

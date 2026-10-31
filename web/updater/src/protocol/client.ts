@@ -77,6 +77,14 @@ export interface TrafficEntry {
   bytes: Uint8Array;
 }
 
+/** Requests that get the long reply timeout (§1): erases, read-back and CRC. */
+const SLOW_COMMANDS: ReadonlySet<number> = new Set([
+  Command.FwBegin,
+  Command.FwEnd,
+  Command.Commit,
+  Command.FactoryReset,
+]);
+
 /** Statuses after which the same request is worth sending again. */
 const RETRYABLE: ReadonlySet<number> = new Set([Status.BadChecksum, Status.Busy]);
 
@@ -109,7 +117,7 @@ export class SysexClient {
   }
 
   /**
-   * Listens for LOG and EVENT messages.
+   * Listens for LOG, EVENT and PARAM_CHANGED messages.
    *
    * @param listener - Called with each one.
    * @returns A function that stops listening.
@@ -155,11 +163,10 @@ export class SysexClient {
 
   /**
    * @param cmd - The request command.
-   * @returns How long to wait for its reply: longer for FW_BEGIN and FW_END (§1).
+   * @returns How long to wait for its reply: longer for FW_BEGIN, FW_END, COMMIT and FACTORY_RESET (§1).
    */
   #timeoutFor(cmd: number): number {
-    const isSlow = cmd === Command.FwBegin || cmd === Command.FwEnd;
-    return isSlow ? this.#settings.longReplyTimeoutMs : this.#settings.replyTimeoutMs;
+    return SLOW_COMMANDS.has(cmd) ? this.#settings.longReplyTimeoutMs : this.#settings.replyTimeoutMs;
   }
 
   /** @returns The next sequence number, wrapping at 127. */

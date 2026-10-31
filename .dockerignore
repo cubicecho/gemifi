@@ -1,0 +1,39 @@
+# Mirrors .gitignore, plus everything the image doesn't need. The Dockerfile COPYs only the
+# directories the builds use; this keeps the build context small and keeps anything private
+# out of it.
+
+# Stock firmware dumps and vendor files are copyrighted: never in an image.
+research/
+
+# Your own data (docker-compose mounts ./config at /config: device YAMLs, builds, TLS key)
+config/
+
+# VCS / editors / OS
+.git/
+.gitignore
+**/.DS_Store
+**/*.swp
+**/.vscode/
+**/.idea/
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Builds and dependencies (the image builds web/updater itself)
+**/build/
+**/.pio/
+**/dist/
+**/node_modules/
+**/*.elf
+**/*.map
+**/*.gfw
+**/*.o
+**/*.d
+
+# Not used by the builds
+bootloader/
+tools/swd/
+tools/usb/
+**/logs/

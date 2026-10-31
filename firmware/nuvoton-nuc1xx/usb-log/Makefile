@@ -13,7 +13,7 @@ PLAT       := ../../../platform/nuvoton-nuc1xx
 APP_SRCS   := main.c \
               $(PLAT)/src/sys.c \
               $(PLAT)/src/fmc.c \
-              $(PLAT)/src/gsx.c \
+              $(PLAT)/../../core/src/gsx.c \
               $(PLAT)/src/usbd.c \
               $(PLAT)/src/usb_midi.c
 

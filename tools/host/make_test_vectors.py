@@ -33,6 +33,106 @@ def sample_raw_image():
     return bytes(raw)
 
 
+BUTTON_LABELS = ["Sustain", "Edit", "Oct -", "Oct +", "Pitch down", "Pitch up", "Mod"]
+BUTTON_ACTIONS = ["None", "CC momentary", "CC toggle", "CC ramp", "Note", "Octave down", "Octave up",
+                  "Transpose down", "Transpose up", "Pitch bend down", "Pitch bend up", "Program next",
+                  "Program previous"]
+
+
+def example_schema():
+    """The Keystation Mini 32 app's schema (a subset of what the firmware exposes; see its README)."""
+    mp = gp.make_param
+    return gp.Schema(gp.SCHEMA_VERSION, ["MIDI", "Velocity", "Knob", "Buttons", "Debug"], [
+        mp(1, "midi.channel", gp.T_INT, 0, 1, 16, 1, "MIDI channel"),
+        mp(2, "midi.transpose", gp.T_INT, 0, -24, 24, 0, "Transpose"),
+        mp(3, "midi.octave", gp.T_INT, 0, -4, 4, 0, "Octave"),
+        mp(4, "velocity.curve", gp.T_ENUM, 1, 0, None, 0, "Velocity curve", options=["Normal", "Soft", "Hard", "Fixed"]),
+        mp(5, "velocity.fixed", gp.T_INT, 1, 1, 127, 100, "Fixed velocity"),
+        mp(8, "knob.cc", gp.T_INT, 2, 0, 127, 7, "Knob CC"),
+        mp(9, "button.action", gp.T_ENUM, 3, 0, None, [1, 2, 5, 6, 9, 10, 3], "Button action", count=7,
+           index_labels=BUTTON_LABELS, options=BUTTON_ACTIONS),
+        mp(10, "button.number", gp.T_INT, 3, 0, 127, [64, 80, 0, 0, 0, 0, 1], "Button CC/note number", count=7,
+           index_labels=BUTTON_LABELS),
+        mp(11, "bend.glide", gp.T_INT, 3, 0, 2000, 80, "Pitch bend glide", unit="ms"),
+        mp(13, "debug.events", gp.T_BOOL, 4, 0, 1, 0, "Debug events"),
+    ])
+
+
+def config_vectors():
+    schema = example_schema()
+    raw = gp.build_schema(schema)
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    w = gp.SCHEMA_WINDOW
+    last = (len(raw) - 1) // w * w
+    fr("GET_SCHEMA request offset=0 max=64", gp.GET_SCHEMA, 10, gp.req_get_schema(0, w), offset=0, max=w)
+    fr("GET_SCHEMA reply: first window", gp.GET_SCHEMA | gp.REPLY, 10, gp.build_schema_reply(raw, 0, w),
+       status=gp.OK, total=len(raw), offset=0, data=hx(raw[:w]))
+    fr(f"GET_SCHEMA request offset={last} max=64", gp.GET_SCHEMA, 11, gp.req_get_schema(last, w), offset=last, max=w)
+    fr(f"GET_SCHEMA reply: last window, {len(raw) - last} bytes", gp.GET_SCHEMA | gp.REPLY, 11,
+       gp.build_schema_reply(raw, last, w), status=gp.OK, total=len(raw), offset=last, data=hx(raw[last:]))
+    fr("GET_SCHEMA reply: offset at total, no data", gp.GET_SCHEMA | gp.REPLY, 12,
+       gp.build_schema_reply(raw, len(raw), w), status=gp.OK, total=len(raw), offset=len(raw), data="")
+    fr("GET_SCHEMA reply BAD_LEN (max 0 or > 64)", gp.GET_SCHEMA | gp.REPLY, 13, bytes([gp.BAD_LEN]), status=gp.BAD_LEN)
+    fr("GET_PARAM request midi.transpose (id 2) index 0", gp.GET_PARAM, 20, gp.req_get_param(2, 0), id=2, index=0)
+    fr("GET_PARAM reply id 2 index 0 value -12", gp.GET_PARAM | gp.REPLY, 20, gp.build_param_reply(2, 0, -12),
+       status=gp.OK, id=2, index=0, value=-12)
+    fr("GET_PARAM reply BAD_PARAM", gp.GET_PARAM | gp.REPLY, 21, bytes([gp.BAD_PARAM]), status=gp.BAD_PARAM)
+    fr("SET_PARAM request button.action (id 9) index 3 = 8 (Transpose up)", gp.SET_PARAM, 22,
+       gp.req_set_param(9, 3, 8), id=9, index=3, value=8)
+    fr("SET_PARAM reply id 9 index 3 value 8", gp.SET_PARAM | gp.REPLY, 22, gp.build_param_reply(9, 3, 8),
+       status=gp.OK, id=9, index=3, value=8)
+    fr("SET_PARAM request bend.glide (id 11) = 2001 (above max 2000)", gp.SET_PARAM, 23,
+       gp.req_set_param(11, 0, 2001), id=11, index=0, value=2001)
+    fr("SET_PARAM reply BAD_VALUE (to seq 23)", gp.SET_PARAM | gp.REPLY, 23, bytes([gp.BAD_VALUE]), status=gp.BAD_VALUE)
+    fr("GET_PARAMS request button.number (id 10) index 0 n 7", gp.GET_PARAMS, 25, gp.req_get_params(10, 0, 7),
+       id=10, index=0, n=7)
+    fr("GET_PARAMS reply id 10 index 0 n 7", gp.GET_PARAMS | gp.REPLY, 25,
+       gp.build_params_reply(10, 0, [64, 80, 0, 0, 0, 0, 1]), status=gp.OK, id=10, index=0, n=7,
+       values=[64, 80, 0, 0, 0, 0, 1])
+    fr("SET_PARAMS request button.action (id 9) index 2 n 3 = 7, 8, 0", gp.SET_PARAMS, 26,
+       gp.req_set_params(9, 2, [7, 8, 0]), id=9, index=2, n=3, values=[7, 8, 0])
+    fr("SET_PARAMS reply id 9 index 2 n 3", gp.SET_PARAMS | gp.REPLY, 26, gp.build_set_params_reply(9, 2, 3),
+       status=gp.OK, id=9, index=2, n=3)
+    fr("SET_PARAMS reply BAD_PARAM (index + n > count)", gp.SET_PARAMS | gp.REPLY, 27, bytes([gp.BAD_PARAM]),
+       status=gp.BAD_PARAM)
+    fr("COMMIT request", gp.COMMIT, 30, gp.req_commit())
+    fr("COMMIT reply OK", gp.COMMIT | gp.REPLY, 30, bytes([gp.OK]), status=gp.OK)
+    fr("FACTORY_RESET request", gp.FACTORY_RESET, 31, gp.req_factory_reset())
+    fr("FACTORY_RESET reply FLASH_ERR", gp.FACTORY_RESET | gp.REPLY, 31, bytes([gp.FLASH_ERR]), status=gp.FLASH_ERR)
+    fr("PARAM_CHANGED midi.octave (id 3) index 0 = -1", gp.PARAM_CHANGED, 40, gp.build_param_changed(3, 0, -1),
+       id=3, index=0, value=-1)
+    fr("EVENT encoder index 2 delta -3 t=1000", gp.EVENT, 41, gp.build_event(gp.EV_ENCODER, 2, -3 & 0x3FFF, 1000),
+       type=gp.EV_ENCODER, index=2, value=-3 & 0x3FFF, delta=-3, t_ms=1000)
+
+    trunc = len(raw) - 5
+    return {
+        "_comment": [
+            "Config (sysex.md 4.3, 4.4): GET_SCHEMA 0x02, GET_PARAM 0x03, SET_PARAM 0x04, COMMIT 0x07,",
+            "FACTORY_RESET 0x08, GET_PARAMS 0x09, SET_PARAMS 0x0A, PARAM_CHANGED 0x62; BAD_PARAM 10, BAD_VALUE 11.",
+            "frames[].fields are the decoded payload fields (status first for replies).",
+            "schema.raw is the unpacked binary schema; schema.parsed is what a parser should produce from it.",
+        ],
+        "s32": [{"value": x, "bytes": hx(gp.s32(x))} for x in (0, 1, -1, 127, -8192, 2147483647, -2147483648)],
+        "schema": {"desc": "Keystation Mini 32 app example schema (v1)", "raw": hx(raw), "size": len(raw),
+                   "parsed": schema.to_json()},
+        "bad_schemas": [
+            {"desc": f"truncated: last 5 bytes of the example missing ({trunc} of {len(raw)})", "raw": hx(raw[:trunc]),
+             "error": "truncated"},
+            {"desc": "header only, 1 param promised", "raw": hx(bytes([1, 0, 1, 0])), "error": "truncated"},
+            {"desc": "schema_version 2", "raw": hx(bytes([2]) + raw[1:]), "error": "version"},
+            {"desc": "empty", "raw": "", "error": "truncated"},
+        ],
+        "frames": frames,
+    }
+
+
 def build():
     v = {"_comment": [
         "gemifi SysEx protocol v1 test vectors, generated by tools/host/make_test_vectors.py from the",
@@ -97,6 +197,7 @@ def build():
                    "image_size": h.image_size, "crc32": h.crc32, "fw_version": h.fw_version,
                    "proto_version": h.proto_version, "reserved": [h.reserved0, h.reserved1]},
     }
+    v["config"] = config_vectors()
     return v
 
 

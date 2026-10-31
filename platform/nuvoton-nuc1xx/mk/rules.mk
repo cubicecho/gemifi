@@ -25,7 +25,7 @@ OPT     ?= -Os
 CFLAGS  += $(ARCH) $(OPT) -flto -ffunction-sections -fdata-sections \
            -ffreestanding -fno-tree-loop-distribute-patterns -fno-common \
            -std=gnu11 -g -Wall -Wextra -Wno-unused-parameter \
-           -I$(PLATFORM)/include -I$(PLATFORM)/boards \
+           -I$(PLATFORM)/include -I$(ROOT)/core/include -I$(PLATFORM)/boards \
            -DBOARD_HEADER=\"$(BOARD).h\" $(DEFS)
 LDFLAGS += $(ARCH) $(OPT) -flto -Wl,--gc-sections -nostartfiles -nostdlib \
            -Wl,--no-warn-rwx-segments \

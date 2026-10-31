@@ -3,7 +3,7 @@
  * parsers for replies and unsolicited messages. Payloads here are the 7-bit bytes inside a frame.
  */
 
-import { encodeU14, encodeU28, encodeU32, PayloadReader, pack } from './encoding.ts';
+import { encodeS32, encodeU14, encodeU28, encodeU32, PayloadReader, pack } from './encoding.ts';
 import type { Frame } from './frame.ts';
 import { Capability, type RebootMode, Role, UID_BYTES, Unsolicited } from './wire.ts';
 
@@ -39,7 +39,7 @@ export interface LogMessage {
 /** An EVENT message (0x61). */
 export interface EventMessage {
   kind: 'event';
-  /** 1 button, 2 key, 3 pot. */
+  /** 1 button, 2 key, 3 analog, 4 encoder; others reserved. */
   type: number;
   /** Which button, key or pot. */
   index: number;
@@ -49,8 +49,19 @@ export interface EventMessage {
   tMs: number;
 }
 
+/** A PARAM_CHANGED message (0x62): the device changed a value by itself. */
+export interface ParamChangedMessage {
+  kind: 'param';
+  /** The param's id. */
+  id: number;
+  /** The index within it. */
+  index: number;
+  /** The value now in effect. */
+  value: number;
+}
+
 /** Any unsolicited message this module understands. */
-export type DeviceMessage = LogMessage | EventMessage;
+export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage;
 
 /**
  * The REBOOT request payload.
@@ -98,6 +109,138 @@ export function fwBeginPayload(fields: FwBeginFields): number[] {
  */
 export function fwDataPayload(offset: number, data: ArrayLike<number>): number[] {
   return [...encodeU28(offset), ...pack(data)];
+}
+
+/**
+ * The GET_SCHEMA request payload: `offset` u28, `max` u14.
+ *
+ * @param offset - The first schema byte wanted.
+ * @param max - How many unpacked bytes, 1..64.
+ * @returns The payload.
+ */
+export function getSchemaPayload(offset: number, max: number): number[] {
+  return [...encodeU28(offset), ...encodeU14(max)];
+}
+
+/** One GET_SCHEMA reply. */
+export interface SchemaWindow {
+  /** The whole schema's size in bytes. */
+  total: number;
+  /** The echoed offset. */
+  offset: number;
+  /** The unpacked bytes from `offset` on. */
+  data: number[];
+}
+
+/**
+ * Parses GET_SCHEMA's reply fields: `total` u28, `offset` u28, then packed data.
+ *
+ * @param body - The reply payload without its status byte.
+ * @returns The window.
+ */
+export function parseSchemaWindow(body: ArrayLike<number>): SchemaWindow {
+  const reader = new PayloadReader(body);
+  return { total: reader.u28(), offset: reader.u28(), data: reader.restPacked() };
+}
+
+/** One value of one param. */
+export interface ParamValue {
+  /** The param's id. */
+  id: number;
+  /** The index within it; 0 for a plain param. */
+  index: number;
+  /** The value. */
+  value: number;
+}
+
+/**
+ * The GET_PARAM request payload: `id` u14, `index` u14.
+ *
+ * @param id - The param.
+ * @param index - The index within it.
+ * @returns The payload.
+ */
+export function getParamPayload(id: number, index: number): number[] {
+  return [...encodeU14(id), ...encodeU14(index)];
+}
+
+/**
+ * The SET_PARAM request payload: `id` u14, `index` u14, `value` s32.
+ *
+ * @param value - Which value, and what to set it to.
+ * @returns The payload.
+ */
+export function setParamPayload({ id, index, value }: ParamValue): number[] {
+  return [...encodeU14(id), ...encodeU14(index), ...encodeS32(value)];
+}
+
+/**
+ * Parses GET_PARAM's and SET_PARAM's reply fields, and PARAM_CHANGED's payload: `id` u14,
+ * `index` u14, `value` s32.
+ *
+ * @param body - The reply payload without its status byte.
+ * @returns The value.
+ */
+export function parseParamValue(body: ArrayLike<number>): ParamValue {
+  const reader = new PayloadReader(body);
+  return { id: reader.u14(), index: reader.u14(), value: reader.s32() };
+}
+
+/** A run of values of one param: `index .. index + values.length - 1`. */
+export interface ParamRun {
+  /** The param's id. */
+  id: number;
+  /** The first index. */
+  index: number;
+  /** The values, 1..16 of them. */
+  values: number[];
+}
+
+/**
+ * The GET_PARAMS request payload: `id` u14, `index` u14, `n` u14.
+ *
+ * @param id - The param.
+ * @param index - The first index.
+ * @param n - How many values, 1..16.
+ * @returns The payload.
+ */
+export function getParamsPayload(id: number, index: number, n: number): number[] {
+  return [...encodeU14(id), ...encodeU14(index), ...encodeU14(n)];
+}
+
+/**
+ * The SET_PARAMS request payload: `id` u14, `index` u14, `n` u14, then `n` × s32.
+ *
+ * @param run - The param, the first index and the values.
+ * @returns The payload.
+ */
+export function setParamsPayload({ id, index, values }: ParamRun): number[] {
+  return [...encodeU14(id), ...encodeU14(index), ...encodeU14(values.length), ...values.flatMap(encodeS32)];
+}
+
+/**
+ * Parses GET_PARAMS's reply fields: `id` u14, `index` u14, `n` u14, then `n` × s32.
+ *
+ * @param body - The reply payload without its status byte.
+ * @returns The run.
+ */
+export function parseParamRun(body: ArrayLike<number>): ParamRun {
+  const reader = new PayloadReader(body);
+  const id = reader.u14();
+  const index = reader.u14();
+  const n = reader.u14();
+  return { id, index, values: Array.from({ length: n }, () => reader.s32()) };
+}
+
+/**
+ * Parses SET_PARAMS's reply fields: `id` u14, `index` u14, `n` u14.
+ *
+ * @param body - The reply payload without its status byte.
+ * @returns The echoed address and count.
+ */
+export function parseParamRunEcho(body: ArrayLike<number>): { id: number; index: number; n: number } {
+  const reader = new PayloadReader(body);
+  return { id: reader.u14(), index: reader.u14(), n: reader.u14() };
 }
 
 /**
@@ -155,7 +298,24 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
     const reader = new PayloadReader(frame.payload);
     return { kind: 'event', type: reader.byte(), index: reader.u14(), value: reader.u14(), tMs: reader.u28() };
   }
+  if (frame.cmd === Unsolicited.ParamChanged) {
+    return { kind: 'param', ...parseParamValue(frame.payload) };
+  }
   return null;
+}
+
+/** Bits in an EVENT `value`. */
+const EVENT_VALUE_BITS = 14;
+
+/**
+ * An encoder EVENT's `value` as the signed delta it carries (14-bit two's complement, §4).
+ *
+ * @param value - The u14 on the wire.
+ * @returns −8192..8191.
+ */
+export function encoderDelta(value: number): number {
+  const half = 2 ** (EVENT_VALUE_BITS - 1);
+  return value >= half ? value - 2 * half : value;
 }
 
 /** The names of the capability bits, in bit order. */

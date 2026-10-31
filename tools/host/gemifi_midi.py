@@ -1,8 +1,11 @@
 """MIDI port access for gemifi.py: python-rtmidi, then mido, then (Linux) raw ALSA /dev/snd/midiC*D*.
+A serial port (raw MIDI bytes over a USB-UART, e.g. a classic ESP32 or ESP8266 built with GM_MIDI_SERIAL) is
+one more backend, chosen with --serial; it needs pyserial.
 
 Every backend exposes the same small interface:
   backend.ports() -> [name, ...]           ports that have both an input and an output
   backend.open(name) -> Port               Port.send(bytes), Port.recv(timeout) -> [complete SysEx], Port.close()
+A backend with `fixed = True` (serial) has exactly one port, whatever its name; the tool doesn't match names on it.
 """
 import glob
 import os
@@ -229,6 +232,81 @@ class _AlsaRawPort(_PortBase):
         try:
             os.close(self.fd)
         except OSError:
+            pass
+
+
+# ---------------- serial (raw MIDI byte stream over a UART, pyserial) ----------------
+
+class SerialBackend:
+    """One serial device, e.g. /dev/ttyUSB0 at 115200 baud. The bytes on the wire are plain MIDI (the same
+    SysEx frames as over USB-MIDI), so SysEx is cut out of the stream; anything else (an ESP boot log, other
+    MIDI) is dropped. DTR and RTS are released after opening (RTS first), so opening the port doesn't reset
+    an ESP dev board or put it in its ROM bootloader."""
+    label = "serial"
+    fixed = True
+
+    def __init__(self, path, baud=115200, serial_module=None):
+        if serial_module is None:
+            try:
+                import serial as serial_module
+            except ImportError:
+                raise MidiError("--serial needs pyserial (pip install pyserial)") from None
+        self.serial, self.path, self.baud = serial_module, path, baud
+
+    def ports(self):
+        return [self.path] if self.path.startswith(("socket://", "loop://", "rfc2217://")) or \
+            os.path.exists(self.path) else []
+
+    def open(self, name=None):
+        try:
+            ser = self.serial.Serial()
+            ser.port, ser.baudrate, ser.timeout, ser.write_timeout = self.path, self.baud, 0, 2
+            ser.open()
+            # The OS asserts both lines on open, which the usual two-transistor auto-reset circuit
+            # ignores. Release RTS (EN) first: DTR alone only pulls IO0, which matters at reset only.
+            # The other order would pulse EN low and reset the chip.
+            ser.rts = False
+            ser.dtr = False
+        except Exception as e:
+            raise MidiError(f"can't open {self.path}: {e}") from e
+        return SerialPort(ser, self.path)
+
+
+class SerialPort(_PortBase):
+    """A Port over any pyserial-like object (write, read(n), in_waiting, close). Tests pass a fake."""
+
+    def __init__(self, ser, name="serial"):
+        self.ser, self.name = ser, name
+        self.asm = SysexAssembler()
+
+    def send(self, msg):
+        try:
+            self.ser.write(bytes(msg))
+            if hasattr(self.ser, "flush"):
+                self.ser.flush()
+        except Exception as e:
+            raise MidiError(f"{self.name}: write failed: {e} (device unplugged?)") from e
+
+    def recv(self, timeout):
+        deadline = time.monotonic() + max(timeout, 0)
+        out = []
+        while True:
+            try:
+                n = self.ser.in_waiting
+                chunk = self.ser.read(n) if n else b""
+            except Exception as e:
+                raise MidiError(f"{self.name}: read failed: {e} (device unplugged?)") from e
+            if chunk:
+                out += self.asm.feed(chunk)
+                continue        # drain what's there before returning
+            if out or time.monotonic() >= deadline:
+                return out
+            time.sleep(0.001)
+
+    def close(self):
+        try:
+            self.ser.close()
+        except Exception:
             pass
 
 

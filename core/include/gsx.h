@@ -12,6 +12,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* SysEx ID + project signature. 0x7D is the "non-commercial" ID and must be
  * replaced by a real manufacturer ID for public products: override both
  * macros from the build (e.g. -DGSX_ID_BYTES=0x00,0x21,0x7F,0x67,0x6D
@@ -34,6 +38,13 @@
 /* commands (section 4). Requests are 0x00-0x1F, replies cmd | 0x40
  * (0x40-0x5F), unsolicited device messages 0x60-0x7F. */
 #define GSX_CMD_HELLO      0x01
+#define GSX_CMD_GET_SCHEMA 0x02
+#define GSX_CMD_GET_PARAM  0x03
+#define GSX_CMD_SET_PARAM  0x04
+#define GSX_CMD_COMMIT     0x07
+#define GSX_CMD_GET_PARAMS 0x09
+#define GSX_CMD_SET_PARAMS 0x0A
+#define GSX_CMD_FACTORY_RESET 0x08
 #define GSX_CMD_REBOOT     0x10
 #define GSX_CMD_FW_BEGIN   0x18
 #define GSX_CMD_FW_DATA    0x19
@@ -42,6 +53,7 @@
 #define GSX_REPLY          0x40
 #define GSX_MSG_LOG        0x60
 #define GSX_MSG_EVENT      0x61
+#define GSX_MSG_PARAM_CHANGED 0x62
 
 /* status codes (section 3) */
 #define GSX_OK           0
@@ -54,6 +66,8 @@
 #define GSX_BAD_IMAGE    7
 #define GSX_BAD_BOARD    8
 #define GSX_BUSY         9
+#define GSX_BAD_PARAM    10
+#define GSX_BAD_VALUE    11
 
 /* HELLO capability bits (section 4.1) */
 #define GSX_CAP_FW_UPLOAD (1u << 0)
@@ -114,5 +128,9 @@ void gsx_put_u(gsx_tx_t *t, uint32_t v, uint32_t n);
 void gsx_put_packed(gsx_tx_t *t, const uint8_t *src, uint32_t n);
 /* Fills the length and checksum, appends F7; returns the frame length. */
 uint16_t gsx_tx_end(gsx_tx_t *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

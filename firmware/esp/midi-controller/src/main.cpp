@@ -1,6 +1,7 @@
 /*
  * midi-controller: the generic gemifi controller (core/) on ESP32 / ESP8266.
- * The device comes from gm_device_config.h/.c ($GM_DEVICE_DIR, README.md).
+ * The device comes from gm_device_config.h/.c, generated from the device
+ * YAML ($GM_DEVICE) or given pre-generated ($GM_DEVICE_DIR); README.md.
  *
  * SPDX-License-Identifier: MIT
  */

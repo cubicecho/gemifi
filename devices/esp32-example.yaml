@@ -1,6 +1,6 @@
 # Example ESP32-S3 USB MIDI controller (gemifi ESP platform reference).
-# Generated tables: devices/generated-example-esp32/ (the default config of
-# firmware/esp/midi-controller). Pins are for an ESP32-S3-DevKitC-1.
+# The default device of firmware/esp/midi-controller (esp32s2 / esp32s3).
+# Pins are for an ESP32-S3-DevKitC-1.
 gemifi: 1
 name: ESP32 Example
 description: ESP32-S3 example, 4 buttons, 1 LED, 2 pots, 1 encoder, 8 faders on a 74HC4051

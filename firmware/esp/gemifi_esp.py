@@ -2,10 +2,12 @@
 #
 # - adds core/include to the include path;
 # - custom_gm_core = gsx: compiles core/src/gsx.c only (hello);
-#   custom_gm_core = all: compiles core/src/*.c plus the device config in
-#   $GM_DEVICE_DIR (gm_device_config.h/.c; absolute, or relative to the repo
-#   root), defaulting per env to devices/generated-example-esp8266 or
-#   devices/generated-example-esp32;
+#   custom_gm_core = all: compiles core/src/*.c plus the device config:
+#   $GM_DEVICE_DIR (an already generated gm_device_config.h/.c, as
+#   tools/builder passes it), else generated here from the device YAML
+#   $GM_DEVICE (default per env: devices/esp8266-example.yaml or
+#   devices/esp32-example.yaml) into $BUILD_DIR/gm_device_config; paths are
+#   absolute or relative to the repo root;
 # - after the build, writes $BUILD_DIR/webflash/: the flash parts and an
 #   ESP Web Tools manifest.json (first install from the browser).
 #
@@ -14,6 +16,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 
 from SCons import Builder
 from platformio.builder.tools.piobuild import scons_patched_match_splitext
@@ -31,15 +35,32 @@ mode = env.GetProjectOption("custom_gm_core", "gsx")
 device_dir = None
 if mode == "all":
     device_dir = os.environ.get("GM_DEVICE_DIR")
-    if not device_dir:
-        if mcu == "esp32":
-            print("gemifi: env %s needs GM_DEVICE_DIR (the bundled example targets "
-                  "the ESP32-S3)" % pioenv)
+    if device_dir:
+        if not os.path.isabs(device_dir):
+            device_dir = os.path.join(ROOT, device_dir)
+    else:
+        yaml = os.environ.get("GM_DEVICE")
+        if not yaml:
+            if mcu == "esp32":
+                print("gemifi: env %s needs GM_DEVICE=<device.yaml> (the bundled example "
+                      "targets the ESP32-S3)" % pioenv)
+                env.Exit(1)
+            yaml = os.path.join("devices", "esp8266-example.yaml" if mcu == "esp8266"
+                                else "esp32-example.yaml")
+        if not os.path.isabs(yaml):
+            yaml = os.path.join(ROOT, yaml)
+        device_dir = os.path.join(env.subst("$BUILD_DIR"), "gm_device_config")
+        # Only changed files are rewritten, so an unchanged YAML rebuilds nothing.
+        # The system python3, not PlatformIO's: the builder needs PyYAML.
+        py = shutil.which("python3") or sys.executable
+        r = subprocess.run([py, os.path.join(ROOT, "tools", "builder", "gemifi_build.py"),
+                            "generate", yaml, "-o", device_dir],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        if r.returncode:
+            print(r.stdout, end="")
+            print("gemifi: couldn't generate the device config from %s" % yaml)
             env.Exit(1)
-        name = "generated-example-esp8266" if mcu == "esp8266" else "generated-example-esp32"
-        device_dir = os.path.join(ROOT, "devices", name)
-    if not os.path.isabs(device_dir):
-        device_dir = os.path.join(ROOT, device_dir)
+        print("gemifi: device config generated from %s" % os.path.relpath(yaml, ROOT))
     device_dir = os.path.abspath(device_dir)
     for f in ("gm_device_config.h", "gm_device_config.c"):
         if not os.path.isfile(os.path.join(device_dir, f)):
@@ -60,13 +81,18 @@ else:
     env.BuildSources("$BUILD_DIR/gm_core", os.path.join(CORE, "src"), "+<gsx.c>")
 
 
-def device_name():
+def config_str(macro):
+    """A string #define from the device config, or None."""
     if device_dir:
         h = open(os.path.join(device_dir, "gm_device_config.h")).read()
-        m = re.search(r'#define\s+GM_DEVICE_NAME\s+"([^"]*)"', h)
+        m = re.search(r'#define\s+%s\s+"([^"]*)"' % macro, h)
         if m:
             return m.group(1)
-    return "gemifi " + os.path.basename(env.subst("$PROJECT_DIR"))
+    return None
+
+
+def device_name():
+    return config_str("GM_DEVICE_NAME") or "gemifi " + os.path.basename(env.subst("$PROJECT_DIR"))
 
 
 FAMILY = {"esp32": "ESP32", "esp32s2": "ESP32-S2", "esp32s3": "ESP32-S3",
@@ -91,7 +117,7 @@ def webflash(source, target, env):
     parts.append({"path": "firmware.bin", "offset": app_off})
     manifest = {
         "name": device_name(),
-        "version": env.GetProjectOption("custom_gm_version", "dev"),
+        "version": config_str("GM_FW_VERSION_STR") or env.GetProjectOption("custom_gm_version", "dev"),
         "new_install_prompt_erase": True,
         "builds": [{"chipFamily": FAMILY.get(mcu, mcu.upper()), "parts": parts}],
     }

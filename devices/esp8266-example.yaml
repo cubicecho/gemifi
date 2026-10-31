@@ -1,5 +1,5 @@
 # Example ESP8266 controller with serial MIDI over the USB-UART (Wemos D1 mini).
-# Generated tables: devices/generated-example-esp8266/.
+# The default device of firmware/esp/midi-controller (esp8266).
 gemifi: 1
 name: ESP8266 Example
 description: ESP8266 (D1 mini) example, serial MIDI, 2 buttons, 1 LED, 1 pot on A0

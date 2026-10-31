@@ -37,7 +37,7 @@ Headroom is tight. Before adding anything, see "Size notes" below.
 |---|---|---|
 | LDROM | 0x0010_0000, mapped at **0x0** while it runs (CONFIG0 CBS = 0) | this bootloader, linked at 0x0 |
 | APROM | 0x0000_0000, 32 KB | the app: vectors 0x000–0x0BF, `.gfw` header 0x0C0–0x0DF |
-| Data flash | 0x0001_F000, 4 KB | owned by the app; this bootloader never writes it (only the test build does) |
+| Data flash | 0x0001_F000, 4 KB | owned by the app: settings journal in 0x1F000–0x1FDFF, device ID in the last page (0x1FE00, chips without a UID); this bootloader never writes it (only the test build does). It still reports the chip UID, so its serial is all zeros on the NUC120BN |
 | CONFIG0/1 | 0x0030_0000 | never written; keep CBS = 0 so LDROM always runs first |
 | SRAM | 0x2000_0000 – 0x2000_0FEF | `.bss` (~880 B) and the stack; the stack starts at 0x2000_0FF0 |
 | Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`; not initialised by either side |

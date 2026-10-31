@@ -13,6 +13,7 @@
 #include "nuc1xx.h"
 #include "sys.h"
 #include "fmc.h"
+#include "crc32.h"
 #include "usbd.h"
 #include "usb_midi.h"
 
@@ -137,9 +138,81 @@ void hal_midi_flush(uint32_t timeout_ms)
 
 /* ---- identity, reboot, upload ---------------------------------------- */
 
+/* The NUC120BN has no unique ID: ISP command 0x04 fails on it (newer chip
+ * revisions have one). Then the first boot makes a random ID and keeps it in
+ * the last data-flash page, which the config journal and factory reset never
+ * touch. Record: 'GDID', id[0..2], crc32 (zlib) over the first 4 words. The
+ * bootloader can read it as plain memory. */
+#define DEVID_MAGIC 0x44494447u     /* 'GDID' */
+
+static int devid_load(uint32_t w[3])
+{
+    uint32_t crc = CRC32_INIT;
+    if (fmc_read(FLASH_DEVID_ADDR) != DEVID_MAGIC)
+        return 0;
+    for (uint32_t i = 0; i < 4; i++) {
+        uint32_t v = fmc_read(FLASH_DEVID_ADDR + 4u * i);
+        crc = crc32_word(crc, v);
+        if (i)
+            w[i - 1] = v;
+    }
+    return ~crc == fmc_read(FLASH_DEVID_ADDR + 16u);
+}
+
+/* Timer1 runs from the internal 22 MHz RC oscillator, which drifts against
+ * the crystal that times the samples: the counts differ from chip to chip
+ * (RC tolerance) and from sample to sample (jitter). */
+static uint32_t devid_noise(uint32_t crc)
+{
+    CLK_APBCLK |= APBCLK_TMR1_EN;
+    CLK_CLKSEL1 |= CLKSEL1_TMR1_S_MASK;
+    TMR1_TCSR = TCSR_CRST;
+    TMR1_TCMPR = 0xFFFFFFu;
+    TMR1_TCSR = TCSR_CEN | TCSR_MODE_PERIODIC | TCSR_TDR_EN;
+    for (uint32_t i = 0; i < 256u; i++) {
+        hal_delay_us(20u + (crc & 31u));
+        crc = crc32_word(crc, TMR1_TDR ^ (SYST_CVR << 8));
+    }
+    TMR1_TCSR = 0;
+    CLK_APBCLK &= ~APBCLK_TMR1_EN;
+    return crc;
+}
+
+static void devid_make(uint32_t w[3])
+{
+    uint32_t crc = CRC32_INIT;
+    for (uint32_t i = 0; i < 3; i++)
+        w[i] = crc = devid_noise(crc ^ i);
+    uint32_t rec[5] = { DEVID_MAGIC, w[0], w[1], w[2], 0 };
+    crc = CRC32_INIT;
+    for (uint32_t i = 0; i < 4; i++)
+        crc = crc32_word(crc, rec[i]);
+    rec[4] = ~crc;
+    for (uint32_t i = 0; i < 5; i++)
+        if (fmc_read(FLASH_DEVID_ADDR + 4u * i) != 0xFFFFFFFFu) {
+            fmc_erase_page(FLASH_DEVID_ADDR);
+            break;
+        }
+    for (uint32_t i = 0; i < 5; i++)
+        fmc_program(FLASH_DEVID_ADDR + 4u * i, rec[i]);
+    /* If that failed the ID still holds until the next power cycle. */
+}
+
 void hal_uid(uint8_t uid[12])
 {
-    fmc_read_uid(uid);
+    static uint8_t id[12], have;
+    if (!have) {
+        if (fmc_read_uid(id) != 0) {
+            uint32_t w[3];
+            if (!devid_load(w))
+                devid_make(w);
+            for (uint32_t i = 0; i < 12; i++)
+                id[i] = (uint8_t)(w[i / 4u] >> (8u * (i & 3u)));
+        }
+        have = 1;
+    }
+    for (uint32_t i = 0; i < 12; i++)
+        uid[i] = id[i];
 }
 
 void hal_reboot(int to_bootloader)

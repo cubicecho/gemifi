@@ -11,7 +11,7 @@
 #include "nuc1xx.h"
 
 #define CS_BASE   FLASH_DATA_BASE
-#define CS_SIZE   FLASH_DATA_SIZE
+#define CS_SIZE   (FLASH_DEVID_ADDR - FLASH_DATA_BASE)   /* last page: device ID */
 #define CS_PAGE   FLASH_PAGE_SIZE
 #define CS_HDR_WORDS 3u                    /* magic, seq, count  */
 #define CS_MAX_ENTRIES ((CS_PAGE / 4u - CS_HDR_WORDS - 1u) / 2u)

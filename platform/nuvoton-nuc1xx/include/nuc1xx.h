@@ -28,6 +28,9 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define FLASH_APROM_SIZE     0x00008000u   /* 32 KB on NUC120LC1BN */
 #define FLASH_DATA_BASE      0x0001F000u   /* data flash, 4 KB      */
 #define FLASH_DATA_SIZE      0x00001000u
+/* Last data-flash page: the device ID on chips without a UID (hal.c). The
+ * config journal (config_store.c) uses the pages before it. */
+#define FLASH_DEVID_ADDR     (FLASH_DATA_BASE + FLASH_DATA_SIZE - FLASH_PAGE_SIZE)
 #define FLASH_LDROM_BASE     0x00100000u
 #define FLASH_LDROM_SIZE     0x00001000u
 #define FLASH_CONFIG_BASE    0x00300000u
@@ -185,9 +188,11 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 
 /* ---- Clock bits used by apps (TRM 5.3) -------------------------------- */
 #define APBCLK_TMR0_EN       (1u << 2)
+#define APBCLK_TMR1_EN       (1u << 3)
 #define APBCLK_ADC_EN        (1u << 28)
 #define CLKSEL1_ADC_S_MASK   (3u << 2)     /* 00 = 12 MHz crystal          */
 #define CLKSEL1_TMR0_S_MASK  (7u << 8)     /* 000 = 12 MHz crystal         */
+#define CLKSEL1_TMR1_S_MASK  (7u << 12)    /* 111 = internal 22 MHz RC     */
 #define CLKDIV_ADC_N_SHIFT   16            /* ADC clock = src / (ADC_N+1)  */
 #define CLKDIV_ADC_N_MASK    (0xFFu << 16)
 #define IPRSTC2_TMR0_RST     (1u << 2)
@@ -199,6 +204,11 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define TMR0_TCMPR           RB(TMR0_BASE, 0x04)
 #define TMR0_TISR            RB(TMR0_BASE, 0x08)
 #define TMR0_TDR             RB(TMR0_BASE, 0x0C)
+#define TMR1_BASE            0x40010020u
+#define TMR1_TCSR            RB(TMR1_BASE, 0x00)
+#define TMR1_TCMPR           RB(TMR1_BASE, 0x04)
+#define TMR1_TDR             RB(TMR1_BASE, 0x0C)
+#define TCSR_TDR_EN          (1u << 16)    /* keep TDR updated             */
 #define TCSR_PRESCALE(n)     ((uint32_t)(n) & 0xFFu)
 #define TCSR_CRST            (1u << 26)
 #define TCSR_MODE_PERIODIC   (1u << 27)    /* MODE[28:27] = 01             */

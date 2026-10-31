@@ -4,7 +4,8 @@
  * described below), ESP32 NVS blob / ESP8266 EEPROM sector
  * (platform/esp/config_store_esp.cpp, same record words).
  *
- * NUC1xx: data flash (4 KB at 0x1F000, 8 pages of 512 B) is used as a journal of
+ * NUC1xx: data flash (4 KB at 0x1F000) minus its last page (the device ID,
+ * hal.c), so 7 pages of 512 B, is used as a journal of
  * records. Each COMMIT appends one record after the newest; when a page is
  * full the next page (wrapping) is erased and used. The newest record is
  * never erased before a newer one is written, so a power cut during COMMIT

@@ -88,8 +88,10 @@ jobs:
           labels: |
             org.opencontainers.image.title=gemifi
             org.opencontainers.image.description=gemifi builder: define a MIDI controller in YAML, build its firmware, flash it from the browser over Web MIDI
+            org.opencontainers.image.licenses=MIT
           annotations: |
             org.opencontainers.image.description=gemifi builder: define a MIDI controller in YAML, build its firmware, flash it from the browser over Web MIDI
+            org.opencontainers.image.licenses=MIT
 
       - uses: docker/build-push-action@v7
         with:

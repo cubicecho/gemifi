@@ -26,6 +26,8 @@ export default defineConfig({
   },
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   build: {
+    // The bundled dependencies' license texts (MIT/ISC/Apache need them shipped), served next to the app.
+    license: { fileName: 'THIRD_PARTY_LICENSES.md' },
     rolldownOptions: {
       // React on its own, so the app chunk stays under the 500 kB warning and React caches across releases.
       output: {

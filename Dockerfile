@@ -37,7 +37,7 @@ COPY devices/ devices/
 COPY protocol/ protocol/
 COPY tools/builder/ tools/builder/
 COPY tools/host/ tools/host/
-COPY README.md ./
+COPY README.md LICENSE ./
 COPY --from=web /src/web/updater/dist/ web/updater/dist/
 COPY docker/entrypoint.sh /usr/local/bin/gemifi-entrypoint
 

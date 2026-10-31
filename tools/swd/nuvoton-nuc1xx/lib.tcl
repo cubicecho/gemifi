@@ -64,6 +64,13 @@ proc gemifi_write_aprom {file} {
     echo "GEMIFI WROTE aprom $file"
 }
 
+# READ-ONLY: compare APROM with a raw binary at 0x0 (no erase, no write to flash). verify_image runs
+# a checksum helper in SRAM, so the CPU must be halted; reset afterwards.
+proc gemifi_verify_aprom {file} {
+    verify_image $file 0x00000000 bin
+    echo "GEMIFI VERIFIED aprom $file"
+}
+
 # Erase a whole region (all pages) and write a raw binary at its start. No AHB verify here:
 # LDROM and data flash aren't readable as plain memory; the shell scripts verify them by ISP dump.
 proc gemifi_write_isp_region {name base size file} {

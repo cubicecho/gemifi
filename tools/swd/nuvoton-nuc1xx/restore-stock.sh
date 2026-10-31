@@ -2,30 +2,33 @@
 # WRITES APROM + LDROM from a backup (stock firmware), verifies both, then checks CONFIG0 against the
 # backed-up value. CONFIG is never written unless --write-config is given.
 #
-# Usage: restore-stock.sh <backupdir> [--with-dataflash] [--write-config] [--yes] [--dry-run]
+# Usage: restore-stock.sh <backupdir> [--with-dataflash] [--write-config] [--yes] [--dry-run] [--probe <p>]
 #   <backupdir>        a dump.sh folder (or the original research backup): SHA256SUMS must verify;
 #                      needs aprom.bin or aprom-read1.bin (32 KB), ldrom.bin (4 KB), config.txt.
 #   --with-dataflash   also restore dataflash.bin (stock settings; gemifi firmware may have used it).
 #   --write-config     if CONFIG0/1 differ from config.txt, show both decoded and offer to write the
 #                      backed-up values. Needs typing "write config" at the prompt; --yes does not skip it.
 #   --yes              skip the "type yes" prompt for the APROM/LDROM/data flash writes.
+#   --probe buspirate|cmsis-dap   probe to use (default buspirate, or $PROBE).
+# If an ISP read-back verify stops partway, the write is done: resume just the verify with the
+# command it prints (no erase, no write) instead of rerunning the whole restore.
 # Each region is written in its own short OpenOCD session (long Bus Pirate sessions lock up).
 source "$(dirname "$0")/common.sh"
 
 backup=""; dataflash=0; writecfg=0
 while [ $# -gt 0 ]; do
+  common_opt "$@"; if [ "$COMMON_SHIFT" -gt 0 ]; then shift "$COMMON_SHIFT"; continue; fi
   case "$1" in
     --with-dataflash) dataflash=1 ;;
     --write-config) writecfg=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
-    --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     -*) die "unknown option $1" ;;
     *) [ -z "$backup" ] || die "only one backup dir"; backup="$1" ;;
   esac
   shift
 done
-[ -n "$backup" ] || { sed -n '2,14p' "$0"; exit 2; }
+[ -n "$backup" ] || { sed -n '2,15p' "$0"; exit 2; }
 backup="$(cd "$backup" && pwd)" || die "no such folder"
 
 req=(--require aprom:32768 --require ldrom.bin:4096)
@@ -68,7 +71,8 @@ run_openocd "$log" -c init -c gemifi_check_pdid -c halt \
   -c "gemifi_write_isp_region ldrom 0x00100000 0x1000 {$backup/ldrom.bin}" -c "reset run" -c shutdown \
   || die "LDROM restore failed (log: $log); fix the link and rerun"
 log_has "$log" "GEMIFI WROTE ldrom" || die "LDROM write not confirmed (log: $log)"
-isp_verify "$backup/ldrom.bin" 0x00100000 ldrom || die "LDROM verify failed; rerun"
+isp_verify "$backup/ldrom.bin" 0x00100000 ldrom \
+  || die "LDROM verify did not pass (see above). Steps after it (CONFIG check) were skipped; run read-config.sh after."
 
 if [ $dataflash = 1 ]; then
   info "3/3 data flash"
@@ -77,7 +81,8 @@ if [ $dataflash = 1 ]; then
     -c "gemifi_write_isp_region dataflash 0x0001F000 0x1000 {$backup/dataflash.bin}" -c "reset run" -c shutdown \
     || die "data flash restore failed (log: $log)"
   log_has "$log" "GEMIFI WROTE dataflash" || die "data flash write not confirmed (log: $log)"
-  isp_verify "$backup/dataflash.bin" 0x0001F000 dataflash || die "data flash verify failed; rerun"
+  isp_verify "$backup/dataflash.bin" 0x0001F000 dataflash \
+    || die "data flash verify did not pass (see above). The CONFIG check was skipped; run read-config.sh after."
 fi
 
 info "CONFIG check"

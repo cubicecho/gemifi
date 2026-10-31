@@ -52,7 +52,7 @@ int fmc_program(uint32_t addr, uint32_t word)
     return fmc_go(ISPCMD_PROGRAM, addr);
 }
 
-int fmc_read_uid(uint8_t uid[12])
+int fmc_read_uid(uint32_t uid[3])
 {
     int rc = 0;
     for (uint32_t i = 0; i < 3; i++) {
@@ -61,8 +61,7 @@ int fmc_read_uid(uint8_t uid[12])
             w = FMC_ISPDAT;
         else
             rc = -1;
-        for (uint32_t b = 0; b < 4; b++)
-            uid[i * 4u + b] = (uint8_t)(w >> (8u * b));
+        uid[i] = w;
     }
     return rc;
 }

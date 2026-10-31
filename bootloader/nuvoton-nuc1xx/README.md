@@ -26,8 +26,8 @@ make CROSS=/opt/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-ea
 
 | Build | Size | Headroom |
 |---|---|---|
-| `gemifi-boot.bin` | 4044 B | 52 B |
-| `gemifi-boot-test.bin` | 3996 B | 100 B |
+| `gemifi-boot.bin` | 4080 B | 16 B |
+| `gemifi-boot-test.bin` | 3988 B | 108 B |
 
 Headroom is tight. Before adding anything, see "Size notes" below.
 
@@ -37,25 +37,38 @@ Headroom is tight. Before adding anything, see "Size notes" below.
 |---|---|---|
 | LDROM | 0x0010_0000, mapped at **0x0** while it runs (CONFIG0 CBS = 0) | this bootloader, linked at 0x0 |
 | APROM | 0x0000_0000, 32 KB | the app: vectors 0x000–0x0BF, `.gfw` header 0x0C0–0x0DF |
-| Data flash | 0x0001_F000, 4 KB | owned by the app: settings journal in 0x1F000–0x1FDFF, device ID in the last page (0x1FE00, chips without a UID); this bootloader never writes it (only the test build does). It still reports the chip UID, so its serial is all zeros on the NUC120BN |
+| Data flash | 0x0001_F000, 4 KB | owned by the app: settings journal in 0x1F000–0x1FDFF, device ID in the last page (0x1FE00, chips without a UID). This bootloader never writes it (only the test build's uploads do). If the chip has no UID, it reads the device ID record for its serial (see "Update mode") |
 | CONFIG0/1 | 0x0030_0000 | never written; keep CBS = 0 so LDROM always runs first |
 | SRAM | 0x2000_0000 – 0x2000_0FEF | `.bss` (~880 B) and the stack; the stack starts at 0x2000_0FF0 |
-| Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`; not initialised by either side |
+| Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`. Random after power-on: the bootloader zeroes `boot_count` and `reason` after a cold start (see "Boot flow") |
 
 ## Boot flow
 
 1. Set up the clocks: crystal, then the PLL at 48 MHz. This is safe even if an earlier stage left the PLL running.
 2. Set up the GPIOs (buttons as inputs, LEDs off, matrix drive lines low) and enable ISP.
-3. Decide whether to stay in update mode. It stays if **any** of these is true:
+3. Read and clear `GCR_RSTSRC`. After a cold start (POR, LVR or BOD) SRAM is random, so it zeroes `boot_count` and `reason`.
+4. Decide whether to stay in update mode. It stays if **any** of these is true:
    - the mailbox holds `'BOOT'` (0x544F4F42) with a matching inverse; the app's `REBOOT(1)` sets this;
    - **Pitch▼ + Pitch▲** (PA5 + PA6) are held, sampled 3 times over about 20 ms;
+   - the boot-loop guard trips: `boot_count` ≥ 3 (see below);
    - the app is invalid. Checks: magic, `hdr_version`, `board_id`, size, initial SP in SRAM, reset vector odd and inside the image, and the CRC-32 over `[0, size)` with the crc field taken as 0.
-4. The mailbox magic is cleared either way.
-5. Otherwise it hands off: `boot_count++`, unlock REGWRPROT, `ISPCON.BS = 0`, `IPRSTC1.CPU_RST`. USB was never started on this path.
+5. The mailbox magic is cleared either way.
+6. Otherwise it hands off: `boot_count++`, unlock REGWRPROT, `ISPCON.BS = 0`, `IPRSTC1.CPU_RST`. USB was never started on this path.
+7. If it stays, it zeroes `boot_count`. The next hand-off (after `REBOOT(0)` or a reset) gets 3 fresh tries.
+
+### Boot-loop guard
+
+- Each hand-off adds 1 to `boot_count`. The app sets it to 0 once it has run for 5 s (`midi-controller` and `usb-log` do).
+- An app that comes back to the bootloader 3 times in a row before that keeps the board in update mode. The bootloader then sets `reason` = 2 (boot loop).
+- The host can't see `reason` in update mode: HELLO has no field for it. It survives a warm reset, so the next app can log it (`usb-log` prints it in its boot line).
+- A power cycle always clears the count, so a good app is never trapped by random SRAM. It also means the guard only counts warm resets.
+- **What counts.** On the NUC1xx a warm reset only reaches the bootloader if `ISPCON.BS` = 1. `BS` is reloaded from CONFIG0 only at power-on and is kept at other resets. Today that means the app's own reboots (`hal_reboot()`, `sys_reset_to(1)`). A watchdog reset, `SYSRESETREQ` or the /RESET pin goes straight back to the app unless the app sets `BS = 1` at startup (bootloader-design.md 3.3, "optional hardening"). An app that hangs without a reset is not caught at all.
+- An app that never clears `boot_count` is trapped after its third warm reset through the bootloader. `hello-led` doesn't clear it, but it has no way to reset itself (except the test build below), so only power cycles start it again.
+- Test app: `make -C firmware/nuvoton-nuc1xx/hello-led RESET_AFTER_MS=2000 BUILD=build/bootloop` builds `build/bootloop/hello-led.gfw`. It resets itself through the bootloader after about 2 s. After 3 starts the board should stay in update mode with Oct− and Oct+ blinking.
 
 ## Update mode
 
-- **USB identity.** `1209:0001`, "gemifi" / "gemifi boot (Keystation Mini 32)", serial = chip UID in hex. It is a class-compliant USB-MIDI device with one port: bulk 0x01 OUT and 0x81 IN, 64 B each, and EP0 at 64 B.
+- **USB identity.** `1209:0001`, "gemifi" / "gemifi boot (Keystation Mini 32)", serial = chip UID in hex. The NUC120BN has no UID (ISP command 0x04 fails). Then the bootloader reads the app's device ID record at 0x1FE00: `'GDID'`, `id[0..2]`, CRC-32 over the first 4 words. If the magic and CRC match, the serial and the HELLO `uid` are that ID, the same as the app's. If not (no app has run yet, or the record is damaged), they are all zeros. The bootloader only reads this record. It is a class-compliant USB-MIDI device with one port: bulk 0x01 OUT and 0x81 IN, 64 B each, and EP0 at 64 B.
 - **LEDs.** While waiting, the Oct− and Oct+ LEDs blink alternately at 2 Hz. During an upload, between `FW_BEGIN` and `FW_END`/`FW_ABORT`, both blink together at 5 Hz.
 - **Commands.**
   - `HELLO` replies with role 1, `max_chunk` 256 and caps = upload.
@@ -105,6 +118,13 @@ CONFIG is never written; CBS = 0 (boot from LDROM) must stay as it is. With the 
 - Registers are accessed as base + offset (`RB()` in `nuc1xx.h`), so GCC shares one literal per peripheral block. Absolute addresses cost about 300 B more.
 - `.data` is empty, and `mini_libc.c` is not linked. If GCC ever emits `memcpy`/`memset`, the link fails loudly.
 - The SysTick millisecond counter is polled (COUNTFLAG). Time spent stalled in a flash erase is not counted, which only makes timeouts longer.
+- `startup.c` is built with `STARTUP_NO_DATA`, so there is no `.data` copy loop. `ld/bootloader.ld` asserts that `.data` stays empty.
+- The Makefile adds `-fno-jump-tables`. Compare-and-branch chains are smaller here, and the libgcc case-table helpers drop out (about 24 B).
+- `sys_reset_to()` and the clock wait loop are `noinline`: each was inlined twice before.
+- `fmc_read_uid()` fills three words, not 12 bytes. The bootloader's `uid[]` is those words, which also keeps the stored-ID copy small.
+- One `flash_crc()` helper does the CRC for both the image check and the device ID record.
+- `handle_frame()` builds frame-error replies and normal replies through the same `gsx_tx_begin()`/`gsx_tx_end()` calls.
+- Size history: 4044 B before the boot-loop guard and the stored-ID serial (issues #1 and #2). Those two features cost about 160 B, and the savings above brought it back to 4080 B (16 B free). What's left to try, if needed: the USB-MIDI TX path (`send()` and `midi_tx_flush()`, about 270 B) and the USB control code.
 
 ## Files
 

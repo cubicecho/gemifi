@@ -53,6 +53,7 @@ SECTIONS
     _image_end = LOADADDR(.data) + SIZEOF(.data);
 
     ASSERT(_image_end <= 4096, "bootloader does not fit in 4 KB LDROM")
+    ASSERT(SIZEOF(.data) == 0, "bootloader has .data, but startup.c is built with STARTUP_NO_DATA")
     ASSERT(_ebss + 512 <= _estack, "less than 512 B of RAM left for the stack")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }

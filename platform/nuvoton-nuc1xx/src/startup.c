@@ -66,9 +66,14 @@ const vector_t gemifi_vectors[4] = {
 
 void Reset_Handler(void)
 {
-    uint32_t *s = _sidata, *d = _sdata;
-    while (d < _edata)
+    uint32_t *d;
+#ifndef STARTUP_NO_DATA
+    /* STARTUP_NO_DATA: the 4 KB bootloader has no .data (its linker script
+     * asserts that), so it skips the copy loop. */
+    uint32_t *s = _sidata;
+    for (d = _sdata; d < _edata; )
         *d++ = *s++;
+#endif
     for (d = _sbss; d < _ebss; d++)
         *d = 0;
     main();

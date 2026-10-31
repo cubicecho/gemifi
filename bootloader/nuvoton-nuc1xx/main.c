@@ -68,7 +68,7 @@ static uint16_t tx_len;
 static uint32_t last_req;                /* 0x10000 | seq << 8 | cmd of the
                                             last completed request, 0 = none */
 static uint32_t data_w[MAX_CHUNK / 4];   /* unpacked FW_DATA, word aligned */
-static uint8_t uid[12];
+static uint32_t uid[3];                 /* HELLO uid / serial, LE words  */
 
 static uint8_t fw_state;
 static uint32_t fw_size, fw_crc, fw_ver, fw_next;
@@ -110,6 +110,17 @@ static uint32_t target_read(uint32_t off)
     return fmc_read(TARGET_BASE + off);
 }
 
+/* zlib CRC-32 of the n bytes of flash at addr (n a multiple of 4), with the
+ * word at address skip read as 0. Shared by the image check and the device
+ * ID record. */
+static uint32_t flash_crc(uint32_t addr, uint32_t n, uint32_t skip)
+{
+    uint32_t c = CRC32_INIT;
+    for (uint32_t a = addr; a < addr + n; a += 4)
+        c = crc32_word(c, a == skip ? 0 : fmc_read(a));
+    return ~c;
+}
+
 /* sysex.md 5: magic, board, size, SP in SRAM, reset vector odd and inside
  * the image, CRC over [0, size) with the crc field taken as 0. If want_size
  * is non-zero, size, CRC and fw_version must also equal the FW_BEGIN values
@@ -133,10 +144,7 @@ static int image_valid(uint32_t want_size, uint32_t want_crc, uint32_t want_ver)
         return 0;
     if (!(pc & 1u) || (pc & ~1u) >= size)
         return 0;
-    uint32_t c = CRC32_INIT;
-    for (uint32_t off = 0; off < size; off += 4)
-        c = crc32_word(c, off == GEMIFI_IMG_CRC_OFFSET ? 0 : target_read(off));
-    return ~c == crc;
+    return flash_crc(TARGET_BASE, size, TARGET_BASE + GEMIFI_IMG_CRC_OFFSET) == crc;
 }
 
 /* ---- protocol --------------------------------------------------------- */
@@ -151,7 +159,7 @@ static uint32_t cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
     gsx_put(t, GSX_PROTO_VERSION);
     gsx_put_u(t, MAX_CHUNK, 2);
     gsx_put_u(t, GSX_CAP_FW_UPLOAD, 2);
-    gsx_put_packed(t, uid, sizeof(uid));
+    gsx_put_packed(t, (const uint8_t *)uid, sizeof(uid));
     return GSX_OK;
 }
 
@@ -250,58 +258,70 @@ static void handle_frame(void)
     int pst = gsx_parse(&rx, &f);
     if (pst == GSX_NOT_OURS)
         return;
-    if (pst != GSX_OK) {
-        /* Frame-level error: reply in a scratch buffer so the cached reply
-         * of the last good request survives for a resend. */
-        uint8_t err[GSX_OVERHEAD + 4];
-        gsx_tx_t t;
-        gsx_tx_begin(&t, err, f.cmd | GSX_REPLY, f.seq);
-        gsx_put(&t, (uint8_t)pst);
-        send(err, gsx_tx_end(&t));
-        return;
-    }
     /* sysex.md 1: a repeated seq for the command just completed gets the
      * same reply again without redoing the work. */
     uint32_t req = 0x10000u | (uint32_t)f.seq << 8 | f.cmd;
-    if (req == last_req) {
+    if (pst == GSX_OK && req == last_req) {
         send(tx_buf, tx_len);
         return;
     }
 
+    /* A frame-level error (pst) is answered from a scratch buffer, so the
+     * cached reply of the last good request survives for a resend. Both
+     * cases share one begin/end (size). */
+    uint8_t err[GSX_OVERHEAD + 4];
     gsx_tx_t t;
-    gsx_tx_begin(&t, tx_buf, f.cmd | GSX_REPLY, f.seq);
+    gsx_tx_begin(&t, pst == GSX_OK ? tx_buf : err, f.cmd | GSX_REPLY, f.seq);
     uint16_t status_at = t.n;
     gsx_put(&t, 0);
-    uint32_t st;
-    switch (f.cmd) {
-    case GSX_CMD_HELLO:    st = cmd_hello(&f, &t); break;
-    case GSX_CMD_REBOOT:   st = cmd_reboot(&f); break;
-    case GSX_CMD_FW_BEGIN: st = cmd_fw_begin(&f, &t); break;
-    case GSX_CMD_FW_DATA:  st = cmd_fw_data(&f, &t); break;
-    case GSX_CMD_FW_END:   st = cmd_fw_end(&f); break;
-    case GSX_CMD_FW_ABORT:
-        st = f.len ? GSX_BAD_LEN : GSX_OK;
-        if (!f.len)
-            fw_state = FW_IDLE;
-        break;
-    default:               st = GSX_BAD_CMD; break;
+    uint32_t st = (uint32_t)pst;
+    if (pst == GSX_OK) {
+        switch (f.cmd) {
+        case GSX_CMD_HELLO:    st = cmd_hello(&f, &t); break;
+        case GSX_CMD_REBOOT:   st = cmd_reboot(&f); break;
+        case GSX_CMD_FW_BEGIN: st = cmd_fw_begin(&f, &t); break;
+        case GSX_CMD_FW_DATA:  st = cmd_fw_data(&f, &t); break;
+        case GSX_CMD_FW_END:   st = cmd_fw_end(&f); break;
+        case GSX_CMD_FW_ABORT:
+            st = f.len ? GSX_BAD_LEN : GSX_OK;
+            if (!f.len)
+                fw_state = FW_IDLE;
+            break;
+        default:               st = GSX_BAD_CMD; break;
+        }
     }
     if (st != GSX_OK)
         t.n = status_at + 1u;            /* status only on errors */
-    tx_buf[status_at] = (uint8_t)st;
-    tx_len = gsx_tx_end(&t);
-    last_req = req;
-    send(tx_buf, tx_len);
+    t.buf[status_at] = (uint8_t)st;
+    uint16_t n = gsx_tx_end(&t);
+    if (pst == GSX_OK) {
+        tx_len = n;
+        last_req = req;
+    }
+    send(t.buf, n);
 }
+
+/* Device ID record of chips without a UID (written by the app, hal.c):
+ * 'GDID', id[0..2], zlib crc32 over the first 4 words. Read only. */
+#define DEVID_MAGIC 0x44494447u
 
 static void make_serial(void)
 {
-    static const char hex[] = "0123456789ABCDEF";
-    fmc_read_uid(uid);
-    /* three UID words, each printed most significant digit first */
+    /* uid[] is little-endian words, so its bytes are the HELLO uid. If the
+     * chip has no UID (NUC120BN), use the app's stored ID when its magic
+     * and CRC match (skip = 0: no word in the record is skipped); else the
+     * zeros from fmc_read_uid() stay. */
+    if (fmc_read_uid(uid) != 0 &&
+        fmc_read(FLASH_DEVID_ADDR) == DEVID_MAGIC &&
+        flash_crc(FLASH_DEVID_ADDR, 16, 0) == fmc_read(FLASH_DEVID_ADDR + 16)) {
+        for (uint32_t i = 0; i < 3; i++)
+            uid[i] = fmc_read(FLASH_DEVID_ADDR + 4 + 4 * i);
+    }
+    /* three ID words, each printed most significant digit first (the same
+     * string as the app's serial, app_proto_uid_hex()) */
     for (uint32_t i = 0; i < 24; i++) {
-        uint32_t byte = uid[(i / 8) * 4 + 3 - ((i / 2) & 3)];
-        serial[i] = hex[(i & 1) ? (byte & 0xF) : (byte >> 4)];
+        uint32_t d = (uid[i / 8] >> (28 - 4 * (i & 7))) & 0xF;
+        serial[i] = (char)(d + (d < 10 ? '0' : 'A' - 10));
     }
 }
 
@@ -375,12 +395,25 @@ int main(void)
         stay = 1;
 
 #ifndef TEST_IN_APROM
-    /* ... or the app is not valid. Otherwise hand off. USB was never
-     * started on this path, so there is nothing to disconnect. */
-    if (!stay && image_valid(0, 0, 0)) {
-        MAILBOX->boot_count++;
-        sys_reset_to(0);
+    /* ... or the boot-loop guard trips (bootloader-design.md 3.6): the app
+     * was started MAILBOX_BOOT_TRIES times without clearing boot_count. SRAM
+     * is random after a cold start, so the count only counts from then. */
+    if (sys_reset_cause() & RSTSRC_COLD) {
+        MAILBOX->boot_count = 0;
+        MAILBOX->reason = 0;
     }
+    if (!stay) {
+        if (MAILBOX->boot_count >= MAILBOX_BOOT_TRIES) {
+            MAILBOX->reason = MAILBOX_REASON_BOOT_LOOP;
+        } else if (image_valid(0, 0, 0)) {
+            /* ... or the app is not valid. Otherwise hand off. USB was
+             * never started on this path: nothing to disconnect. */
+            MAILBOX->boot_count++;
+            sys_reset_to(0);
+        }
+    }
+    /* Staying: the next hand-off (REBOOT(0) or a reset) gets fresh tries. */
+    MAILBOX->boot_count = 0;
 #else
     (void)stay;         /* test build: always stays, there is no app */
 #endif

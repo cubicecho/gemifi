@@ -4,7 +4,7 @@ A gemifi bootloader starts the app firmware, and takes new firmware over USB-MID
 
 | Chip family | Directory | Where it lives | Size budget |
 |---|---|---|---|
-| Nuvoton NUC100/NUC120 | [`nuvoton-nuc1xx/`](nuvoton-nuc1xx/) | 4 KB LDROM | 4096 B (currently 4044 B) |
+| Nuvoton NUC100/NUC120 | [`nuvoton-nuc1xx/`](nuvoton-nuc1xx/) | 4 KB LDROM | 4096 B (currently 4080 B) |
 
 Every gemifi bootloader follows these rules:
 
@@ -12,6 +12,7 @@ Every gemifi bootloader follows these rules:
 - **Entry.** The bootloader stays in update mode if any of these is true:
   - the app asked for it (a `'BOOT'` magic word in the SRAM mailbox);
   - the board's button combo is held at reset;
+  - the app keeps failing: it came back to the bootloader 3 times in a row without running for 5 s (boot-loop guard);
   - the app image is invalid (header, vectors or CRC).
 - **Never writes itself or the chip configuration.** Writes are limited in software to the app region. On top of that, the hardware refuses the rest: NUC1xx code never sets LDUEN or CFGUEN.
 - **Power-loss safe.** Page 0 (vectors and header) is erased first and written last, and the CRC is checked before every handoff. An interrupted upload therefore always leaves the board in the bootloader.

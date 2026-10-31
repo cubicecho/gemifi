@@ -16,7 +16,7 @@ uint32_t sys_tick_ms(void) { return ms += 1; }
 void sys_delay_ms(uint32_t d) { ms += d; }
 void sys_reset_to(int x) { for(;;); }
 void fmc_open(void) {}
-int fmc_read_uid(uint8_t u[12]) { for (int i = 0; i < 12; i++) u[i] = 0xA0 + i; return 0; }
+int fmc_read_uid(uint32_t w[3]) { uint8_t *u = (uint8_t *)w; for (int i = 0; i < 12; i++) u[i] = 0xA0 + i; return 0; }
 void usbd_init(const usbd_desc_t *d) {}
 void usbd_poll(void) {}
 int usbd_configured(void) { return 1; }

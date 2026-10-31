@@ -13,7 +13,7 @@ You need the host `gcc`, `python3`, and `arm-none-eabi-gcc`. The ARM compiler is
 
 | Test | Code under test | Stubbed |
 |---|---|---|
-| `run_sim.py` (`build/libboot.so`, `build/libboot_test.so`) | `bootloader/nuvoton-nuc1xx/main.c` (normal and `TEST_IN_APROM` builds), `gsx.c`, `crc32.c` | flash (a 128 KB array with real erase/AND-program semantics), SRAM mailbox, buttons, clocks, the SysTick counter, USB (frames go straight to the request handler; replies are captured), `sys_reset_to()` (returns which way it would have reset) |
+| `run_sim.py` (`build/libboot.so`, `build/libboot_test.so`) | `bootloader/nuvoton-nuc1xx/main.c` (normal and `TEST_IN_APROM` builds), `gsx.c`, `crc32.c` | flash (a 128 KB array with real erase/AND-program semantics), SRAM mailbox, `GCR_RSTSRC`, the UID command, buttons, clocks, the SysTick counter, USB (frames go straight to the request handler; replies are captured), `sys_reset_to()` (returns which way it would have reset) |
 | `run_app.py` (`build/libapp.so`) | `firmware/nuvoton-nuc1xx/usb-log/main.c` request handling and button messages, `gsx.c` | the same stubs, plus the UID read |
 | `midi_test` | `usb_midi.c` SysEx → USB-MIDI packing (CIN 4/5/6/7) and unpacking, 64-byte packets | the USB endpoint layer (`usbd_*`) |
 
@@ -25,6 +25,8 @@ What the checks cover:
 - **Ignored frames.** Reply-range frames and the Identity Request are ignored by the bootloader.
 - **Address safety.** No erase or program ever lands outside the target region (APROM, or data flash in the test build). The test build never touches APROM.
 - **Boot decision.** A valid app is handed off. These cases stay in update mode: the Pitch▼+Pitch▲ combo, the mailbox `'BOOT'` magic (which is then cleared), a bad CRC, and an even reset vector.
+- **Boot-loop guard.** `GCR_RSTSRC` is simulated (`sim_rstsrc`, cleared when read). 3 hand-offs without the app clearing `boot_count` → the 4th reset stays in update mode with `reason` 2. POR, LVR and BOD reset a random count and reason; pin, watchdog, `SYSRESETREQ` and CPU resets don't. An app that clears the count is always handed off. After a trap the next reset gets fresh tries.
+- **USB serial.** With a chip UID it is the UID. With the UID command refused (`sim_uid_fail`, as on the NUC120BN) it comes from a valid `'GDID'` record at 0x1FE00, and both the serial and the HELLO `uid` match the app's. A bad CRC, wrong magic, a flipped ID bit or an erased page give zeros. The record is never written.
 - **usb-log.** HELLO (role 0), the Identity Reply, FW_* → BAD_STATE, REBOOT(1), and the note plus EVENT plus LOG sent on a button press.
 
 ## What it can't tell you

@@ -119,6 +119,61 @@ docker run -d --name gemifi -p 6055:6055 -v ./config:/config -v gemifi-cache:/ca
 - **TLS**: a browser on another machine needs `https://` for Web MIDI / Web Serial. `GEMIFI_TLS=self-signed` makes a certificate once (P-256, valid 825 days) for `GEMIFI_TLS_HOSTS` (comma-separated names and IPs, default `localhost`; `localhost` and `127.0.0.1` are always added) and serves https; accept it in the browser once. Changing `GEMIFI_TLS_HOSTS` makes a new one. Or give your own with `GEMIFI_TLS_CERT` / `GEMIFI_TLS_KEY` (paths inside the container, e.g. under `/config`). The alternative is plain http and an SSH tunnel to the box, so the browser sees `localhost`.
 - The image is about 1 GB (192 MB compressed). `.dockerignore` keeps `research/` (copyrighted stock firmware), build outputs, `node_modules` and `./config` out of the build context.
 
+### Published image (GHCR)
+
+GitHub Actions (`.github/workflows/docker.yml`) builds the image and pushes it to `ghcr.io/cubicecho/gemifi`, for `linux/amd64` and `linux/arm64`.
+
+| Tag | When |
+|---|---|
+| `latest`, `1.2.3`, `1.2` | a `v1.2.3` git tag |
+| `edge` | every push to `main` |
+| `<branch>` | a manual run (Actions → docker → Run workflow) on that branch; `/` becomes `-` |
+| `sha-<short>` | every published build |
+
+Pull requests build the image (amd64 only) but don't push it.
+
+The first push creates the package as **private**. Either:
+- make it public: the package page on GitHub → Package settings → Change visibility → Public. The org must allow public packages.
+- or log in on the docker host: `docker login ghcr.io -u <github-user>`, with a personal access token (classic) that has `read:packages` as the password.
+
+### Deploy on a docker host
+
+The host doesn't need the source tree. `docker-compose.ghcr.yml` runs the published image.
+
+```sh
+mkdir -p ~/gemifi && cd ~/gemifi
+# copy docker-compose.ghcr.yml from the repo to here as docker-compose.yml, e.g.
+#   scp docker-compose.ghcr.yml dockerhost:gemifi/docker-compose.yml
+cat > .env <<'EOF'
+GEMIFI_TAG=latest
+GEMIFI_TLS_HOSTS=dockerhost.lan,192.168.1.20
+GEMIFI_ALLOWED_HOSTS=dockerhost.lan,192.168.1.20
+GEMIFI_PASSWORD=change-me
+EOF
+docker compose pull
+docker compose up -d
+docker compose logs -f        # "gemifi dashboard: https://..."
+```
+
+- `GEMIFI_TAG`: `latest` exists only after the first `v*` release. Before that, use `edge` or a branch tag.
+- `GEMIFI_TLS_HOSTS`: the names and IPs you type in the browser. The cert must match them.
+- `./config` must be owned by `PUID:PGID` (default `1000:1000`).
+- Update: `docker compose pull && docker compose up -d`. `./config` and the cache volume are kept.
+
+`docker-compose.yml` is for working on the source: it builds the image from the repo with `--build`. The two files are kept apart so a deploy never tries to build, and a local build never gets the GHCR name.
+
+### Flash from the browser
+
+**Web MIDI only works in a secure context**: `https://`, or `http://localhost`. Over plain `http://dockerhost:6055/` the page loads, but it sees no MIDI devices.
+
+1. Plug the device into the machine with the browser (not the docker host).
+2. Open `https://dockerhost.lan:6055/` in Chrome or Edge.
+3. The cert is self-signed, so the browser warns. Choose Advanced → Proceed. Do it once per cert.
+4. Log in with `gemifi` and `GEMIFI_PASSWORD`.
+5. Build the device, then flash it. When the browser asks for MIDI device control (SysEx), allow it. If you blocked it, reset it under the padlock → Site settings → MIDI devices.
+
+No TLS? Use an SSH tunnel so the browser sees `localhost`: `ssh -L 6055:localhost:6055 dockerhost`, then open `http://localhost:6055/`.
+
 ## Tests
 
 ```sh

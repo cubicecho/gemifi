@@ -48,6 +48,8 @@ docker compose up -d --build     # http://localhost:6055/  (or: tools/builder/ge
 
 Your devices live in `./config`. Flashing over Web MIDI / Web Serial needs `localhost` or https (`GEMIFI_TLS=self-signed`); see [`tools/builder/README.md`](tools/builder/README.md) "Docker".
 
+On a docker host without the source, run the published image `ghcr.io/cubicecho/gemifi` with [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml); see "Deploy on a docker host" there.
+
 ## Status (2026-10-30)
 - Keystation: probed, wired for SWD (TP1–TP4), stock firmware fully backed up, hardware map and stock bootloader analysed. M1 (`hello-led` over SWD) passed on hardware.
 - Built and host-tested, waiting for hardware tests: `usb-log` (M2), the bootloader test build (M3), the bootloader (M4), the generic `midi-controller` firmware, the web config editor, `gemifi.py` config commands. The order is in [`tools/README.md`](tools/README.md) §4a.

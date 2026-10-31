@@ -1,0 +1,39 @@
+# gemifi builder from GHCR, for a docker host without the source tree.
+# Copy this file to the host as docker-compose.yml, then:
+#   docker compose pull && docker compose up -d      # https://<host>:6055/
+# Pick a tag with GEMIFI_TAG (in .env or the shell): latest (releases), edge (main),
+# a branch name, or sha-<short>. tools/builder/README.md "Docker" has the details.
+services:
+  gemifi:
+    image: ghcr.io/cubicecho/gemifi:${GEMIFI_TAG:-latest}
+    container_name: gemifi
+    restart: unless-stopped
+    ports:
+      - "6055:6055"
+    volumes:
+      # Your device YAMLs; builds go in ./config/.build, the self-signed cert in ./config/.tls
+      - ./config:/config
+      # PlatformIO toolchains (~6 GB, downloaded on the first ESP build) and caches
+      - gemifi-cache:/cache
+    environment:
+      # Run as this user/group (owner of ./config).
+      PUID: "1000"
+      PGID: "1000"
+
+      # Web MIDI only works on https:// or http://localhost. To flash from another machine,
+      # serve https with a self-signed cert. List the names/IPs you open the page with.
+      GEMIFI_TLS: "self-signed"
+      GEMIFI_TLS_HOSTS: "${GEMIFI_TLS_HOSTS:-localhost}"
+      # Or your own cert (then remove GEMIFI_TLS):
+      # GEMIFI_TLS_CERT: "/config/tls/fullchain.pem"
+      # GEMIFI_TLS_KEY: "/config/tls/privkey.pem"
+
+      # Basic auth for everything. Set it when the port is reachable from the LAN.
+      GEMIFI_PASSWORD: "${GEMIFI_PASSWORD:-}"
+      # GEMIFI_USERNAME: "gemifi"
+
+      # Accepted Host headers (comma-separated, name or name:port). Empty: any host.
+      GEMIFI_ALLOWED_HOSTS: "${GEMIFI_ALLOWED_HOSTS:-}"
+
+volumes:
+  gemifi-cache:

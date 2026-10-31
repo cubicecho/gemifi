@@ -8,7 +8,9 @@
 # them (~6 GB) into /cache/platformio on the first ESP build.
 
 # ---- stage 1: the web updater (static files) ----
-FROM node:26-slim AS web
+# Runs on the build machine's own platform: its output is plain files, so a multi-arch build
+# doesn't run npm under emulation.
+FROM --platform=$BUILDPLATFORM node:26-slim AS web
 WORKDIR /src/web/updater
 COPY web/updater/package.json web/updater/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -35,7 +37,7 @@ COPY devices/ devices/
 COPY protocol/ protocol/
 COPY tools/builder/ tools/builder/
 COPY tools/host/ tools/host/
-COPY README.md ./
+COPY README.md LICENSE ./
 COPY --from=web /src/web/updater/dist/ web/updater/dist/
 COPY docker/entrypoint.sh /usr/local/bin/gemifi-entrypoint
 

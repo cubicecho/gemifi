@@ -108,6 +108,7 @@ int main(void)
 
     sys_clock_init();
     sys_tick_init();
+    hal_delay_calibrate();
     fmc_open();                            /* UID, profile in data flash */
 
     /* Boot combo held at power-up: ignore the stored profile. (With the

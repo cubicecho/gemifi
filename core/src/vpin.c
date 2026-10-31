@@ -144,6 +144,12 @@ __attribute__((weak)) const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint
     return 0;
 }
 
+__attribute__((weak)) volatile uint32_t *hal_pin_out_reg(uint16_t pin)
+{
+    (void)pin;
+    return 0;
+}
+
 int vpin_read(gm_pin_t p)
 {
     int inv = (p.flags & GM_PIN_INVERT) ? 1 : 0;

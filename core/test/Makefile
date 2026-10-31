@@ -28,6 +28,7 @@ SRCS := test_controller.c \
 .PHONY: test clean
 test: $(BUILD)/test_controller
 	$(BUILD)/test_controller $(BUILD)/schema.bin
+	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) $(DEV)/gm_device_config.h

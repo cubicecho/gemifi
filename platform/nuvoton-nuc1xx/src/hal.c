@@ -27,8 +27,33 @@ uint32_t hal_millis(void)
     return sys_tick_ms();
 }
 
+/* Short waits (the key-matrix settle, 1 us per row, in the scan interrupt)
+ * can't afford the SysTick loop's setup (about 2.5 us), so they spin a
+ * counted loop, calibrated once by hal_delay_calibrate() against SysTick. */
+static uint32_t spins_per_16us;
+
+__attribute__((noinline)) static void spin(uint32_t n)
+{
+    while (n--)
+        __asm__ volatile ("");
+}
+
+void hal_delay_calibrate(void)
+{
+    uint32_t t0 = SYST_CVR;
+    spin(1024u);
+    uint32_t t1 = SYST_CVR;
+    uint32_t cyc = t0 >= t1 ? t0 - t1 : t0 + SYST_RVR + 1u - t1;
+    if (cyc)
+        spins_per_16us = 1024u * 16u * (HCLK_HZ / 1000000u) / cyc;
+}
+
 void hal_delay_us(uint32_t us)
 {
+    if (us < 16u && spins_per_16us) {
+        spin((us * spins_per_16us + 15u) / 16u);
+        return;
+    }
     if (us >= 1000u) {
         sys_delay_ms((us + 999u) / 1000u);
         return;
@@ -42,6 +67,11 @@ void hal_delay_us(uint32_t us)
         done += now <= prev ? prev - now : prev + reload - now;
         prev = now;
     }
+}
+
+volatile uint32_t *hal_pin_out_reg(uint16_t pin)
+{
+    return &GPIO_PDIO(pin);
 }
 
 const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)

@@ -88,13 +88,25 @@ static uint8_t kstate[NK];
 static uint32_t kt0[NK];
 static uint32_t mprev[32];
 static uint8_t m_hubs;              /* rows or cols on a hub */
-/* Fast path: every column is an MCU pin with an input register, so a row
- * is read with one register load per distinct port (core/README.md). */
+/* Fast paths (the scan runs every scan_us from an interrupt):
+ * - columns all on MCU pins with an input register: a row is read as a few
+ *   runs of adjacent port bits (Keystation: PB0-5, PB8, PB12 = 3 runs from
+ *   one load), not pin by pin;
+ * - rows all on MCU pins with an output register: one store per edge. */
 #define FAST_COLS 16u
-static const volatile uint32_t *col_reg[FAST_COLS];
-static uint32_t col_mask[FAST_COLS];
+typedef struct {
+    const volatile uint32_t *reg;
+    uint32_t mask;                  /* run length, as low bits     */
+    uint8_t src, dst;               /* port bit -> column bit      */
+} col_run_t;
+static col_run_t col_run[FAST_COLS];
+static uint8_t n_runs;
 static uint32_t col_inv;            /* columns with GM_PIN_INVERT */
 static uint8_t cols_fast;
+#define FAST_ROWS 32u
+static volatile uint32_t *row_reg[FAST_ROWS];
+static uint32_t row_on;             /* level that drives row r: bit r */
+static uint8_t rows_fast;
 static uint8_t knote[NK], kchan[NK];
 #endif
 
@@ -149,7 +161,10 @@ static void matrix_scan(void)
     const gm_matrix_t *m = gm_device.matrix;
     uint32_t rows = m->n_rows > 32 ? 32 : m->n_rows;
     for (uint32_t r = 0; r < rows; r++) {
-        vpin_write(m->rows[r], 1);
+        if (rows_fast)
+            *row_reg[r] = (row_on >> r) & 1u;
+        else
+            vpin_write(m->rows[r], 1);
         if (m_hubs)
             vpin_flush();
         if (m->settle_us)
@@ -160,13 +175,13 @@ static void matrix_scan(void)
         if (cols_fast) {
             const volatile uint32_t *last = 0;
             uint32_t v = 0;
-            for (uint32_t c = 0; c < m->n_cols; c++) {
-                if (col_reg[c] != last) {
-                    last = col_reg[c];
+            for (uint32_t i = 0; i < n_runs; i++) {
+                const col_run_t *k = &col_run[i];
+                if (k->reg != last) {
+                    last = k->reg;
                     v = *last;
                 }
-                if (v & col_mask[c])
-                    s |= 1u << c;
+                s |= ((v >> k->src) & k->mask) << k->dst;
             }
             s ^= col_inv;
         } else {
@@ -174,7 +189,10 @@ static void matrix_scan(void)
                 if (vpin_read(m->cols[c]))
                     s |= 1u << c;
         }
-        vpin_write(m->rows[r], 0);
+        if (rows_fast)
+            *row_reg[r] = ((row_on >> r) & 1u) ^ 1u;
+        else
+            vpin_write(m->rows[r], 0);
         uint32_t diff = s ^ mprev[r];
         if (!diff)
             continue;
@@ -650,23 +668,43 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_HAS_MATRIX
     if (gm_device.matrix) {
         const gm_matrix_t *m = gm_device.matrix;
+        rows_fast = m->n_rows <= FAST_ROWS;
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
             if (m->rows[r].hub)
                 m_hubs = 1;
+            if (r < FAST_ROWS) {
+                row_reg[r] = m->rows[r].hub ? 0 : hal_pin_out_reg(m->rows[r].num);
+                if (!row_reg[r])
+                    rows_fast = 0;
+                if (!(m->rows[r].flags & GM_PIN_INVERT))
+                    row_on |= 1u << r;
+            }
         }
         cols_fast = m->n_cols <= FAST_COLS;
+        n_runs = 0;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             vpin_input(m->cols[c]);
             if (m->cols[c].hub)
                 m_hubs = 1;
-            if (c < FAST_COLS) {
-                col_reg[c] = m->cols[c].hub ? 0 : hal_pin_in_reg(m->cols[c].num, &col_mask[c]);
-                if (!col_reg[c])
-                    cols_fast = 0;
-                if (m->cols[c].flags & GM_PIN_INVERT)
-                    col_inv |= 1u << c;
+            if (c >= FAST_COLS)
+                continue;
+            uint32_t mask = 0;
+            const volatile uint32_t *reg = m->cols[c].hub ? 0 : hal_pin_in_reg(m->cols[c].num, &mask);
+            if (!reg || !mask || (mask & (mask - 1u))) {
+                cols_fast = 0;          /* no register, or not a single bit */
+                continue;
             }
+            uint8_t bit = (uint8_t)__builtin_ctz(mask);
+            col_run_t *k = n_runs ? &col_run[n_runs - 1u] : 0;
+            uint32_t len = k ? (uint32_t)__builtin_popcount(k->mask) : 0;
+            if (k && k->reg == reg && k->src + len == bit && k->dst + len == c && len < 31u) {
+                k->mask = (k->mask << 1) | 1u;      /* extends the previous run */
+            } else {
+                col_run[n_runs++] = (col_run_t){ reg, 1u, bit, (uint8_t)c };
+            }
+            if (m->cols[c].flags & GM_PIN_INVERT)
+                col_inv |= 1u << c;
         }
         for (uint32_t k = 0; k < NK; k++)
             knote[k] = NOTE_NONE;

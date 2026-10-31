@@ -42,6 +42,12 @@ void hal_pin_write(uint16_t pin, int level);
  * from an interrupt. Return NULL if there is none (the scan then calls
  * hal_pin_read). A weak default returning NULL is in core/src/vpin.c. */
 const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask);
+/* Optional fast write path for the key-matrix rows: a register where
+ * writing 1 drives `pin` high and 0 drives it low (a per-pin data register,
+ * like the NUC's GPIOx_PDIOn). Must be safe to write from an interrupt.
+ * Return NULL if there is none (the scan then calls hal_pin_write). A weak
+ * default returning NULL is in core/src/vpin.c. */
+volatile uint32_t *hal_pin_out_reg(uint16_t pin);
 /* 12-bit reading 0..4095 (blocking, a few us), or -1 if pin has no ADC. */
 int32_t hal_adc_read(uint16_t pin);
 

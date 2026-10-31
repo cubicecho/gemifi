@@ -38,13 +38,44 @@ static int32_t adc[8];
 uint32_t hal_millis(void) { return now_ms; }
 void hal_delay_us(uint32_t us) { (void)us; }
 void hal_pin_mode(uint16_t pin, uint8_t m) { mode[pin] = m; }
-void hal_pin_write(uint16_t pin, int l) { level[pin] = (uint8_t)l; }
+static void update_port_b(void);
+void hal_pin_write(uint16_t pin, int l) { level[pin] = (uint8_t)l; update_port_b(); }
 
 /* Keystation rows PA8 PA9 PC0..PC3 PC6 PC7, cols PB0..PB5 PB8 PB12 */
 static const uint16_t row_pin[8] = { 8, 9, 32, 33, 34, 35, 38, 39 };
 static const uint16_t col_pin[8] = { 16, 17, 18, 19, 20, 21, 24, 28 };
 
+/* Port B input register for the fast column path (hal_pin_in_reg),
+ * recomputed whenever a pin is written. GM_TEST_SLOW_COLS=1 turns the fast
+ * path off, so both scan paths are tested. */
+static volatile uint32_t port_b;
+static int slow_cols, col_reads;
+static int sim_level(uint16_t pin);
+static void update_port_b(void)
+{
+    uint32_t v = 0;
+    for (int b = 0; b < 16; b++)
+        if (sim_level((uint16_t)(16 + b)))
+            v |= 1u << b;
+    port_b = v;
+}
+const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
+{
+    if (slow_cols || pin < 16 || pin >= 32)
+        return 0;
+    *mask = 1u << (pin & 15u);
+    return &port_b;
+}
+
 int hal_pin_read(uint16_t pin)
+{
+    for (int c = 0; c < 8; c++)
+        if (col_pin[c] == pin)
+            col_reads++;
+    return sim_level(pin);
+}
+
+static int sim_level(uint16_t pin)
 {
     for (int c = 0; c < 8; c++) {
         if (col_pin[c] != pin)
@@ -264,6 +295,8 @@ static void boot(void)
 int main(int argc, char **argv)
 {
     memset(dflash, 0xFF, sizeof dflash);
+    slow_cols = getenv("GM_TEST_SLOW_COLS") != NULL;
+    printf("matrix scan: %s column path\n", slow_cols ? "per-pin" : "fast (port runs)");
     for (int i = 1; i <= 7; i++)
         level[i] = 1;                /* buttons released */
     adc[0] = 2048;
@@ -301,6 +334,10 @@ int main(int argc, char **argv)
 
     /* keys and velocity */
     int d1, d2;
+    col_reads = 0;
+    run_ms(5);
+    CHECK(slow_cols ? col_reads > 0 : col_reads == 0, "scan used the %s column path (%d pin reads)",
+          slow_cols ? "per-pin" : "fast", col_reads);
     press_key(0, 500);               /* 0.5 ms */
     CHECK(find_msg(0x90, &d1, &d2) && d1 == 48 && d2 == 127, "fast key: note 48 vel 127 (got %d %d)", d1, d2);
     release_key(0);

@@ -55,7 +55,7 @@ const gm_device_t gm_device = {
     .encoders = 0, .n_encoders = GM_N_ENCODERS,
     .matrix = &matrix,
     .boot_combo = (1u << 4) | (1u << 5),
-    .scan_us = 125,
+    .scan_us = 250,
 };
 
 /* button.action values: core/README.md "Button actions" */

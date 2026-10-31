@@ -28,13 +28,25 @@ uint32_t hal_millis(void)
 
 void hal_delay_us(uint32_t us)
 {
-    if (us >= 2000u) {
-        sys_delay_ms(us / 1000u);
+    if (us >= 1000u) {
+        sys_delay_ms((us + 999u) / 1000u);
         return;
     }
-    /* about 4 cycles per iteration at 48 MHz */
-    for (volatile uint32_t i = us * 12u; i; i--) {
+    /* Count SysTick down (HCLK, reloads every 1 ms). Only CVR is read: reading
+     * CSR would clear COUNTFLAG, which sys_tick_ms() counts milliseconds with. */
+    uint32_t want = us * (HCLK_HZ / 1000000u), reload = SYST_RVR + 1u;
+    uint32_t prev = SYST_CVR, done = 0;
+    while (done < want) {
+        uint32_t now = SYST_CVR;
+        done += now <= prev ? prev - now : prev + reload - now;
+        prev = now;
     }
+}
+
+const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
+{
+    *mask = 1u << (pin & 15u);
+    return (const volatile uint32_t *)(GPIO_BASE + 0x40u * (pin >> 4) + 0x10u);   /* GPIOx_PIN */
 }
 
 void hal_pin_mode(uint16_t pin, uint8_t mode)

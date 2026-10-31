@@ -33,10 +33,59 @@ static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), 3, strings,
 };
 
+/* Longest scan seen, in timer ticks (12 per us), and whether the period had
+ * to be raised because a scan ran into the next tick (which would starve
+ * the main loop, and with it USB). */
+static volatile uint32_t scan_max;
+static volatile uint8_t scan_slowed;
+#define SCAN_MAX_US 4000u
+
 void TMR0_IRQHandler(void)
 {
     TMR0_TISR = TISR_TIF;
     gm_scan_tick();
+    uint32_t used = TMR0_TDR;           /* counts up from 0 at each tick */
+    if (used > scan_max)
+        scan_max = used;
+    if (TMR0_TISR & TISR_TIF) {         /* the next tick came during this scan */
+        uint32_t p = TMR0_TCMPR;
+        if (p < 12u * SCAN_MAX_US) {
+            p += p / 4u;
+            TMR0_TCMPR = p;
+            gm_scan_period_us = p / 12u;
+            scan_slowed = 1;
+        }
+    }
+}
+
+/* "<text><n><unit>" into buf, for LOG messages (no printf here). */
+static const char *fmt_num(char *buf, const char *text, uint32_t n, const char *unit)
+{
+    char *d = buf, digits[10];
+    int k = 0;
+    while (*text)
+        *d++ = *text++;
+    do {
+        digits[k++] = (char)('0' + n % 10u);
+        n /= 10u;
+    } while (n && k < 10);
+    while (k)
+        *d++ = digits[--k];
+    while (*unit)
+        *d++ = *unit++;
+    *d = 0;
+    return buf;
+}
+
+static void report_scan(void)
+{
+    char a[32], b[32];
+    uint32_t period = TMR0_TCMPR;
+    app_log(LOG_INFO, fmt_num(a, "scan load ", scan_max * 100u / period, "%"),
+            fmt_num(b, ", period ", period / 12u, " us"));
+    if (scan_slowed)
+        app_log(LOG_WARN, "scan overran its period: slowed down to ",
+                fmt_num(b, "", period / 12u, " us"));
 }
 
 static void scan_timer_start(uint32_t period_us)
@@ -78,12 +127,16 @@ int main(void)
 
     scan_timer_start(gm_device.scan_us);
 
-    int cleared = 0;
+    int cleared = 0, reported = 0;
     for (;;) {
         usbd_poll();
         midi_rx_drain(gm_midi_rx_byte);
         gm_poll();
         /* Boot-loop guard (bootloader-design.md 3.6): we ran for 5 s. */
+        if (!reported && sys_tick_ms() >= 2500u) {
+            reported = 1;
+            report_scan();
+        }
         if (!cleared && sys_tick_ms() >= 5000u) {
             cleared = 1;
             MAILBOX->boot_count = 0;

@@ -26,6 +26,10 @@ extern "C" {
 void gm_init(uint32_t fw_version, int safe_mode);
 void gm_poll(void);
 void gm_scan_tick(void);
+/* The scan period actually in use, in us (starts as gm_device.scan_us). A
+ * platform that has to slow the scan down (the scan overran its period)
+ * sets it, so key velocities stay right. */
+extern volatile uint32_t gm_scan_period_us;
 
 /* Platform -> core: every received MIDI byte. */
 void gm_midi_rx_byte(uint8_t b);

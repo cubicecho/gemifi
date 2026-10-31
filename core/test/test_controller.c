@@ -110,7 +110,7 @@ int fmc_read_uid(uint8_t u[12]) { hal_uid(u); return 0; }
 static void run_ms(uint32_t ms)
 {
     for (uint32_t i = 0; i < ms; i++) {
-        for (int t = 0; t < 8; t++)  /* 8 scan ticks of 125 us per ms */
+        for (uint32_t t = 0; t < 1000u / gm_device.scan_us; t++)  /* scan ticks per ms */
             gm_scan_tick();
         now_ms++;
         gm_poll();
@@ -221,8 +221,10 @@ static int get_param(uint16_t id, uint16_t index, int32_t *v)
     return st;
 }
 
-static void press_key(int k, int dt_ticks)
+/* A key whose second contact closes dt_us after the first. */
+static void press_key(int k, int dt_us)
 {
+    int dt_ticks = dt_us / (int)gm_device.scan_us;
     int r = k % 8, p = k / 8;
     out_n = 0;
     contact[r][2 * p + 1] = 1;
@@ -299,15 +301,15 @@ int main(int argc, char **argv)
 
     /* keys and velocity */
     int d1, d2;
-    press_key(0, 4);                 /* 0.6 ms */
+    press_key(0, 500);               /* 0.5 ms */
     CHECK(find_msg(0x90, &d1, &d2) && d1 == 48 && d2 == 127, "fast key: note 48 vel 127 (got %d %d)", d1, d2);
     release_key(0);
     CHECK(find_msg(0x80, &d1, 0) && d1 == 48, "note off 48");
-    press_key(5, 80);                /* 10 ms */
+    press_key(5, 10000);             /* 10 ms */
     CHECK(find_msg(0x90, &d1, &d2) && d1 == 53 && d2 >= 60 && d2 <= 78,
           "10 ms key: note 53 vel ~69 (got %d %d)", d1, d2);
     release_key(5);
-    press_key(31, 2000);             /* 250 ms */
+    press_key(31, 250000);           /* 250 ms */
     CHECK(find_msg(0x90, &d1, &d2) && d1 == 79 && d2 == 1, "slow key: note 79 vel 1 (got %d %d)", d1, d2);
     release_key(31);
     /* order of contacts doesn't matter (keys 16..31 swap them on the stock board) */
@@ -328,7 +330,7 @@ int main(int argc, char **argv)
     run_ms(20);
     CHECK(level[11] == 0 && level[15] == 1, "oct+ LED level 1 = colour A only");
     button(3, 0);
-    press_key(0, 4);
+    press_key(0, 500);
     CHECK(find_msg(0x90, &d1, 0) && d1 == 60, "octave 1: note 60");
     button(3, 1); button(3, 0);
     run_ms(20);
@@ -422,7 +424,7 @@ int main(int argc, char **argv)
     CHECK(get_param(P_CHANNEL, 0, &v) == GSX_OK && v == 2, "GET channel");
     CHECK(set_param(P_TRANSPOSE, 0, -3) == GSX_OK && get_param(P_TRANSPOSE, 0, &v) == GSX_OK && v == -3,
           "negative s32 round trip");
-    press_key(0, 4);
+    press_key(0, 500);
     CHECK(find_msg(0x91, &d1, 0) && d1 == 45, "channel 2, transpose -3: 0x91 note 45");
     release_key(0);
     {

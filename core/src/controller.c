@@ -88,10 +88,18 @@ static uint8_t kstate[NK];
 static uint32_t kt0[NK];
 static uint32_t mprev[32];
 static uint8_t m_hubs;              /* rows or cols on a hub */
+/* Fast path: every column is an MCU pin with an input register, so a row
+ * is read with one register load per distinct port (core/README.md). */
+#define FAST_COLS 16u
+static const volatile uint32_t *col_reg[FAST_COLS];
+static uint32_t col_mask[FAST_COLS];
+static uint32_t col_inv;            /* columns with GM_PIN_INVERT */
+static uint8_t cols_fast;
 static uint8_t knote[NK], kchan[NK];
 #endif
 
 static volatile uint32_t ticks;
+volatile uint32_t gm_scan_period_us;
 
 #if GM_HAS_MATRIX
 static void kq_push(uint32_t key, int on, uint32_t dt)
@@ -149,9 +157,23 @@ static void matrix_scan(void)
         if (m_hubs)
             vpin_refresh();
         uint32_t s = 0;
-        for (uint32_t c = 0; c < m->n_cols && c < 32; c++)
-            if (vpin_read(m->cols[c]))
-                s |= 1u << c;
+        if (cols_fast) {
+            const volatile uint32_t *last = 0;
+            uint32_t v = 0;
+            for (uint32_t c = 0; c < m->n_cols; c++) {
+                if (col_reg[c] != last) {
+                    last = col_reg[c];
+                    v = *last;
+                }
+                if (v & col_mask[c])
+                    s |= 1u << c;
+            }
+            s ^= col_inv;
+        } else {
+            for (uint32_t c = 0; c < m->n_cols && c < 32; c++)
+                if (vpin_read(m->cols[c]))
+                    s |= 1u << c;
+        }
         vpin_write(m->rows[r], 0);
         uint32_t diff = s ^ mprev[r];
         if (!diff)
@@ -244,7 +266,7 @@ static uint32_t velocity(uint32_t dt_ticks)
 {
     if (gm_cfg.vel_curve == CURVE_FIXED || gm_device.matrix->kind != GM_MATRIX_KIND_VELOCITY)
         return (uint32_t)gm_cfg.vel_fixed;
-    uint32_t t = dt_ticks * gm_device.scan_us / 100u;       /* 0.1 ms */
+    uint32_t t = dt_ticks * gm_scan_period_us / 100u;       /* 0.1 ms */
     int32_t fast = gm_cfg.vel_fast, slow = gm_cfg.vel_slow;
     if (slow <= fast)
         slow = fast + 1;
@@ -601,6 +623,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 {
     fw_ver = fw_version;
     safe = (uint8_t)safe_mode;
+    gm_scan_period_us = gm_device.scan_us;
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         uint8_t t = gm_device.hubs[i].type;
         if (t == GM_HUB_HC595 || t == GM_HUB_HC165)
@@ -632,10 +655,18 @@ void gm_init(uint32_t fw_version, int safe_mode)
             if (m->rows[r].hub)
                 m_hubs = 1;
         }
+        cols_fast = m->n_cols <= FAST_COLS;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             vpin_input(m->cols[c]);
             if (m->cols[c].hub)
                 m_hubs = 1;
+            if (c < FAST_COLS) {
+                col_reg[c] = m->cols[c].hub ? 0 : hal_pin_in_reg(m->cols[c].num, &col_mask[c]);
+                if (!col_reg[c])
+                    cols_fast = 0;
+                if (m->cols[c].flags & GM_PIN_INVERT)
+                    col_inv |= 1u << c;
+            }
         }
         for (uint32_t k = 0; k < NK; k++)
             knote[k] = NOTE_NONE;

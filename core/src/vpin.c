@@ -137,6 +137,13 @@ static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
     hal_delay_us(h->settle_us ? h->settle_us : 2);
 }
 
+__attribute__((weak)) const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
+{
+    (void)pin;
+    *mask = 0;
+    return 0;
+}
+
 int vpin_read(gm_pin_t p)
 {
     int inv = (p.flags & GM_PIN_INVERT) ? 1 : 0;

@@ -36,6 +36,12 @@ void hal_delay_us(uint32_t us);
 void hal_pin_mode(uint16_t pin, uint8_t mode);
 int hal_pin_read(uint16_t pin);              /* electrical level 0/1 */
 void hal_pin_write(uint16_t pin, int level);
+/* Optional fast read path for the key-matrix scan: the register holding
+ * `pin`'s input level and the bit within it, so a scan can read a whole
+ * port once instead of calling hal_pin_read per pin. Must be safe to read
+ * from an interrupt. Return NULL if there is none (the scan then calls
+ * hal_pin_read). A weak default returning NULL is in core/src/vpin.c. */
+const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask);
 /* 12-bit reading 0..4095 (blocking, a few us), or -1 if pin has no ADC. */
 int32_t hal_adc_read(uint16_t pin);
 

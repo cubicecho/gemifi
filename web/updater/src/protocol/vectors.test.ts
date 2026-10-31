@@ -5,9 +5,35 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { decodeU14, decodeU28, decodeU32, encodeU14, encodeU28, encodeU32, pack, unpack } from './encoding.ts';
+import {
+  decodeS32,
+  decodeU14,
+  decodeU28,
+  decodeU32,
+  encodeS32,
+  encodeU14,
+  encodeU28,
+  encodeU32,
+  pack,
+  unpack,
+} from './encoding.ts';
 import { checksum, decodeFrame, encodeFrame, FrameProblem } from './frame.ts';
 import { planChunks, readHeader, validateImage } from './image.ts';
+import {
+  encoderDelta,
+  getParamPayload,
+  getParamsPayload,
+  getSchemaPayload,
+  parseDeviceMessage,
+  parseParamRun,
+  parseParamRunEcho,
+  parseParamValue,
+  parseSchemaWindow,
+  setParamPayload,
+  setParamsPayload,
+} from './messages.ts';
+import { type ParamSpec, parseSchema, SchemaError } from './schema.ts';
+import { Command, ParamFlag, REPLY_FLAG, Status, Unsolicited } from './wire.ts';
 
 const VECTORS_URL = new URL('../../../../protocol/test-vectors.json', import.meta.url);
 
@@ -15,7 +41,46 @@ interface IntVector {
   value: number;
   bytes: string;
 }
+/** A param as the vectors write it: absent strings and lists are empty. */
+interface VectorParam {
+  id: number;
+  type: number;
+  group: number;
+  count: number;
+  flags: number;
+  min: number;
+  max: number;
+  defaults: number[];
+  name: string;
+  label: string;
+  unit: string;
+  index_labels: string[];
+  options?: string[];
+}
+/** The decoded fields of a config frame. */
+interface ConfigFields {
+  status?: number;
+  offset?: number;
+  max?: number;
+  total?: number;
+  data?: string;
+  id?: number;
+  index?: number;
+  value?: number;
+  n?: number;
+  values?: number[];
+  type?: number;
+  delta?: number;
+  t_ms?: number;
+}
+interface ConfigVectors {
+  s32: IntVector[];
+  schema: { raw: string; size: number; parsed: { version: number; groups: string[]; params: VectorParam[] } };
+  bad_schemas: { desc: string; raw: string; error: string }[];
+  frames: { desc: string; cmd: number; seq: number; payload: string; frame: string; fields?: ConfigFields }[];
+}
 interface Vectors {
+  config?: ConfigVectors;
   u14: IntVector[];
   u28: IntVector[];
   u32: IntVector[];
@@ -118,5 +183,144 @@ describe('protocol/test-vectors.json', () => {
     });
     const result = validateImage(gfw, f.board_id);
     expect(result.ok ? [] : result.problems).toEqual([]);
+  });
+});
+
+/**
+ * A parsed param in the vectors' words: absent strings and lists empty, one default unless per index.
+ *
+ * @param param - From `parseSchema`.
+ * @returns The vector form.
+ */
+function asVectorParam(param: ParamSpec): VectorParam {
+  const isPerIndex = (param.flags & ParamFlag.PerIndexDefault) !== 0;
+  return {
+    id: param.id,
+    type: param.rawType,
+    group: param.group,
+    count: param.count,
+    flags: param.flags,
+    min: param.min,
+    max: param.max,
+    defaults: isPerIndex ? param.defaults : param.defaults.slice(0, 1),
+    name: param.name,
+    label: param.label,
+    unit: param.unit ?? '',
+    index_labels: param.indexLabels ?? [],
+    options: param.options ?? [],
+  };
+}
+
+/** What the vectors call each bad-schema error, as a message this parser throws. */
+const SCHEMA_PROBLEMS: Record<string, RegExp> = { truncated: /ends early/, version: /schema version/ };
+
+describe.runIf(vectors.config !== undefined)('protocol/test-vectors.json config', () => {
+  const config = vectors.config as ConfigVectors;
+
+  it('s32', () => {
+    for (const { value, bytes } of config.s32) {
+      expect(encodeS32(value)).toEqual(bytesOf(bytes));
+      expect(decodeS32(bytesOf(bytes))).toBe(value);
+    }
+  });
+
+  it('the example schema', () => {
+    const raw = bytesOf(config.schema.raw);
+    expect(raw).toHaveLength(config.schema.size);
+    const schema = parseSchema(raw);
+    expect({ version: schema.version, groups: schema.groups, params: schema.params.map(asVectorParam) }).toEqual({
+      ...config.schema.parsed,
+      params: config.schema.parsed.params.map((p) => ({ options: [], ...p })),
+    });
+  });
+
+  it('bad schemas', () => {
+    for (const { desc, raw, error } of config.bad_schemas) {
+      const parse = () => parseSchema(bytesOf(raw));
+      expect(parse, desc).toThrow(SchemaError);
+      expect(parse, desc).toThrow(SCHEMA_PROBLEMS[error] ?? /./);
+    }
+  });
+
+  it('frames', () => {
+    for (const { desc, cmd, seq, payload, frame, fields = {} } of config.frames) {
+      const body = bytesOf(payload);
+      expect(Array.from(encodeFrame(cmd, seq, body)), desc).toEqual(bytesOf(frame));
+      const isReply = cmd >= REPLY_FLAG && cmd < Unsolicited.Log;
+      const status = fields.status;
+      if (isReply && status !== Status.Ok) {
+        expect(body, desc).toEqual([status]);
+        continue;
+      }
+      const rest = isReply ? body.slice(1) : body;
+      const { id = 0, index = 0, n = 0, values = [] } = fields;
+      switch (cmd) {
+        case Command.GetSchema:
+          expect(getSchemaPayload(fields.offset ?? 0, fields.max ?? 0), desc).toEqual(body);
+          break;
+        case Command.GetSchema | REPLY_FLAG:
+          expect(parseSchemaWindow(rest), desc).toEqual({
+            total: fields.total,
+            offset: fields.offset,
+            data: bytesOf(fields.data ?? ''),
+          });
+          break;
+        case Command.GetParam:
+          expect(getParamPayload(id, index), desc).toEqual(body);
+          break;
+        case Command.SetParam:
+          expect(setParamPayload({ id, index, value: fields.value ?? 0 }), desc).toEqual(body);
+          break;
+        case Command.GetParam | REPLY_FLAG:
+        case Command.SetParam | REPLY_FLAG:
+          expect(parseParamValue(rest), desc).toEqual({ id, index, value: fields.value });
+          break;
+        case Command.GetParams:
+          expect(getParamsPayload(id, index, n), desc).toEqual(body);
+          break;
+        case Command.GetParams | REPLY_FLAG:
+          expect(parseParamRun(rest), desc).toEqual({ id, index, values });
+          expect(values, desc).toHaveLength(n);
+          break;
+        case Command.SetParams:
+          expect(setParamsPayload({ id, index, values }), desc).toEqual(body);
+          break;
+        case Command.SetParams | REPLY_FLAG:
+          expect(parseParamRunEcho(rest), desc).toEqual({ id, index, n });
+          break;
+        case Command.Commit:
+        case Command.FactoryReset:
+          expect(body, desc).toEqual([]);
+          break;
+        case Command.Commit | REPLY_FLAG:
+        case Command.FactoryReset | REPLY_FLAG:
+          expect(rest, desc).toEqual([]);
+          break;
+        case Unsolicited.ParamChanged:
+          expect(parseDeviceMessage({ version: 1, cmd, seq, payload: body }), desc).toEqual({
+            kind: 'param',
+            id,
+            index,
+            value: fields.value,
+          });
+          break;
+        case Unsolicited.Event: {
+          const message = parseDeviceMessage({ version: 1, cmd, seq, payload: body });
+          expect(message, desc).toEqual({
+            kind: 'event',
+            type: fields.type,
+            index,
+            value: fields.value,
+            tMs: fields.t_ms,
+          });
+          if (fields.delta !== undefined) {
+            expect(encoderDelta(fields.value ?? 0), desc).toBe(fields.delta);
+          }
+          break;
+        }
+        default:
+          throw new Error(`no check for ${desc} (cmd ${cmd})`);
+      }
+    }
   });
 });

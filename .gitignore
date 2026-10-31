@@ -12,6 +12,7 @@ __pycache__/
 
 # Builds
 build/
+.pio/
 dist/
 node_modules/
 *.elf

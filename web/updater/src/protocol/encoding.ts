@@ -1,9 +1,9 @@
 /**
- * The 7-bit encodings of `protocol/sysex.md` §2: u14, u28, u32, 8→7 packed binary and text.
+ * The 7-bit encodings of `protocol/sysex.md` §2: u14, u28, u32, s32, 8→7 packed binary and text.
  * Every function here is pure and works on plain arrays of byte values.
  */
 
-import { DATA_MASK, HEX_RADIX, U32_LIMIT } from './wire.ts';
+import { DATA_MASK, HEX_RADIX, S32_MAX, S32_MIN, U32_LIMIT } from './wire.ts';
 
 /** Bits carried by one SysEx data byte. */
 const BITS_PER_BYTE = 7;
@@ -135,6 +135,31 @@ export function decodeU32(bytes: ArrayLike<number>, offset = 0): number {
     throw new DecodeError(`u32 at offset ${offset} overflows 32 bits`);
   }
   return value;
+}
+
+/**
+ * Encodes an s32: the u32 of the value's two's-complement bit pattern, so −1 is `7F 7F 7F 7F 0F`.
+ *
+ * @param value - −2^31..2^31 − 1.
+ * @returns Five bytes, low 7 bits first.
+ */
+export function encodeS32(value: number): number[] {
+  const isInRange = Number.isInteger(value) && value >= S32_MIN && value <= S32_MAX;
+  if (isInRange === false) {
+    throw new RangeError(`${value} does not fit in a signed 32-bit integer`);
+  }
+  return encodeU32(value >>> 0);
+}
+
+/**
+ * Decodes an s32.
+ *
+ * @param bytes - The source.
+ * @param offset - Where it starts.
+ * @returns The signed value.
+ */
+export function decodeS32(bytes: ArrayLike<number>, offset = 0): number {
+  return decodeU32(bytes, offset) | 0;
 }
 
 /**
@@ -274,6 +299,20 @@ export class PayloadReader {
     const value = decodeU32(this.#bytes, this.#offset);
     this.#offset += U32_BYTES;
     return value;
+  }
+
+  /** @returns An s32. */
+  s32(): number {
+    const value = decodeS32(this.#bytes, this.#offset);
+    this.#offset += U32_BYTES;
+    return value;
+  }
+
+  /** @returns Everything left, unpacked 8→7. */
+  restPacked(): number[] {
+    const slice = Array.from(this.#bytes).slice(this.#offset);
+    this.#offset = this.#bytes.length;
+    return unpack(slice);
   }
 
   /**

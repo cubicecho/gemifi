@@ -4,7 +4,7 @@ This bootloader runs from the 4 KB LDROM of a NUC1xx part. It hands off to the a
 
 First board: M-Audio Keystation Mini 32 MK3 (NUC120LC1BN). Its board file is [`platform/nuvoton-nuc1xx/boards/keystation-mini32-mk3.h`](../../platform/nuvoton-nuc1xx/boards/keystation-mini32-mk3.h).
 
-> **Status: built and checked on the host only. Nothing here has run on hardware yet.** Test it in APROM first (`TEST_IN_APROM=1`, below) before putting it in LDROM.
+> **Status: running on hardware (Keystation Mini 32 MK3, 2026-10-31).** The `TEST_IN_APROM` build passed the upload and error-path checks on the board (M3). The real build is in LDROM, verified by ISP read-back: it uploads and starts `midi-controller.gfw` over USB (about 4 s), and app → bootloader → app reboots work (M4).
 
 ## Build
 
@@ -37,7 +37,7 @@ Headroom is tight. Before adding anything, see "Size notes" below.
 |---|---|---|
 | LDROM | 0x0010_0000, mapped at **0x0** while it runs (CONFIG0 CBS = 0) | this bootloader, linked at 0x0 |
 | APROM | 0x0000_0000, 32 KB | the app: vectors 0x000–0x0BF, `.gfw` header 0x0C0–0x0DF |
-| Data flash | 0x0001_F000, 4 KB | owned by the app; this bootloader never writes it (only the test build does) |
+| Data flash | 0x0001_F000, 4 KB | owned by the app: settings journal in 0x1F000–0x1FDFF, device ID in the last page (0x1FE00, chips without a UID); this bootloader never writes it (only the test build does). It still reports the chip UID, so its serial is all zeros on the NUC120BN |
 | CONFIG0/1 | 0x0030_0000 | never written; keep CBS = 0 so LDROM always runs first |
 | SRAM | 0x2000_0000 – 0x2000_0FEF | `.bss` (~880 B) and the stack; the stack starts at 0x2000_0FF0 |
 | Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`; not initialised by either side |

@@ -46,4 +46,8 @@ typedef struct {
  * callers do those first. */
 __attribute__((noreturn)) void sys_reset_to(int to_ldrom);
 
+/* Apps (src/hal.c): calibrate hal_delay_us() for short waits. Call once
+ * after sys_tick_init(), before interrupts that use it are enabled. */
+void hal_delay_calibrate(void);
+
 #endif

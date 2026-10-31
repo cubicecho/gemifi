@@ -1,0 +1,44 @@
+# Example ESP32-S3 USB MIDI controller (gemifi ESP platform reference).
+# The default device of firmware/esp/midi-controller (esp32s2 / esp32s3).
+# Pins are for an ESP32-S3-DevKitC-1.
+gemifi: 1
+name: ESP32 Example
+description: ESP32-S3 example, 4 buttons, 1 LED, 2 pots, 1 encoder, 8 faders on a 74HC4051
+board_id: 0x3F01               # 0x3F00-0x3FFF: DIY / private
+platform: esp32s3
+chip: esp32-s3-devkitc-1       # PlatformIO board id
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
+scan_us: 500
+boot_combo: [Button 1, Button 4]
+
+hubs:
+  - id: faders
+    type: 74hc4051
+    select: [GPIO4, GPIO5, GPIO6]
+    common: GPIO1              # ADC1
+    settle_us: 5
+
+buttons:
+  - { label: Button 1, pin: { pin: GPIO9,  pullup: true, inverted: true }, action: cc_toggle, number: 80, led: LED }
+  - { label: Button 2, pin: { pin: GPIO10, pullup: true, inverted: true }, action: cc_momentary, number: 64 }
+  - { label: Button 3, pin: { pin: GPIO11, pullup: true, inverted: true }, action: octave_down }
+  - { label: Button 4, pin: { pin: GPIO12, pullup: true, inverted: true }, action: octave_up }
+
+leds:
+  - { label: LED, pin: GPIO21 }
+
+analog:
+  - { label: Pot 1, pin: GPIO7, cc: 7 }      # ADC1
+  - { label: Pot 2, pin: GPIO8, cc: 10 }     # ADC1
+  - { label: Fader 1, pin: { hub: faders, channel: 0 }, cc: 20 }
+  - { label: Fader 2, pin: { hub: faders, channel: 1 }, cc: 21 }
+  - { label: Fader 3, pin: { hub: faders, channel: 2 }, cc: 22 }
+  - { label: Fader 4, pin: { hub: faders, channel: 3 }, cc: 23 }
+  - { label: Fader 5, pin: { hub: faders, channel: 4 }, cc: 24 }
+  - { label: Fader 6, pin: { hub: faders, channel: 5 }, cc: 25 }
+  - { label: Fader 7, pin: { hub: faders, channel: 6 }, cc: 26 }
+  - { label: Fader 8, pin: { hub: faders, channel: 7 }, cc: 27 }
+
+encoders:
+  - { label: Encoder, a: { pin: GPIO15, pullup: true }, b: { pin: GPIO16, pullup: true }, cc: 30, steps_per_detent: 4 }

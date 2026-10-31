@@ -4,7 +4,7 @@
 export interface RequestSettings {
   /** How long to wait for a reply before resending the same request with the same `seq`. */
   replyTimeoutMs: number;
-  /** The reply timeout for FW_BEGIN and FW_END, which erase a page or read back and CRC the whole image. */
+  /** The reply timeout for FW_BEGIN, FW_END, COMMIT and FACTORY_RESET, which erase or write flash, or read back and CRC. */
   longReplyTimeoutMs: number;
   /** How many times a request is resent after the first try before giving up. */
   maxRetries: number;
@@ -22,9 +22,18 @@ export interface RebootSettings {
   reappearTimeoutMs: number;
   /** How long to let a port that just appeared settle before talking to it. */
   portSettleMs: number;
+  /**
+   * A/B devices: how long to keep asking HELLO after REBOOT(0). Longer than a bootloader's
+   * reboot: an ESP8266 copies the new image into place at boot before it starts.
+   */
+  abRestartTimeoutMs: number;
+  /** A/B devices: the pause before each HELLO while waiting for the restart. */
+  abPollMs: number;
 }
 
 export const REBOOT_DEFAULTS: Readonly<RebootSettings> = Object.freeze({
   reappearTimeoutMs: 5000,
   portSettleMs: 300,
+  abRestartTimeoutMs: 15_000,
+  abPollMs: 500,
 });

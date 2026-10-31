@@ -57,6 +57,10 @@
  * and consumed on the next call (call gsx_rx_reset first). */
 int midi_rx_poll(gsx_rx_t *rx);
 
+/* Hands every received SysEx byte (CIN 4..7, including F0/F7) to cb and
+ * releases the OUT packet. For apps that parse the stream themselves. */
+void midi_rx_drain(void (*cb)(uint8_t b));
+
 /* ---- transmit --------------------------------------------------------- */
 /* Queue one 4-byte USB-MIDI event; sent in 64-byte packets. */
 void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2);
@@ -66,5 +70,8 @@ void midi_tx_sysex(const uint8_t *p, uint32_t n);
  * (polling usbd_poll() meanwhile); on timeout the data is dropped.
  * Returns 0 if sent, -1 if dropped. */
 int midi_tx_flush(uint32_t timeout_ms);
+/* Non-blocking: send what is queued if the IN endpoint is free. Call it
+ * from the main loop; events queue up (64 B) while the host is busy. */
+void midi_tx_poll(void);
 
 #endif

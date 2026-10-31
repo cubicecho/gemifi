@@ -28,6 +28,9 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define FLASH_APROM_SIZE     0x00008000u   /* 32 KB on NUC120LC1BN */
 #define FLASH_DATA_BASE      0x0001F000u   /* data flash, 4 KB      */
 #define FLASH_DATA_SIZE      0x00001000u
+/* Last data-flash page: the device ID on chips without a UID (hal.c). The
+ * config journal (config_store.c) uses the pages before it. */
+#define FLASH_DEVID_ADDR     (FLASH_DATA_BASE + FLASH_DATA_SIZE - FLASH_PAGE_SIZE)
 #define FLASH_LDROM_BASE     0x00100000u
 #define FLASH_LDROM_SIZE     0x00001000u
 #define FLASH_CONFIG_BASE    0x00300000u
@@ -178,5 +181,59 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define SYST_CSR_ENABLE      (1u << 0)
 #define SYST_CSR_CLKSOURCE   (1u << 2)     /* 1 = core clock */
 #define SYST_CSR_COUNTFLAG   (1u << 16)
+
+/* The timer, ADC and NVIC sections below (added for midi-controller) match
+ * the stock firmware's register writes (hw-map.md section 4) but have not run
+ * on hardware yet. */
+
+/* ---- Clock bits used by apps (TRM 5.3) -------------------------------- */
+#define APBCLK_TMR0_EN       (1u << 2)
+#define APBCLK_TMR1_EN       (1u << 3)
+#define APBCLK_ADC_EN        (1u << 28)
+#define CLKSEL1_ADC_S_MASK   (3u << 2)     /* 00 = 12 MHz crystal          */
+#define CLKSEL1_TMR0_S_MASK  (7u << 8)     /* 000 = 12 MHz crystal         */
+#define CLKSEL1_TMR1_S_MASK  (7u << 12)    /* 111 = internal 22 MHz RC     */
+#define CLKDIV_ADC_N_SHIFT   16            /* ADC clock = src / (ADC_N+1)  */
+#define CLKDIV_ADC_N_MASK    (0xFFu << 16)
+#define IPRSTC2_TMR0_RST     (1u << 2)
+#define IPRSTC2_ADC_RST      (1u << 28)
+
+/* ---- Timer0 (TRM 5.11) ------------------------------------------------ */
+#define TMR0_BASE            0x40010000u
+#define TMR0_TCSR            RB(TMR0_BASE, 0x00)
+#define TMR0_TCMPR           RB(TMR0_BASE, 0x04)
+#define TMR0_TISR            RB(TMR0_BASE, 0x08)
+#define TMR0_TDR             RB(TMR0_BASE, 0x0C)
+#define TMR1_BASE            0x40010020u
+#define TMR1_TCSR            RB(TMR1_BASE, 0x00)
+#define TMR1_TCMPR           RB(TMR1_BASE, 0x04)
+#define TMR1_TDR             RB(TMR1_BASE, 0x0C)
+#define TCSR_TDR_EN          (1u << 16)    /* keep TDR updated             */
+#define TCSR_PRESCALE(n)     ((uint32_t)(n) & 0xFFu)
+#define TCSR_CRST            (1u << 26)
+#define TCSR_MODE_PERIODIC   (1u << 27)    /* MODE[28:27] = 01             */
+#define TCSR_IE              (1u << 29)
+#define TCSR_CEN             (1u << 30)
+#define TISR_TIF             (1u << 0)     /* write 1 to clear             */
+
+/* ---- ADC (TRM 5.15) --------------------------------------------------- */
+#define ADC_BASE             0x400E0000u
+#define ADC_ADDR(ch)         RB(ADC_BASE, 0x00 + 4u * (ch))
+#define ADC_ADCR             RB(ADC_BASE, 0x20)
+#define ADC_ADCHER           RB(ADC_BASE, 0x24)
+#define ADC_ADSR             RB(ADC_BASE, 0x30)
+#define ADCR_ADEN            (1u << 0)
+#define ADCR_ADST            (1u << 11)
+#define ADSR_ADF             (1u << 0)     /* write 1 to clear             */
+#define ADDR_RSLT_MASK       0xFFFu
+
+/* ---- Cortex-M0 NVIC --------------------------------------------------- */
+#define NVIC_ISER            RB(0xE000E000u, 0x100)
+#define NVIC_ICER            RB(0xE000E000u, 0x180)
+#define IRQ_TMR0             8
+#define IRQ_USBD             23
+
+static inline void irq_enable_all(void) { __asm__ volatile ("cpsie i" ::: "memory"); }
+static inline void irq_disable_all(void) { __asm__ volatile ("cpsid i" ::: "memory"); }
 
 #endif

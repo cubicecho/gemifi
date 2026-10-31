@@ -45,6 +45,24 @@ int midi_rx_poll(gsx_rx_t *rx)
     return 0;
 }
 
+void midi_rx_drain(void (*cb)(uint8_t b))
+{
+    int n = usbd_out_len();
+    if (n < 0)
+        return;
+    const volatile uint8_t *p = usbd_out_data();
+    for (int i = 0; i + 4 <= n; i += 4) {
+        uint32_t cin = p[i] & 0x0F;
+        if (cin < 4 || cin > 7)
+            continue;
+        uint32_t k = (cin == 5) ? 1 : (cin == 6) ? 2 : 3;
+        for (uint32_t j = 0; j < k; j++)
+            cb(p[i + 1 + j]);
+    }
+    rx_pos = 0;
+    usbd_out_release();
+}
+
 int midi_tx_flush(uint32_t timeout_ms)
 {
     if (!tx_n)
@@ -67,6 +85,14 @@ int midi_tx_flush(uint32_t timeout_ms)
     usbd_in_write(tx_buf, tx_n);
     tx_n = 0;
     return 0;
+}
+
+void midi_tx_poll(void)
+{
+    if (tx_n && usbd_configured() && !usbd_in_busy()) {
+        usbd_in_write(tx_buf, tx_n);
+        tx_n = 0;
+    }
 }
 
 void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2)

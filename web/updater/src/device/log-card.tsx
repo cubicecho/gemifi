@@ -13,7 +13,7 @@ export interface LogCardProps {
 }
 
 /**
- * The device's LOG and EVENT messages, or every SysEx message as hex.
+ * The device's LOG, EVENT and PARAM_CHANGED messages, or every SysEx message as hex.
  *
  * @param props - The lines and a clear handler.
  * @returns The card.
@@ -21,7 +21,7 @@ export interface LogCardProps {
 export function LogCard({ lines, rawLines, onClear }: LogCardProps) {
   const [isRaw, setIsRaw] = useState(false);
   const shown = isRaw ? rawLines : lines;
-  const empty = isRaw ? 'No SysEx sent or received yet.' : 'No LOG or EVENT messages yet.';
+  const empty = isRaw ? 'No SysEx sent or received yet.' : 'No LOG, EVENT or PARAM_CHANGED messages yet.';
   return (
     <CardLayout
       title="Log"

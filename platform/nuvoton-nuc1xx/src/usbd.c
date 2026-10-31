@@ -2,7 +2,7 @@
  * usbd.c: polled USB device core for the NUC1xx USBD. See usbd.h.
  *
  * Register-level references: TRM V2.02 section 5.4 (USB device controller),
- * the stock firmware's USB init (analysis/excerpts-hw.txt) and the flow of
+ * the stock firmware's USB init (local notes, not in git) and the flow of
  * TinyUSB's dcd_nuc120.c / Nuvoton's BSP usbd.c.
  *
  * SPDX-License-Identifier: MIT

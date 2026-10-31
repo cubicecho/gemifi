@@ -16,5 +16,7 @@
 #define GM_MATRIX_KEYS 32
 #define GM_MATRIX_VELOCITY 1
 #define GM_HAS_I2C 0
+#define GM_VEL_FAST_DEFAULT 16 /* 1.6 ms */
+#define GM_VEL_SLOW_DEFAULT 1200 /* 120 ms */
 
 #endif

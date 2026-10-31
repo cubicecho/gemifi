@@ -10,6 +10,15 @@
 
 gm_settings_t gm_cfg;
 
+/* Key-time defaults, in 0.1 ms. A device sets its own in its YAML
+ * (key_matrix.velocity), since they depend on the keybed. */
+#ifndef GM_VEL_FAST_DEFAULT
+#define GM_VEL_FAST_DEFAULT 12
+#endif
+#ifndef GM_VEL_SLOW_DEFAULT
+#define GM_VEL_SLOW_DEFAULT 1200
+#endif
+
 enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG };
 static const char *const groups[] = {
     "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug",
@@ -70,10 +79,10 @@ static const param_def_t params[] = {
       .name = "velocity.fixed", .label = "Fixed velocity", .values = &gm_cfg.vel_fixed },
 #if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
     { .id = P_VEL_FAST, .type = PT_INT, .group = G_VELOCITY, .count = 1,
-      .min = 1, .max = 500, .def = 12, .unit = "0.1 ms",
+      .min = 1, .max = 500, .def = GM_VEL_FAST_DEFAULT, .unit = "0.1 ms",
       .name = "velocity.fast", .label = "Key time for velocity 127", .values = &gm_cfg.vel_fast },
     { .id = P_VEL_SLOW, .type = PT_INT, .group = G_VELOCITY, .count = 1,
-      .min = 20, .max = 2000, .def = 1200, .unit = "0.1 ms",
+      .min = 20, .max = 2000, .def = GM_VEL_SLOW_DEFAULT, .unit = "0.1 ms",
       .name = "velocity.slow", .label = "Key time for velocity 1", .values = &gm_cfg.vel_slow },
 #endif
 

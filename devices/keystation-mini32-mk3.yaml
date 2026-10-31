@@ -45,3 +45,7 @@ key_matrix:
   keys: 32
   first_note: 48
   settle_us: 1
+  # Key times for velocity 127 and 1, tuned on this keybed (2026-10-31):
+  # soft playing 21-54 ms, normal 3-7 ms, hard 1.2-2.5 ms between contacts.
+  # 2.0/80 felt hot at the top and too quiet at the bottom.
+  velocity: { fast_ms: 1.6, slow_ms: 120 }

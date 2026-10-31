@@ -51,7 +51,7 @@ Inputs on HC165, MCP23017 and PCF8574 are read once per scan into a cache, and o
 | LED | `pin`, optional `pin2` (bicolour), `label` | – (LEDs show their button's state, or the octave/transpose level) |
 | analog (pot, slider, fader, expression) | `pin` (ADC pin or mux channel), `label`, `raw_min`, `raw_max`, default `cc` | `analog.cc` |
 | encoder | `a`, `b`, `label`, `steps_per_detent`, default `cc` | `encoder.cc`, `encoder.mode` |
-| key matrix (at most one) | `rows`, `cols`, `kind` (`switch` / `velocity`), `keys`, `first_note`, `settle_us` | the velocity params if `kind: velocity` |
+| key matrix (at most one) | `rows`, `cols`, `kind` (`switch` / `velocity`), `keys`, `first_note`, `settle_us`, and for `kind: velocity` optional default key times `velocity: { fast_ms, slow_ms }` (time between the two contacts for velocity 127 and 1; default 1.2 and 120 ms) | the velocity params if `kind: velocity` |
 
 Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`. The list with ids is in `src/settings.c`; ids never change meaning.
 
@@ -124,6 +124,7 @@ key_matrix:
   keys: 32
   first_note: 48
   settle_us: 1
+  velocity: { fast_ms: 1.6, slow_ms: 120 }
 ```
 
 A **pin** is a string (`PA1`, `GPIO5`, `5`) or a mapping: `{ pin: PA1 }` or `{ hub: <hub id>, pin: 3 }` (also `channel:` for a mux), plus `inverted`, `pullup`, `pulldown`. Labels must be unique per component kind; buttons refer to LEDs and `boot_combo` to buttons by label.

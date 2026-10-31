@@ -894,7 +894,7 @@ def validate_hub(v, dev, h, p, line, index):
 
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
-    d = v.mapping(d, p, line, ["kind", "rows", "cols", "keys", "first_note", "settle_us"])
+    d = v.mapping(d, p, line, ["kind", "rows", "cols", "keys", "first_note", "settle_us", "velocity"])
     if d is None:
         return
     kind = d.get("kind")
@@ -926,8 +926,50 @@ def validate_matrix(v, dev, d, line):
     if keys is not None and first is not None and first + keys > 128:
         v.err(f"{p}.keys", d.line_of("keys"), f"first_note {first} + {keys} keys goes past note 127")
     settle = v.integer(d, "settle_us", p, 0, 255, default=1)
+    vel_fast, vel_slow = validate_velocity(v, d, p, kind)
     dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["cols"], keys=keys or 0,
-                     first_note=first or 0, settle_us=settle)
+                     first_note=first or 0, settle_us=settle, vel_fast=vel_fast, vel_slow=vel_slow)
+
+
+# Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
+# velocity.slow params; their ranges are in core/src/settings.c).
+VEL_FAST_RANGE = (1, 500)
+VEL_SLOW_RANGE = (20, 2000)
+
+
+def validate_velocity(v, d, path, kind):
+    """key_matrix.velocity: { fast_ms, slow_ms } -> (fast, slow) in 0.1 ms, None where not given."""
+    p = f"{path}.velocity"
+    vd = v.mapping(d.get("velocity"), p, d.line_of("velocity"), ["fast_ms", "slow_ms"]) if "velocity" in d else None
+    if vd is None:
+        return None, None
+    if kind != "velocity":
+        v.err(p, d.line_of("velocity"), "only for kind: velocity (a switch matrix has no key times)")
+        return None, None
+    out = []
+    for key, (lo, hi) in (("fast_ms", VEL_FAST_RANGE), ("slow_ms", VEL_SLOW_RANGE)):
+        x = vd.get(key)
+        if x is None:
+            out.append(None)
+            continue
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            v.err(f"{p}.{key}", vd.line_of(key), f"must be a number of ms (got {type_name(x)} {x!r})")
+            out.append(None)
+            continue
+        t = round(x * 10)
+        if abs(x * 10 - t) > 1e-6:
+            v.warn(f"{p}.{key}", vd.line_of(key), f"{x} ms rounded to {t / 10:g} ms (0.1 ms steps)")
+        if not lo <= t <= hi:
+            v.err(f"{p}.{key}", vd.line_of(key), f"{x} ms is out of range ({lo / 10:g}..{hi / 10:g} ms)")
+            out.append(None)
+            continue
+        out.append(t)
+    fast, slow = out
+    if (fast or 12) >= (slow or 1200):
+        v.err(p, d.line_of("velocity"), f"fast_ms ({(fast or 12) / 10:g}) must be shorter than slow_ms "
+                                        f"({(slow or 1200) / 10:g})")
+        return None, None
+    return fast, slow
 
 
 def load_device(path, text=None):
@@ -987,6 +1029,10 @@ def generate(dev, source="device.yaml"):
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
          f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}"]
+    if m and getattr(m, "vel_fast", None) is not None:
+        h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
+    if m and getattr(m, "vel_slow", None) is not None:
+        h.append(f"#define GM_VEL_SLOW_DEFAULT {m.vel_slow} /* {m.vel_slow / 10:g} ms */")
     if dev.i2c:
         h += [f"#define GM_I2C_SDA {dev.i2c[0].num} /* {dev.i2c[0].desc} */",
               f"#define GM_I2C_SCL {dev.i2c[1].num} /* {dev.i2c[1].desc} */"]

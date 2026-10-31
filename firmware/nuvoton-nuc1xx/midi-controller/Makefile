@@ -7,7 +7,7 @@
 # Output: $(BUILD)/midi-controller.gfw, for the bootloader / flash-aprom.sh.
 
 TARGET     := midi-controller
-FW_VERSION ?= 0.1.1
+FW_VERSION ?= 0.1.3
 PLAT       := ../../../platform/nuvoton-nuc1xx
 CORE       := ../../../core
 DEVICE_DIR ?= ../../../devices/generated-example

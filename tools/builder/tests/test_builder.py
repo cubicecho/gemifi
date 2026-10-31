@@ -299,6 +299,27 @@ class TestValidation(unittest.TestCase):
         self.assertError((m % ("switch", "", 6)) + "  first_note: 123\n", r"goes past note 127")
         self.assertError(m % ("diagonal", "", 6), r"'diagonal' is unknown")
 
+    def test_matrix_velocity_defaults(self):
+        m = MINIMAL_NUC + "key_matrix:\n  kind: %s\n  rows: [PA8, PA9]\n  cols: [PB0, PB1, PB2, PB3]\n  keys: 4\n"
+        vel = m % "velocity"
+        dev, diags = gd.load_device("x.yaml", vel + "  velocity: { fast_ms: 2.0, slow_ms: 80 }\n")
+        self.assertFalse(gd.errors(diags), diags)
+        h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_VEL_FAST_DEFAULT 20 /* 2 ms */", h)
+        self.assertIn("#define GM_VEL_SLOW_DEFAULT 800 /* 80 ms */", h)
+        dev, _ = gd.load_device("x.yaml", vel + "  velocity: { slow_ms: 60 }\n")
+        h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+        self.assertNotIn("GM_VEL_FAST_DEFAULT", h)
+        self.assertIn("#define GM_VEL_SLOW_DEFAULT 600", h)
+        dev, _ = gd.load_device("x.yaml", vel)
+        self.assertNotIn("GM_VEL_", gd.generate(dev, "x.yaml")["gm_device_config.h"])
+        self.assertError(vel + "  velocity: { fast_ms: 0 }\n", r"0 ms is out of range \(0\.1\.\.50 ms\)")
+        self.assertError(vel + "  velocity: { slow_ms: 300 }\n", r"out of range \(2\.\.200 ms\)")
+        self.assertError(vel + "  velocity: { fast_ms: 10, slow_ms: 5 }\n", r"must be shorter than slow_ms")
+        self.assertError(vel + "  velocity: { fast_ms: fast }\n", r"must be a number of ms")
+        self.assertError(vel + "  velocity: { fst_ms: 2 }\n", r"unknown key")
+        self.assertError((m % "switch") + "  velocity: { fast_ms: 2 }\n", r"only for kind: velocity")
+
     def test_matrix_hub_restrictions(self):
         hubs = ("hubs:\n  - { id: m, type: 74hc4051, select: [PA2, PA3, PA4], common: PA5 }\n"
                 "  - { id: x, type: mcp23017, address: 0x20 }\ni2c: { sda: PA10, scl: PA11 }\n")

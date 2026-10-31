@@ -12,6 +12,8 @@ All scripts work from any directory. Every script that writes to flash prints wh
 
 Add `--dry-run` (or set `DRY_RUN=1`) to any SWD script to print the exact `openocd` commands without touching the probe.
 
+Every SWD script takes `--probe buspirate` (the default) or `--probe cmsis-dap` (a Pico running debugprobe). `PROBE=cmsis-dap` does the same; the flag wins over the variable. See §1.
+
 ---
 
 ## 0. Words used here
@@ -33,7 +35,13 @@ Add `--dry-run` (or set `DRY_RUN=1`) to any SWD script to print the exact `openo
 
 The keyboard is powered from its own USB cable. The Bus Pirate's power supply stays off.
 
-**Raspberry Pi Pico (debugprobe), when you have it:** GP2 (SWCLK) → TP2, GP3 (SWDIO) → TP1, GND → TP4; nothing else. Then run every script with `PROBE=cmsis-dap`. It's roughly 100× faster than the Bus Pirate.
+**Raspberry Pi Pico (debugprobe), when you have it:** GP2 (SWCLK) → TP2, GP3 (SWDIO) → TP1, GND → TP4; nothing else. Then add `--probe cmsis-dap` to every script (or set `PROBE=cmsis-dap` once). It should be far faster and steadier than the Bus Pirate.
+
+The Pico path is **not tested on hardware yet**. The scripts pass the right config (`openocd-cmsis-dap.cfg`) to OpenOCD; offline tests check that. What still needs a real run: `check.sh --probe cmsis-dap`, then `read-config.sh`, then `flash-ldrom.sh --verify-only` against the bootloader that's on the chip. The Bus Pirate stays the default until that works.
+
+**The Bus Pirate is flaky on long sessions.** Two things to know:
+- SWD writes sometimes drop partway on images of 12 KB or more. Just retry.
+- A killed OpenOCD session leaves the Bus Pirate stuck. Replug it (order in §2) before you retry.
 
 ## 2. Plug order (important)
 
@@ -41,7 +49,7 @@ The keyboard leaks 5 V into the Bus Pirate through MOSI/CLK (back-powering). Onc
 
 - **Plugging in:** plug in the **Bus Pirate first**, then the **keyboard last**.
 - **Unplugging:** unplug the **keyboard first**, then the Bus Pirate.
-- **If the Bus Pirate stops answering** (an OpenOCD session was killed, timed out or hung), it's stuck in binary mode. Unplug the keyboard, then the Bus Pirate. Plug in the Bus Pirate, then the keyboard. Rerun the command. Dumps pick up where they stopped.
+- **If the Bus Pirate stops answering** (an OpenOCD session was killed, timed out or hung), it's stuck in binary mode. Unplug the keyboard, then the Bus Pirate. Plug in the Bus Pirate, then the keyboard. Rerun the command. Dumps pick up where they stopped. A stopped LDROM verify prints its own resume command (§5).
 - Run only one OpenOCD at a time. The scripts refuse to start if another one is running.
 
 ## 3. One-time setup checks
@@ -111,6 +119,8 @@ What happens:
 
 LDROM, data flash and CONFIG aren't touched. The stock LDROM still runs first (CBS=0) and hands off to APROM, so your app starts.
 
+If the write drops partway (common on the Bus Pirate with images of 12 KB or more), replug if needed and run the same command again. To check what's in APROM without writing, use `flash-aprom.sh --verify-only <file>`. It runs `verify_image` in one short session.
+
 Expected result: the Oct− LED blinks, and Oct+ lights while you hold it.
 
 ### Step 4: put the stock firmware back
@@ -124,6 +134,8 @@ What it does:
 - verifies the backup's `SHA256SUMS`;
 - writes APROM (then `verify_image`) and LDROM (then an ISP read-back compare), each in its own short session;
 - reads CONFIG and compares it with the backup's `config.txt`.
+
+If the LDROM read-back stops, the write is done. Resume just the verify with the command it prints (§5), then run `read-config.sh`. There's no need to rerun the whole restore.
 
 **It never writes CONFIG** unless you pass `--write-config`. Even then it only writes when CONFIG differs: it shows the old and new values decoded and waits for you to type `write config`. It refuses any value that would lock the chip.
 
@@ -164,6 +176,24 @@ What it does:
 
 CONFIG isn't touched. With CBS=0 the chip boots your bootloader from now on.
 
+### Verify only, and resuming a verify
+
+The read-back takes a while on the Bus Pirate, and it can stop halfway. When it stops, the write is already done. **Don't rerun the write.** The script prints the exact command that resumes the verify, for example:
+
+```sh
+$SWD/flash-ldrom.sh --verify-only bootloader/nuvoton-nuc1xx/build/gemifi-boot.bin \
+    --resume tools/swd/nuvoton-nuc1xx/logs/verify-ldrom-20261031-120000-4242 --probe buspirate
+```
+
+- `--verify-only <bin>` never erases or writes. It reads LDROM back by ISP and compares it with the file. It needs no backup folder and asks no question.
+- `--resume <dir>` reads only the words that aren't in the folder yet. The folder records the file's SHA-256, so a resume against a different file is refused.
+- Without `--resume`, `--verify-only` starts a fresh read-back in a new folder.
+- If the Bus Pirate is stuck, replug it (§2) before you resume.
+
+One pass is enough here, because the file is the reference. A mismatch lists each differing word: address, offset, expected and read value. Resuming won't fix a mismatch. If you think the link misread, run a fresh `--verify-only`.
+
+To compare a pass file by hand: `isp-compare.py <dir>/isp/ldrom-pass1.txt <file.bin> --base 0x00100000`. Exit codes: 0 match, 1 differ, 3 not complete yet.
+
 Then flash apps over USB:
 
 ```sh
@@ -190,14 +220,21 @@ python3 tools/host/gemifi.py log
 | `read-config.sh` | no | CONFIG0/1 by ISP, decoded. `--decode 0xFF4FFF7F` / `--decode-file config.txt` work offline |
 | `dump.sh <outdir> [--resume] [--compare <dir>]` | no | Full backup (see step 2) |
 | `flash-aprom.sh <file.gfw\|file.bin> [--yes] [--no-reset]` | APROM | Write + verify + reset |
+| `flash-aprom.sh --verify-only <file>` | no | Compare APROM with a file (`verify_image`) |
 | `flash-ldrom.sh <boot.bin> --i-have-a-backup <dir> [--yes]` | LDROM | Guarded; ISP verify |
+| `flash-ldrom.sh --verify-only <boot.bin> [--resume <dir>]` | no | ISP read-back + compare; resumable (§5) |
 | `restore-stock.sh <backup> [--with-dataflash] [--write-config] [--yes]` | APROM, LDROM (+data flash, +CONFIG only on request) | Back to stock |
 | `isp-dump.sh <dir> <name> <base> <size> <pass>` | no | Resumable ISP dump of one region (what `dump.sh` uses) |
-| `isp-assemble.py <dir> <name> <base> <size> [--config] [--passes 1]` | – | Assemble an ISP dump |
+| `isp-assemble.py <dir> <name> <base> <size> [--config] [--passes 1]` | – | Build a backup file from two identical passes |
+| `isp-compare.py <pass.txt> <file> --base <addr> [--size N]` | – | Compare one pass with a known file; lists differing addresses and words not read yet |
 | `read-only-check.sh` | no | Old name for `check.sh` |
 
+All shell scripts above take `--probe buspirate|cmsis-dap` and `--dry-run`.
+
+Offline tests (fake `openocd` on PATH, no hardware): `cd tools/swd/nuvoton-nuc1xx && python3 -m unittest`.
+
 Environment variables:
-- `PROBE=buspirate|cmsis-dap`;
+- `PROBE=buspirate|cmsis-dap` (`--probe` overrides it);
 - `BP_PORT=/dev/ttyUSB0`;
 - `DRY_RUN=1`;
 - `OPENOCD_TIMEOUT` (900 s), `OPENOCD_TIMEOUT_APROM` / `OPENOCD_TIMEOUT_WRITE` (1800 s);
@@ -208,7 +245,8 @@ Supporting files:
 - `nuc1xx-target.cfg`: target and the four flash banks, with `-ap-num 0`;
 - `lib.tcl`: PDID guard and ISP helpers;
 - `isp-chunk.tcl`;
-- `bincheck.py`, `backup-check.py`, `nuc1xx-config.py`: offline checks.
+- `bincheck.py`, `backup-check.py`, `nuc1xx-config.py`: offline checks;
+- `isp_dumpfile.py`: the pass-file reader shared by `isp-assemble.py` and `isp-compare.py`.
 
 To use OpenOCD by hand: `openocd -s tools/swd/nuvoton-nuc1xx -f openocd-buspirate.cfg -f lib.tcl -c init -c gemifi_check_pdid …`
 

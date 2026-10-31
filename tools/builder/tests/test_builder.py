@@ -22,7 +22,6 @@ import gemifi_device as gd  # noqa: E402
 CORE_INC = os.path.join(REPO, "core", "include")
 CORE_SRC = os.path.join(REPO, "core", "src")
 KEYSTATION = os.path.join(REPO, "devices", "keystation-mini32-mk3.yaml")
-REFERENCE = os.path.join(REPO, "devices", "generated-example")
 EVERYTHING = os.path.join(TESTS, "fixtures", "everything-esp32s3.yaml")
 GCC = shutil.which("gcc")
 CFLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror"]
@@ -93,15 +92,27 @@ class TestGenerateCompiles(unittest.TestCase):
         if len(link) == 3:
             self.gcc(*CFLAGS, main, *link, "-o", os.path.join(cfg_dir, "link-check"))
 
-    def test_keystation_matches_reference(self):
+    def test_keystation(self):
+        """The Keystation preset (what plain `make` and core/test build) generates, compiles with the core,
+        and has the board's shape. core/test checks its behaviour."""
         dev, diags = gd.load_device(KEYSTATION)
         self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
         mine = gen_dir(dev, self.tmp)
-        a = self.dump(REFERENCE, "ref")
-        b = self.dump(mine, "gen")
-        self.assertEqual(a, b)
-        self.assertIn("matrix kind=1 keys=32 first=48", b)
+        out = self.dump(mine, "gen")
+        self.assertIn("matrix kind=1 keys=32 first=48", out)
+        for s in ("buttons=7", "leds=4", "analogs=1"):
+            self.assertIn(s, out)
         self.compile_with_core(mine)
+
+    def test_generate_keeps_unchanged_files(self):
+        dev, _ = gd.load_device(KEYSTATION)
+        out = os.path.join(self.tmp, "keep")
+        paths = gd.write_generated(dev, out, "x.yaml")
+        for p in paths:
+            os.utime(p, (1, 1))
+        gd.write_generated(dev, out, "x.yaml")
+        self.assertEqual([os.stat(p).st_mtime for p in paths], [1, 1])
 
     def test_header_and_banner(self):
         dev, _ = gd.load_device(KEYSTATION)

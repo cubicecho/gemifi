@@ -7,8 +7,9 @@ The generic gemifi MIDI controller firmware for NUC100/NUC120 chips. The hardwar
 ## Build
 
 ```sh
-make                                     # Keystation Mini 32 (devices/generated-example)
-make DEVICE_DIR=<config dir> BUILD=<dir> # any other device (tools/builder does this)
+make                                     # Keystation Mini 32: generated from devices/keystation-mini32-mk3.yaml
+make DEVICE=<device.yaml>                # another device YAML (generated into build/device/)
+make DEVICE_DIR=<config dir> BUILD=<dir> # an already generated config (tools/builder does this)
 ```
 
 Output: `build/midi-controller.gfw`. With the Keystation config it is 12.7 KB of flash and 1.7 KB of static RAM (of 32 KB / 4 KB).

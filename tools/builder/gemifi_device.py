@@ -1154,6 +1154,12 @@ def write_generated(dev, out_dir, source):
     files = generate(dev, source)
     for name, text in files.items():
         p = os.path.join(out_dir, name)
+        try:
+            with open(p, encoding="utf-8") as f:
+                if f.read() == text:
+                    continue        # unchanged: keep the mtime, so make doesn't rebuild everything
+        except OSError:
+            pass
         tmp = p + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(text)

@@ -19,40 +19,114 @@ except ImportError:  # pragma: no cover - reported by gemifi_build.py
 YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install python3-yaml`, "
              "or `python3 -m venv tools/builder/.venv && tools/builder/.venv/bin/pip install pyyaml`)")
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 # core/README.md "Button actions"
 ACTIONS = ["none", "cc_momentary", "cc_toggle", "cc_ramp", "note", "octave_down", "octave_up",
            "transpose_down", "transpose_up", "bend_down", "bend_up", "program_next", "program_prev"]
-NUMBER_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp", "note"}
+CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
 
-# gm_device.h
-HUB_ENUM = {"74hc595": "GM_HUB_HC595", "74hc165": "GM_HUB_HC165", "74hc4051": "GM_HUB_MUX",
-            "74hc4067": "GM_HUB_MUX", "mux": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017",
-            "pcf8574": "GM_HUB_PCF8574"}
+# Hubs (I/O expanders), declared ESPHome style: one top-level list per chip, named like the
+# ESPHome component where there is one. A pin on a hub names the hub by its chip key:
+# { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
+HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc4051": "GM_HUB_MUX",
+            "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574"}
+HUB_TYPES = list(HUB_ENUM)
+HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
+PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
 I2C_HUBS = {"mcp23017", "pcf8574"}
-SHIFT_HUBS = {"74hc595", "74hc165"}
-MUX_HUBS = {"74hc4051", "74hc4067", "mux"}
-OUT_HUBS = {"74hc595", "mcp23017", "pcf8574"}
-IN_HUBS = {"74hc165", "74hc4051", "74hc4067", "mux", "mcp23017", "pcf8574"}
+SHIFT_HUBS = {"sn74hc595", "sn74hc165"}
+MUX_HUBS = {"cd74hc4051", "cd74hc4067"}
+MUX_SELECT = {"cd74hc4051": 3, "cd74hc4067": 4}
+OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574"}
+IN_HUBS = {"sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574"}
 HUB_KEYS = {
-    "74hc595": {"data", "clock", "latch", "enable", "chain"},
-    "74hc165": {"data", "clock", "latch", "chain"},
-    "74hc4051": {"select", "common", "enable", "settle_us"},
-    "74hc4067": {"select", "common", "enable", "settle_us"},
-    "mux": {"select", "common", "enable", "settle_us"},
-    "mcp23017": {"address"},
-    "pcf8574": {"address"},
+    "sn74hc595": ["id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count"],
+    "sn74hc165": ["id", "data_pin", "clock_pin", "load_pin", "sr_count"],
+    "cd74hc4051": ["id", "pin_s0", "pin_s1", "pin_s2", "common_pin", "enable_pin", "delay"],
+    "cd74hc4067": ["id", "pin_s0", "pin_s1", "pin_s2", "pin_s3", "common_pin", "enable_pin", "delay"],
+    "mcp23017": ["id", "address"],
+    "pcf8574": ["id", "address"],
 }
-HUB_COMMON_KEYS = {"id", "type", "shared"}
+# hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
+CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data",
+             "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
+             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
 
-TOP_KEYS = ["gemifi", "name", "description", "version", "board_id", "platform", "chip", "usb", "midi", "i2c",
-            "scan_us", "boot_combo", "hubs", "buttons", "leds", "analog", "encoders", "key_matrix"]
-PIN_KEYS = ["pin", "hub", "channel", "inverted", "pullup", "pulldown"]
+TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "version", "board_id", "platform", "chip",
+            "usb", "midi", "i2c", "scan_interval", "id_style", "boot_combo", *HUB_TYPES,
+            "buttons", "leds", "analog", "encoders", "key_matrix"]
+PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
+NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
+
+# ESPHome pin modes (esphome.io "Pin Schema"): a string shorthand or a mapping of flags.
+MODE_FLAGS = ["input", "output", "pullup", "pulldown", "open_drain"]
+MODE_STRINGS = {"INPUT": {"input"}, "OUTPUT": {"output"}, "OUTPUT_OPEN_DRAIN": {"output", "open_drain"},
+                "ANALOG": {"analog"}, "INPUT_PULLUP": {"input", "pullup"},
+                "INPUT_PULLDOWN": {"input", "pulldown"},
+                "INPUT_OUTPUT_OPEN_DRAIN": {"input", "output", "open_drain"}}
+
+# Format 1 keys: an old file gets one error per old key, at its line, saying what replaced it.
+RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, used for references) "
+                       "and/or `name:` (display text)"}
+RENAMED_TOP = {
+    "hubs": "replaced: declare each hub under its chip's key, ESPHome style, e.g. "
+            "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` "
+            "(chips: " + ", ".join(HUB_TYPES) + ")",
+    "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
+}
+RENAMED_PIN = {
+    "pin": "renamed: use `number:` (e.g. `{ number: PA1, inverted: true }`)",
+    "channel": "renamed: use `number:` (e.g. `{ cd74hc4051: faders, number: 0 }`)",
+    "hub": "replaced: name the hub by its chip, e.g. `{ sn74hc595: leds, number: 3 }` "
+           "(mcp23017 hubs: `mcp23xxx:`)",
+    "pullup": "replaced: use `mode: INPUT_PULLUP` (or `mode: { input: true, pullup: true }`)",
+    "pulldown": "replaced: use `mode: INPUT_PULLDOWN` (or `mode: { input: true, pulldown: true }`)",
+    "mcp23017": "the pin key for an MCP23017 hub is `mcp23xxx:` (as in ESPHome)",
+}
+RENAMED_HUB = {
+    "type": "replaced: the chip is the list this hub is in (e.g. `sn74hc595:`), not a `type:` key",
+    "shared": "replaced: set `allow_other_uses: true` on each shared pin, e.g. "
+              "`clock_pin: { number: GPIO2, allow_other_uses: true }`",
+    "data": "renamed: use `data_pin:`", "clock": "renamed: use `clock_pin:`",
+    "latch": "renamed: use `latch_pin:` (sn74hc595) or `load_pin:` (sn74hc165)",
+    "enable": "renamed: use `oe_pin:` (sn74hc595) or `enable_pin:` (muxes)",
+    "chain": "renamed: use `sr_count:`", "select": "replaced: use `pin_s0:`, `pin_s1:`, ...",
+    "common": "renamed: use `common_pin:`", "settle_us": "renamed: use `delay:` with a unit, e.g. `delay: 5us`",
+}
+RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
+                                         "`note:` (action note)")
+RENAMED_ANALOG = dict(RENAMED_ID, raw_min="renamed: use `adc_min:`", raw_max="renamed: use `adc_max:`")
+RENAMED_ENCODER = dict(RENAMED_ID, a="renamed: use `pin_a:` (as ESPHome's rotary_encoder)",
+                       b="renamed: use `pin_b:` (as ESPHome's rotary_encoder)")
+RENAMED_MATRIX = {"kind": "renamed: use `type:` (switch | velocity)", "cols": "renamed: use `columns:`",
+                  "settle_us": "renamed: use `settle:` with a unit, e.g. `settle: 1us`"}
+RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.6ms`",
+                    "slow_ms": "renamed: use `slow:` with a unit, e.g. `slow: 120ms`"}
+
+# Ids (ESPHome rules): C identifiers, not C/C++ keywords, unique across the device. gemifi also
+# wants lower_snake_case by default (`id_style: c_identifier` allows any case).
+ID_STYLES = ("lower_snake_case", "c_identifier")
+ID_RE = {"lower_snake_case": re.compile(r"[a-z][a-z0-9_]*"), "c_identifier": re.compile(r"[A-Za-z][A-Za-z0-9_]*")}
+CPP_KEYWORDS = set("""alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t
+char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await
+co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false
+float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or
+or_eq private protected public register reinterpret_cast requires restrict return short signed sizeof
+static static_assert static_cast struct switch template this thread_local throw true try typedef typeid
+typename union unsigned using virtual void volatile wchar_t while xor xor_eq""".split())
+# Words YAML reads as booleans or null when unquoted: PyYAML (YAML 1.1) turns yes/no/on/off/true/false
+# (any case) into booleans and null/~ into nothing; the YAML 1.1 spec (and some other tools) also
+# read y/n as booleans. An id must read the same everywhere, so these are refused even when quoted.
+YAML_WORDS = {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
 
 INVERT, PULLUP, PULLDOWN = 1, 2, 4
 MIDI_TRANSPORT_MACRO = {"usb": "GM_MIDI_USB", "serial": "GM_MIDI_SERIAL", "ble": "GM_MIDI_BLE"}
 DEFAULT_USB = (0x1209, 0x0002)   # pid.codes test PID (protocol/sysex.md section 7)
+
+# Time periods (ESPHome style): a number and a unit, e.g. 125us, 1.6ms, 2s.
+TIME_RE = re.compile(r"\s*(\d+(?:\.\d*)?|\.\d+)\s*(ns|us|µs|ms|s|min)\s*")
+TIME_UNIT_US = {"ns": 0.001, "us": 1, "µs": 1, "ms": 1000, "s": 1000000, "min": 60000000}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -87,9 +161,14 @@ class LDict(dict):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self.key_lines = {}
+        self.raw = {}           # key -> the value's source text, for scalars
 
     def line_of(self, key):
         return self.key_lines.get(key, self.line)
+
+    def raw_of(self, key):
+        """The value as written in the file (so a `no` read as False can be shown as `no`)."""
+        return self.raw.get(key, str(self.get(key)))
 
 
 class LList(list):
@@ -98,9 +177,14 @@ class LList(list):
     def __init__(self, *a):
         super().__init__(*a)
         self.item_lines = []
+        self.item_raw = []
 
     def line_of(self, i):
         return self.item_lines[i] if i < len(self.item_lines) else self.line
+
+    def raw_of(self, i):
+        r = self.item_raw[i] if i < len(self.item_raw) else None
+        return str(self[i]) if r is None else r
 
 
 class YamlLoadError(Exception):
@@ -142,6 +226,8 @@ def load_yaml(text):
                     raise YamlLoadError(kl, f"duplicate key '{k}' (first on line {d.key_lines[k]})")
                 d[k] = conv(vn)
                 d.key_lines[k] = kl
+                if isinstance(vn, yaml.ScalarNode):
+                    d.raw[k] = vn.value
             active.discard(id(n))
             return d
         if isinstance(n, yaml.SequenceNode):
@@ -151,6 +237,7 @@ def load_yaml(text):
             for item in n.value:
                 lst.append(conv(item))
                 lst.item_lines.append(item.start_mark.line + 1)
+                lst.item_raw.append(item.value if isinstance(item, yaml.ScalarNode) else None)
             active.discard(id(n))
             return lst
         try:
@@ -219,7 +306,8 @@ class NucPlatform(Platform):
     def check(self, num, role, flags, transport):
         out = []
         if flags & PULLDOWN:
-            out.append(("warning", "NUC1xx GPIOs have no internal pull-down: fit an external one"))
+            out.append(("error", "NUC1xx GPIOs have no internal pull-down: fit an external one and use "
+                                 "mode: INPUT (INPUT_PULLUP uses the quasi-bidirectional mode's weak pull-up)"))
         return out
 
     def adc(self, num):
@@ -280,12 +368,13 @@ class EspPlatform(Platform):
                 out.append(("warning", f"{nm} is UART0 (boot log / serial console)"))
         if flags & (PULLUP | PULLDOWN):
             if self.name == "esp32" and num in self.input_only:
-                out.append(("warning", f"{nm} has no internal pull-up/down on esp32: fit an external one"))
+                out.append(("error", f"{nm} has no internal pull-up/down on esp32: fit an external one "
+                                     "and use mode: INPUT"))
             if self.name == "esp8266":
                 if num == 16 and flags & PULLUP:
-                    out.append(("warning", "GPIO16 on esp8266 has a pull-down only, no pull-up"))
+                    out.append(("error", "GPIO16 on esp8266 has a pull-down only, no pull-up"))
                 if num != 16 and flags & PULLDOWN:
-                    out.append(("warning", f"{nm} on esp8266 has no internal pull-down"))
+                    out.append(("error", f"{nm} on esp8266 has no internal pull-down (only GPIO16 has one)"))
         return out
 
     def adc(self, num):
@@ -350,12 +439,18 @@ class Device:
 
 
 class Use:
-    def __init__(self, path, line, role, ctrl=None, shared=False, hub=None):
-        self.path, self.line, self.role, self.ctrl, self.shared, self.hub = path, line, role, ctrl, shared, hub
+    """One use of a pin, for the duplicate check. line_kind: the hub control line it is ('clock',
+    'latch', ...), or None for a component pin; share: allow_other_uses was set."""
+
+    def __init__(self, path, line, line_kind=None, share=False, owner=None):
+        self.path, self.line, self.line_kind, self.share, self.owner = path, line, line_kind, share, owner
 
 
 # ---------------------------------------------------------------------------------------------
 # validation
+
+ROLE_TEXT = {"in": "an input", "out": "an output", "analog": "an analog input", "common": "a mux common pin"}
+
 
 class _V:
     def __init__(self, file):
@@ -364,6 +459,8 @@ class _V:
         self.plat = None
         self.transport = None
         self.hub_by_id = {}
+        self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
+        self.id_style = "lower_snake_case"
 
     def err(self, path, line, msg):
         self.diags.append(Diag("error", path, line, msg, self.file))
@@ -373,12 +470,16 @@ class _V:
 
     # -- generic field helpers --
 
-    def mapping(self, v, path, line, keys):
+    def mapping(self, v, path, line, keys, renamed=None):
+        """Check v is a mapping with only `keys`. Keys in `renamed` ({old: message}) are format 1
+        keys: reported with that message."""
         if not isinstance(v, dict):
             self.err(path, line, f"must be a mapping (got {type_name(v)})")
             return None
         for k in v:
-            if k not in keys:
+            if renamed and k in renamed:
+                self.err(f"{path}.{k}" if path else str(k), v.line_of(k), renamed[k])
+            elif k not in keys:
                 close = difflib.get_close_matches(str(k), keys, 1)
                 hint = f" (did you mean '{close[0]}'?)" if close else f" (known: {', '.join(keys)})"
                 self.err(f"{path}.{k}" if path else str(k), v.line_of(k), f"unknown key{hint}")
@@ -400,7 +501,7 @@ class _V:
             return default
         v = d[key]
         if isinstance(v, bool) or not isinstance(v, int):
-            self.err(p, d.line_of(key), f"must be an integer {lo}..{hi} (got {type_name(v)} {v!r})")
+            self.err(p, d.line_of(key), f"must be an integer {lo}..{hi} (got {type_name(v)} {d.raw_of(key)!r})")
             return default
         if not lo <= v <= hi:
             fmt = (lambda x: f"0x{x:X}") if hi > 255 and key in ("board_id", "vid", "pid", "address") else str
@@ -424,8 +525,8 @@ class _V:
                 self.err(p, d.line, "is required")
             return default
         v = d[key]
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            v = str(v)
+        if isinstance(v, (int, float, bool)):
+            v = d.raw_of(key)        # `name: 1.0` / `name: Off` mean the text as written
         if not isinstance(v, str) or not v.strip():
             self.err(p, d.line_of(key), f"must be a non-empty string (got {v!r})")
             return default
@@ -434,66 +535,184 @@ class _V:
                                          "show correctly in the web UI")
         return v
 
-    def label(self, d, path, seen):
-        lab = self.string(d, "label", path, required=True)
-        if lab is not None:
-            if lab in seen:
-                self.err(f"{path}.label", d.line_of("label"), f"'{lab}' is already used by {seen[lab]}")
+    def period(self, d, key, path, lo_us, hi_us, default=None, step_us=1, example="125us"):
+        """An ESPHome time period (`125us`, `1.6ms`, `2s`) -> whole multiples of step_us, or default."""
+        p = f"{path}.{key}" if path else key
+        if key not in d or d[key] is None:
+            return default
+        x, raw, line = d[key], d.raw_of(key), d.line_of(key)
+        m = TIME_RE.fullmatch(x) if isinstance(x, str) else None
+        if not m:
+            if isinstance(x, (int, float)) and not isinstance(x, bool):
+                self.err(p, line, f"needs a unit: `{key}: {raw}` could be any unit; write e.g. "
+                                  f"`{key}: {raw}us` or `{raw}ms` (units: us, ms, s)")
             else:
-                seen[lab] = path
-        return lab
+                self.err(p, line, f"must be a time period like {example} (got {raw!r}; units: us, ms, s)")
+            return default
+        us = float(m.group(1)) * TIME_UNIT_US[m.group(2)]
+        n = round(us / step_us)
+        step = fmt_us(step_us)
+        if abs(us / step_us - n) > 1e-6:
+            self.warn(p, line, f"{raw} rounded to {fmt_us(n * step_us)} (steps of {step})")
+        if not lo_us <= n * step_us <= hi_us:
+            self.err(p, line, f"{raw} is out of range ({fmt_us(lo_us)}..{fmt_us(hi_us)})")
+            return default
+        return n
+
+    # -- ids and names --
+
+    def ident(self, d, path, kind, index, allow_name=True):
+        """The component's id (ESPHome rules). With allow_name, an id may be left out when name: is
+        given: it is then derived from the name ("Oct down" -> oct_down). Returns the id or None."""
+        p = f"{path}.id"
+        if "id" not in d:
+            if "label" in d:            # format 1; reported as renamed already
+                return None
+            name = d.get("name") if allow_name else None
+            if name is None:
+                need = "id: or name:" if allow_name else "id:"
+                self.err(path, d.line, f"needs {need} (e.g. `id: {example_id(kind)}`; the id is what "
+                                       "the rest of the file uses to refer to it)")
+                return None
+            name = d.raw_of("name") if not isinstance(name, str) else name
+            v = derive_id(name)
+            why = id_problem(v, v, "lower_snake_case")
+            if why:
+                self.err(f"{path}.name", d.line_of("name"), f"the id derived from name '{name}' would be "
+                                                            f"'{v}', which can't be an id: set id:")
+                return None
+            return self.register(v, path, d.line_of("name"), kind, index, derived=name)
+        v, raw, line = d["id"], d.raw_of("id"), d.line_of("id")
+        why = id_problem(v, raw, self.id_style)
+        if why:
+            self.err(p, line, f"{why} (e.g. `id: {suggest_id(raw, kind)}`)")
+            return None
+        return self.register(v, path, line, kind, index)
+
+    def register(self, v, path, line, kind, index, derived=None):
+        if v in self.ids:
+            k0, p0, l0, _, d0 = self.ids[v]
+            how = lambda pth, dn: f"{pth} (derived from its name '{dn}')" if dn else pth  # noqa: E731
+            self.err(f"{path}.{'name' if derived else 'id'}", line,
+                     f"id '{v}' of {how(path, derived)} is already the id of {how(p0, d0)} (line {l0}, {a_(k0)}); "
+                     "ids are unique across the device: set a different id:")
+            return None
+        self.ids[v] = (kind, path, line, index, derived)
+        return v
+
+    def display_name(self, d, path, ident):
+        """name: (free text, optional), else derived from the id: oct_down -> "Oct down"."""
+        name = self.string(d, "name", path)
+        return name if name is not None else humanize(ident or "")
+
+    def ref(self, container, key, path, line, kind, plural):
+        """A reference to another component by id (`led: edit_led`, boot_combo items, hub pins).
+        Returns the index of that `kind` component, or None after reporting why not."""
+        val = container[key]
+        raw = container.raw_of(key)
+        target = self.ids.get(val) if isinstance(val, str) else None
+        if target is None:
+            known = [i for i, t in self.ids.items() if t[0] == kind]
+            close = difflib.get_close_matches(raw, known, 1)
+            hint = f"; did you mean '{close[0]}'?" if close else ""
+            extra = ""
+            if val is not None and not isinstance(val, str):
+                extra = f" (YAML reads `{raw}` as the {type_name(val)} {val!r}, not a name)"
+            self.err(path, line, f"no {kind} with id '{raw}'{extra} ({plural}: {', '.join(known) or 'none'}{hint})")
+            return None
+        if target[0] != kind:
+            self.err(path, line, f"'{raw}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+            return None
+        return target[3]
 
     # -- pins --
 
-    def mcu_pin(self, v, path, line, role):
-        try:
-            num = self.plat.parse_pin(v)
-        except ValueError as e:
-            self.err(path, line, str(e))
+    def mode(self, v, path, role):
+        """ESPHome pin mode (string or mapping) -> set of flags, checked against the role.
+        Returns None after an error."""
+        if "mode" not in v or v["mode"] is None:
+            return set()
+        m, line = v["mode"], v.line_of("mode")
+        if isinstance(m, str):
+            flags = MODE_STRINGS.get(m.upper())
+            if flags is None:
+                close = difflib.get_close_matches(m.upper(), list(MODE_STRINGS), 1)
+                hint = f"; did you mean {close[0]}?" if close else ""
+                self.err(f"{path}.mode", line, f"unknown mode '{m}' ({', '.join(MODE_STRINGS)}{hint})")
+                return None
+            flags = set(flags)
+        elif isinstance(m, dict):
+            mm = self.mapping(m, f"{path}.mode", line, MODE_FLAGS)
+            flags = {k for k in MODE_FLAGS if self.boolean(mm, k, f"{path}.mode")}
+        else:
+            self.err(f"{path}.mode", line, f"must be a mode name like INPUT_PULLUP or a mapping "
+                                           f"{{ input: true, pullup: true }} (got {type_name(m)})")
             return None
-        return num
+        bad = None
+        if "open_drain" in flags:
+            bad = "open_drain isn't supported by gemifi's pin drivers"
+        elif "pullup" in flags and "pulldown" in flags:
+            bad = "pullup and pulldown are both set"
+        elif role == "out" and flags - {"output"}:
+            bad = f"this pin is {ROLE_TEXT[role]}: use mode: OUTPUT (or leave mode out)"
+        elif role in ("in", "common") and "output" in flags:
+            bad = f"this pin is {ROLE_TEXT[role]}: mode can't include output"
+        elif role == "in" and "analog" in flags:
+            bad = "this pin is a digital input: mode can't be ANALOG"
+        elif role == "analog" and flags - {"analog", "input"}:
+            bad = "an analog input takes mode ANALOG or INPUT (no pull resistors)"
+        if bad:
+            self.err(f"{path}.mode", line, bad)
+            return None
+        return flags
 
-    def pin(self, v, path, line, role, allow_hub=True, ctrl=None, shared=False, owner=None, hubs=None,
-            why=None):
-        """Resolve a pin spec (string / int / mapping). role: 'in' | 'out' | 'analog'.
-        Registers the use for the duplicate check. Returns Pin or None."""
+    def pin(self, v, path, line, role, allow_hub=True, line_kind=None, owner=None, hubs=None, why=None):
+        """Resolve a pin (ESPHome pin schema: `PA1` or { number, inverted, mode, allow_other_uses },
+        on a hub { <chip>: <hub id>, number }). role: 'in' | 'out' | 'analog' | 'common'.
+        line_kind: the hub control line this is (for allow_other_uses). Returns Pin or None."""
         if v is None:
             self.err(path, line, "is required")
             return None
-        flags, hub_id, raw = 0, None, v
+        flags, hub_key, share = 0, None, False
+        raw = v
         if isinstance(v, dict):
-            v = self.mapping(v, path, line, PIN_KEYS)
+            v = self.mapping(v, path, line, PIN_KEYS, renamed=RENAMED_PIN)
             if v is None:
                 return None
-            for key, bit in (("inverted", INVERT), ("pullup", PULLUP), ("pulldown", PULLDOWN)):
-                if self.boolean(v, key, path):
-                    flags |= bit
-            if flags & PULLUP and flags & PULLDOWN:
-                self.err(path, line, "pullup and pulldown are both set")
-            hub_id = v.get("hub")
-            if hub_id is not None:
-                if "pin" in v and "channel" in v:
-                    self.err(path, line, "give either pin or channel, not both")
-                    return None
-                raw = v.get("pin", v.get("channel"))
-                if raw is None:
-                    self.err(path, line, f"needs pin: (or channel:) on hub '{hub_id}'")
-                    return None
-            else:
-                if "channel" in v:
-                    self.err(f"{path}.channel", v.line_of("channel"), "channel: needs hub:")
-                    return None
-                raw = v.get("pin")
-                if raw is None:
-                    self.err(path, line, "needs pin: (or hub: + pin:)")
-                    return None
-                line = v.line_of("pin")
-        if hub_id is None:
+            if any(k in v for k in RENAMED_PIN):
+                return None        # format 1 pin: already reported
+            if self.boolean(v, "inverted", path):
+                flags |= INVERT
+            mode = self.mode(v, path, role)
+            if mode is None:
+                return None
+            flags |= (PULLUP if "pullup" in mode else 0) | (PULLDOWN if "pulldown" in mode else 0)
+            share = self.boolean(v, "allow_other_uses", path)
+            if share and line_kind is None:
+                self.err(f"{path}.allow_other_uses", v.line_of("allow_other_uses"),
+                         "gemifi only shares hub control lines (e.g. one clock_pin for two shift-register "
+                         "hubs): a component pin can't have another use")
+                return None
+            keys = [k for k in PIN_KEY_HUB if k in v]
+            if len(keys) > 1:
+                self.err(path, line, f"names more than one hub ({', '.join(keys)})")
+                return None
+            hub_key = keys[0] if keys else None
+            raw = v.get("number")
+            if raw is None:
+                self.err(path, line, "needs number: (the pin" + (f", or the channel on hub '{v[hub_key]}')"
+                                                                 if hub_key else ")"))
+                return None
+            if hub_key is None:
+                line = v.line_of("number")
+        if hub_key is None:
             if isinstance(raw, (dict, list)):
                 self.err(path, line, f"must be a pin name (got {type_name(raw)})")
                 return None
-            num = self.mcu_pin(raw, path, line, role)
-            if num is None:
+            try:
+                num = self.plat.parse_pin(raw)
+            except ValueError as e:
+                self.err(path, line, str(e))
                 return None
             name = self.plat.pin_name(num)
             if role == "analog":
@@ -503,39 +722,44 @@ class _V:
                                          f"({adc_text(self.plat)}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
-            for lvl, msg in self.plat.check(num, role, flags, self.transport):
+            for lvl, msg in self.plat.check(num, "in" if role == "common" else role, flags, self.transport):
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
-            self.use(("mcu", num), name, Use(path, line, role, ctrl, shared, owner))
+            self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)
         if not allow_hub:
             self.err(path, line, "must be an MCU pin (hub control pins can't be on another hub)")
             return None
-        hub = self.hub_by_id.get(hub_id)
+        hub_id = v[hub_key]
+        hub = self.hub_by_id.get(hub_id) if isinstance(hub_id, str) else None
         if hub is None:
-            known = ", ".join(self.hub_by_id) or "none defined"
-            close = difflib.get_close_matches(str(hub_id), list(self.hub_by_id), 1)
-            hint = f"; did you mean '{close[0]}'?" if close else ""
-            self.err(path, line, f"unknown hub '{hub_id}' (hubs: {known}{hint})")
+            idx = self.ref(v, hub_key, path, line, "hub", "hubs")
+            if idx is None:
+                return None
+            hub = self.hub_by_id.get(hub_id)
+            if hub is None:
+                return None
+        if HUB_PIN_KEY[hub.type] != hub_key:
+            self.err(path, line, f"hub '{hub.id}' is a {hub.type}: write `{HUB_PIN_KEY[hub.type]}: {hub.id}`, "
+                                 f"not `{hub_key}: {hub.id}`")
             return None
         hub.used = True
         num = self.hub_pin_num(hub, raw, path, line)
         if num is None:
             return None
         allowed = hubs or {"out": OUT_HUBS, "in": IN_HUBS, "analog": MUX_HUBS}[role]
-        what = {"out": "an output", "in": "an input", "analog": "an analog input"}[role]
         if hub.type not in allowed:
-            self.err(path, line, f"hub '{hub.id}' is a {hub.type}, which can't be {what} "
+            self.err(path, line, f"hub '{hub.id}' is a {hub.type}, which can't be {ROLE_TEXT[role]} "
                                  f"(use {' / '.join(sorted(allowed))}{'; ' + why if why else ''})")
             return None
         if role == "analog" and hub.common is not None and not hub.common_adc:
-            self.err(path, line, f"hub '{hub.id}' common pin {hub.common.desc} has no ADC, so its "
+            self.err(path, line, f"hub '{hub.id}' common_pin {hub.common.desc} has no ADC, so its "
                                  f"channels can't be analog ({adc_text(self.plat)})")
         if flags & PULLDOWN:
-            self.warn(path, line, "pulldown has no effect on a hub pin")
+            self.err(path, line, f"a {hub.type} pin has no pull-down")
         if flags & PULLUP and hub.type != "mcp23017":
-            self.warn(path, line, f"pullup has no effect on a {hub.type} pin")
+            self.err(path, line, f"a {hub.type} pin has no pull-up (only mcp23017 pins do)")
         desc = f"{hub.id}.{num}"
-        self.use(("hub", hub.index, num), desc, Use(path, line, role))
+        self.use(("hub", hub.index, num), desc, Use(path, line))
         return Pin(hub.index + 1, flags, num, desc)
 
     def hub_pin_num(self, hub, raw, path, line):
@@ -567,19 +791,31 @@ class _V:
         self.uses.setdefault(key, []).append((name, u))
 
     def check_uses(self):
+        """A pin used twice is an error, unless every use is a hub control line of the same kind
+        (clock with clock, ...) on different hubs, and each sets allow_other_uses: true."""
         for key, lst in self.uses.items():
             if len(lst) < 2:
                 continue
             name, first = lst[0]
-            ok_share = all(u.ctrl and u.shared for _, u in lst) and \
-                len({u.ctrl for _, u in lst}) == 1 and len({u.hub for _, u in lst}) == len(lst)
-            if ok_share:
+            us = [u for _, u in lst]
+            same_line = all(u.line_kind for u in us) and len({u.line_kind for u in us}) == 1 and \
+                len({u.owner for u in us}) == len(us)
+            if same_line and all(u.share for u in us):
                 continue
-            for _, u in lst[1:]:
+            for u in us[1:]:
                 hint = ""
-                if u.ctrl and first.ctrl and u.ctrl == first.ctrl:
-                    hint = " (to share a hub control line between hubs, set shared: true on each of them)"
+                if same_line:
+                    hint = " (to share a hub control line between hubs, set allow_other_uses: true on each use)"
+                elif all(u.share for u in us):
+                    hint = (" (allow_other_uses only shares the same control line between hubs, e.g. "
+                            "clock_pin with clock_pin)")
                 self.err(u.path, u.line, f"{name} is already used by {first.path} (line {first.line}){hint}")
+
+
+def fmt_us(us):
+    if us >= 1000 and us % 100 == 0:
+        return f"{us / 1000:g}ms"
+    return f"{us:g}us"
 
 
 def type_name(v):
@@ -595,20 +831,101 @@ def adc_text(plat):
     return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
 
 
+# ---------------------------------------------------------------------------------------------
+# ids and display names
+
+def id_problem(v, raw, style="lower_snake_case"):
+    """Why v (loaded from the source text raw) can't be an id, or None if it can."""
+    if isinstance(v, bool):
+        return (f"`{raw}` is read by YAML as the boolean {str(v).lower()} (YAML 1.1, which PyYAML follows, "
+                "reads yes/no/on/off/true/false as booleans), so it can't be an id")
+    if v is None:
+        if not raw:
+            return "is empty"
+        return f"`{raw}` is read by YAML as null (nothing), so it can't be an id"
+    if isinstance(v, (int, float)):
+        return f"`{raw}` is read by YAML as the number {v!r}; an id must start with a letter"
+    if not isinstance(v, str):
+        return f"must be a name (got {type_name(v)})"
+    if v.lower() in YAML_WORDS:
+        return (f"'{v}' can't be an id: written without quotes, YAML reads it as a "
+                f"{'null' if v.lower() == 'null' else 'boolean'} (yes/no/on/off/y/n/true/false/null)")
+    if not ID_RE[style].fullmatch(v):
+        if style == "lower_snake_case" and ID_RE["c_identifier"].fullmatch(v):
+            return (f"'{v}' must be lower_snake_case (a-z, 0-9 and _, starting with a letter), "
+                    "or set `id_style: c_identifier` at the top of the file to allow capitals")
+        rule = "a-z, 0-9 and _" if style == "lower_snake_case" else "letters, digits and _"
+        return f"'{v}' isn't a valid id: {rule} only, starting with a letter"
+    if v in CPP_KEYWORDS:
+        return f"'{v}' is a C/C++ keyword, so it can't be an id"
+    return None
+
+
+def derive_id(name):
+    """ESPHome's id from a name: lowercase, every run of other characters -> '_'."""
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+
+def suggest_id(text, kind="item"):
+    """A valid lower_snake_case id made from any text: "Oct - LED" -> "oct_minus_led"."""
+    s = re.sub(r"(?<![^\s])\+(?![^\s])", " plus ", str(text))
+    s = re.sub(r"(?<![^\s])-(?![^\s])", " minus ", s)
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    s = derive_id(s)
+    base = example_id(kind)
+    if not s:
+        return base
+    if not s[0].isalpha():
+        s = f"{base}_{s}"
+    if s in YAML_WORDS or s in CPP_KEYWORDS:
+        s = f"{s}_{base}"
+    return s
+
+
+def example_id(kind):
+    return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
+            "hub": "faders"}.get(kind, "item")
+
+
+def a_(kind):
+    """'an LED', 'an analog input', 'a button'."""
+    return f"{'an' if kind[:1] in 'aeiouAEIOUL' else 'a'} {kind}"
+
+
+def humanize(ident):
+    """The default display name of an id: oct_down -> "Oct down", fader_1 -> "Fader 1"."""
+    s = " ".join(ident.replace("_", " ").split())
+    return s[:1].upper() + s[1:]
+
+
+# ---------------------------------------------------------------------------------------------
+
 def validate(data, file=None):
     """data: the loaded YAML (LDict). Returns (Device or None, [Diag])."""
     v = _V(file)
     dev = Device()
     if not isinstance(data, dict):
-        v.err("", getattr(data, "line", 1), "the top level must be a mapping (gemifi: 1, name: ..., ...)")
+        v.err("", getattr(data, "line", 1), f"the top level must be a mapping (gemifi: {FORMAT_VERSION}, "
+                                            "name: ..., ...)")
         return None, v.diags
-    v.mapping(data, "", data.line, TOP_KEYS)
+    v.mapping(data, "", data.line, TOP_KEYS, renamed=RENAMED_TOP)
 
     fmt = v.integer(data, "gemifi", "", 0, 1000, required=True)
-    if fmt is not None and fmt != FORMAT_VERSION:
+    if fmt == 1:
+        v.err("gemifi", data.line_of("gemifi"), f"this is a format 1 file; this builder reads format "
+                                                 f"{FORMAT_VERSION}: fix the errors below (each says what the "
+                                                 "old key became; core/README.md \"Device YAML\" has the format) "
+                                                 f"and set gemifi: {FORMAT_VERSION}")
+    elif fmt is not None and fmt != FORMAT_VERSION:
         v.err("gemifi", data.line_of("gemifi"), f"format version {fmt} is not supported (this builder "
                                                  f"reads version {FORMAT_VERSION})")
-    dev.name = v.string(data, "name", "", required=True) or "?"
+    if data.get("id_style") is not None:
+        if data["id_style"] in ID_STYLES:
+            v.id_style = data["id_style"]
+        else:
+            v.err("id_style", data.line_of("id_style"), f"'{data.raw_of('id_style')}' is unknown "
+                                                         f"({' | '.join(ID_STYLES)}; default lower_snake_case)")
+    validate_names(v, dev, data)
     dev.description = v.string(data, "description", "")
     dev.board_id = v.integer(data, "board_id", "", 0, 0x3FFF, required=True) or 0
     dev.version = validate_version(v, data)
@@ -652,14 +969,16 @@ def validate(data, file=None):
         dev.usb = DEFAULT_USB
         v.warn("usb", data.line, "not given: using the pid.codes test IDs 1209:0002 (development only)")
 
-    dev.scan_us = v.integer(data, "scan_us", "", 1, 0xFFFF, default=125)
+    dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
 
-    # hubs (before anything that refers to them)
-    hubs = v.seq(data.get("hubs"), "hubs", data.line_of("hubs"))
-    for i, h in enumerate(hubs):
-        validate_hub(v, dev, h, f"hubs[{i}]", hubs.line_of(i), i)
+    # hubs (before anything that refers to them), in file order
+    for key in data:
+        if key in HUB_ENUM:
+            lst = v.seq(data[key], key, data.line_of(key))
+            for i, h in enumerate(lst):
+                validate_hub(v, dev, h, key, f"{key}[{i}]", lst.line_of(i))
     if len(dev.hubs) > 254:
-        v.err("hubs", hubs.line, f"{len(dev.hubs)} hubs: at most 254")
+        v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
 
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
@@ -675,7 +994,7 @@ def validate(data, file=None):
     elif need_i2c:
         first = next(h for h in dev.hubs if h.type in I2C_HUBS)
         v.err("i2c", data.line, f"hub '{first.id}' ({first.type}) needs the I2C pins: "
-                                "add i2c: {{ sda: ..., scl: ... }}")
+                                "add i2c: { sda: ..., scl: ... }")
     addrs = {}
     for h in dev.hubs:
         if h.type in I2C_HUBS:
@@ -684,114 +1003,25 @@ def validate(data, file=None):
                                                    f"'{addrs[h.addr]}'")
             addrs[h.addr] = h.id
 
-    # LEDs first (buttons refer to them)
-    leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
-    seen, led_index = {}, {}
-    for i, d in enumerate(leds):
-        p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["label", "pin", "pin2"])
-        if d is None:
-            continue
-        lab = v.label(d, p, seen)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
-        pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
-        if lab is not None:
-            led_index.setdefault(lab, len(dev.leds))
-        dev.leds.append(Hub(label=lab or "", pin=pin or NO_PIN, pin2=pin2 or NO_PIN))
-
-    buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
-    seen, btn_index = {}, {}
-    for i, d in enumerate(buttons):
-        p = f"buttons[{i}]"
-        d = v.mapping(d, p, buttons.line_of(i), ["label", "pin", "action", "number", "led"])
-        if d is None:
-            continue
-        lab = v.label(d, p, seen)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
-        act = d.get("action", "none")
-        if act not in ACTIONS:
-            close = difflib.get_close_matches(str(act), ACTIONS, 1)
-            hint = f"did you mean '{close[0]}'? " if close else ""
-            v.err(f"{p}.action", d.line_of("action"), f"unknown action '{act}' ({hint}valid: "
-                                                       f"{', '.join(ACTIONS)})")
-            act = "none"
-        num = v.integer(d, "number", p, 0, 127, default=0)
-        if act in NUMBER_ACTIONS and "number" not in d:
-            v.warn(p, d.line, f"action {act} without number: using 0")
-        led = -1
-        if d.get("led") is not None:
-            ll = str(d["led"])
-            if ll not in led_index:
-                close = difflib.get_close_matches(ll, list(led_index), 1)
-                hint = f"; did you mean '{close[0]}'?" if close else ""
-                v.err(f"{p}.led", d.line_of("led"), f"no LED labelled '{ll}' "
-                                                    f"(LEDs: {', '.join(led_index) or 'none'}{hint})")
-            else:
-                led = led_index[ll]
-                if led > 127:
-                    v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-                    led = -1
-        if lab is not None:
-            btn_index.setdefault(lab, len(dev.buttons))
-        dev.buttons.append(Hub(label=lab or "", pin=pin or NO_PIN, action=ACTIONS.index(act),
-                               action_name=act, number=num, led=led))
-
-    analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
-    seen = {}
-    for i, d in enumerate(analogs):
-        p = f"analog[{i}]"
-        d = v.mapping(d, p, analogs.line_of(i), ["label", "pin", "cc", "raw_min", "raw_max"])
-        if d is None:
-            continue
-        lab = v.label(d, p, seen)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
-        lo = v.integer(d, "raw_min", p, 0, 4095, default=0)
-        hi = v.integer(d, "raw_max", p, 0, 4095, default=4095)
-        if lo == hi:
-            v.err(p, d.line, f"raw_min and raw_max are both {lo}")
-        dev.analogs.append(Hub(label=lab or "", pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi))
-
-    encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
-    seen = {}
-    for i, d in enumerate(encs):
-        p = f"encoders[{i}]"
-        d = v.mapping(d, p, encs.line_of(i), ["label", "a", "b", "cc", "steps_per_detent"])
-        if d is None:
-            continue
-        lab = v.label(d, p, seen)
-        enc_hubs = IN_HUBS - MUX_HUBS
-        why = "encoders can't be on a mux"
-        a = v.pin(d.get("a"), f"{p}.a", d.line_of("a"), "in", hubs=enc_hubs, why=why)
-        b = v.pin(d.get("b"), f"{p}.b", d.line_of("b"), "in", hubs=enc_hubs, why=why)
-        for key, pn in (("a", a), ("b", b)):
-            if pn and pn.hub and dev.hubs[pn.hub - 1].type in I2C_HUBS:
-                v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
-                                                     "loop: fast spinning may miss steps")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
-        spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
-        dev.encoders.append(Hub(label=lab or "", a=a or NO_PIN, b=b or NO_PIN, cc=cc, steps=spd))
+    validate_components(v, dev, data)
 
     if data.get("key_matrix") is not None:
         validate_matrix(v, dev, data["key_matrix"], data.line_of("key_matrix"))
 
-    # boot combo
+    # boot combo: button ids
     if data.get("boot_combo") is not None:
         bc = v.seq(data["boot_combo"], "boot_combo", data.line_of("boot_combo"))
-        for i, lab in enumerate(bc):
-            lab = str(lab)
+        for i in range(len(bc)):
             p, ln = f"boot_combo[{i}]", bc.line_of(i)
-            if lab not in btn_index:
-                close = difflib.get_close_matches(lab, list(btn_index), 1)
-                hint = f"; did you mean '{close[0]}'?" if close else ""
-                v.err(p, ln, f"no button labelled '{lab}' (buttons: {', '.join(btn_index) or 'none'}{hint})")
-            elif btn_index[lab] >= 32:
-                v.err(p, ln, f"button '{lab}' is button {btn_index[lab]}; boot_combo can only use "
-                             "the first 32 buttons")
-            elif btn_index[lab] in dev.boot_combo:
-                v.warn(p, ln, f"'{lab}' is listed twice")
+            idx = v.ref(bc, i, p, ln, "button", "buttons")
+            if idx is None:
+                continue
+            if idx >= 32:
+                v.err(p, ln, f"button '{bc[i]}' is button {idx}; boot_combo can only use the first 32 buttons")
+            elif idx in dev.boot_combo:
+                v.warn(p, ln, f"'{bc[i]}' is listed twice")
             else:
-                dev.boot_combo.append(btn_index[lab])
+                dev.boot_combo.append(idx)
 
     if len(dev.buttons) > 32:
         v.err("buttons", data.line_of("buttons"), f"{len(dev.buttons)} buttons: at most 32 (the runtime "
@@ -810,81 +1040,205 @@ def validate(data, file=None):
     return (None if errors(v.diags) else dev), v.diags
 
 
-def validate_hub(v, dev, h, p, line, index):
+def validate_names(v, dev, data):
+    """name: the node name (ESPHome: lowercase letters, digits and -, at most 31); friendly_name: the
+    display name (USB product string, HELLO, web UI), default the name."""
+    name = data.get("name")
+    friendly = v.string(data, "friendly_name", "")
+    dev.node_name = "?"
+    if name is None:
+        v.err("name", data.line, "is required: the device's node name, lowercase letters, digits and - "
+                                 "(e.g. `name: keystation-mini32`)")
+    else:
+        raw = data.raw_of("name")
+        if isinstance(name, str) and NODE_NAME_RE.fullmatch(name):
+            dev.node_name = name
+        else:
+            hint = f"; put '{raw}' in friendly_name:" if friendly is None and re.search(r"[A-Z ]", raw) else ""
+            v.err("name", data.line_of("name"), f"'{raw}' isn't a node name: lowercase letters, digits and -, "
+                                                f"at most 31, not starting or ending with - (e.g. "
+                                                f"`name: {suggest_node_name(raw)}`{hint})")
+    dev.name = friendly or dev.node_name
+
+
+def suggest_node_name(text):
+    s = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:31].strip("-")
+    return s or "my-controller"
+
+
+def validate_components(v, dev, data):
+    names = {}       # (kind, display name) -> path, for the duplicate-name warning
+    # LEDs first (buttons refer to them)
+    leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
+    for i, d in enumerate(leds):
+        p = f"leds[{i}]"
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2"], renamed=RENAMED_ID)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "LED", len(dev.leds))
+        name = v.display_name(d, p, ident)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
+        pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
+        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN))
+
+    buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
+    for i, d in enumerate(buttons):
+        p = f"buttons[{i}]"
+        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "led"],
+                      renamed=RENAMED_BUTTON)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "button", len(dev.buttons))
+        name = v.display_name(d, p, ident)
+        unique_name(v, names, "button", name, p, d)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
+        act = d.get("action", "none")
+        if act not in ACTIONS:
+            close = difflib.get_close_matches(str(act), ACTIONS, 1)
+            hint = f"did you mean '{close[0]}'? " if close else ""
+            v.err(f"{p}.action", d.line_of("action"), f"unknown action '{act}' ({hint}valid: "
+                                                       f"{', '.join(ACTIONS)})")
+            act = "none"
+        num = button_number(v, d, p, act)
+        led = -1
+        if d.get("led") is not None:
+            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
+            if idx is not None:
+                led = idx
+                if led > 127:
+                    v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
+                    led = -1
+        dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTIONS.index(act),
+                               action_name=act, number=num, led=led))
+
+    analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
+    for i, d in enumerate(analogs):
+        p = f"analog[{i}]"
+        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "adc_min", "adc_max"],
+                      renamed=RENAMED_ANALOG)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "analog input", len(dev.analogs))
+        name = v.display_name(d, p, ident)
+        unique_name(v, names, "analog input", name, p, d)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
+        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
+        lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
+        hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
+        if lo == hi:
+            v.err(p, d.line, f"adc_min and adc_max are both {lo}")
+        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi))
+
+    encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
+    for i, d in enumerate(encs):
+        p = f"encoders[{i}]"
+        d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent"],
+                      renamed=RENAMED_ENCODER)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "encoder", len(dev.encoders))
+        name = v.display_name(d, p, ident)
+        unique_name(v, names, "encoder", name, p, d)
+        enc_hubs = IN_HUBS - MUX_HUBS
+        why = "encoders can't be on a mux"
+        pins = {}
+        for key in ("pin_a", "pin_b"):
+            if key not in d and key[-1] in d:
+                pins[key] = None        # format 1 a:/b:, reported as renamed
+                continue
+            pins[key] = v.pin(d.get(key), f"{p}.{key}", d.line_of(key), "in", hubs=enc_hubs, why=why)
+            pn = pins[key]
+            if pn and pn.hub and dev.hubs[pn.hub - 1].type in I2C_HUBS:
+                v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
+                                                     "loop: fast spinning may miss steps")
+        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
+        spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
+        dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
+                                cc=cc, steps=spd))
+
+
+def unique_name(v, names, kind, name, path, d):
+    """Display names label the rows of the web config table and the CLI's `param:name` keys:
+    two of the same kind with one name can't be told apart."""
+    if not name:
+        return
+    first = names.setdefault((kind, name.lower()), path)
+    if first != path:
+        v.warn(f"{path}.name" if "name" in d else path, d.line_of("name") if "name" in d else d.line,
+               f"'{name}' is also the name of {first}: the config page and CLI can't tell them apart "
+               "(set a different name:)")
+
+
+def button_number(v, d, p, act):
+    """The default button.number: cc: for the CC actions, note: for action note."""
+    want = "note" if act == "note" else "cc" if act in CC_ACTIONS else None
+    if "cc" in d and "note" in d:
+        v.err(p, d.line, "give cc: or note:, not both")
+    if want is None:
+        given = next((k for k in ("cc", "note") if k in d), None)
+        if given:
+            v.warn(f"{p}.{given}", d.line_of(given), f"action {act} sends no CC or note; {given}: only "
+                                                     "sets the default button.number for when the action is "
+                                                     "changed in the config")
+            return v.integer(d, given, p, 0, 127, default=0)
+        return 0
+    other = "cc" if want == "note" else "note"
+    if other in d:
+        v.err(f"{p}.{other}", d.line_of(other), f"action {act} takes {want}:, not {other}:")
+        return v.integer(d, other, p, 0, 127, default=0)
+    if "number" in d:          # format 1; reported as renamed
+        return 0
+    if want not in d:
+        v.err(p, d.line, f"action {act} needs {want}: (0..127)")
+        return 0
+    return v.integer(d, want, p, 0, 127, default=0)
+
+
+def validate_hub(v, dev, h, typ, p, line):
+    index = len(dev.hubs)
     if not isinstance(h, dict):
         v.err(p, line, f"must be a mapping (got {type_name(h)})")
         return
-    hid = v.string(h, "id", p, required=True)
-    typ = h.get("type")
-    if typ not in HUB_ENUM:
-        close = difflib.get_close_matches(str(typ), list(HUB_ENUM), 1)
-        hint = f"; did you mean '{close[0]}'?" if close else ""
-        v.err(f"{p}.type", h.line_of("type"), f"{'unknown hub type ' + repr(typ) if typ else 'is required'} "
-                                               f"(known: {', '.join(HUB_ENUM)}{hint})")
-        typ = None
-    keys = sorted(HUB_COMMON_KEYS | HUB_KEYS.get(typ, set()))
-    if typ:
-        v.mapping(h, p, line, keys)
-    if hid is not None and not re.fullmatch(r"[A-Za-z_][\w-]*", hid):
-        v.err(f"{p}.id", h.line_of("id"), f"'{hid}' must be a simple name (letters, digits, _ and -)")
-    if hid in v.hub_by_id:
-        v.err(f"{p}.id", h.line_of("id"), f"hub id '{hid}' is already used by {v.hub_by_id[hid].path}")
-        hid = None
-    shared = v.boolean(h, "shared", p)
+    v.mapping(h, p, line, HUB_KEYS[typ], renamed=RENAMED_HUB)
+    hid = v.ident(h, p, "hub", index, allow_name=False)
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
-              common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, shared=shared)
+              common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
-    if typ is None:
-        return
-    if shared and typ in I2C_HUBS:
-        v.warn(f"{p}.shared", h.line_of("shared"), "I2C hubs always share the bus; shared: has no effect")
 
-    def ctl(key, role, required=True, idx=None):
-        pp = f"{p}.{key}" if idx is None else f"{p}.{key}[{idx}]"
-        val = h.get(key) if idx is None else h[key][idx]
-        ln = h.line_of(key) if idx is None else h[key].line_of(idx)
-        if val is None:
+    def ctl(key, role, required=True):
+        if h.get(key) is None:
             if required:
-                v.err(pp, h.line, "is required")
+                v.err(f"{p}.{key}", h.line, "is required")
             return NO_PIN
-        tag = key if idx is None else f"{key}{idx}"
-        return v.pin(val, pp, ln, role, allow_hub=False, ctrl=tag, shared=shared, owner=index) or NO_PIN
+        return v.pin(h[key], f"{p}.{key}", h.line_of(key), role, allow_hub=False, line_kind=CTRL_LINE[key],
+                     owner=index) or NO_PIN
 
     if typ in SHIFT_HUBS:
-        hub.chain = v.integer(h, "chain", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
+        hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
         hub.n_pins = 8 * hub.chain
-        hub.data = ctl("data", "out" if typ == "74hc595" else "in")
-        hub.clock = ctl("clock", "out")
-        hub.latch = ctl("latch", "out")
-        if typ == "74hc595":
-            hub.enable = ctl("enable", "out", required=False)
+        hub.data = ctl("data_pin", "out" if typ == "sn74hc595" else "in")
+        hub.clock = ctl("clock_pin", "out")
+        if typ == "sn74hc595":
+            hub.latch = ctl("latch_pin", "out")
+            hub.enable = ctl("oe_pin", "out", required=False)
+        else:
+            hub.latch = ctl("load_pin", "out")
     elif typ in MUX_HUBS:
-        want = {"74hc4051": 3, "74hc4067": 4}.get(typ)
-        sel = h.get("select")
-        if not isinstance(sel, list) or not sel:
-            v.err(f"{p}.select", h.line_of("select"), f"needs a list of {want or '1-4'} select pins (S0 first)")
-            sel = []
-        elif want and len(sel) != want:
-            v.err(f"{p}.select", h.line_of("select"), f"a {typ} has {want} select lines (S0..S{want - 1}), "
-                                                      f"got {len(sel)}")
-        elif not 1 <= len(sel) <= 4:
-            v.err(f"{p}.select", h.line_of("select"), f"a mux has 1 to 4 select lines, got {len(sel)}")
-        sel = sel[:4]
-        hub.sel = [ctl("select", "out", idx=i) for i in range(len(sel))]
-        hub.n_sel = len(sel) or (want or 0)
-        hub.n_pins = 1 << hub.n_sel if hub.n_sel else 0
-        hub.common = ctl("common", "in")
+        hub.n_sel = MUX_SELECT[typ]
+        hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
+        hub.n_pins = 1 << hub.n_sel
+        hub.common = ctl("common_pin", "common")
         if hub.common.hub == 0:
             hub.common_adc = v.plat.adc(hub.common.num)[0]
-            if hub.common_adc and v.plat.adc(hub.common.num)[1]:
-                v.warn(f"{p}.common", h.line_of("common"), v.plat.adc(hub.common.num)[1])
         else:
             hub.common = None
-        hub.enable = ctl("enable", "out", required=False)
-        hub.settle_us = v.integer(h, "settle_us", p, 0, 0xFFFF, default=0)
+        hub.enable = ctl("enable_pin", "out", required=False)
+        hub.settle_us = v.period(h, "delay", p, 0, 0xFFFF, default=0, example="5us")   # 0: vpin.c waits 2us
+        if "delay" in h and hub.settle_us == 0:
+            v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
     else:
         hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
         hub.n_pins = 16 if typ == "mcp23017" else 8
@@ -918,30 +1272,33 @@ def validate_version(v, data):
 
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
-    d = v.mapping(d, p, line, ["kind", "rows", "cols", "keys", "first_note", "settle_us", "velocity"])
+    d = v.mapping(d, p, line, ["type", "rows", "columns", "keys", "first_note", "settle", "velocity"],
+                  renamed=RENAMED_MATRIX)
     if d is None:
         return
-    kind = d.get("kind")
+    kind = d.get("type")
     if kind not in ("switch", "velocity"):
-        v.err(f"{p}.kind", d.line_of("kind"), f"{'is required' if kind is None else repr(kind) + ' is unknown'} "
-                                               "(switch: one contact per key, velocity: two contacts per key)")
+        if not (kind is None and "kind" in d):
+            v.err(f"{p}.type", d.line_of("type"), f"{'is required' if kind is None else repr(kind) + ' is unknown'} "
+                                                   "(switch: one contact per key, velocity: two contacts per key)")
         kind = "switch"
     pins = {}
-    for key, role, mh in (("rows", "out", {"74hc595"}), ("cols", "in", {"74hc165"})):
+    for key, role, mh in (("rows", "out", {"sn74hc595"}), ("columns", "in", {"sn74hc165"})):
         lst = d.get(key)
         if not isinstance(lst, list) or not lst:
-            v.err(f"{p}.{key}", d.line_of(key), "needs a list of pins")
+            if not (key == "columns" and "cols" in d):
+                v.err(f"{p}.{key}", d.line_of(key), "needs a list of pins")
             lst = LList()
         if len(lst) > 255:
             v.err(f"{p}.{key}", d.line_of(key), f"{len(lst)} {key}: at most 255")
-        why = "the matrix is scanned from the timer interrupt, so only MCU pins, 74hc595 rows and 74hc165 cols"
+        why = "the matrix is scanned from the timer interrupt, so only MCU pins, sn74hc595 rows and sn74hc165 columns"
         pins[key] = [v.pin(x, f"{p}.{key}[{i}]", lst.line_of(i), role, hubs=mh, why=why) or NO_PIN
                      for i, x in enumerate(lst)]
-    nr, nc = len(pins["rows"]), len(pins["cols"])
+    nr, nc = len(pins["rows"]), len(pins["columns"])
     cap = nr * nc if kind == "switch" else nr * (nc // 2)
     if kind == "velocity" and nc % 2:
-        v.err(f"{p}.cols", d.line_of("cols"), f"kind velocity needs an even number of columns "
-                                              f"(two contacts per key), got {nc}")
+        v.err(f"{p}.columns", d.line_of("columns"), f"type velocity needs an even number of columns "
+                                                    f"(two contacts per key), got {nc}")
     keys = v.integer(d, "keys", p, 1, 128, default=min(cap, 128) or 1)
     first = v.integer(d, "first_note", p, 0, 127, default=48)
     if keys is not None and nr and nc and keys > cap:
@@ -949,9 +1306,9 @@ def validate_matrix(v, dev, d, line):
                                               f"(at most {cap})")
     if keys is not None and first is not None and first + keys > 128:
         v.err(f"{p}.keys", d.line_of("keys"), f"first_note {first} + {keys} keys goes past note 127")
-    settle = v.integer(d, "settle_us", p, 0, 255, default=1)
+    settle = v.period(d, "settle", p, 0, 255, default=1, example="1us")
     vel_fast, vel_slow = validate_velocity(v, d, p, kind)
-    dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["cols"], keys=keys or 0,
+    dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["columns"], keys=keys or 0,
                      first_note=first or 0, settle_us=settle, vel_fast=vel_fast, vel_slow=vel_slow)
 
 
@@ -962,36 +1319,22 @@ VEL_SLOW_RANGE = (20, 2000)
 
 
 def validate_velocity(v, d, path, kind):
-    """key_matrix.velocity: { fast_ms, slow_ms } -> (fast, slow) in 0.1 ms, None where not given."""
+    """key_matrix.velocity: { fast, slow } (time periods) -> (fast, slow) in 0.1 ms, None where not given."""
     p = f"{path}.velocity"
-    vd = v.mapping(d.get("velocity"), p, d.line_of("velocity"), ["fast_ms", "slow_ms"]) if "velocity" in d else None
+    vd = v.mapping(d.get("velocity"), p, d.line_of("velocity"), ["fast", "slow"],
+                   renamed=RENAMED_VELOCITY) if "velocity" in d else None
     if vd is None:
         return None, None
     if kind != "velocity":
-        v.err(p, d.line_of("velocity"), "only for kind: velocity (a switch matrix has no key times)")
+        v.err(p, d.line_of("velocity"), "only for type: velocity (a switch matrix has no key times)")
         return None, None
-    out = []
-    for key, (lo, hi) in (("fast_ms", VEL_FAST_RANGE), ("slow_ms", VEL_SLOW_RANGE)):
-        x = vd.get(key)
-        if x is None:
-            out.append(None)
-            continue
-        if isinstance(x, bool) or not isinstance(x, (int, float)):
-            v.err(f"{p}.{key}", vd.line_of(key), f"must be a number of ms (got {type_name(x)} {x!r})")
-            out.append(None)
-            continue
-        t = round(x * 10)
-        if abs(x * 10 - t) > 1e-6:
-            v.warn(f"{p}.{key}", vd.line_of(key), f"{x} ms rounded to {t / 10:g} ms (0.1 ms steps)")
-        if not lo <= t <= hi:
-            v.err(f"{p}.{key}", vd.line_of(key), f"{x} ms is out of range ({lo / 10:g}..{hi / 10:g} ms)")
-            out.append(None)
-            continue
-        out.append(t)
-    fast, slow = out
+    fast = v.period(vd, "fast", p, VEL_FAST_RANGE[0] * 100, VEL_FAST_RANGE[1] * 100, step_us=100,
+                    example="1.6ms")
+    slow = v.period(vd, "slow", p, VEL_SLOW_RANGE[0] * 100, VEL_SLOW_RANGE[1] * 100, step_us=100,
+                    example="120ms")
     if (fast or 12) >= (slow or 1200):
-        v.err(p, d.line_of("velocity"), f"fast_ms ({(fast or 12) / 10:g}) must be shorter than slow_ms "
-                                        f"({(slow or 1200) / 10:g})")
+        v.err(p, d.line_of("velocity"), f"fast ({(fast or 12) / 10:g}ms) must be shorter than slow "
+                                        f"({(slow or 1200) / 10:g}ms)")
         return None, None
     return fast, slow
 
@@ -1039,7 +1382,8 @@ def generate(dev, source="device.yaml"):
             f" * by tools/builder/gemifi_build.py (format: core/README.md). */\n")
     m = dev.matrix
     h = [head, "#ifndef GM_DEVICE_CONFIG_H", "#define GM_DEVICE_CONFIG_H", "",
-         f"#define GM_DEVICE_NAME {c_str(dev.name)}",
+         f"#define GM_DEVICE_NAME {c_str(dev.name)}   /* friendly_name */",
+         f"#define GM_NODE_NAME {c_str(dev.node_name)}",
          f"#define GM_BOARD_ID 0x{dev.board_id:04X}",
          *([f"#define GM_FW_VERSION 0x{dev.version[0] << 24 | dev.version[1] << 16 | dev.version[2]:08X}u",
             f"#define GM_FW_VERSION_STR \"{'.'.join(map(str, dev.version))}\""] if dev.version else []),
@@ -1088,23 +1432,24 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.buttons:
         c.append("static const gm_button_t buttons[GM_N_BUTTONS] = {")
-        c += [f"    {{ {pin_c(b.pin)}, {c_str(b.label)}, {b.led} }}, /* {_comment(b.pin.desc)} */"
+        c += [f"    {{ {pin_c(b.pin)}, {c_str(b.name)}, {b.led} }}, /* {_comment(b.id)}: {_comment(b.pin.desc)} */"
               for b in dev.buttons]
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {c_str(x.label)} }}, /* {_comment(x.pin.desc)} */"
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
               for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:
         c.append("static const gm_analog_t analogs[GM_N_ANALOGS] = {")
-        c += [f"    {{ {pin_c(a.pin)}, {c_str(a.label)}, {a.raw_min}, {a.raw_max} }}, /* {_comment(a.pin.desc)} */"
+        c += [f"    {{ {pin_c(a.pin)}, {c_str(a.name)}, {a.raw_min}, {a.raw_max} }}, "
+              f"/* {_comment(a.id)}: {_comment(a.pin.desc)} */"
               for a in dev.analogs]
         c += ["};", ""]
     if dev.encoders:
         c.append("static const gm_encoder_t encoders[GM_N_ENCODERS] = {")
-        c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.label)}, {e.steps} }}, "
-              f"/* {_comment(e.a.desc)}, {_comment(e.b.desc)} */" for e in dev.encoders]
+        c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.name)}, {e.steps} }}, "
+              f"/* {_comment(e.id)}: {_comment(e.a.desc)}, {_comment(e.b.desc)} */" for e in dev.encoders]
         c += ["};", ""]
     if m:
         for nm, lst in (("rows", m.rows), ("cols", m.cols)):

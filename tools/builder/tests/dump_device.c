@@ -39,23 +39,23 @@ int main(void)
     }
     printf("buttons=%u (%s)\n", d->n_buttons, d->buttons ? "ptr" : "null");
     for (i = 0; i < d->n_buttons; i++) {
-        pin("pin", d->buttons[i].pin); str("label", d->buttons[i].label);
+        pin("pin", d->buttons[i].pin); str("name", d->buttons[i].name);
         printf("  led=%d action=%ld number=%ld\n", d->buttons[i].led,
                (long)gm_button_action_defaults[i], (long)gm_button_number_defaults[i]);
     }
     printf("leds=%u (%s)\n", d->n_leds, d->leds ? "ptr" : "null");
     for (i = 0; i < d->n_leds; i++) {
-        pin("pin", d->leds[i].pin); pin("pin2", d->leds[i].pin2); str("label", d->leds[i].label);
+        pin("pin", d->leds[i].pin); pin("pin2", d->leds[i].pin2);
     }
     printf("analogs=%u (%s)\n", d->n_analogs, d->analogs ? "ptr" : "null");
     for (i = 0; i < d->n_analogs; i++) {
-        pin("pin", d->analogs[i].pin); str("label", d->analogs[i].label);
+        pin("pin", d->analogs[i].pin); str("name", d->analogs[i].name);
         printf("  raw=%u..%u cc=%ld\n", d->analogs[i].raw_min, d->analogs[i].raw_max,
                (long)gm_analog_cc_defaults[i]);
     }
     printf("encoders=%u (%s)\n", d->n_encoders, d->encoders ? "ptr" : "null");
     for (i = 0; i < d->n_encoders; i++) {
-        pin("a", d->encoders[i].a); pin("b", d->encoders[i].b); str("label", d->encoders[i].label);
+        pin("a", d->encoders[i].a); pin("b", d->encoders[i].b); str("name", d->encoders[i].name);
         printf("  steps=%u cc=%ld\n", d->encoders[i].steps_per_detent, (long)gm_encoder_cc_defaults[i]);
     }
     /* the arrays must exist (at least one element) even for a count of 0 */

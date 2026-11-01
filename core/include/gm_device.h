@@ -66,9 +66,12 @@ typedef struct {
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */
+/* name: the display name (YAML name:, or derived from the id): the index
+ * label of the button's params in the schema, and the debug log. Ids are a
+ * build-time thing and don't reach the firmware. */
 typedef struct {
     gm_pin_t pin;
-    const char *label;
+    const char *name;
     int8_t led;           /* index into leds, or -1                        */
 } gm_button_t;
 
@@ -76,20 +79,19 @@ typedef struct {
  * levels: 1 = pin, 2 = both, 3 = pin2, 4 = pin2 blinking. */
 typedef struct {
     gm_pin_t pin;
-    gm_pin_t pin2;
-    const char *label;
+    gm_pin_t pin2;        /* LEDs have no name: nothing shows it */
 } gm_led_t;
 
 typedef struct {
     gm_pin_t pin;         /* MCU ADC pin, or a MUX hub channel             */
-    const char *label;
+    const char *name;
     uint16_t raw_min;     /* raw reading (0..4095) mapped to 0             */
     uint16_t raw_max;     /* raw reading mapped to the top; < raw_min = reversed */
 } gm_analog_t;
 
 typedef struct {
     gm_pin_t a, b;
-    const char *label;
+    const char *name;
     uint8_t steps_per_detent;   /* quadrature steps per click (usually 4) */
 } gm_encoder_t;
 

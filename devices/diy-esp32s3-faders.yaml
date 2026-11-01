@@ -1,44 +1,51 @@
 # DIY controller: ESP32-S3 dev board, 8 faders on a 74HC4051, 4 buttons with LEDs, one encoder.
 # Starting point for your own build: change the pins to match your wiring.
-gemifi: 1
-name: DIY S3 Faders
+gemifi: 2
+name: diy-s3-faders
+friendly_name: DIY S3 Faders
 description: DIY ESP32-S3 USB MIDI controller, 8 faders (74HC4051), 4 buttons + LEDs, 1 encoder
 board_id: 0x3F00               # 0x3F00-0x3FFF: DIY / private (protocol/sysex.md section 7)
 platform: esp32s3
 chip: esp32-s3-devkitc-1       # PlatformIO board id
 usb: { vid: 0x1209, pid: 0x0002 }
 midi: { transport: usb }
-scan_us: 500
-boot_combo: [Button 1, Button 4]
+scan_interval: 500us
+boot_combo: [button_1, button_4]
 
-hubs:
+cd74hc4051:
   - id: faders
-    type: 74hc4051
-    select: [GPIO4, GPIO5, GPIO6]
-    common: GPIO1              # ADC1 pin
-    settle_us: 5
+    pin_s0: GPIO4
+    pin_s1: GPIO5
+    pin_s2: GPIO6
+    common_pin: GPIO1          # ADC1 pin
+    delay: 5us
 
+# Buttons to ground, using the internal pull-ups.
 buttons:
-  - { label: Button 1, pin: { pin: GPIO10, pullup: true, inverted: true }, action: cc_toggle, number: 80, led: LED 1 }
-  - { label: Button 2, pin: { pin: GPIO11, pullup: true, inverted: true }, action: cc_toggle, number: 81, led: LED 2 }
-  - { label: Button 3, pin: { pin: GPIO12, pullup: true, inverted: true }, action: octave_down, led: LED 3 }
-  - { label: Button 4, pin: { pin: GPIO13, pullup: true, inverted: true }, action: octave_up, led: LED 4 }
+  - { id: button_1, pin: { number: GPIO10, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: led_1 }
+  - { id: button_2, pin: { number: GPIO11, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 81, led: led_2 }
+  - { id: button_3, pin: { number: GPIO12, mode: INPUT_PULLUP, inverted: true }, action: octave_down, led: led_3 }
+  - { id: button_4, pin: { number: GPIO13, mode: INPUT_PULLUP, inverted: true }, action: octave_up, led: led_4 }
 
 leds:
-  - { label: LED 1, pin: GPIO14 }
-  - { label: LED 2, pin: GPIO15 }
-  - { label: LED 3, pin: GPIO16 }
-  - { label: LED 4, pin: GPIO17 }
+  - { id: led_1, pin: GPIO14 }
+  - { id: led_2, pin: GPIO15 }
+  - { id: led_3, pin: GPIO16 }
+  - { id: led_4, pin: GPIO17 }
 
 analog:
-  - { label: Fader 1, pin: { hub: faders, channel: 0 }, cc: 20 }
-  - { label: Fader 2, pin: { hub: faders, channel: 1 }, cc: 21 }
-  - { label: Fader 3, pin: { hub: faders, channel: 2 }, cc: 22 }
-  - { label: Fader 4, pin: { hub: faders, channel: 3 }, cc: 23 }
-  - { label: Fader 5, pin: { hub: faders, channel: 4 }, cc: 24 }
-  - { label: Fader 6, pin: { hub: faders, channel: 5 }, cc: 25 }
-  - { label: Fader 7, pin: { hub: faders, channel: 6 }, cc: 26 }
-  - { label: Fader 8, pin: { hub: faders, channel: 7 }, cc: 27 }
+  - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, cc: 20 }
+  - { id: fader_2, pin: { cd74hc4051: faders, number: 1 }, cc: 21 }
+  - { id: fader_3, pin: { cd74hc4051: faders, number: 2 }, cc: 22 }
+  - { id: fader_4, pin: { cd74hc4051: faders, number: 3 }, cc: 23 }
+  - { id: fader_5, pin: { cd74hc4051: faders, number: 4 }, cc: 24 }
+  - { id: fader_6, pin: { cd74hc4051: faders, number: 5 }, cc: 25 }
+  - { id: fader_7, pin: { cd74hc4051: faders, number: 6 }, cc: 26 }
+  - { id: fader_8, pin: { cd74hc4051: faders, number: 7 }, cc: 27 }
 
 encoders:
-  - { label: Encoder, a: { pin: GPIO38, pullup: true }, b: { pin: GPIO39, pullup: true }, cc: 30, steps_per_detent: 4 }
+  - id: encoder
+    pin_a: { number: GPIO38, mode: INPUT_PULLUP }
+    pin_b: { number: GPIO39, mode: INPUT_PULLUP }
+    cc: 30
+    steps_per_detent: 4

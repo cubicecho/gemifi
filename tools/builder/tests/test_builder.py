@@ -27,19 +27,19 @@ GCC = shutil.which("gcc")
 CFLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror"]
 
 MINIMAL_NUC = """\
-gemifi: 1
-name: Test
+gemifi: 2
+name: test
 board_id: 0x3F01
 platform: nuvoton-nuc1xx
 chip: NUC120LC1BN
 usb: { vid: 0x1209, pid: 0x0002 }
 buttons:
-  - { label: A, pin: PA1, action: cc_momentary, number: 1 }
+  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }
 """
 
 MINIMAL_ESP = """\
-gemifi: 1
-name: Test
+gemifi: 2
+name: test
 board_id: 0x3F02
 platform: {plat}
 chip: some-board
@@ -134,7 +134,7 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn('name=Everything "S3" ?? test', out)
         self.assertIn("hubs=8 (ptr)", out)
         types = re.findall(r" hub \d+ type=(\d+) chain=(\d+) n_sel=(\d+) addr=0x(\w+)", out)
-        self.assertEqual(types, [("1", "2", "0", "00"), ("2", "1", "0", "00"), ("1", "1", "0", "00"),
+        self.assertEqual(types, [("1", "2", "0", "00"), ("1", "1", "0", "00"), ("2", "1", "0", "00"),
                                  ("2", "1", "0", "00"), ("3", "0", "3", "00"), ("3", "0", "4", "00"),
                                  ("4", "0", "0", "21"), ("5", "0", "0", "38")])
         # unused hub pins are GM_NO_PIN (hub 255), never MCU pin 0
@@ -148,13 +148,13 @@ class TestGenerateCompiles(unittest.TestCase):
         # LED "Bi": pin2 on the MCP23017 (hub 7) pin GPB7 = 15
         self.assertIn("pin2 hub=7 flags=0 num=15", out)
         # PCF P0 button (hub 8 pin 0, inverted)
-        self.assertIn("pin hub=8 flags=1 num=0\n  label=PCF 0", out)
+        self.assertIn("pin hub=8 flags=1 num=0\n  name=PCF 0", out)
         # mux digital button on channel 15 of the 4067 (hub 6)
-        self.assertIn("pin hub=6 flags=1 num=15\n  label=Mux btn", out)
+        self.assertIn("pin hub=6 flags=1 num=15\n  name=Mux btn", out)
         self.assertIn("raw=4095..0 cc=27", out)
         self.assertIn("boot_combo=0x00000005", out)
         self.assertIn("matrix kind=0 keys=24 first=36 settle=1 rows=4 cols=6", out)
-        self.assertIn("row hub=3 flags=0 num=3", out)
+        self.assertIn("row hub=2 flags=0 num=3", out)
         self.assertIn("col hub=4 flags=0 num=5", out)
         self.assertIn("i2c sda=8 scl=9", out)
         self.assertIn("transport=1", out)
@@ -168,7 +168,7 @@ class TestGenerateCompiles(unittest.TestCase):
 
     def test_empty_device_arrays(self):
         dev, diags = load(MINIMAL_ESP.format(plat="esp32", tr="serial") +
-                          "analog:\n  - { label: K, pin: GPIO34, cc: 1 }\n")
+                          "analog:\n  - { id: k, pin: GPIO34, cc: 1 }\n")
         self.assertIsNotNone(dev, [str(d) for d in diags])
         cfg = gen_dir(dev, self.tmp)
         self.compile_with_core(cfg)
@@ -209,106 +209,174 @@ class TestValidation(unittest.TestCase):
         self.assertIn("valid: PA0-PA15, PB0-PB15", e.msg)
         self.assertError(MINIMAL_NUC.replace("pin: PA1", "pin: PA16"), r"not a pin")
         self.assertError(MINIMAL_ESP.format(plat="esp32", tr="serial") +
-                         "buttons: [{ label: A, pin: GPIO24 }]\n", r"GPIO24.*valid: GPIO0-19, GPIO21-23")
+                         "buttons: [{ id: a, pin: GPIO24 }]\n", r"GPIO24.*valid: GPIO0-19, GPIO21-23")
 
     def test_str_format(self):
         _d, diags = gd.load_device("x.yaml", MINIMAL_NUC.replace("pin: PA1", "pin: PD99"))
         self.assertRegex(str(gd.errors(diags)[0]), r"^x\.yaml:8: error: buttons\[0\]\.pin: 'PD99'")
 
     def test_duplicate_pin(self):
-        t = MINIMAL_NUC + "  - { label: B, pin: PA1 }\n"
+        t = MINIMAL_NUC + "  - { id: b, pin: PA1 }\n"
         self.assertError(t, r"PA1 is already used by buttons\[0\]\.pin \(line 8\)", line=9)
-        t = MINIMAL_NUC + "leds:\n  - { label: L, pin: PA1 }\n"
+        t = MINIMAL_NUC + "leds:\n  - { id: l, pin: PA1 }\n"
         self.assertError(t, r"PA1 is already used")
 
     def test_matrix_row_cant_be_button(self):
-        t = MINIMAL_NUC + "key_matrix: { kind: switch, rows: [PA1, PA2], cols: [PB0], keys: 2 }\n"
+        t = MINIMAL_NUC + "key_matrix: { type: switch, rows: [PA1, PA2], columns: [PB0], keys: 2 }\n"
         self.assertError(t, r"PA1 is already used")
 
     def test_hub_pins_counted(self):
-        t = MINIMAL_NUC + "hubs:\n  - { id: s, type: 74hc595, data: PA1, clock: PA2, latch: PA3 }\n"
+        t = MINIMAL_NUC + "sn74hc595:\n  - { id: s, data_pin: PA1, clock_pin: PA2, latch_pin: PA3 }\n"
         self.assertError(t, r"PA1 is already used")
 
-    def test_shared_clock(self):
-        base = (MINIMAL_ESP.format(plat="esp32s3", tr="usb") +
-                "hubs:\n  - { id: o, type: 74hc595, data: GPIO1, clock: GPIO2, latch: GPIO4%s }\n"
-                "  - { id: i, type: 74hc165, data: GPIO5, clock: GPIO2, latch: GPIO4%s }\n"
-                "leds: [{ label: L, pin: { hub: o, pin: 0 } }]\n"
-                "buttons: [{ label: B, pin: { hub: i, pin: 0 } }]\n")
-        self.assertError(base % ("", ""), r"GPIO2 is already used.*shared: true")
-        self.assertError(base % (", shared: true", ""), r"GPIO2 is already used")
-        self.assertClean(base % (", shared: true", ", shared: true"))
-        # shared, but clock of one is latch of the other: still an error
-        t = (base % (", shared: true", ", shared: true")).replace("clock: GPIO2, latch: GPIO4 }\nleds",
-                                                                  "clock: GPIO4, latch: GPIO2 }\nleds")
-        t = t.replace("data: GPIO5, clock: GPIO2, latch: GPIO4", "data: GPIO5, clock: GPIO4, latch: GPIO2")
-        self.assertError(t, r"already used")
+    def test_allow_other_uses(self):
+        def dev(o_clock, i_clock, o_latch="GPIO4", i_latch="GPIO4"):
+            return (MINIMAL_ESP.format(plat="esp32s3", tr="usb") +
+                    f"sn74hc595:\n  - {{ id: o, data_pin: GPIO1, clock_pin: {o_clock}, latch_pin: {o_latch} }}\n"
+                    f"sn74hc165:\n  - {{ id: i, data_pin: GPIO5, clock_pin: {i_clock}, load_pin: {i_latch} }}\n"
+                    "leds: [{ id: l, pin: { sn74hc595: o, number: 0 } }]\n"
+                    "buttons: [{ id: b, pin: { sn74hc165: i, number: 0 } }]\n")
+        share = "{ number: %s, allow_other_uses: true }"
+        self.assertError(dev("GPIO2", "GPIO2"), r"GPIO2 is already used.*allow_other_uses: true on each use")
+        self.assertError(dev(share % "GPIO2", "GPIO2"), r"GPIO2 is already used")
+        self.assertClean(dev(share % "GPIO2", share % "GPIO2", share % "GPIO4", share % "GPIO4"))
+        # shared, but the clock of one is the latch of the other: still an error
+        self.assertError(dev(share % "GPIO2", share % "GPIO4", share % "GPIO4", share % "GPIO2"),
+                         r"already used.*same control line")
+        # only hub control lines can be shared
+        t = MINIMAL_NUC.replace("pin: PA1", "pin: { number: PA1, allow_other_uses: true }")
+        self.assertError(t, r"only shares hub control lines", path="buttons[0].pin.allow_other_uses")
 
     def test_unknown_hub(self):
-        t = MINIMAL_NUC + "leds:\n  - { label: L, pin: { hub: nope, pin: 0 } }\n"
-        self.assertError(t, r"unknown hub 'nope'", line=10)
+        t = MINIMAL_NUC + "leds:\n  - { id: l, pin: { sn74hc595: nope, number: 0 } }\n"
+        self.assertError(t, r"no hub with id 'nope'", line=10)
+        t = MINIMAL_NUC + "  - { id: b, pin: { sn74hc595: l, number: 0 } }\nleds:\n  - { id: l, pin: PA2 }\n"
+        self.assertError(t, r"'l' is the id of leds\[0\] \(an LED\), not of a hub")
+
+    def test_hub_key_must_match_chip(self):
+        hub = "pcf8574:\n  - { id: p }\ni2c: { sda: PA10, scl: PA11 }\n"
+        self.assertError(MINIMAL_NUC + hub + "leds:\n  - { id: l, pin: { mcp23xxx: p, number: 0 } }\n",
+                         r"hub 'p' is a pcf8574: write `pcf8574: p`")
+        self.assertError(MINIMAL_NUC + hub + "leds:\n  - { id: l, pin: { pcf8574: p, mcp23xxx: p, number: 0 } }\n",
+                         r"names more than one hub")
+        self.assertError(MINIMAL_NUC + "mcp23017:\n  - { id: m }\ni2c: { sda: PA10, scl: PA11 }\n"
+                         "leds:\n  - { id: l, pin: { mcp23017: m, number: 0 } }\n", r"`mcp23xxx:` \(as in ESPHome\)")
 
     def test_hub_range_and_type(self):
-        hub = "hubs:\n  - { id: s, type: 74hc595, data: PA2, clock: PA3, latch: PA4, chain: 2 }\n"
-        self.assertError(MINIMAL_NUC + hub + "leds:\n  - { label: L, pin: { hub: s, pin: 16 } }\n",
-                         r"pin 16 is out of range for hub 's' \(74hc595 \(2 chips x 8\): 0\.\.15\)")
-        self.assertClean(MINIMAL_NUC + hub + "leds:\n  - { label: L, pin: { hub: s, pin: 15 } }\n")
-        self.assertError(MINIMAL_NUC.replace("pin: PA1", "pin: { hub: s, pin: 0 }") + hub,
-                         r"74hc595, which can't be an input")
-        self.assertError(MINIMAL_NUC + hub.replace("chain: 2", "chain: 5"), r"5 is out of range \(1\.\.4\)")
+        hub = "sn74hc595:\n  - { id: s, data_pin: PA2, clock_pin: PA3, latch_pin: PA4, sr_count: 2 }\n"
+        self.assertError(MINIMAL_NUC + hub + "leds:\n  - { id: l, pin: { sn74hc595: s, number: 16 } }\n",
+                         r"pin 16 is out of range for hub 's' \(sn74hc595 \(2 chips x 8\): 0\.\.15\)")
+        self.assertClean(MINIMAL_NUC + hub + "leds:\n  - { id: l, pin: { sn74hc595: s, number: 15 } }\n")
+        self.assertError(MINIMAL_NUC.replace("pin: PA1", "pin: { sn74hc595: s, number: 0 }") + hub,
+                         r"sn74hc595, which can't be an input")
+        self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
     def test_mux(self):
-        mux = "hubs:\n  - { id: m, type: 74hc4051, select: [PA2, PA3, PA4], common: %s }\n"
-        an = "analog:\n  - { label: K, pin: { hub: m, channel: %d }, cc: 1 }\n"
+        mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
+        an = "analog:\n  - { id: k, pin: { cd74hc4051: m, number: %d }, cc: 1 }\n"
         self.assertClean(MINIMAL_NUC + mux % "PA5" + an % 7)
         self.assertError(MINIMAL_NUC + mux % "PA5" + an % 8, r"channel 8 is out of range")
-        self.assertError(MINIMAL_NUC + mux % "PB5" + an % 0, r"common pin PB5 has no ADC")
+        self.assertError(MINIMAL_NUC + mux % "PB5" + an % 0, r"common_pin PB5 has no ADC")
         # digital buttons on a non-ADC mux are fine
-        self.assertClean(MINIMAL_NUC.replace("pin: PA1", "pin: { hub: m, channel: 3 }") + mux % "PB5")
-        self.assertError(MINIMAL_NUC + mux.replace("PA3, PA4", "PA3") % "PA5" + an % 0,
-                         r"74hc4051 has 3 select lines")
-        self.assertError(MINIMAL_NUC + mux.replace("common: %s", "common: { hub: m, pin: 1 }") + an % 0,
-                         r"must be an MCU pin")
+        self.assertClean(MINIMAL_NUC.replace("pin: PA1", "pin: { cd74hc4051: m, number: 3 }") + mux % "PB5")
+        self.assertError(MINIMAL_NUC + mux.replace(", pin_s2: PA4", "") % "PA5" + an % 0,
+                         r"hubs\.|cd74hc4051\[0\]\.pin_s2|is required")
+        self.assertError(MINIMAL_NUC + mux.replace("common_pin: %s", "common_pin: { cd74hc4051: m, number: 1 }")
+                         + an % 0, r"must be an MCU pin")
+        self.assertError(MINIMAL_NUC + "cd74hc4067:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, "
+                         "common_pin: PA5 }\n", r"cd74hc4067\[0\]\.pin_s3|is required")
 
     def test_analog_on_non_adc(self):
-        self.assertError(MINIMAL_NUC + "analog:\n  - { label: V, pin: PB0, cc: 7 }\n",
+        self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",
                          r"PB0 has no ADC on nuvoton-nuc1xx \(ADC pins: PA0-PA7", line=10)
         self.assertError(MINIMAL_ESP.format(plat="esp8266", tr="serial") +
-                         "analog: [{ label: V, pin: GPIO4, cc: 7 }]\n", r"only ADC pin is A0")
+                         "analog: [{ id: v, pin: GPIO4, cc: 7 }]\n", r"only ADC pin is A0")
         self.assertClean(MINIMAL_ESP.format(plat="esp8266", tr="serial") +
-                         "analog: [{ label: V, pin: A0, cc: 7 }]\n")
+                         "analog: [{ id: v, pin: A0, cc: 7 }]\n")
 
     def test_adc2_and_flash_warnings(self):
-        t = MINIMAL_ESP.format(plat="esp32", tr="serial") + "analog: [{ label: V, pin: GPIO25, cc: 7 }]\n" \
-            "buttons: [{ label: B, pin: GPIO6 }]\n"
+        t = MINIMAL_ESP.format(plat="esp32", tr="serial") + "analog: [{ id: v, pin: GPIO25, cc: 7 }]\n" \
+            "buttons: [{ id: b, pin: GPIO6 }]\n"
         ws = [w.msg for w in self.errs(t, level="warning")]
         self.assertTrue(any("ADC2" in w for w in ws), ws)
         self.assertTrue(any("SPI flash" in w for w in ws), ws)
 
     def test_input_only_and_usb_pins(self):
-        self.assertError(MINIMAL_ESP.format(plat="esp32", tr="serial") + "leds: [{ label: L, pin: GPIO34 }]\n",
+        self.assertError(MINIMAL_ESP.format(plat="esp32", tr="serial") + "leds: [{ id: l, pin: GPIO34 }]\n",
                          r"GPIO34 is input-only")
-        self.assertError(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons: [{ label: B, pin: GPIO19 }]\n",
+        self.assertError(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons: [{ id: b, pin: GPIO19 }]\n",
                          r"native USB data line")
         self.assertError(MINIMAL_ESP.format(plat="esp8266", tr="usb"), r"'usb' is not available on esp8266")
+
+    def test_pin_modes(self):
+        btn = MINIMAL_NUC.replace("pin: PA1", "pin: { number: PA1, mode: %s }")
+        self.assertClean(btn % "INPUT")
+        self.assertClean(btn % "input_pullup")                     # NUC: quasi-bidirectional weak pull-up
+        self.assertClean(btn % "{ input: true, pullup: true }")
+        self.assertError(btn % "INPUT_PULLDOWN", r"NUC1xx GPIOs have no internal pull-down")
+        self.assertError(btn % "OUTPUT", r"this pin is an input: mode can't include output")
+        self.assertError(btn % "INPUT_PULUP", r"unknown mode 'INPUT_PULUP'.*did you mean INPUT_PULLUP")
+        self.assertError(btn % "{ input: true, pullup: true, pulldown: true }", r"pullup and pulldown")
+        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain isn't supported")
+        self.assertError(btn % "{ input: true, pulup: true }", r"unknown key \(did you mean 'pullup'")
+        led = MINIMAL_NUC + "leds:\n  - { id: l, pin: { number: PA2, mode: %s } }\n"
+        self.assertClean(led % "OUTPUT")
+        self.assertError(led % "INPUT_PULLUP", r"this pin is an output: use mode: OUTPUT")
+        an = MINIMAL_NUC + "analog:\n  - { id: v, pin: { number: PA0, mode: %s }, cc: 7 }\n"
+        self.assertClean(an % "ANALOG")
+        self.assertError(an % "INPUT_PULLUP", r"analog input takes mode ANALOG or INPUT")
+        self.assertError(MINIMAL_ESP.format(plat="esp32", tr="serial") +
+                         "buttons: [{ id: b, pin: { number: GPIO34, mode: INPUT_PULLUP } }]\n",
+                         r"GPIO34 has no internal pull-up/down on esp32")
+        hub = "sn74hc165:\n  - { id: s, data_pin: PA2, clock_pin: PA3, load_pin: PA4 }\n"
+        self.assertError(MINIMAL_NUC.replace("pin: PA1", "pin: { sn74hc165: s, number: 0, mode: INPUT_PULLUP }")
+                         + hub, r"a sn74hc165 pin has no pull-up \(only mcp23017")
+
+    def test_time_periods(self):
+        t = MINIMAL_NUC + "scan_interval: %s\n"
+        for ok in ("125us", "0.5ms", "1 ms", "125µs"):
+            self.assertClean(t % ok)
+        dev, _ = load(t % "0.5ms")
+        self.assertEqual(dev.scan_us, 500)
+        self.assertError(t % "125", r"needs a unit: `scan_interval: 125` could be any unit; write e\.g\. "
+                                    r"`scan_interval: 125us`", path="scan_interval")
+        self.assertError(t % "125 parsecs", r"must be a time period like 125us")
+        self.assertError(t % "70ms", r"70ms is out of range \(1us\.\.65535us\)")
+        ws = self.errs(t % "1.5us", level="warning")
+        self.assertTrue(any("rounded to 2us" in w.msg for w in ws), [str(w) for w in ws])
 
     def test_bad_action(self):
         e = self.assertError(MINIMAL_NUC.replace("cc_momentary", "cc_momentry"), r"unknown action 'cc_momentry'")
         self.assertIn("did you mean 'cc_momentary'", e.msg)
 
     def test_numbers(self):
-        self.assertError(MINIMAL_NUC.replace("number: 1", "number: 128"), r"128 is out of range \(0\.\.127\)")
+        self.assertError(MINIMAL_NUC.replace("cc: 1", "cc: 128"), r"128 is out of range \(0\.\.127\)")
         self.assertError(MINIMAL_NUC.replace("0x3F01", "0x4000"), r"0x4000 is out of range \(0x0\.\.0x3FFF\)")
-        self.assertError(MINIMAL_NUC.replace("number: 1", "number: yes"), r"must be an integer")
+        self.assertError(MINIMAL_NUC.replace("cc: 1", "cc: yes"), r"must be an integer 0\.\.127 \(got boolean 'yes'\)")
+
+    def test_button_cc_and_note(self):
+        btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
+        self.assertClean(btn % "action: note, note: 60")
+        self.assertError(btn % "action: note, cc: 60", r"action note takes note:, not cc:")
+        self.assertError(btn % "action: cc_toggle, note: 60", r"action cc_toggle takes cc:, not note:")
+        self.assertError(btn % "action: cc_toggle", r"action cc_toggle needs cc: \(0\.\.127\)")
+        self.assertError(btn % "action: note, note: 1, cc: 2", r"give cc: or note:, not both")
+        ws = self.errs(btn % "action: octave_up, cc: 5", level="warning")
+        self.assertTrue(any("sends no CC or note" in w.msg for w in ws), ws)
+        dev, _ = load(btn % "action: note, note: 61")
+        self.assertEqual(dev.buttons[0].number, 61)
 
     def test_matrix(self):
-        m = MINIMAL_NUC + "key_matrix:\n  kind: %s\n  rows: [PA8, PA9]\n  cols: [PB0, PB1, PB2%s]\n  keys: %d\n"
+        m = MINIMAL_NUC + "key_matrix:\n  type: %s\n  rows: [PA8, PA9]\n  columns: [PB0, PB1, PB2%s]\n  keys: %d\n"
         self.assertError(m % ("velocity", "", 3), r"even number of columns")
         self.assertError(m % ("velocity", ", PB3", 5), r"5 keys don't fit a 2 x 4 velocity matrix \(at most 4\)")
         self.assertClean(m % ("velocity", ", PB3", 4))
         self.assertError(m % ("switch", "", 7), r"at most 6")
         self.assertError((m % ("switch", "", 6)) + "  first_note: 123\n", r"goes past note 127")
         self.assertError(m % ("diagonal", "", 6), r"'diagonal' is unknown")
+        dev, _ = load((m % ("switch", "", 6)) + "  settle: 3us\n")
+        self.assertEqual(dev.matrix.settle_us, 3)
+        self.assertError((m % ("switch", "", 6)) + "  settle: 1ms\n", r"1ms is out of range \(0us\.\.255us\)")
 
     def test_version(self):
         dev, diags = gd.load_device("x.yaml", MINIMAL_NUC + "version: 1.2.300\n")
@@ -324,90 +392,212 @@ class TestValidation(unittest.TestCase):
         self.assertError(MINIMAL_NUC + "version: 1.0.65536\n", r"out of range")
 
     def test_matrix_velocity_defaults(self):
-        m = MINIMAL_NUC + "key_matrix:\n  kind: %s\n  rows: [PA8, PA9]\n  cols: [PB0, PB1, PB2, PB3]\n  keys: 4\n"
+        m = MINIMAL_NUC + "key_matrix:\n  type: %s\n  rows: [PA8, PA9]\n  columns: [PB0, PB1, PB2, PB3]\n  keys: 4\n"
         vel = m % "velocity"
-        dev, diags = gd.load_device("x.yaml", vel + "  velocity: { fast_ms: 2.0, slow_ms: 80 }\n")
+        dev, diags = gd.load_device("x.yaml", vel + "  velocity: { fast: 2.0ms, slow: 80ms }\n")
         self.assertFalse(gd.errors(diags), diags)
         h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
         self.assertIn("#define GM_VEL_FAST_DEFAULT 20 /* 2 ms */", h)
         self.assertIn("#define GM_VEL_SLOW_DEFAULT 800 /* 80 ms */", h)
-        dev, _ = gd.load_device("x.yaml", vel + "  velocity: { slow_ms: 60 }\n")
+        dev, _ = gd.load_device("x.yaml", vel + "  velocity: { slow: 60ms }\n")
         h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
         self.assertNotIn("GM_VEL_FAST_DEFAULT", h)
         self.assertIn("#define GM_VEL_SLOW_DEFAULT 600", h)
+        dev, _ = gd.load_device("x.yaml", vel + "  velocity: { fast: 1500us, slow: 0.1s }\n")
+        h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_VEL_FAST_DEFAULT 15", h)
+        self.assertIn("#define GM_VEL_SLOW_DEFAULT 1000", h)
         dev, _ = gd.load_device("x.yaml", vel)
         self.assertNotIn("GM_VEL_", gd.generate(dev, "x.yaml")["gm_device_config.h"])
-        self.assertError(vel + "  velocity: { fast_ms: 0 }\n", r"0 ms is out of range \(0\.1\.\.50 ms\)")
-        self.assertError(vel + "  velocity: { slow_ms: 300 }\n", r"out of range \(2\.\.200 ms\)")
-        self.assertError(vel + "  velocity: { fast_ms: 10, slow_ms: 5 }\n", r"must be shorter than slow_ms")
-        self.assertError(vel + "  velocity: { fast_ms: fast }\n", r"must be a number of ms")
-        self.assertError(vel + "  velocity: { fst_ms: 2 }\n", r"unknown key")
-        self.assertError((m % "switch") + "  velocity: { fast_ms: 2 }\n", r"only for kind: velocity")
+        self.assertError(vel + "  velocity: { fast: 0ms }\n", r"0ms is out of range \(100us\.\.50ms\)")
+        self.assertError(vel + "  velocity: { slow: 300ms }\n", r"out of range \(2ms\.\.200ms\)")
+        self.assertError(vel + "  velocity: { fast: 10ms, slow: 5ms }\n", r"must be shorter than slow")
+        self.assertError(vel + "  velocity: { fast: 2 }\n", r"needs a unit")
+        self.assertError(vel + "  velocity: { fst: 2ms }\n", r"unknown key")
+        self.assertError((m % "switch") + "  velocity: { fast: 2ms }\n", r"only for type: velocity")
 
     def test_matrix_hub_restrictions(self):
-        hubs = ("hubs:\n  - { id: m, type: 74hc4051, select: [PA2, PA3, PA4], common: PA5 }\n"
-                "  - { id: x, type: mcp23017, address: 0x20 }\ni2c: { sda: PA10, scl: PA11 }\n")
-        t = MINIMAL_NUC + hubs + "key_matrix: { kind: switch, rows: [PA8], cols: [{ hub: m, channel: 0 }] }\n"
+        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
+                "mcp23017:\n  - { id: x, address: 0x20 }\ni2c: { sda: PA10, scl: PA11 }\n")
+        t = MINIMAL_NUC + hubs + "key_matrix: { type: switch, rows: [PA8], columns: [{ cd74hc4051: m, number: 0 }] }\n"
         self.assertError(t, r"timer interrupt")
-        t = MINIMAL_NUC + hubs + "key_matrix: { kind: switch, rows: [{ hub: x, pin: 0 }], cols: [PB0] }\n"
+        t = MINIMAL_NUC + hubs + "key_matrix: { type: switch, rows: [{ mcp23xxx: x, number: 0 }], columns: [PB0] }\n"
         self.assertError(t, r"mcp23017, which can't be an output.*timer interrupt")
 
     def test_encoders(self):
-        hubs = ("hubs:\n  - { id: m, type: 74hc4051, select: [PA2, PA3, PA4], common: PA5 }\n"
-                "  - { id: x, type: mcp23017 }\ni2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(MINIMAL_NUC + hubs + "encoders:\n  - { label: E, a: { hub: m, pin: 0 }, "
-                         "b: { hub: m, pin: 1 }, cc: 1 }\n", r"encoders can't be on a mux")
-        t = MINIMAL_NUC + hubs + "encoders:\n  - { label: E, a: { hub: x, pin: 0 }, b: { hub: x, pin: 1 }, cc: 1 }\n" \
-            "analog: [{ label: K, pin: { hub: m, channel: 0 }, cc: 2 }]\n"
+        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
+                "mcp23017:\n  - { id: x }\ni2c: { sda: PA10, scl: PA11 }\n")
+        self.assertError(MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { cd74hc4051: m, number: 0 }, "
+                         "pin_b: { cd74hc4051: m, number: 1 }, cc: 1 }\n", r"encoders can't be on a mux")
+        t = MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { mcp23xxx: x, number: 0 }, " \
+            "pin_b: { mcp23xxx: x, number: 1 }, cc: 1 }\n" \
+            "analog: [{ id: k, pin: { cd74hc4051: m, number: 0 }, cc: 2 }]\n"
         self.assertClean(t)
         self.assertTrue(any("miss steps" in w.msg for w in self.errs(t, level="warning")))
 
     def test_too_many_buttons(self):
-        t = MINIMAL_NUC.split("buttons:")[0] + "hubs:\n  - { id: i, type: 74hc165, data: PA2, clock: PA3, latch: PA4, chain: 4 }\nbuttons:\n" + \
-            "".join(f"  - {{ label: B{i}, pin: {{ hub: i, pin: {i} }} }}\n" for i in range(32))
+        t = MINIMAL_NUC.split("buttons:")[0] + \
+            "sn74hc165:\n  - { id: i, data_pin: PA2, clock_pin: PA3, load_pin: PA4, sr_count: 4 }\nbuttons:\n" + \
+            "".join(f"  - {{ id: b{i}, pin: {{ sn74hc165: i, number: {i} }} }}\n" for i in range(32))
         self.assertClean(t)
-        t += "  - { label: X, pin: PB0 }\n"
+        t += "  - { id: x, pin: PB0 }\n"
         self.assertError(t, r"33 buttons: at most 32")
 
     def test_i2c_required(self):
-        t = MINIMAL_NUC + "hubs:\n  - { id: p, type: pcf8574 }\nleds: [{ label: L, pin: { hub: p, pin: 0 } }]\n"
+        t = MINIMAL_NUC + "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
         self.assertError(t, r"needs the I2C pins")
         self.assertClean(t + "i2c: { sda: PA10, scl: PA11 }\n")
         self.assertError(t + "i2c: { sda: PA10, scl: PA1 }\n", r"PA1 is already used")
-        t2 = t.replace("  - { id: p, type: pcf8574 }\n", "  - { id: p, type: pcf8574 }\n  - { id: q, type: pcf8574 }\n")
+        t2 = t.replace("  - { id: p }\n", "  - { id: p }\n  - { id: q }\n")
         self.assertError(t2 + "i2c: { sda: PA10, scl: PA11 }\n", r"address 0x20 is already used")
 
-    def test_labels_refs(self):
-        self.assertError(MINIMAL_NUC + "  - { label: A, pin: PA2 }\n", r"'A' is already used by buttons\[0\]")
-        self.assertError(MINIMAL_NUC.replace("number: 1", "number: 1, led: Nope"), r"no LED labelled 'Nope'")
-        self.assertError(MINIMAL_NUC + "boot_combo: [A, Z]\n", r"no button labelled 'Z'", path="boot_combo[1]")
-        self.assertClean(MINIMAL_NUC + "boot_combo: [A]\n")
+    # -- ids, names, references --
+
+    def test_refs(self):
+        self.assertError(MINIMAL_NUC.replace("cc: 1", "cc: 1, led: nope"), r"no LED with id 'nope' \(LEDs: none\)")
+        t = MINIMAL_NUC.replace("cc: 1", "cc: 1, led: edit_lde") + "leds: [{ id: edit_led, pin: PA2 }]\n"
+        self.assertError(t, r"no LED with id 'edit_lde'.*did you mean 'edit_led'")
+        self.assertError(MINIMAL_NUC.replace("cc: 1", "cc: 1, led: a"), r"'a' is the id of buttons\[0\] "
+                                                                         r"\(a button\), not of an LED")
+        self.assertError(MINIMAL_NUC + "boot_combo: [a, z]\n", r"no button with id 'z'", path="boot_combo[1]")
+        self.assertError(MINIMAL_NUC + "boot_combo: [a, no]\n", r"YAML reads `no` as the boolean False")
+        self.assertClean(MINIMAL_NUC + "boot_combo: [a]\n")
+
+    def test_id_required_and_unique(self):
+        self.assertError(MINIMAL_NUC.replace("id: a, ", ""), r"needs id: or name:", path="buttons[0]")
+        e = self.assertError(MINIMAL_NUC + "  - { id: a, pin: PA2 }\n",
+                             r"id 'a' of buttons\[1\] is already the id of buttons\[0\] \(line 8, a button\)")
+        self.assertEqual(e.line, 9)
+        # one namespace: an LED and a button can't share an id, nor a hub and an analog input
+        self.assertError(MINIMAL_NUC + "leds: [{ id: a, pin: PA2 }]\n", r"already the id of")
+        self.assertError(MINIMAL_NUC + "cd74hc4051:\n  - { id: v, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, "
+                         "common_pin: PA5 }\nanalog: [{ id: v, pin: { cd74hc4051: v, number: 0 }, cc: 1 }]\n",
+                         r"id 'v' of analog\[0\] is already the id of cd74hc4051\[0\]")
+        self.assertError(MINIMAL_NUC + "pcf8574:\n  - { address: 0x20 }\n", r"needs id:")
+
+    def test_id_style(self):
+        bad = {"Edit": r"must be lower_snake_case.*id_style: c_identifier",
+               "oct-down": r"isn't a valid id: a-z, 0-9 and _ only", "1st": r"read by YAML as|isn't a valid id",
+               "_x": r"isn't a valid id", "edit led": r"isn't a valid id", "int": r"C/C\+\+ keyword",
+               "class": r"C/C\+\+ keyword"}
+        for ident, pat in bad.items():
+            self.assertError(MINIMAL_NUC.replace("id: a", f"id: {ident}"), pat, path="buttons[0].id")
+        e = self.assertError(MINIMAL_NUC.replace("id: a", "id: Oct - LED"), r"isn't a valid id")
+        self.assertIn("e.g. `id: oct_minus_led`", e.msg)
+        free = MINIMAL_NUC + "id_style: c_identifier\n"
+        self.assertClean(free.replace("id: a", "id: EditButton"))
+        self.assertError(free.replace("id: a", "id: Edit-Button"), r"letters, digits and _ only")
+        self.assertError(free.replace("id: a", "id: On"), r"YAML reads `On` as|read by YAML as the boolean")
+        self.assertError(MINIMAL_NUC + "id_style: free\n", r"'free' is unknown \(lower_snake_case \| c_identifier")
+
+    def test_yaml_ambiguous_ids(self):
+        """PyYAML is YAML 1.1: bare no/on/off/yes are booleans, null is None, 0x10 is 16."""
+        for word, pat in (("no", r"`no` is read by YAML as the boolean false \(YAML 1\.1"),
+                          ("On", r"`On` is read by YAML as the boolean true"),
+                          ("off", r"boolean false"), ("null", r"`null` is read by YAML as null"),
+                          ("12", r"`12` is read by YAML as the number 12; an id must start with a letter"),
+                          ("0x1F", r"the number 31")):
+            self.assertError(MINIMAL_NUC.replace("id: a", f"id: {word}"), pat, path="buttons[0].id")
+        # quoted, or y/n (PyYAML reads those as strings): still refused, other YAML tools differ
+        self.assertError(MINIMAL_NUC.replace("id: a", "id: 'no'"), r"'no' can't be an id: written without quotes")
+        self.assertError(MINIMAL_NUC.replace("id: a", "id: y"), r"'y' can't be an id.*boolean")
+        self.assertError(MINIMAL_NUC.replace("id: a", "id: 'null'"), r"as a null")
+
+    def test_names(self):
+        dev, diags = load(MINIMAL_NUC.replace("id: a", "id: oct_down"))
+        self.assertEqual(dev.buttons[0].name, "Oct down")
+        dev, _ = load(MINIMAL_NUC.replace("id: a", "id: oct_down, name: Oct -"))
+        self.assertEqual((dev.buttons[0].id, dev.buttons[0].name), ("oct_down", "Oct -"))
+        # only a name: the id is derived from it (ESPHome), and others can refer to it
+        dev, diags = load(MINIMAL_NUC.replace("id: a", "name: Pitch Down!") + "boot_combo: [pitch_down]\n")
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
+        self.assertEqual((dev.buttons[0].id, dev.buttons[0].name), ("pitch_down", "Pitch Down!"))
+        e = self.assertError(MINIMAL_NUC.replace("id: a", "name: Oct -") + "  - { name: Oct +, pin: PA2 }\n",
+                             r"id 'oct' of buttons\[1\] \(derived from its name 'Oct \+'\) is already the id of "
+                             r"buttons\[0\] \(derived from its name 'Oct -'\)")
+        self.assertEqual(e.path, "buttons[1].name")
+        self.assertError(MINIMAL_NUC.replace("id: a", "name: '42'"), r"derived from name '42' would be '42'.*set id:")
+        ws = self.errs(MINIMAL_NUC + "  - { id: b, name: A, pin: PA2 }\n", level="warning")
+        self.assertTrue(any("'A' is also the name of buttons[0]" in w.msg for w in ws), [str(w) for w in ws])
+
+    def test_device_names(self):
+        dev, _ = load(MINIMAL_NUC + "friendly_name: My Keys\n")
+        files = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+        self.assertIn('#define GM_DEVICE_NAME "My Keys"', files)
+        self.assertIn('#define GM_NODE_NAME "test"', files)
+        dev, _ = load(MINIMAL_NUC)
+        self.assertEqual(dev.name, "test")          # friendly_name defaults to the name
+        self.assertError(MINIMAL_NUC.replace("name: test", "name: Keystation Mini 32"),
+                         r"isn't a node name.*`name: keystation-mini-32`; put 'Keystation Mini 32' in friendly_name")
+        self.assertError(MINIMAL_NUC.replace("name: test", "name: -x"), r"isn't a node name")
+        self.assertError(MINIMAL_NUC.replace("name: test", "name: " + "a" * 32), r"at most 31")
+        self.assertClean(MINIMAL_NUC.replace("name: test", "name: " + "a" * 31))
+
+    def test_format_1_errors(self):
+        """An old file: the version error, then one error per old key, at its line, saying what replaced it."""
+        old = ("gemifi: 1\nname: test\nboard_id: 0x3F01\nplatform: nuvoton-nuc1xx\nchip: NUC120LC1BN\n"
+               "scan_us: 125\n"
+               "hubs:\n  - { id: m, type: 74hc4051, select: [PA2, PA3, PA4], common: PA5 }\n"
+               "buttons:\n  - { label: Edit, pin: { pin: PA1, inverted: true, pullup: true }, "
+               "action: cc_toggle, number: 80 }\n"
+               "analog:\n  - { label: Vol, pin: { hub: m, channel: 0 }, cc: 7, raw_min: 32 }\n"
+               "encoders:\n  - { label: E, a: PB0, b: PB1, cc: 1 }\n"
+               "key_matrix: { kind: switch, rows: [PA8], cols: [PB2], settle_us: 1 }\n")
+        es = {(e.path, e.line): e.msg for e in self.errs(old)}
+        expect = {
+            ("gemifi", 1): r"format 1 file; this builder reads format 2",
+            ("scan_us", 6): r"renamed: use `scan_interval:` with a unit",
+            ("hubs", 7): r"declare each hub under its chip's key, ESPHome style",
+            ("buttons[0].label", 10): r"renamed: use `id:`",
+            ("buttons[0].pin.pin", 10): r"renamed: use `number:`",
+            ("buttons[0].pin.pullup", 10): r"use `mode: INPUT_PULLUP`",
+            ("buttons[0].number", 10): r"renamed: use `cc:`",
+            ("analog[0].label", 12): r"renamed: use `id:`",
+            ("encoders[0].label", 14): r"renamed: use `id:`",
+            ("encoders[0].b", 14): r"renamed: use `pin_b:`",
+            ("analog[0].pin.hub", 12): r"name the hub by its chip",
+            ("analog[0].pin.channel", 12): r"renamed: use `number:`",
+            ("analog[0].raw_min", 12): r"renamed: use `adc_min:`",
+            ("encoders[0].a", 14): r"renamed: use `pin_a:`",
+            ("key_matrix.kind", 15): r"renamed: use `type:`",
+            ("key_matrix.cols", 15): r"renamed: use `columns:`",
+            ("key_matrix.settle_us", 15): r"renamed: use `settle:`",
+        }
+        for key, pat in expect.items():
+            self.assertIn(key, es, f"{key} not reported; got {es}")
+            self.assertRegex(es[key], pat)
+        # nothing else: the renames don't cascade into "is required" noise
+        self.assertEqual(set(es) - set(expect), set(), es)
+        hub = ("gemifi: 2\nname: t\nboard_id: 1\nplatform: nuvoton-nuc1xx\nchip: NUC120LC1BN\n"
+               "sn74hc595:\n  - { id: s, type: 74hc595, data: PA1, clock_pin: PA2, latch_pin: PA3, shared: true }\n")
+        es = {e.path: e.msg for e in self.errs(hub)}
+        self.assertRegex(es["sn74hc595[0].type"], r"the chip is the list")
+        self.assertRegex(es["sn74hc595[0].data"], r"use `data_pin:`")
+        self.assertRegex(es["sn74hc595[0].shared"], r"allow_other_uses: true")
 
     def test_hub_ids(self):
-        t = MINIMAL_NUC + ("hubs:\n  - { id: p, type: pcf8574 }\n  - { id: p, type: pcf8574, address: 0x21 }\n"
+        t = MINIMAL_NUC + ("pcf8574:\n  - { id: p }\n  - { id: p, address: 0x21 }\n"
                            "i2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(t, r"hub id 'p' is already used")
-        self.assertError(MINIMAL_NUC + "hubs:\n  - { id: p, type: 74hc999 }\n", r"unknown hub type")
-        self.assertError(MINIMAL_NUC + "hubs:\n  - { id: p, type: pcf8574, select: [PA2] }\ni2c: { sda: PA10, scl: PA11 }\n",
+        self.assertError(t, r"id 'p' of pcf8574\[1\] is already the id of pcf8574\[0\]")
+        self.assertError(MINIMAL_NUC + "sn74hc999:\n  - { id: p }\n", r"unknown key")
+        self.assertError(MINIMAL_NUC + "pcf8574:\n  - { id: p, pin_s0: PA2 }\ni2c: { sda: PA10, scl: PA11 }\n",
                          r"unknown key")
 
     def test_platform_and_keys(self):
         self.assertError(MINIMAL_NUC.replace("nuvoton-nuc1xx", "esp33"), r"unknown platform 'esp33'")
-        e = self.assertError(MINIMAL_NUC + "scan_uss: 100\n", r"unknown key \(did you mean 'scan_us'")
+        e = self.assertError(MINIMAL_NUC + "scan_intervall: 100us\n", r"unknown key \(did you mean 'scan_interval'")
         self.assertEqual(e.line, 9)
-        self.assertError(MINIMAL_NUC.replace("gemifi: 1", "gemifi: 2"), r"format version 2")
-        self.assertError(MINIMAL_NUC.replace("pin: PA1,", "pin: { pin: PA1, invert: true },"),
+        self.assertError(MINIMAL_NUC.replace("gemifi: 2", "gemifi: 3"), r"format version 3")
+        self.assertError(MINIMAL_NUC.replace("pin: PA1,", "pin: { number: PA1, invert: true },"),
                          r"did you mean 'inverted'")
 
     def test_yaml_errors(self):
         _d, diags = load(MINIMAL_NUC + "leds: [\n")
         self.assertEqual(len(diags), 1)
         self.assertIn("YAML syntax", diags[0].msg)
-        _d, diags = load(MINIMAL_NUC + "name: Again\n")
+        _d, diags = load(MINIMAL_NUC + "name: again\n")
         self.assertIn("duplicate key 'name' (first on line 2)", diags[0].msg)
         self.assertEqual(diags[0].line, 9)
-
-
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
 class TestCli(unittest.TestCase):
     def setUp(self):
@@ -449,6 +639,11 @@ class TestCli(unittest.TestCase):
         self.assertTrue(os.path.exists(p))
         dev, _ = gd.load_device(p)
         self.assertIsNotNone(dev)
+        self.assertEqual((dev.node_name, dev.name), ("mine", "Keystation Mini 32"))   # name follows the file
+        rc, _, _ = self.run_cli("new", "My.Keys", "--preset", "keystation-mini32-mk3", "--dir", self.tmp)
+        dev, _ = gd.load_device(os.path.join(self.tmp, "My.Keys.yaml"))
+        self.assertEqual(dev.node_name, "keystation-mini32")      # not a node name: the preset's is kept
+        self.assertEqual(gb.peek(p)[2], "Keystation Mini 32")     # the list shows friendly_name
         rc, _, err = self.run_cli("new", "mine", "--preset", "keystation-mini32-mk3", "--dir", self.tmp)
         self.assertEqual(rc, 1)
         self.assertIn("already exists", err)

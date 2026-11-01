@@ -379,17 +379,19 @@ class TestValidation(unittest.TestCase):
         self.assertError((m % ("switch", "", 6)) + "  settle: 1ms\n", r"1ms is out of range \(0us\.\.255us\)")
 
     def test_version(self):
-        dev, diags = gd.load_device("x.yaml", MINIMAL_NUC + "version: 1.2.300\n")
+        dev, diags = gd.load_device("x.yaml", MINIMAL_NUC + "project: { version: 1.2.300 }\n")
         self.assertFalse(gd.errors(diags), diags)
         h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
         self.assertIn("#define GM_FW_VERSION 0x0102012Cu", h)
         self.assertIn('#define GM_FW_VERSION_STR "1.2.300"', h)
         dev, _ = gd.load_device("x.yaml", MINIMAL_NUC)
         self.assertNotIn("GM_FW_VERSION", gd.generate(dev, "x.yaml")["gm_device_config.h"])
-        self.assertError(MINIMAL_NUC + "version: 1.0\n", r'quote it')
-        self.assertError(MINIMAL_NUC + "version: v1.0.0\n", r"must be major\.minor\.patch")
-        self.assertError(MINIMAL_NUC + "version: 256.0.0\n", r"out of range")
-        self.assertError(MINIMAL_NUC + "version: 1.0.65536\n", r"out of range")
+        self.assertError(MINIMAL_NUC + "project: { version: 1.0 }\n", r'quote it', path="project.version")
+        self.assertError(MINIMAL_NUC + "project: { version: v1.0.0 }\n", r"must be major\.minor\.patch")
+        self.assertError(MINIMAL_NUC + "project: { version: 256.0.0 }\n", r"out of range")
+        self.assertError(MINIMAL_NUC + "project: { version: 1.0.65536 }\n", r"out of range")
+        self.assertError(MINIMAL_NUC + "project: { name: x }\n", r"unknown key", path="project.name")
+        self.assertError(MINIMAL_NUC + "version: 1.0.0\n", r"moved: use `project: \{ version", path="version")
 
     def test_matrix_velocity_defaults(self):
         m = MINIMAL_NUC + "key_matrix:\n  type: %s\n  rows: [PA8, PA9]\n  columns: [PB0, PB1, PB2, PB3]\n  keys: 4\n"

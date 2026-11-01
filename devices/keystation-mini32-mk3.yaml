@@ -4,7 +4,8 @@ gemifi: 2
 name: keystation-mini32
 friendly_name: Keystation Mini 32
 description: M-Audio Keystation Mini 32 MK3 (NUC120), 32 velocity keys, 7 buttons, volume knob
-version: 0.1.5              # firmware version, shown in HELLO and the .gfw header
+project:
+  version: 0.1.5            # firmware version, shown in HELLO and the .gfw header
 board_id: 0x0001
 platform: nuvoton-nuc1xx
 chip: NUC120LC1BN

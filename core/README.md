@@ -74,7 +74,8 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 gemifi: 2                      # format version
 name: keystation-mini32        # node name: lowercase letters, digits and -, at most 31
 friendly_name: Keystation Mini 32   # display name: USB product string, HELLO, web UI (default: name)
-version: 0.1.3                 # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
+project:
+  version: 0.1.3               # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
 board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DIY/private
 platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | esp32 | esp32s2 | esp32s3 | esp8266
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
@@ -167,7 +168,7 @@ key_matrix:
 
 `gm_device_config.h`:
 ```c
-#define GM_FW_VERSION 0x00010003u      /* from version: (major << 24 | minor << 16 | patch) */
+#define GM_FW_VERSION 0x00010003u      /* from project.version (major << 24 | minor << 16 | patch) */
 #define GM_FW_VERSION_STR "0.1.3"      /* the NUC Makefile reads this for the .gfw header */
 #define GM_N_BUTTONS 7
 #define GM_N_LEDS 4
@@ -189,5 +190,5 @@ key_matrix:
 #define GM_I2C_SDA 8                      /* GPIO numbers, when i2c: is given; */
 #define GM_I2C_SCL 9                      /* otherwise the board's default Wire pins */
 ```
-Optional build flags on ESP: `GM_MIDI_BAUD` (serial transport, default 115200), `GM_FW_VERSION` (`major << 24 | minor << 16 | patch`; normally set by the YAML `version:`).
+Optional build flags on ESP: `GM_MIDI_BAUD` (serial transport, default 115200), `GM_FW_VERSION` (`major << 24 | minor << 16 | patch`; normally set by the YAML `project: { version }`).
 `gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.

@@ -53,7 +53,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
 
-TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "version", "board_id", "platform", "chip",
+TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", *HUB_TYPES,
             "buttons", "leds", "analog", "encoders", "key_matrix"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
@@ -74,6 +74,7 @@ RENAMED_TOP = {
             "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` "
             "(chips: " + ", ".join(HUB_TYPES) + ")",
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
+    "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
 }
 RENAMED_PIN = {
     "pin": "renamed: use `number:` (e.g. `{ number: PA1, inverted: true }`)",
@@ -1243,20 +1244,23 @@ VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
 def validate_version(v, data):
-    """version: "X.Y.Z" -> (major, minor, patch), or None when not given (the build's default is used).
-    Packed as major << 24 | minor << 16 | patch, so major and minor 0..255, patch 0..65535."""
-    if data.get("version") is None:
+    """project: { version: X.Y.Z } -> (major, minor, patch), or None when not given (the build's default
+    is used). Packed as major << 24 | minor << 16 | patch, so major and minor 0..255, patch 0..65535."""
+    if data.get("project") is None:
         return None
-    x = data["version"]
-    line = data.line_of("version")
+    proj = v.mapping(data["project"], "project", data.line_of("project"), ["version"])
+    if proj is None or proj.get("version") is None:
+        return None
+    x = proj["version"]
+    line, p = proj.line_of("version"), "project.version"
     m = VERSION_RE.match(x) if isinstance(x, str) else None
     if not m:
         hint = " (quote it: version: \"1.0.0\")" if isinstance(x, (int, float)) and not isinstance(x, bool) else ""
-        v.err("version", line, f"must be major.minor.patch, like 0.1.0 (got {x!r}){hint}")
+        v.err(p, line, f"must be major.minor.patch, like 0.1.0 (got {x!r}){hint}")
         return None
     ver = tuple(int(g) for g in m.groups())
     if ver[0] > 255 or ver[1] > 255 or ver[2] > 0xFFFF:
-        v.err("version", line, f"{x} is out of range (major and minor 0..255, patch 0..65535)")
+        v.err(p, line, f"{x} is out of range (major and minor 0..255, patch 0..65535)")
         return None
     return ver
 

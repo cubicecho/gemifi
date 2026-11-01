@@ -54,7 +54,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "version", "board_id", "platform", "chip",
-            "usb", "midi", "i2c", "scan_interval", "id_style", "boot_combo", *HUB_TYPES,
+            "usb", "midi", "i2c", "scan_interval", "boot_combo", *HUB_TYPES,
             "buttons", "leds", "analog", "encoders", "key_matrix"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -105,9 +105,9 @@ RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.
                     "slow_ms": "renamed: use `slow:` with a unit, e.g. `slow: 120ms`"}
 
 # Ids (ESPHome rules): C identifiers, not C/C++ keywords, unique across the device. gemifi also
-# wants lower_snake_case by default (`id_style: c_identifier` allows any case).
-ID_STYLES = ("lower_snake_case", "c_identifier")
-ID_RE = {"lower_snake_case": re.compile(r"[a-z][a-z0-9_]*"), "c_identifier": re.compile(r"[A-Za-z][A-Za-z0-9_]*")}
+# wants them lower_snake_case.
+ID_RE = re.compile(r"[a-z][a-z0-9_]*")
+C_IDENT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 CPP_KEYWORDS = set("""alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t
 char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await
 co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false
@@ -460,7 +460,6 @@ class _V:
         self.transport = None
         self.hub_by_id = {}
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
-        self.id_style = "lower_snake_case"
 
     def err(self, path, line, msg):
         self.diags.append(Diag("error", path, line, msg, self.file))
@@ -576,14 +575,14 @@ class _V:
                 return None
             name = d.raw_of("name") if not isinstance(name, str) else name
             v = derive_id(name)
-            why = id_problem(v, v, "lower_snake_case")
+            why = id_problem(v, v)
             if why:
                 self.err(f"{path}.name", d.line_of("name"), f"the id derived from name '{name}' would be "
                                                             f"'{v}', which can't be an id: set id:")
                 return None
             return self.register(v, path, d.line_of("name"), kind, index, derived=name)
         v, raw, line = d["id"], d.raw_of("id"), d.line_of("id")
-        why = id_problem(v, raw, self.id_style)
+        why = id_problem(v, raw)
         if why:
             self.err(p, line, f"{why} (e.g. `id: {suggest_id(raw, kind)}`)")
             return None
@@ -834,7 +833,7 @@ def adc_text(plat):
 # ---------------------------------------------------------------------------------------------
 # ids and display names
 
-def id_problem(v, raw, style="lower_snake_case"):
+def id_problem(v, raw):
     """Why v (loaded from the source text raw) can't be an id, or None if it can."""
     if isinstance(v, bool):
         return (f"`{raw}` is read by YAML as the boolean {str(v).lower()} (YAML 1.1, which PyYAML follows, "
@@ -850,12 +849,10 @@ def id_problem(v, raw, style="lower_snake_case"):
     if v.lower() in YAML_WORDS:
         return (f"'{v}' can't be an id: written without quotes, YAML reads it as a "
                 f"{'null' if v.lower() == 'null' else 'boolean'} (yes/no/on/off/y/n/true/false/null)")
-    if not ID_RE[style].fullmatch(v):
-        if style == "lower_snake_case" and ID_RE["c_identifier"].fullmatch(v):
-            return (f"'{v}' must be lower_snake_case (a-z, 0-9 and _, starting with a letter), "
-                    "or set `id_style: c_identifier` at the top of the file to allow capitals")
-        rule = "a-z, 0-9 and _" if style == "lower_snake_case" else "letters, digits and _"
-        return f"'{v}' isn't a valid id: {rule} only, starting with a letter"
+    if not ID_RE.fullmatch(v):
+        if C_IDENT_RE.fullmatch(v):
+            return f"'{v}' must be lower_snake_case (a-z, 0-9 and _, starting with a letter)"
+        return f"'{v}' isn't a valid id: a-z, 0-9 and _ only, starting with a letter"
     if v in CPP_KEYWORDS:
         return f"'{v}' is a C/C++ keyword, so it can't be an id"
     return None
@@ -919,12 +916,6 @@ def validate(data, file=None):
     elif fmt is not None and fmt != FORMAT_VERSION:
         v.err("gemifi", data.line_of("gemifi"), f"format version {fmt} is not supported (this builder "
                                                  f"reads version {FORMAT_VERSION})")
-    if data.get("id_style") is not None:
-        if data["id_style"] in ID_STYLES:
-            v.id_style = data["id_style"]
-        else:
-            v.err("id_style", data.line_of("id_style"), f"'{data.raw_of('id_style')}' is unknown "
-                                                         f"({' | '.join(ID_STYLES)}; default lower_snake_case)")
     validate_names(v, dev, data)
     dev.description = v.string(data, "description", "")
     dev.board_id = v.integer(data, "board_id", "", 0, 0x3FFF, required=True) or 0

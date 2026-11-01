@@ -475,8 +475,8 @@ class TestValidation(unittest.TestCase):
                          r"id 'v' of analog\[0\] is already the id of cd74hc4051\[0\]")
         self.assertError(MINIMAL_NUC + "pcf8574:\n  - { address: 0x20 }\n", r"needs id:")
 
-    def test_id_style(self):
-        bad = {"Edit": r"must be lower_snake_case.*id_style: c_identifier",
+    def test_id_rules(self):
+        bad = {"Edit": r"must be lower_snake_case", "EditButton": r"must be lower_snake_case",
                "oct-down": r"isn't a valid id: a-z, 0-9 and _ only", "1st": r"read by YAML as|isn't a valid id",
                "_x": r"isn't a valid id", "edit led": r"isn't a valid id", "int": r"C/C\+\+ keyword",
                "class": r"C/C\+\+ keyword"}
@@ -484,11 +484,7 @@ class TestValidation(unittest.TestCase):
             self.assertError(MINIMAL_NUC.replace("id: a", f"id: {ident}"), pat, path="buttons[0].id")
         e = self.assertError(MINIMAL_NUC.replace("id: a", "id: Oct - LED"), r"isn't a valid id")
         self.assertIn("e.g. `id: oct_minus_led`", e.msg)
-        free = MINIMAL_NUC + "id_style: c_identifier\n"
-        self.assertClean(free.replace("id: a", "id: EditButton"))
-        self.assertError(free.replace("id: a", "id: Edit-Button"), r"letters, digits and _ only")
-        self.assertError(free.replace("id: a", "id: On"), r"YAML reads `On` as|read by YAML as the boolean")
-        self.assertError(MINIMAL_NUC + "id_style: free\n", r"'free' is unknown \(lower_snake_case \| c_identifier")
+        self.assertError(MINIMAL_NUC + "id_style: c_identifier\n", r"unknown key", path="id_style")
 
     def test_yaml_ambiguous_ids(self):
         """PyYAML is YAML 1.1: bare no/on/off/yes are booleans, null is None, 0x10 is 16."""

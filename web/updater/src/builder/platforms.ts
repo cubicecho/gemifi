@@ -19,7 +19,8 @@ export function platformLabel(platform: Platform | null): string {
 
 /**
  * @param device - A device file.
- * @returns Its `name`, or its file name when the YAML gives none.
+ * @returns Its display name (the YAML's `friendly_name`, else its `name`), or its file name when the
+ *   YAML gives neither.
  */
 export function deviceTitle(device: BuilderDevice): string {
   return device.name === '' ? device.file : device.name;

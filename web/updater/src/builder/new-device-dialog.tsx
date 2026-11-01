@@ -65,7 +65,7 @@ function NewDeviceForm({ onOpenChange, presets, initialPreset, onCreated }: Omit
             name="name"
             label="Name"
             required
-            description="Letters, digits, dots, dashes and underscores. The file is saved as this name with .yaml."
+            description="Letters, digits, dots, dashes and underscores. The file is saved as this name with .yaml; in lowercase with dashes it also becomes the YAML's name: (the node name)."
             placeholder="my-pedalboard"
             autoCapitalize="none"
             autoCorrect={false}

@@ -236,13 +236,14 @@ def list_presets():
 
 
 def peek(path):
-    """(platform, description, name) from a YAML without full validation."""
+    """(platform, description, display name) from a YAML without full validation. The display name is
+    friendly_name, else name (the node name)."""
     try:
         with open(path, encoding="utf-8") as f:
             data = gd.load_yaml(f.read())
         if isinstance(data, dict):
             return (str(data.get("platform", "?")), str(data.get("description", "") or ""),
-                    str(data.get("name", "") or ""))
+                    str(data.get("friendly_name") or data.get("name", "") or ""))
     except (OSError, UnicodeDecodeError, gd.YamlLoadError):
         pass
     return ("?", "(unreadable)", "")
@@ -262,6 +263,11 @@ def new_device(name, preset, directory, force=False):
         raise ValueError(f"{dst} already exists (use --force to overwrite)")
     with open(presets[preset], encoding="utf-8") as f:
         text = f.read()
+    # the node name follows the file name (as ESPHome's does), when it can be one
+    node = name.lower()
+    if gd.NODE_NAME_RE.fullmatch(node):
+        text = re.sub(r"^name:[^#\n]*?(\s*#.*)?$", lambda m: f"name: {node}{m.group(1) or ''}", text,
+                      count=1, flags=re.M)
     with open(dst, "w", encoding="utf-8") as f:
         f.write(f"# Created from preset {preset} (devices/{os.path.basename(presets[preset])}).\n" + text)
     return dst

@@ -52,6 +52,7 @@ export interface BuilderDevice {
   id: string;
   root: DeviceRoot;
   file: string;
+  /** The YAML's `friendly_name`, else its `name` (the node name); empty when it gives neither. */
   name: string;
   /** Null when the file names no platform this page knows, as a half-edited file may. */
   platform: Platform | null;

@@ -72,7 +72,7 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 ```yaml
 gemifi: 2                      # format version
-name: keystation-mini32        # node name: lowercase letters, digits and -, at most 31
+name: keystation-mini32        # node name: lowercase letters, digits and -, at most 31; names the built images
 friendly_name: Keystation Mini 32   # display name: USB product string, HELLO, web UI (default: name)
 project:
   version: 0.1.3               # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
@@ -180,7 +180,7 @@ key_matrix:
 #define GM_MATRIX_VELOCITY 1
 #define GM_BOARD_ID 0x0001
 #define GM_DEVICE_NAME "Keystation Mini 32"   /* friendly_name */
-#define GM_NODE_NAME "keystation-mini32"       /* name (not used by the firmware yet) */
+#define GM_NODE_NAME "keystation-mini32"       /* name (the firmware doesn't use it yet; see #12, #13) */
 #define GM_USB_VID 0x1209
 #define GM_USB_PID 0x0002
 #define GM_HAS_I2C 0

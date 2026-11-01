@@ -97,10 +97,19 @@ def run(cmd, env=None, cwd=None, out=None):
     return proc.wait()
 
 
+def image_stem(dev):
+    """Built images are named after the node name and version, as ESPHome names its builds:
+    keystation-mini32-0.1.5.gfw (no project.version: keystation-mini32.gfw)."""
+    return dev.node_name + ("-" + ".".join(map(str, dev.version)) if dev.version else "")
+
+
+IMAGE_FILE_RE = re.compile(r".+\.(gfw|bin)")
+
+
 def platform_build(dev, config_dir, out_dir, out=None):
     """Run the platform's build. Returns the list of image files copied into out_dir, or None."""
     out = out or sys.stdout
-    stem = os.path.basename(out_dir.rstrip(os.sep))
+    stem = image_stem(dev)
     if dev.platform.name == "nuvoton-nuc1xx":
         if not os.path.exists(os.path.join(NUC_PROJECT, "Makefile")):
             print(f"error: {rel(NUC_PROJECT)}/Makefile doesn't exist yet: can't build the firmware "
@@ -161,6 +170,10 @@ def platform_build(dev, config_dir, out_dir, out=None):
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(web, dst)
             print(f"web install files: {rel(dst)}/manifest.json", file=out)
+    # The last build's images go, so an old version or node name doesn't linger next to the new one.
+    for f in os.listdir(out_dir):
+        if IMAGE_FILE_RE.fullmatch(f) and os.path.isfile(os.path.join(out_dir, f)):
+            os.remove(os.path.join(out_dir, f))
     copied = []
     for src, name in zip(imgs, names):
         if not os.path.exists(src):

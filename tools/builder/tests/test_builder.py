@@ -378,6 +378,13 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(dev.matrix.settle_us, 3)
         self.assertError((m % ("switch", "", 6)) + "  settle: 1ms\n", r"1ms is out of range \(0us\.\.255us\)")
 
+    def test_image_stem(self):
+        """Images are named <node name>-<version>, or <node name> without project.version."""
+        dev, _ = gd.load_device("x.yaml", MINIMAL_NUC + "project: { version: 1.2.3 }\n")
+        self.assertEqual(gb.image_stem(dev), "test-1.2.3")
+        dev, _ = gd.load_device("x.yaml", MINIMAL_NUC)
+        self.assertEqual(gb.image_stem(dev), "test")
+
     def test_version(self):
         dev, diags = gd.load_device("x.yaml", MINIMAL_NUC + "project: { version: 1.2.300 }\n")
         self.assertFalse(gd.errors(diags), diags)
@@ -878,9 +885,11 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual(st, 200, log)
         self.assertEqual(log.strip().splitlines()[-1], "[exit 0]", log)
         imgs = self.roots.images("presets/keystation-mini32-mk3.yaml")
-        self.assertEqual(imgs, ["keystation-mini32-mk3.bin", "keystation-mini32-mk3.gfw"])
+        ver = gd.load_device(KEYSTATION)[0].version
+        stem = "keystation-mini32-" + ".".join(map(str, ver))
+        self.assertEqual(imgs, [f"{stem}.bin", f"{stem}.gfw"])
         st, _h, data = raw_req(self.port, "GET", "/api/image?id=presets%2Fkeystation-mini32-mk3.yaml"
-                               "&file=keystation-mini32-mk3.gfw")
+                               f"&file={stem}.gfw")
         self.assertEqual(st, 200)
         self.assertGreater(len(data), 1024)
 

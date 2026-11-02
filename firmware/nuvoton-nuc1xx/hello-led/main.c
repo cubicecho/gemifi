@@ -6,6 +6,10 @@
  * the stock LDROM -> APROM handoff. Carries a .gfw header (mkimage) so the
  * gemifi bootloader will accept it later.
  *
+ * RESET_AFTER_MS (build option, see Makefile): reset back into the
+ * bootloader after that many ms, as an app that crashes early would. It
+ * never clears the mailbox boot_count, so the boot-loop guard trips.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include "sys.h"
@@ -27,5 +31,9 @@ int main(void)
             board_led(LED_OCT_DOWN, on);
         }
         board_led(LED_OCT_UP, (board_buttons() >> BTN_OCT_UP) & 1u);
+#ifdef RESET_AFTER_MS
+        if (now >= RESET_AFTER_MS)
+            sys_reset_to(1);            /* CPU reset into the bootloader */
+#endif
     }
 }

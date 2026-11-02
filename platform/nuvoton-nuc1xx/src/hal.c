@@ -241,19 +241,15 @@ static void devid_make(uint32_t w[3])
 
 void hal_uid(uint8_t uid[12])
 {
-    static uint8_t id[12], have;
+    static uint32_t w[3];
+    static uint8_t have;
     if (!have) {
-        if (fmc_read_uid(id) != 0) {
-            uint32_t w[3];
-            if (!devid_load(w))
-                devid_make(w);
-            for (uint32_t i = 0; i < 12; i++)
-                id[i] = (uint8_t)(w[i / 4u] >> (8u * (i & 3u)));
-        }
+        if (fmc_read_uid(w) != 0 && !devid_load(w))
+            devid_make(w);
         have = 1;
     }
     for (uint32_t i = 0; i < 12; i++)
-        uid[i] = id[i];
+        uid[i] = (uint8_t)(w[i / 4u] >> (8u * (i & 3u)));
 }
 
 void hal_reboot(int to_bootloader)

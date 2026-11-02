@@ -38,6 +38,18 @@ typedef struct {
 #define MAILBOX_ADDR       0x20000FF0u
 #define MAILBOX            ((volatile gemifi_mailbox_t *)MAILBOX_ADDR)
 #define MAILBOX_MAGIC_BOOT 0x544F4F42u   /* 'BOOT' little-endian */
+/* reason values (sysex.md 6) */
+#define MAILBOX_REASON_REBOOT    1u      /* app: REBOOT(bootloader) asked   */
+#define MAILBOX_REASON_BOOT_LOOP 2u      /* bootloader: boot-loop guard     */
+/* The bootloader stays in update mode once boot_count reaches this: that
+ * many hand-offs in a row without the app clearing it (bootloader-design.md
+ * 3.6). */
+#define MAILBOX_BOOT_TRIES       3u
+
+/* Read GCR_RSTSRC, clear the flags that were set (write 1 to clear) and
+ * return them. The bootloader calls it once per reset, so an app that
+ * reads RSTSRC later only sees RSTSRC_CPU (the hand-off). */
+uint32_t sys_reset_cause(void);
 
 /* Reset the CPU (IPRSTC1.CPU_RST) after setting ISPCON.BS:
  *   to_ldrom = 1: next boot from LDROM (the bootloader),

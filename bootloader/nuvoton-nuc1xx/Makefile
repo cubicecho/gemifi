@@ -15,7 +15,10 @@ BUILD  := build/test-aprom
 DEFS   += -DTEST_IN_APROM=1
 endif
 
-DEFS += -DVECTOR_IRQS=0
+DEFS += -DVECTOR_IRQS=0 -DSTARTUP_NO_DATA=1
+# No case tables: if/else chains are smaller here and drop the libgcc
+# __gnu_thumb1_case_* helpers (about 24 B of the 4 KB).
+CFLAGS += -fno-jump-tables
 
 LDSCRIPT := $(abspath $(PLATFORM_DIR)/ld/bootloader.ld)
 SRCS := main.c \

@@ -17,7 +17,8 @@ void sys_unlock(void)
     }
 }
 
-static void wait_status(uint32_t mask)
+/* noinline: one copy for both waits (bootloader size) */
+__attribute__((noinline)) static void wait_status(uint32_t mask)
 {
     /* Bounded wait: ~50 ms worst case even at 48 MHz. If the crystal never
      * becomes stable we carry on; the HCLK switch below then fails safely
@@ -87,7 +88,15 @@ void sys_delay_ms(uint32_t ms)
     }
 }
 
-void sys_reset_to(int to_ldrom)
+uint32_t sys_reset_cause(void)
+{
+    uint32_t r = GCR_RSTSRC;
+    GCR_RSTSRC = r;
+    return r;
+}
+
+/* noinline: the bootloader calls it from two places (size). */
+__attribute__((noinline)) void sys_reset_to(int to_ldrom)
 {
     sys_unlock();
     /* TRM 6.10 ISPCON.BS: selects LDROM (1) or APROM (0) for the next boot,

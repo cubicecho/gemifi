@@ -154,7 +154,7 @@ reset (POR, or CPU_RST from the app)
  ├─ stay = mailbox.magic == 'BOOT'            (app asked: "reboot to bootloader")
  │       || (PA_PIN & (PA5|PA6)) == 0, sampled 3× over ~20 ms   (Pitch▼ + Pitch▲ held)
  │       || !app_valid()                      (no app / bad CRC / wrong board)
- │       || mailbox.boot_count > 3            (optional: app keeps crashing, §3.6)
+ │       || mailbox.boot_count >= 3           (app keeps crashing, §3.6; zeroed on POR/LVR/BOD)
  ├─ clear mailbox.magic
  ├─ if !stay: mailbox.boot_count++; USB stays off; unlock; ISPCON.BS=0; IPRSTC1.CPU_RST=1   → app
  └─ else: bootloader mode: Oct LEDs blink; enumerate as USB-MIDI "gemifi boot"; serve SysEx
@@ -217,11 +217,12 @@ The bootloader **rejects** any write outside 0x0000–0x7FFF:
 - No USB path writes CONFIG (unlike Nuvoton's ISP_HID).
 - CRC32 is checked before every handoff, not only after flashing.
 - A board ID in the header prevents flashing an image built for another board.
-- **Optional boot-loop guard:**
+- **Boot-loop guard** (implemented, issue #1):
   1. The bootloader increments `mailbox.boot_count` before each handoff.
   2. The app clears it after it has run for ~5 s.
-  3. With the app setting `BS=1` at startup, watchdog resets also pass through LDROM; after 3 failed boots the LDROM stays in bootloader mode.
-  4. SRAM is random after POR, so a POR resets the count (the mailbox magic and an inverse-copy check guard against that).
+  3. If `boot_count` ≥ 3 at reset, the bootloader stays in update mode and sets `mailbox.reason` = 2. Staying for any reason zeroes the count, so `REBOOT(0)` gives the app 3 fresh tries.
+  4. SRAM is random after power-on. The bootloader reads and clears `GCR_RSTSRC`. On POR, LVR or BOD it zeroes `boot_count` and `reason`. A random `'BOOT'` magic is still caught by the inverse-copy check.
+  5. Only warm resets that reach LDROM count. `ISPCON.BS` is kept over warm resets, so today that is the app's own reboots (`sys_reset_to(1)`). With the app setting `BS=1` at startup, watchdog and `SYSRESETREQ` resets would count too; no app does that yet. A hang without a reset isn't caught.
 - Flash endurance (10k cycles) is fine for development; even 50 flashes a day lasts more than six months per page. Config writes must be journaled.
 
 ### 3.7 Size budget (bare metal, arm-none-eabi-gcc -Os -flto, no newlib) — estimates

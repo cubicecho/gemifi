@@ -48,9 +48,17 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define GCR_GPC_MFP          RB(GCR_BASE, 0x038)
 #define GCR_REGWRPROT        RB(GCR_BASE, 0x100)
 
-#define RSTSRC_POR           (1u << 0)
-#define RSTSRC_RESET         (1u << 1)
-#define RSTSRC_CPU           (1u << 7)
+/* RSTSRC (TRM 5.2; bits as in NUC100BSP NUC100Series.h): sticky flags,
+ * write 1 to clear. POR is also set by IPRSTC1.CHIP_RST. */
+#define RSTSRC_POR           (1u << 0)     /* power-on (or CHIP_RST)       */
+#define RSTSRC_RESET         (1u << 1)     /* /RESET pin                    */
+#define RSTSRC_WDT           (1u << 2)     /* watchdog                      */
+#define RSTSRC_LVR           (1u << 3)     /* low-voltage reset             */
+#define RSTSRC_BOD           (1u << 4)     /* brown-out detector            */
+#define RSTSRC_SYS           (1u << 5)     /* AIRCR.SYSRESETREQ             */
+#define RSTSRC_CPU           (1u << 7)     /* IPRSTC1.CPU_RST               */
+/* Resets after which SRAM (and so the mailbox) can't be trusted. */
+#define RSTSRC_COLD          (RSTSRC_POR | RSTSRC_LVR | RSTSRC_BOD)
 
 #define IPRSTC1_CHIP_RST     (1u << 0)     /* never used: reloads CBS -> BS */
 #define IPRSTC1_CPU_RST      (1u << 1)     /* CPU + FMC only; keeps BS      */

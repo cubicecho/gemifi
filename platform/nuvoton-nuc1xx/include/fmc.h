@@ -20,8 +20,8 @@ uint32_t fmc_read(uint32_t addr);
 int fmc_erase_page(uint32_t addr);
 int fmc_program(uint32_t addr, uint32_t word);
 
-/* Read the 96-bit chip unique ID into uid[0..11] (little-endian words).
- * Returns -1 (and zeros) if the command is refused. */
-int fmc_read_uid(uint8_t uid[12]);
+/* Read the 96-bit chip unique ID as three words. A word whose read is
+ * refused is 0, and then it returns -1 (the NUC120BN refuses all three). */
+int fmc_read_uid(uint32_t uid[3]);
 
 #endif

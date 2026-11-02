@@ -69,7 +69,7 @@ For replacement firmware:
 
 ## Still open
 
-1. **How the keyboard gets into update mode.** The UI says: *"Turn the device off and on, and then press the NEXT button."* The ReadMe mentions no key combo. The app has no software reset, and I found no handler for the magic message in it. Most likely the bootloader listens briefly after power-up, or checks the 0x0801B000 flag page. Settling this needs a hardware test or a bootloader dump.
+1. **How the keyboard gets into update mode.** The UI says: *"Turn the device off and on, and then press the NEXT button."* The ReadMe mentions no key combo. The app has no software reset. **Update 2026-11-01:** the app does handle the start message: it writes a request flag to 0x0801FC00 and replies `F0 15 F7`, and the bootloader acts on the flag at the next power-on. The final record also holds an image checksum. See [custom-firmware-path.md](custom-firmware-path.md).
 2. **What the start message does.** It may trigger an erase of the app. The 10 s timeout and the `E` reply would fit. **Assume the app may be gone once it is acknowledged.** You can recover by sending the full stock record stream (`update_protocol.py syx`).
 3. **The meaning of `0D`/`0E`**, and `45` vs `1A`.
 

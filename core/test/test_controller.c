@@ -398,6 +398,29 @@ int main(int argc, char **argv)
     button(1, 1); button(1, 0);
     CHECK(find_msg(0xB0, &d1, &d2) && d1 == 80 && d2 == 0, "toggle off");
 
+    /* host feedback (F1) over USB-MIDI events: the edit toggle follows the
+     * host's echo of CC 80, the sustain LED the host's CC 64 for 2 s */
+    {
+        uint8_t ev[4] = { 0x0B, 0xB0, 80, 127 };
+        gm_midi_rx_usb(ev);
+        run_ms(20);
+        CHECK(level[13] == 0, "edit LED lit by the host's CC 80 = 127");
+        out_n = 0;
+        button(1, 1); button(1, 0);
+        CHECK(find_msg(0xB0, &d1, &d2) && d1 == 80 && d2 == 0, "so the next press sends 0");
+        uint8_t ev2[4] = { 0x0B, 0xB0, 64, 127 };
+        gm_midi_rx_usb(ev2);
+        run_ms(20);
+        CHECK(level[12] == 0, "sustain LED lit by the host");
+        run_ms(2100);
+        CHECK(level[12] == 1, "local again 2 s later (host_then_local)");
+        uint8_t ev3[4] = { 0x09, 0x90, 60, 100 };    /* a note from the host: nothing to do */
+        out_n = 0;
+        gm_midi_rx_usb(ev3);
+        run_ms(20);
+        CHECK(out_n == 0, "host note: no output");
+    }
+
     /* pitch bend glide: down to -8192 within ~80 ms */
     out_n = 0;
     button(4, 1);

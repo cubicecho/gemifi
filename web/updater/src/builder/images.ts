@@ -71,7 +71,7 @@ export function imageKind(platform: Platform, file: string): ImageKind | null {
   if (isBin === false) {
     return null;
   }
-  if (platform === Platform.Nuc1xx) {
+  if (platform === Platform.Nuc1xx || platform === Platform.Stm32f1) {
     return ImageKind.Raw;
   }
   if (platform === Platform.Esp8266) {

@@ -17,6 +17,17 @@ describe('crc32', () => {
 });
 
 describe('validateImage (§5)', () => {
+  it('finds a Code 61 header at 0x130, linked at 0x08002400', () => {
+    const code61 = { boardId: 2, headerOffset: 0x130, stackPointer: 0x2000_40b0, resetVector: 0x0800_2545 };
+    const result = validateImage(makeTestImage(code61), 2);
+    expect(result.ok && result.image.headerOffset).toBe(0x130);
+    expect(validateImage(makeTestImage(code61)).ok).toBe(true);
+    const outside = validateImage(makeTestImage({ ...code61, resetVector: 0x0000_0101 }));
+    expect(outside.ok === false && outside.problems.join()).toMatch(/reset vector/);
+    const wrongDevice = validateImage(makeTestImage(code61), 1);
+    expect(wrongDevice.ok === false && wrongDevice.problems.join()).toMatch(/device is board 0x0001/);
+  });
+
   it('accepts a well-formed image', () => {
     const result = validateImage(makeTestImage(), 1);
     expect(result.ok).toBe(true);
@@ -33,7 +44,9 @@ describe('validateImage (§5)', () => {
 
   it('rejects the wrong magic, an unknown board, the wrong device and a short file', () => {
     expect(validateImage(makeTestImage({ magic: 0x12345678 })).ok).toBe(false);
-    expect(validateImage(makeTestImage({ boardId: 0x0002 })).ok).toBe(false);
+    expect(validateImage(makeTestImage({ boardId: 0x0003 })).ok).toBe(false);
+    const misplaced = validateImage(makeTestImage({ boardId: 0x0002 }));
+    expect(misplaced.ok === false && misplaced.problems.join()).toMatch(/have it at 0x130/);
     const wide = validateImage(makeTestImage({ boardId: 0x4001 }));
     expect(wide.ok === false && wide.problems.join()).toMatch(/above 0x3FFF/);
     const wrongDevice = validateImage(makeTestImage(), 0x0003);

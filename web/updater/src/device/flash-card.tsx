@@ -5,13 +5,14 @@ import { DescriptionList, PropertyRow } from '@/components/description-list';
 import { FormField } from '@/components/form-field';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { CodeBlock } from '@/components/ui/code';
 import { FilePicker, FilePickerButton } from '@/components/ui/file-picker';
 import type { PickedFile } from '@/components/ui/file-picker-base';
 import { Upload } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { type AbImageResult, isAbDevice, prepareAbImage } from '../protocol/ab-image.ts';
-import { boardLabel } from '../protocol/boards.ts';
+import { BoardUpdate, boardLabel, CODE61_BOARD_ID } from '../protocol/boards.ts';
 import {
   type DeviceLink,
   FLASH_PHASE_LABELS,
@@ -19,9 +20,20 @@ import {
   type FlashProgress,
   flashAbFirmware,
   flashFirmware,
+  reboot,
 } from '../protocol/flash.ts';
 import { hex, type ImageResult, validateImage } from '../protocol/image.ts';
 import { formatVersion, type HelloInfo } from '../protocol/messages.ts';
+import { RebootMode, Role } from '../protocol/wire.ts';
+import {
+  buildUpdateStream,
+  type ProbePort,
+  parseStockUpdateFile,
+  VENDOR_PHASE_LABELS,
+  VendorPhase,
+  type VendorProgress,
+  vendorUpdate,
+} from '../vendor/maudio.ts';
 import { type PickedImage, pickedImageOf } from './picked-image.ts';
 
 /** Percent, for the progress bar's words. */
@@ -31,7 +43,9 @@ const PERCENT = 100;
 type RunState =
   | { kind: 'idle' }
   | { kind: 'running'; progress: FlashProgress }
+  | { kind: 'vendor'; progress: VendorProgress }
   | { kind: 'done'; info: HelloInfo }
+  | { kind: 'vendor-done'; portName: string }
   | { kind: 'failed'; title: string; message: string };
 
 /** Props of {@link FlashCard}. */
@@ -42,6 +56,8 @@ export interface FlashCardProps {
   onImageChange: (image: PickedImage | null) => void;
   /** The connected device's HELLO, to check the image's board against. */
   device: HelloInfo | null;
+  /** Every MIDI port, for M-Audio's bootloader (Code 61); null without Web MIDI. */
+  probePorts: (() => readonly ProbePort[]) | null;
   onRunningChange: (isRunning: boolean) => void;
   /** Called after an upload ends, so the page asks HELLO again (a serial link keeps its client). */
   onFinished: () => void;
@@ -174,28 +190,71 @@ function AbFacts(props: {
 }
 
 /**
+ * A stock M-Audio update file's facts.
+ *
+ * @param props - The file, its records or problem, and any mismatch.
+ * @returns The rows, or the problems.
+ */
+function StockFacts(props: {
+  name: string;
+  result: NonNullable<ReturnType<typeof parseStockUpdateFile>>;
+  extra: string[];
+}) {
+  const { name, result, extra } = props;
+  const problems = [...(result.ok ? [] : [result.problem]), ...extra];
+  return (
+    <>
+      <DescriptionList
+        contentSlot={[
+          <PropertyRow key="file" label="File" value={name} valueClassName="font-mono break-all" />,
+          <PropertyRow key="kind" label="Kind" value="M-Audio update file, sent as it is (restores stock firmware)" />,
+          ...(result.ok
+            ? [<PropertyRow key="records" label="Records" value={`${result.records.length}, every checksum good`} />]
+            : []),
+        ]}
+      />
+      {problems.length === 0 ? null : <Problems problems={problems} />}
+    </>
+  );
+}
+
+/**
  * Picks an image, checks it before anything is sent, and uploads it: a `.gfw` through the gemifi
  * bootloader, or a chip's own `.bin` to an A/B device (ESP32 / ESP8266), whose app takes it itself.
  *
  * @param props - The device link, the image, the device's HELLO and the busy and finished callbacks.
  * @returns The card.
  */
-export function FlashCard({ link, image: picked, onImageChange, device, onRunningChange, onFinished }: FlashCardProps) {
+export function FlashCard({
+  link,
+  image: picked,
+  onImageChange,
+  device,
+  probePorts,
+  onRunningChange,
+  onFinished,
+}: FlashCardProps) {
   const [version, setVersion] = useState('');
+  const [vendorLog, setVendorLog] = useState<string[]>([]);
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   // A new image, picked here or handed over by the builder, clears the last upload's outcome.
   const [shownImage, setShownImage] = useState(picked);
   if (shownImage !== picked) {
     setShownImage(picked);
     setRun({ kind: 'idle' });
+    setVendorLog([]);
   }
   const controller = useRef<AbortController | null>(null);
-  const isRunning = run.kind === 'running';
+  const isRunning = run.kind === 'running' || run.kind === 'vendor';
   const isAb = device !== null && isAbDevice(device);
 
   const gfwResult = picked?.isGfw === true ? validateImage(picked.bytes, device?.boardId) : null;
+  // A stock M-Audio update file (hex text) goes to the Code 61's bootloader as it is.
+  const stockResult = picked !== null && picked.isGfw === false ? parseStockUpdateFile(picked.bytes) : null;
+  const isVendorGfw = gfwResult?.ok === true && gfwResult.image.board.update === BoardUpdate.MaudioVendor;
+  const isVendor = stockResult !== null || isVendorGfw;
   const abResult =
-    picked !== null && picked.isGfw === false
+    picked !== null && picked.isGfw === false && stockResult === null
       ? prepareAbImage({ bytes: picked.bytes, boardId: device?.boardId ?? null, versionText: version })
       : null;
   const mismatch: string[] = [];
@@ -205,12 +264,71 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
         'This device takes updates in its own app (A/B slots), not through a gemifi bootloader. Choose its .bin instead.',
       );
     }
-    if (picked.isGfw === false && isAb === false) {
+    if (picked.isGfw === false && stockResult === null && isAb === false) {
       mismatch.push('This device updates through the gemifi bootloader, which needs a .gfw image.');
     }
+    const isOtherBoard = device.boardId !== CODE61_BOARD_ID;
+    if (stockResult !== null && isOtherBoard) {
+      mismatch.push(`This is an M-Audio Code update file, but the device is ${boardLabel(device.boardId)}.`);
+    }
+  }
+  if (isVendor && probePorts === null) {
+    mismatch.push('The M-Audio bootloader is reached over USB MIDI. Switch the transport to USB MIDI.');
   }
 
+  const startVendor = (ports: () => readonly ProbePort[]) => {
+    let records: Uint8Array[];
+    if (stockResult?.ok === true) {
+      records = stockResult.records;
+    } else if (gfwResult?.ok === true) {
+      records = buildUpdateStream(gfwResult.image.bytes);
+    } else {
+      return;
+    }
+    const abort = new AbortController();
+    controller.current = abort;
+    setVendorLog([]);
+    const client = link?.current() ?? null;
+    // A gemifi app on the Code 61 sets M-Audio's update request on REBOOT(1).
+    const isGemifiApp = client !== null && device?.role === Role.App && device.boardId === CODE61_BOARD_ID;
+    onRunningChange(true);
+    vendorUpdate({
+      records,
+      ports,
+      signal: abort.signal,
+      onProgress: (progress) => setRun({ kind: 'vendor', progress }),
+      onLog: (line) => setVendorLog((lines) => [...lines, line]),
+      ...(isGemifiApp
+        ? {
+            request: async () => {
+              await reboot(client, RebootMode.Boot, { signal: abort.signal });
+            },
+          }
+        : {}),
+    })
+      .then(
+        (portName) => setRun({ kind: 'vendor-done', portName }),
+        (error: unknown) => {
+          setRun({
+            kind: 'failed',
+            title: abort.signal.aborted ? 'Upload cancelled' : 'Upload through the M-Audio bootloader failed',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        },
+      )
+      .finally(() => {
+        onRunningChange(false);
+        onFinished();
+      });
+  };
+
   const start = () => {
+    if (isVendor) {
+      if (probePorts !== null) {
+        startVendor(probePorts);
+      }
+      return;
+    }
     if (link === null || picked === null) {
       return;
     }
@@ -246,16 +364,26 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
       });
   };
 
-  const progress = run.kind === 'running' ? run.progress : null;
-  const isChecked = gfwResult?.ok === true || abResult?.ok === true;
-  const isFlashable = isChecked && mismatch.length === 0 && link !== null && device !== null;
-  const confirmText =
-    picked?.isGfw === false
+  const progress =
+    run.kind === 'running'
+      ? { ...run.progress, label: FLASH_PHASE_LABELS[run.progress.phase] }
+      : run.kind === 'vendor'
+        ? { ...run.progress, label: VENDOR_PHASE_LABELS[run.progress.phase] }
+        : null;
+  const vendorPhase = run.kind === 'vendor' ? run.progress.phase : null;
+  const isAwaitingPowerCycle =
+    vendorPhase === VendorPhase.WaitingForBootloader || vendorPhase === VendorPhase.PowerCycle;
+  const isChecked = gfwResult?.ok === true || abResult?.ok === true || stockResult?.ok === true;
+  const isReachable = isVendor ? probePorts !== null : link !== null && device !== null;
+  const isFlashable = isChecked && mismatch.length === 0 && isReachable;
+  const confirmText = isVendor
+    ? "The keyboard's app is replaced through M-Audio's own bootloader, which stays as it is. The page asks you to turn the keyboard off and on, then finds the bootloader by itself. If the upload stops part way, the keyboard should come up in update mode again: run this again."
+    : picked?.isGfw === false
       ? 'The image goes to the slot the device is not running from. The old firmware keeps working until the new one has been checked, and the device then restarts into it.'
       : 'The firmware on the device is erased first. If the upload stops part way, the device stays in the bootloader until an image is flashed.';
   // The drop zone until an image is chosen; after that a small button, so the image's facts lead.
   const pickOptions = {
-    accept: '.gfw,.bin',
+    accept: '.gfw,.bin,.txt',
     read: 'bytes',
     onPickMany: ([file]: PickedFile[]) => {
       if (file?.bytes) {
@@ -267,13 +395,13 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
     <CardLayout
       title="Firmware"
       iconSlot={<Upload />}
-      description="A .gfw for the Keystation's bootloader, or an ESP app .bin for an ESP32 or ESP8266 build that updates itself. The image is checked here first; nothing is sent until it passes."
+      description="A .gfw for the Keystation's bootloader or the Code 61 (through M-Audio's bootloader), an M-Audio update file to restore the Code 61's stock firmware, or an ESP app .bin for an ESP32 or ESP8266 build that updates itself. The image is checked here first; nothing is sent until it passes."
       contentSlot={
         <>
           {picked === null ? (
             <FilePicker
-              label="Choose a .gfw or .bin image"
-              hint="Drop a .gfw or an ESP app .bin here, or click to choose one"
+              label="Choose a .gfw, .bin or M-Audio update file"
+              hint="Drop a .gfw, an ESP app .bin or an M-Audio FirmwareFile here, or click to choose one"
               {...pickOptions}
             />
           ) : (
@@ -287,6 +415,9 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
           )}
           {picked !== null && gfwResult !== null ? (
             <GfwFacts name={picked.name} source={picked.source} result={gfwResult} extra={mismatch} />
+          ) : null}
+          {picked !== null && stockResult !== null ? (
+            <StockFacts name={picked.name} result={stockResult} extra={mismatch} />
           ) : null}
           {picked !== null && abResult !== null ? (
             <AbFacts
@@ -302,7 +433,7 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
           ) : null}
           {progress === null ? null : (
             <>
-              <p className="text-sm">{FLASH_PHASE_LABELS[progress.phase]}…</p>
+              <p className="text-sm">{progress.label}…</p>
               <Progress
                 value={progress.sentBytes}
                 max={progress.totalBytes}
@@ -318,6 +449,23 @@ export function FlashCard({ link, image: picked, onImageChange, device, onRunnin
               description={`The device restarted and answers with firmware ${formatVersion(run.info.fwVersion)}.`}
             />
           ) : null}
+          {isAwaitingPowerCycle ? (
+            <Alert
+              variant="warning"
+              title="Turn the keyboard off and on"
+              description="The Code 61 enters M-Audio's update mode at power-on. Switch it off, then on again; the page asks for the bootloader every 2 s and carries on by itself. Nothing to do if it is in update mode already."
+            />
+          ) : null}
+          {run.kind === 'vendor-done' ? (
+            <Alert
+              variant="info"
+              title="Firmware sent"
+              description={`M-Audio's bootloader on ${run.portName} took every record. If the keyboard does not restart into the new firmware by itself, turn it off and on.`}
+            />
+          ) : null}
+          {vendorLog.length === 0 ? null : (
+            <CodeBlock title="M-Audio bootloader" content={vendorLog.join('\n')} wrap maxHeight="sm" follow />
+          )}
           {run.kind === 'failed' ? <Alert variant="destructive" title={run.title} description={run.message} /> : null}
         </>
       }

@@ -6,7 +6,7 @@
 import type { Transport } from './client.ts';
 import { encodeS32, encodeU14, encodeU28, PayloadReader, pack } from './encoding.ts';
 import { decodeFrame, encodeFrame } from './frame.ts';
-import { CRC_FIELD_OFFSET, HEADER_OFFSET, IMAGE_MAGIC, imageCrc } from './image.ts';
+import { HEADER_OFFSET, IMAGE_MAGIC, imageCrc } from './image.ts';
 import type { ParamSpec, Schema } from './schema.ts';
 import { Command, ParamFlag, ParamType, Status } from './wire.ts';
 
@@ -18,6 +18,8 @@ export interface TestImageOptions {
   stackPointer?: number;
   resetVector?: number;
   magic?: number;
+  /** Where the header goes: 0xC0 (NUC1xx) unless given. */
+  headerOffset?: number;
 }
 
 /**
@@ -35,15 +37,16 @@ export function makeTestImage(options: TestImageOptions = {}): Uint8Array {
   const view = new DataView(bytes.buffer);
   view.setUint32(0, options.stackPointer ?? 0x2000_0ff0, true);
   view.setUint32(4, options.resetVector ?? 0x0000_0101, true);
-  view.setUint32(HEADER_OFFSET, options.magic ?? IMAGE_MAGIC, true);
-  view.setUint16(HEADER_OFFSET + 4, 1, true);
-  view.setUint16(HEADER_OFFSET + 6, options.boardId ?? 1, true);
-  view.setUint32(HEADER_OFFSET + 8, size, true);
-  view.setUint32(HEADER_OFFSET + 16, options.fwVersion ?? 0x0102_0003, true);
-  view.setUint32(HEADER_OFFSET + 20, 1, true);
-  view.setUint32(HEADER_OFFSET + 24, 0xffff_ffff, true);
-  view.setUint32(HEADER_OFFSET + 28, 0xffff_ffff, true);
-  view.setUint32(CRC_FIELD_OFFSET, imageCrc(bytes, size), true);
+  const at = options.headerOffset ?? HEADER_OFFSET;
+  view.setUint32(at, options.magic ?? IMAGE_MAGIC, true);
+  view.setUint16(at + 4, 1, true);
+  view.setUint16(at + 6, options.boardId ?? 1, true);
+  view.setUint32(at + 8, size, true);
+  view.setUint32(at + 16, options.fwVersion ?? 0x0102_0003, true);
+  view.setUint32(at + 20, 1, true);
+  view.setUint32(at + 24, 0xffff_ffff, true);
+  view.setUint32(at + 28, 0xffff_ffff, true);
+  view.setUint32(at + 12, imageCrc(bytes, size, at), true);
   return bytes;
 }
 

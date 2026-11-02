@@ -9,6 +9,9 @@
   gemifi.py flash FILE.bin --board 0x3F00 --version 1.2.3
                                       upload to an A/B device (ESP32/ESP8266): the app takes it itself
   gemifi.py flash FILE --dry-run      check the image and print the upload plan; no MIDI
+  gemifi.py flash FILE.gfw            Code 61 (board 0x0002): through M-Audio's own bootloader (maudio_update.py)
+  gemifi.py restore-stock FirmwareFile.hex.txt
+                                      Code 61: send a vendor update file as it is (back to stock firmware)
 
 Config (app firmware, sysex.md 4.3):
   gemifi.py schema [--json] [--raw OUT.bin]   print the device's param schema
@@ -35,6 +38,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemifi_image as gi  # noqa: E402
 import gemifi_proto as gp  # noqa: E402
+import maudio_update as mu  # noqa: E402
 
 
 class GemifiError(RuntimeError):
@@ -782,7 +786,7 @@ def cmd_restore(a, backend):
 
 
 def is_gfw(img):
-    return len(img) >= gi.HDR_OFFSET + 4 and img[gi.HDR_OFFSET:gi.HDR_OFFSET + 4] == b"GMFI"
+    return gi.find_hdr_offset(img) is not None
 
 
 def ab_args(a):
@@ -802,6 +806,9 @@ def cmd_flash(a, backend_factory):
     with open(a.file, "rb") as f:
         img = f.read()
     gfw = is_gfw(img)
+    if (gfw and gi.parse_header(img, gi.find_hdr_offset(img)).board_id == mu.BOARD_ID) or \
+            (not gfw and a.board == mu.BOARD_ID):
+        return flash_vendor(a, backend_factory, img)
     if gfw:
         try:
             hdr = gi.check_image(img, a.board)
@@ -903,6 +910,97 @@ def flash_ab(a, backend, name, s, h, img, board, version, t0):
     return 0
 
 
+# ---------------- Code 61: M-Audio's bootloader (maudio_update.py) ----------------
+
+def vendor_kw(a):
+    return {"ack_timeout": a.ack_timeout, "probe_timeout": a.probe_timeout, "gap": a.gap / 1000.0,
+            "record_retries": a.record_retries, "restart": not a.no_restart,
+            "log": lambda m: print("  " + m, file=sys.stderr)}
+
+
+def flash_vendor(a, backend_factory, img):
+    """Board 0x0002: build the vendor update stream from the image and send it through the stock bootloader.
+    A running gemifi app is asked for update mode with REBOOT(1); a running stock app with the start message.
+    Either way the keyboard then needs a power cycle."""
+    try:
+        app, desc = mu.app_from_file(a.file, img)
+        if a.board is not None and a.board != mu.BOARD_ID:
+            raise GemifiError(f"{a.file} is for board 0x{mu.BOARD_ID:04x}, not --board 0x{a.board:04x}")
+        version = gi.check_image(img, mu.BOARD_ID).fw_version if is_gfw(img) else \
+            (gi.parse_version(a.version) if a.version else None)
+        recs = mu.build_stream(app)
+    except (mu.UpdateError, ValueError) as e:
+        raise GemifiError(str(e)) from None
+    print(f"{a.file}: {desc}")
+    return send_vendor(a, backend_factory, recs, version)
+
+
+def cmd_restore_stock(a, backend_factory):
+    try:
+        recs = mu.parse_stream(mu.load_hex(a.file))
+    except mu.UpdateError as e:
+        raise GemifiError(f"{a.file}: {e}") from None
+    print(f"{a.file}: vendor update file")
+    return send_vendor(a, backend_factory, recs, None, stock=True)
+
+
+def send_vendor(a, backend_factory, recs, version, stock=False):
+    errs = mu.check_stream(recs)
+    if errs:
+        raise GemifiError("refusing to send: " + "; ".join(errs))
+    for line in mu.summary(recs):
+        print(line)
+    if a.dry_run:
+        print("dry run: Code 61 vendor update; nothing sent")
+        return 0
+    backend = backend_factory()
+    t0 = time.monotonic()
+    kw = vendor_kw(a)
+    wait = a.wait if a.wait is not None else 120.0
+    gm = None if getattr(backend, "fixed", False) else find_port(backend, "app", a.port)
+    if gm:
+        with backend.open(gm) as port:
+            s = Session(port, retries=a.retries, verbose=a.verbose)
+            h = s.hello()
+            if h.board_id != mu.BOARD_ID:
+                raise GemifiError(f"{gm} is board 0x{h.board_id:04x}, not the Code 61 (0x{mu.BOARD_ID:04x})")
+            print(f"{gm}: gemifi {h.role_name} {gp.fmt_version(h.fw_version)}; asking for update mode (REBOOT 1)")
+            s.reboot(gp.REBOOT_BOOT)
+        name = mu.wait_power_cycle(backend, gm, wait, a.boot_port)
+    else:
+        name = mu.find_vendor_port(backend, a.boot_port)
+        if not name:
+            raise GemifiError("no Code 61 port found: neither a gemifi app nor a port named 'Code'/'M-Audio' "
+                              "(try `gemifi.py ports`, or --boot-port NAME)")
+    try:
+        name = mu.enter_bootloader(backend, name, kw, wait, a.boot_port)
+        with backend.open(name) as port:
+            mu.send_stream(port, recs, kw, None if a.quiet else mu.bar)
+    except mu.UpdateError as e:
+        raise GemifiError(f"{e}. The bootloader keeps the update request, so power-cycle the keyboard and run "
+                          "the same command again (or restore-stock).") from None
+    if stock:
+        print(f"done in {time.monotonic() - t0:.1f} s. The keyboard should restart on the stock firmware "
+              "(power-cycle it if it doesn't).")
+        return 0
+    try:
+        new, h = wait_hello(backend, a.after_wait, a.port, gone=name, retries=a.retries)
+    except GemifiError:
+        raise GemifiError(f"the update was accepted, but no gemifi app answered within {a.after_wait:.0f} s. "
+                          "Power-cycle the keyboard, then run `gemifi.py hello`.") from None
+    print_hello(new, h)
+    if version is not None and h.fw_version != version:
+        raise GemifiError(f"the device runs {gp.fmt_version(h.fw_version)}, expected {gp.fmt_version(version)}")
+    print(f"done in {time.monotonic() - t0:.1f} s")
+    return 0
+
+
+def add_vendor_options(p):
+    mu.add_sender_options(p, wait=False)
+    p.add_argument("--after-wait", type=float, default=20.0,
+                   help="Code 61: seconds to wait for the gemifi app after the update (20)")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", choices=["auto", "rtmidi", "mido", "alsa"], default="auto")
@@ -926,13 +1024,23 @@ def build_parser():
     f.add_argument("--board", type=lambda s: int(s, 0),
                    help=".gfw: refuse images for another board_id; .bin (A/B device): the board_id to send (required)")
     f.add_argument("--version", help=".bin (A/B device): the image's fw_version as X.Y.Z (required)")
-    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot')")
+    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot'; Code 61: "
+                   "'Code' or 'M-Audio')")
     f.add_argument("--wait", type=float, default=None,
                    help="seconds to wait for the device after a reboot (default 6; 15 for A/B devices, since an "
-                        "ESP8266 copies the new image into place before it starts)")
+                        "ESP8266 copies the new image into place before it starts; Code 61: 120 for the power "
+                        "cycle)")
     f.add_argument("--dry-run", action="store_true", help="validate and print the chunk plan; no MIDI")
     f.add_argument("--max-chunk", type=int, default=256, help="max_chunk for --dry-run")
     f.add_argument("-q", "--quiet", action="store_true")
+    add_vendor_options(f)
+    f = sub.add_parser("restore-stock", help="Code 61: send an M-Audio update file (FirmwareFile*.hex.txt) as it is")
+    f.add_argument("file", metavar="FirmwareFile.hex.txt")
+    f.add_argument("--boot-port", help="substring for the keyboard's port (default 'Code' or 'M-Audio')")
+    f.add_argument("--wait", type=float, default=None, help="seconds to wait for the power cycle (120)")
+    f.add_argument("--dry-run", action="store_true", help="check the file and print a summary; no MIDI")
+    f.add_argument("-q", "--quiet", action="store_true")
+    add_vendor_options(f)
     c = sub.add_parser("schema", help="print the device's param schema")
     c.add_argument("--json", action="store_true", help="print the parsed schema as JSON")
     c.add_argument("--raw", metavar="OUT.bin", help="also save the raw schema bytes")
@@ -968,6 +1076,8 @@ def main(argv=None):
     try:
         if a.cmd == "flash":
             return cmd_flash(a, make_backend)
+        if a.cmd == "restore-stock":
+            return cmd_restore_stock(a, make_backend)
         backend = make_backend()
         return COMMANDS[a.cmd](a, backend)
     except (GemifiError, MidiError, gp.ProtocolError, OSError) as e:

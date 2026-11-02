@@ -171,14 +171,21 @@ The schema for each firmware is listed in its README (`firmware/<family>/<app>/R
 
 ## 5. Image format (`.gfw`)
 
-A `.gfw` file is the raw APROM binary, exactly `image_size` bytes long (padded with 0xFF to a multiple of 4), linked at 0x0, with a 32-byte header at **0x0C0**, right after the vector table (16 core + 32 IRQ entries). `tools/host/mkimage.py` fills the header after linking.
+A `.gfw` file is the raw app binary, exactly `image_size` bytes long (padded with 0xFF to a multiple of 4), with a 32-byte header right after the vector table. `tools/host/mkimage.py` fills the header after linking. Where the header sits depends on the platform (§8):
+
+| Platform | Linked at | Vector table | Header at (image offset) |
+|---|---|---|---|
+| NUC1xx | 0x0 | 16 core + 32 IRQ entries | **0x0C0** |
+| STM32F1 (Code 61) | 0x08002400 | 16 core + 60 IRQ entries | **0x130** |
+
+Offsets below are image offsets, so "from 0x0" means from the start of the image.
 
 ```c
-struct gemifi_img_hdr {      // at 0x000000C0, little-endian
+struct gemifi_img_hdr {      // at image offset 0x0C0 (NUC1xx) or 0x130 (STM32F1), little-endian
   uint32_t magic;            // 'GMFI' = 0x49464D47
   uint16_t hdr_version;      // 1
   uint16_t board_id;         // §7, must be ≤ 0x3FFF so it fits a u14 on the wire
-  uint32_t image_size;       // bytes from 0x0, multiple of 4, <= APROM size
+  uint32_t image_size;       // bytes from the image start, multiple of 4, <= the board's limit (§8)
   uint32_t crc32;            // CRC-32/ISO-HDLC (zlib crc32) over [0, image_size), this field taken as 0
   uint32_t fw_version;       // major<<24 | minor<<16 | patch
   uint32_t proto_version;    // 1
@@ -187,6 +194,8 @@ struct gemifi_img_hdr {      // at 0x000000C0, little-endian
 ```
 
 The bootloader starts the app only if all of these hold: the magic matches, the `board_id` matches, `image_size` ≤ APROM size, the initial SP is in SRAM, the reset vector is odd and inside the image, and the CRC matches.
+
+On the Code 61 there is no gemifi bootloader. M-Audio's bootloader stays, and it checks its own image checksum instead (§8). The host tools still check the `.gfw` header before they send anything.
 
 ## 6. Boot handoff and mailbox (NUC1xx)
 
@@ -210,9 +219,22 @@ The bootloader starts the app only if all of these hold: the magic matches, the 
 | Board | `board_id` | Chip |
 |---|---|---|
 | M-Audio Keystation Mini 32 MK3 | 0x0001 | Nuvoton NUC120LC1BN (32 KB APROM, 4 KB LDROM, 4 KB SRAM) |
+| M-Audio Code 61 | 0x0002 | STM32F103-class (possibly a clone), 1 KB flash pages; M-Audio's bootloader stays |
 | DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F02 `esp8266-example`) |
 
 USB IDs during development: pid.codes **test** PIDs, development use only. Bootloader `1209:0001`, app `1209:0002` (verify against pid.codes' test range before relying on them). Strings: manufacturer "gemifi"; product "gemifi boot (<board>)" or "gemifi (<board>)"; serial = chip UID in hex. Chips without a UID (the NUC120BN on the Keystation Mini 32) use a random 96-bit ID made on first boot and kept in the last data-flash page (`platform/nuvoton-nuc1xx/src/hal.c`); a factory reset keeps it. The bootloader reads the same record (it never writes it), so both report the same serial; before any app has made the record, the bootloader's serial is all zeros. Never reuse M-Audio's `0763:3111` or Medeli's `0A67:138F`. A device with a DAW port (core/README.md "DAW feedback") has a second USB-MIDI port (cable 1, "<name> DAW") for Mackie Control: this protocol is only spoken on the first port (cable 0), and only there do hosts find the device.
 
 ## 8. Per-board constants
-The 512-byte page, APROM size and 200 ms timeout above are NUC1xx values. Other chip families will define their own; `max_chunk` (from HELLO/FW_BEGIN) and the board table are the places to carry them. Revisit when a second family is added.
+The 512-byte page, APROM size and 200 ms timeout above are NUC1xx values. Other chip families define their own; `max_chunk` (from HELLO/FW_BEGIN) and the board table (`tools/host/gemifi_image.py` `BOARDS`) carry them.
+
+| board_id | Platform | Linked at | Header at | Max image | Upload |
+|---|---|---|---|---|---|
+| 0x0001 | NUC1xx | 0x0 | 0x0C0 | 32,768 bytes (APROM) | gemifi bootloader in LDROM (§4.2) |
+| 0x0002 | STM32F1 | 0x08002400 | 0x130 | 102,398 bytes (to 0x0801B3FD) | M-Audio's bootloader and update protocol |
+
+**Code 61 (0x0002).** gemifi replaces only the app. The flash map and the vendor protocol are in `research/devices/m-audio-code61/analysis/` (`update-protocol.md`, `custom-firmware-path.md`); `tools/host/maudio_update.py` builds and sends the stream.
+- 0x08000000–0x080023FF is M-Audio's bootloader. Nothing ever writes it.
+- The app is 0x08002400–0x0801B3FD. The update erases every page up to 0x0801AFFF and programs the ones the image covers. It writes page 0x0801B000 last. That page is 0xFF except the **image checksum** at 0x0801B3FE: the negated 16-bit sum of the bytes 0x08002400–0x0801B3FD (unwritten bytes count as 0xFF), little-endian.
+- 0x0801B400–0x0801FBFF holds M-Audio's settings and the per-unit calibration. Updates don't touch it. gemifi settings must stay outside the checksummed range, or every save would break the checksum.
+- **Update request.** To get into update mode, the app writes the 8 bytes `55 5A A5 AA 59 95 3A A3` to the start of page 0x0801FC00 (rest of the page 0xFF). The bootloader acts on it at the next power-on. In gemifi, REBOOT(1) does this. It then resets, or asks the user to power-cycle; whether the bootloader also reacts after a soft reset isn't known yet.
+- The stock app does the same when it gets the vendor start message `F0 5A 57 6E 28 3C 4E 45 F7`, and answers `F0 15 F7`.

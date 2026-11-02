@@ -57,7 +57,7 @@ describe('builder detection', () => {
       name: 'gemifi builder',
       version: '0.3',
       userDir: '/data',
-      toolchains: { 'nuvoton-nuc1xx': true, esp: false },
+      toolchains: { 'nuvoton-nuc1xx': true, stm32f1: false, esp: false },
     });
   });
 

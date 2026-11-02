@@ -7,6 +7,7 @@
 /** The chip families a device file can target. */
 export const Platform = {
   Nuc1xx: 'nuvoton-nuc1xx',
+  Stm32f1: 'stm32f1',
   Esp32: 'esp32',
   Esp32S2: 'esp32s2',
   Esp32S3: 'esp32s3',
@@ -15,12 +16,13 @@ export const Platform = {
 export type Platform = (typeof Platform)[keyof typeof Platform];
 
 /** The toolchains a builder can have installed. */
-export const Toolchain = { Nuc1xx: 'nuvoton-nuc1xx', Esp: 'esp' } as const;
+export const Toolchain = { Nuc1xx: 'nuvoton-nuc1xx', Stm32f1: 'stm32f1', Esp: 'esp' } as const;
 export type Toolchain = (typeof Toolchain)[keyof typeof Toolchain];
 
 /** Which toolchain builds each platform. */
 export const PLATFORM_TOOLCHAIN = Object.freeze({
   [Platform.Nuc1xx]: Toolchain.Nuc1xx,
+  [Platform.Stm32f1]: Toolchain.Stm32f1,
   [Platform.Esp32]: Toolchain.Esp,
   [Platform.Esp32S2]: Toolchain.Esp,
   [Platform.Esp32S3]: Toolchain.Esp,
@@ -303,6 +305,7 @@ export async function fetchBuilderInfo(): Promise<BuilderInfo | null> {
     userDir: readString(json, 'user_dir', what),
     toolchains: {
       [Toolchain.Nuc1xx]: toolchains[Toolchain.Nuc1xx] === true,
+      [Toolchain.Stm32f1]: toolchains[Toolchain.Stm32f1] === true,
       [Toolchain.Esp]: toolchains[Toolchain.Esp] === true,
     },
   };

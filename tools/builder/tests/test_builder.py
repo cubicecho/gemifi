@@ -286,6 +286,21 @@ class TestValidation(unittest.TestCase):
         self.assertError(MINIMAL_NUC + "cd74hc4067:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, "
                          "common_pin: PA5 }\n", r"cd74hc4067\[0\]\.pin_s3|is required")
 
+    def test_stm32f1_pins(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RC")
+        self.assertClean(stm)
+        self.assertClean(stm.replace("pin: PA1", "pin: PG15"))
+        self.assertError(stm.replace("pin: PA1", "pin: PH0"), r"'PH0' is not a pin on stm32f1")
+        self.assertError(stm.replace("pin: PA1", "pin: PA12"), r"PA12 is a USB data line")
+        self.assertClean(stm + "analog:\n  - { id: v, pin: PC5, cc: 7 }\n")
+        self.assertError(stm + "analog:\n  - { id: v, pin: PC6, cc: 7 }\n",
+                         r"PC6 has no ADC on stm32f1 \(ADC pins: PA0-PA7, PB0-PB1, PC0-PC5")
+        warns = [str(d) for d in self.errs(stm.replace("pin: PA1", "pin: PA13"), level="warning")]
+        self.assertTrue(any("SWD" in w for w in warns), warns)
+        warns = [str(d) for d in self.errs(stm.replace("STM32F103RC", "NUC120"), level="warning")]
+        self.assertTrue(any("STM32F1-class" in w for w in warns), warns)
+        self.assertEqual(self.errs(stm.replace("STM32F103RC", "GD32F103RC"), level="warning"), [])
+
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",
                          r"PB0 has no ADC on nuvoton-nuc1xx \(ADC pins: PA0-PA7", line=10)
@@ -909,7 +924,7 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual(st, 200)
         j = json.loads(body)
         self.assertEqual((j["name"], j["version"], j["user_dir"]), ("gemifi builder", "0.1.0", self.mine))
-        self.assertEqual(set(j["toolchains"]), {"nuvoton-nuc1xx", "esp"})
+        self.assertEqual(set(j["toolchains"]), {"nuvoton-nuc1xx", "stm32f1", "esp"})
         self.assertTrue(all(isinstance(v, bool) for v in j["toolchains"].values()))
         st, body = self.req("/api/presets")
         names = [p["name"] for p in json.loads(body)["presets"]]

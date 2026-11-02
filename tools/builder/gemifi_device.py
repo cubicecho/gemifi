@@ -350,6 +350,43 @@ class NucPlatform(Platform):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
 
 
+class Stm32F1Platform(Platform):
+    """STM32F103-class parts (and GD32F103 clones): ports A-G, pin = port * 16 + bit."""
+    name = "stm32f1"
+    native_usb = True
+    PORTS = "ABCDEFG"
+    VALID = "PA0-PA15 ... PG0-PG15 (as fitted on the package)"
+    # ADC1 channels 0-15: PA0-PA7 = 0-7, PB0-PB1 = 8-9, PC0-PC5 = 10-15
+    ADC = set(range(0, 8)) | {16, 17} | set(range(32, 38))
+
+    def parse_pin(self, v):
+        m = re.fullmatch(r"P([A-Za-z])\.?(\d{1,2})", str(v).strip()) if not isinstance(v, bool) else None
+        if not m or m.group(1).upper() not in self.PORTS or int(m.group(2)) > 15:
+            hint = " (STM32 pins are named by port, e.g. PB8)" if isinstance(v, int) else ""
+            raise ValueError(f"'{v}' is not a pin on {self.name}{hint} (valid: {self.VALID})")
+        return self.PORTS.index(m.group(1).upper()) * 16 + int(m.group(2))
+
+    def pin_name(self, num):
+        return f"P{self.PORTS[num // 16]}{num % 16}"
+
+    def check(self, num, role, flags, transport):
+        out, nm = [], self.pin_name(num)
+        if num in (11, 12):
+            out.append(("error", f"{nm} is a USB data line (D-/D+)"))
+        if num in (13, 14, 15, 19, 20):
+            out.append(("warning", f"{nm} is a JTAG/SWD pin: using it needs the debug port remapped "
+                                   "off, and SWD (PA13/PA14) then stops working"))
+        if num == 18:
+            out.append(("warning", "PB2 is BOOT1 on STM32F1: a pull at reset can change the boot mode"))
+        if num in (45, 46, 47) and role == "out":
+            out.append(("warning", f"{nm} is in the backup domain: it can only sink about 3 mA and "
+                                   "switch slowly (2 MHz); don't drive LEDs from it directly"))
+        return out
+
+    def adc(self, num):
+        return num in self.ADC, None
+
+
 class EspPlatform(Platform):
     is_esp = True
 
@@ -424,6 +461,7 @@ class EspPlatform(Platform):
 
 PLATFORMS = {p.name: p for p in [
     NucPlatform(),
+    Stm32F1Platform(),
     EspPlatform("esp32", valid=list(range(0, 20)) + [21, 22, 23, 25, 26, 27] + list(range(32, 40)),
                 flash=range(6, 12), strapping=[0, 2, 5, 12, 15], input_only=range(34, 40),
                 adc1=range(32, 40), adc2=[0, 2, 4, 12, 13, 14, 15, 25, 26, 27], uart0=[1, 3],
@@ -865,6 +903,8 @@ def type_name(v):
 def adc_text(plat):
     if plat.name == "nuvoton-nuc1xx":
         return "ADC pins: PA0-PA7"
+    if plat.name == "stm32f1":
+        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
     if plat.name == "esp8266":
         return "the only ADC pin is A0"
     return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
@@ -973,8 +1013,11 @@ def validate(data, file=None):
     v.plat = plat = PLATFORMS[pname]
     dev.platform = plat
     dev.chip = v.string(data, "chip", "", required=True)
-    if dev.chip and not plat.is_esp and not re.fullmatch(r"NUC1\d\d\w+", dev.chip, re.I):
+    if dev.chip and plat.name == "nuvoton-nuc1xx" and not re.fullmatch(r"NUC1\d\d\w+", dev.chip, re.I):
         v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like a NUC1xx part number")
+    if dev.chip and plat.name == "stm32f1" and not re.fullmatch(r"(STM32|GD32|APM32|CKS32)F1\d\d\w*",
+                                                                 dev.chip, re.I):
+        v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like an STM32F1-class part number")
 
     # midi
     midi = data.get("midi") or LDict()

@@ -645,7 +645,7 @@ static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
 
 void gm_led_host(uint32_t led, uint32_t value)
 {
-    if (led >= GM_N_LEDS)
+    if (led >= gm_device.n_leds)
         return;
     led_host_lv[led] = (uint8_t)(value == 0 ? 0 : value == 1 ? (LV_BLINK | 1u) : 1u);
     led_host_t[led] = hal_millis();
@@ -721,7 +721,7 @@ static void leds_update(uint32_t now)
 #endif
     }
 #if GM_HOST_LEDS
-    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+    for (uint32_t i = 0; i < gm_device.n_leds; i++)
         led_show(&gm_device.leds[i], led_level(i, local[i], has_local[i], now), blink_on);
 #endif
 }

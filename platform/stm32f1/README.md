@@ -1,0 +1,49 @@
+# platform/stm32f1
+
+Bare-metal gemifi platform for STM32F103-class chips (Cortex-M3, 72 MHz) that run **behind a vendor bootloader**. The first board is the M-Audio Code 61 (`boards/m-audio-code61.h`, board id `0x0002`). Its chip is most likely a medium-density STM32F103RB or GD32F103RB (128 KB flash, 1 KB pages, 20 KB RAM, 8 MHz HSE). The 60-slot vector table is kept anyway, so the header stays at 0x130 for the tools.
+
+Background: [research/devices/m-audio-code61/analysis/custom-firmware-path.md](../../research/devices/m-audio-code61/analysis/custom-firmware-path.md).
+
+Apps: `firmware/stm32f1/probe` (the first hardware test) and `firmware/stm32f1/midi-controller`.
+
+## Memory map
+
+| Range | Use |
+|---|---|
+| 0x08000000–0x080023FF | vendor bootloader. Never written |
+| 0x08002400–0x0801AFFF | gemifi image (`ld/app.ld`): vectors 0x000–0x12F (16 core + 60 IRQ), `.gfw` header at +0x130 (0x08002530), then code |
+| 0x0801B000–0x0801B3FF | vendor "app valid" page. The host packer writes the whole-image checksum at 0x0801B3FE (the negated 16-bit byte sum of 0x08002400–0x0801B3FD). The app never writes it |
+| 0x0801B400–0x0801FBFF | vendor settings "EEPROM". The gemifi profile uses `BOARD_CONFIG_BASE`/`BOARD_CONFIG_PAGES` in here (Code 61: 0x0801EC00 and 0x0801F000) |
+| 0x0801FC00–0x0801FFFF | vendor update-request flag page |
+| 0x20000000–0x20004FFF | RAM, taken as 20 KB. The stack starts at the top. `.noinit` is not zeroed |
+
+The linker checks that the image starts at 0x08002400, that the header sits at 0x08002530 and that the image ends below 0x0801B000. `mk/app.mk` calls `tools/host/mkimage.py --hdr-offset 0x130 --base 0x08002400 --max-size 102398`. The `.gfw` file is not what the bootloader takes. The host packer turns it into the vendor record stream.
+
+## Update requests and recovery
+
+- **REBOOT(1)**, from `hal_reboot(1)`: writes the vendor magic `55 5A A5 AA 59 95 3A A3` to 0x0801FC00 (the rest of the page stays FF), disconnects USB and resets with SYSRESETREQ. The vendor bootloader then stays in update mode. This is the same request the stock app makes. **REBOOT(0)** is a plain reset.
+- **Recovery combo**, in `src/recovery.c`: runs first in `Reset_Handler`, before `.data`/`.bss`, VTOR, clocks or USB. If the board's `BOARD_RECOVERY_*` buttons are held, it writes the same flag and resets. It uses only registers and its own flash routines.
+  - **Code 61**: JTAG off (SWD kept), PB3–PB7 driven low (decoder row 16), PB8–PB15 pulled up, recovery when PB8 and PB9 both read low in 8 samples over ~20 ms. The pins are then put back to input floating. The button labels (probably Octave −/+) are unverified.
+- **IWDG**: about 1 s (the stock values, PR 3 and RLR 0x4E2). Apps start it first thing and kick it in the main loop, so a hang becomes a reset.
+- There is no SRAM mailbox or boot-loop guard as on the NUC. The vendor bootloader doesn't have one.
+
+## Files
+
+| File | Contents |
+|---|---|
+| `include/stm32f1.h` | registers from RM0008 and the core registers. USB registers are in `stm32f1_usb.h` |
+| `src/startup.c` | vector table and `Reset_Handler`: SP, then `recovery_check()`, then VTOR, then `.data`/`.bss` |
+| `src/sys.c` | JTAG-off remap (`BOARD_SWJ_NOJTAG`); clocks: HSI, RCC reset, HSE×9 = 72 MHz with 2 wait states and prefetch, APB1 /2, USB /1.5. If HSE fails it falls back to HSI/2×12 = 48 MHz. Also the polled SysTick ms counter, IWDG and reset |
+| `src/flash.c` | unlock, 1 KB page erase (verified blank afterwards), halfword/word program |
+| `src/hal.c` | `gm_hal.h`. GPIO through CRL/CRH/BSRR. `hal_pin_out_reg` uses the ODR bit-band alias. ADC1 (ch0–15). DWT `hal_delay_us`. UID from 0x1FFFF7E8 |
+| `src/config_store.c` | the NUC journal format on halfword-programmed 1 KB pages |
+| `src/usb_midi.c`, `crc32.c`, `mini_libc.c` | copied from the NUC platform. Keep them in sync |
+| `src/usbd.c` | USB FS device driver (separate owner) |
+
+## Unverified (needs hardware)
+
+- The chip vendor (ST or GD32), the RAM size and the 1 KB page size. The probe app reports all of these.
+- Whether the vendor bootloader accepts our image, and whether it checks the flag after a soft reset or only at power-on. If only at power-on, REBOOT(1) needs a power cycle.
+- The recovery combo (row 16 PB8/PB9; which buttons those are), and the config pages (0x0801EC00/0x0801F000 come from static analysis only).
+- `DBGMCU_IDCODE` reads 0 without a debugger on genuine ST F103s (errata). The probe also reports SCB CPUID: r1p1 on ST, r2p1 on GD32.
+- The fault-safe SRAM probe (FAULTMASK + `CCR.BFHFNMIGN`). If it ever crashes, a `.noinit` marker makes the next boot skip it.

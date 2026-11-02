@@ -1,0 +1,81 @@
+# Cuts a release from the commit log after CI passes on main (semantic-release, .releaserc.json).
+#
+# Versions come from Conventional Commits: `fix:` -> patch, `feat:` -> minor, `!` or a
+# `BREAKING CHANGE:` footer -> major. Any other type (docs, chore, ci, refactor, test, ...)
+# releases nothing. A release:
+#   - bumps package.json, the dashboard's VERSION and the web updater (tools/release/set-version.mjs)
+#   - prepends the notes to CHANGELOG.md and commits it as `chore(release): x.y.z [skip ci]`
+#   - tags vx.y.z and opens a GitHub release with the same notes
+#   - builds the Docker image for the tag, and redeploys the site (its /changelog/ page)
+#
+# The last two are started from here with `gh workflow run`: a push made with GITHUB_TOKEN
+# (the release commit and tag) starts no other workflow, so docker.yml's `tags: v*` and
+# pages.yml's push trigger never see it. workflow_dispatch is the one event that token can
+# start, and both workflows already take it, so they stay as they are.
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+# The default token is read-only. semantic-release pushes the CHANGELOG commit and the tag
+# and creates the GitHub release; actions: write lets it start docker.yml and pages.yml.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # A red CI run must not become a version; neither does CI on a PR branch.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The commit CI tested, not whatever main has moved on to since.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # semantic-release reads the whole log and the tags to work out the next version.
+          fetch-depth: 0
+          # It pushes with GITHUB_TOKEN itself; the checkout credentials would only shadow it.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Semantic release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      # semantic-release leaves HEAD on the release commit and tags it there; no tag on HEAD
+      # means nothing was released.
+      - id: out
+        run: |
+          tag=$(git tag --points-at HEAD --list 'v*' | head -n1)
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "released: ${tag:-nothing}"
+
+      # docker.yml on the tag: its metadata step reads the version from the ref, so this
+      # pushes :x.y.z, :x.y and :latest exactly as a hand-pushed tag would. The site builds
+      # from main, which now has the new CHANGELOG.md.
+      - name: Image and site for the release
+        if: steps.out.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.out.outputs.version }}
+        run: |
+          gh workflow run docker.yml --ref "v$VERSION"
+          gh workflow run pages.yml --ref main

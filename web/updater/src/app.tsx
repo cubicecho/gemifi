@@ -2,6 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
 import { PageLayout } from '@/components/page-layout';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { fetchBuilderInfo } from './builder/api.ts';
 import { BuilderView } from './builder/builder-view.tsx';
@@ -23,6 +24,9 @@ import type { PickedBytes } from './serial/esp-manifest.ts';
 
 /** The first-install card, loaded on its own: only ESP users need it. */
 const InstallCard = lazy(() => import('./device/install-card.tsx').then((m) => ({ default: m.InstallCard })));
+
+/** The site's changelog: the builder's version links to it. */
+const CHANGELOG_URL = 'https://cubicecho.github.io/gemifi/changelog/';
 
 /** The page's two views, when a builder serves it. */
 const AppView = { Devices: 'devices', Update: 'update' } as const;
@@ -160,9 +164,20 @@ export function App() {
         </SegmentedGroup>
       }
       actionSlot={
-        <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
-          {isConnected ? 'Connected' : 'Not connected'}
-        </Badge>
+        <>
+          {builderInfo.version === '' ? null : (
+            <Button
+              variant="outline"
+              size="sm"
+              linkSlot={<a href={CHANGELOG_URL} target="_blank" rel="noopener" />}
+              content={`v${builderInfo.version}`}
+              hint="What's new in this version"
+            />
+          )}
+          <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
+            {isConnected ? 'Connected' : 'Not connected'}
+          </Badge>
+        </>
       }
       contentSlot={
         <>

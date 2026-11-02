@@ -1,0 +1,74 @@
+# The tests. Release (release.yml) runs after this passes on main, so a red run never
+# becomes a version.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-and-c:
+    name: Builder, core, host tools, host-sim
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # gcc-arm-none-eabi: host-sim links a real NUC firmware image (hello-led.gfw). Without its
+      # recommended newlib, as in the Dockerfile: the NUC firmware is -nostdlib.
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi make
+          pip install pyyaml==6.0.3 pytest
+
+      - name: Builder
+        working-directory: tools/builder
+        run: python -m pytest -q tests
+
+      - name: Every device YAML validates
+        run: python tools/builder/gemifi_build.py validate devices/*.yaml
+
+      - name: Core
+        run: make -C core/test test
+
+      - name: Host tools
+        working-directory: tools/host
+        run: python -m unittest discover -s tests -t .
+
+      - name: NUC host-sim (bootloader, app, end to end)
+        run: make -C platform/nuvoton-nuc1xx/test/host-sim test
+
+  web:
+    name: Web updater
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/updater
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: web/updater/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit -p .
+      - run: npx vitest run
+      - run: npm run build

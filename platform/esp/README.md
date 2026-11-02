@@ -20,7 +20,7 @@ Settings come from the device's `gm_device_config.h` when it's on the include pa
 
 | `midi.transport` | Chips | What the host sees |
 |---|---|---|
-| `usb` (default on S2/S3) | S2, S3 | A class-compliant USB MIDI device, `<name> (gemifi)`, serial = MAC. Uses TinyUSB (`ARDUINO_USB_MODE=0`, set by the `esp32s3` env). Web MIDI works as on the NUC. |
+| `usb` (default on S2/S3) | S2, S3 | A class-compliant USB MIDI device, `<name> (gemifi)`, serial = MAC. Uses TinyUSB (`ARDUINO_USB_MODE=0`, set by the `esp32s3` env). Web MIDI works as on the NUC. With `mcu:` (core/README.md "DAW feedback") it has two ports, `<name>` and `<name> DAW` (two cables on one endpoint pair, from our own descriptor instead of Arduino's `USBMIDI`). Received MIDI goes to the core as USB-MIDI packets, so the cable is kept. |
 | `serial` (default on ESP32, ESP8266) | all | Raw MIDI bytes on UART0, so on the board's USB-UART chip, at 115200 baud. The web updater talks to it over **Web Serial**. Boot ROM/bootloader text also comes out on this port; it's never inside `F0 … F7`, so the SysEx parser skips it. |
 | `ble` | ESP32, S3 | BLE-MIDI 1.0 peripheral (the core's built-in BLE library, Bluedroid), advertised as the device name. It adds about 800 KB of flash on the classic ESP32. Untested on hardware. |
 

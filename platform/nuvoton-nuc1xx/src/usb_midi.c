@@ -1,5 +1,5 @@
 /*
- * usb_midi.c: USB-MIDI 1.0 event packing/unpacking (cable 0).
+ * usb_midi.c: USB-MIDI 1.0 event packing/unpacking.
  *
  * USB-MIDI 1.0 section 4: each event is 4 bytes, byte 0 = cable << 4 | CIN.
  * SysEx: CIN 4 = starts/continues (3 bytes), 5 = ends with 1 byte,
@@ -45,19 +45,15 @@ int midi_rx_poll(gsx_rx_t *rx)
     return 0;
 }
 
-void midi_rx_drain(void (*cb)(uint8_t b))
+void midi_rx_drain(void (*cb)(const uint8_t ev[4]))
 {
     int n = usbd_out_len();
     if (n < 0)
         return;
     const volatile uint8_t *p = usbd_out_data();
     for (int i = 0; i + 4 <= n; i += 4) {
-        uint32_t cin = p[i] & 0x0F;
-        if (cin < 4 || cin > 7)
-            continue;
-        uint32_t k = (cin == 5) ? 1 : (cin == 6) ? 2 : 3;
-        for (uint32_t j = 0; j < k; j++)
-            cb(p[i + 1 + j]);
+        uint8_t ev[4] = { p[i], p[i + 1], p[i + 2], p[i + 3] };
+        cb(ev);
     }
     rx_pos = 0;
     usbd_out_release();
@@ -107,10 +103,15 @@ void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2)
 
 void midi_tx_sysex(const uint8_t *p, uint32_t n)
 {
+    midi_tx_sysex_cable(0, p, n);
+}
+
+void midi_tx_sysex_cable(uint8_t cable, const uint8_t *p, uint32_t n)
+{
     while (n) {
         uint32_t k = n > 3 ? 3 : n;
         uint8_t cin = (n > 3) ? 4 : (uint8_t)(4 + k);   /* 4, or 5/6/7 */
-        midi_tx_event(cin, p[0], k > 1 ? p[1] : 0, k > 2 ? p[2] : 0);
+        midi_tx_event((uint8_t)(cable << 4 | cin), p[0], k > 1 ? p[1] : 0, k > 2 ? p[2] : 0);
         p += k;
         n -= k;
     }

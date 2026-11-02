@@ -4,8 +4,14 @@
  * BLE-MIDI (ESP32 / S3, the core's BLE library).
  *
  * hal_midi_send() queues whole messages in a ring; hal_midi_poll() hands
- * what the transport accepts to it and feeds received bytes to
- * gm_midi_rx_byte(). Both run in the main loop only.
+ * what the transport accepts to it and feeds what it receives to the core:
+ * USB-MIDI event packets to gm_midi_rx_usb() (so the cable is kept), serial
+ * and BLE bytes to gm_midi_rx_byte(). Both run in the main loop only.
+ *
+ * USB with a DAW port (GM_USB_DAW_PORT, core/README.md "DAW feedback"): the
+ * MIDI interface gets two cables on its one endpoint pair ("<name>" and
+ * "<name> DAW"), from our own descriptor instead of the USBMIDI class, and
+ * cable 1 gets a TX ring of its own.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -13,9 +19,17 @@
 #include "gm_hal.h"
 #include "gm_controller.h"
 
+#ifndef GM_USB_DAW_PORT
+#define GM_USB_DAW_PORT 0
+#endif
+
 #if GM_MIDI_TRANSPORT == GM_MIDI_USB
 #include <USB.h>
+#if GM_USB_DAW_PORT
+#include "esp32-hal-tinyusb.h"
+#else
 #include <USBMIDI.h>
+#endif
 #elif GM_MIDI_TRANSPORT == GM_MIDI_BLE
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -51,11 +65,81 @@ void hal_midi_send(const uint8_t *msg, uint32_t n)
     tx_head = (uint16_t)(tx_head + n);
 }
 
+#if GM_MIDI_TRANSPORT == GM_MIDI_USB && GM_USB_DAW_PORT
+#define DAWQ_SIZE 256u                      /* power of 2 */
+static uint8_t dawq[DAWQ_SIZE];
+static uint16_t daw_head, daw_tail;
+
+void hal_midi_send_cable(uint8_t cable, const uint8_t *msg, uint32_t n)
+{
+    if (cable == 0) {
+        hal_midi_send(msg, n);
+        return;
+    }
+    if (n > DAWQ_SIZE - (uint16_t)(daw_head - daw_tail))
+        return;
+    for (uint32_t i = 0; i < n; i++)
+        dawq[(daw_head + i) & (DAWQ_SIZE - 1u)] = msg[i];
+    daw_head = (uint16_t)(daw_head + n);
+}
+#else
+/* One port: everything goes out on it. */
+void hal_midi_send_cable(uint8_t cable, const uint8_t *msg, uint32_t n)
+{
+    (void)cable;
+    hal_midi_send(msg, n);
+}
+#endif
+
+/* Without the core (firmware/esp/hello): USB SysEx bytes to gm_midi_rx_byte,
+ * as before there were cables. The core's gm_midi_rx_usb replaces it. */
+extern "C" __attribute__((weak)) void gm_midi_rx_usb(const uint8_t ev[4])
+{
+    uint32_t cin = ev[0] & 0x0Fu;
+    if (cin < 4 || cin > 7)
+        return;
+    uint32_t k = (cin == 5) ? 1 : (cin == 6) ? 2 : 3;
+    for (uint32_t i = 0; i < k; i++)
+        gm_midi_rx_byte(ev[1 + i]);
+}
+
 /* ======================================================================= */
 #if GM_MIDI_TRANSPORT == GM_MIDI_USB
 
-static USBMIDI usb_midi(GM_DEVICE_NAME);
 static char usb_serial[25];
+
+#if GM_USB_DAW_PORT
+/* USB-MIDI 1.0 with two cables: jacks named "<name>" and "<name> DAW". */
+#define MIDI2_DESC_LEN (TUD_MIDI_DESC_HEAD_LEN + 2 * TUD_MIDI_DESC_JACK_LEN + 2 * TUD_MIDI_DESC_EP_LEN(2))
+
+static uint16_t midi2_load_descriptor(uint8_t *dst, uint8_t *itf)
+{
+    static bool loaded;
+    if (loaded)
+        return 0;
+    loaded = true;
+    uint8_t str_main = tinyusb_add_string_descriptor(GM_DEVICE_NAME);
+    uint8_t str_daw = tinyusb_add_string_descriptor(GM_DAW_PORT_NAME);
+    uint8_t ep_in = tinyusb_get_free_in_endpoint();
+    uint8_t ep_out = tinyusb_get_free_out_endpoint();
+    if (!ep_in || !ep_out)
+        return 0;
+    uint8_t d[MIDI2_DESC_LEN] = {
+        TUD_MIDI_DESC_HEAD(*itf, str_main, 2),
+        TUD_MIDI_DESC_JACK_DESC(1, str_main),
+        TUD_MIDI_DESC_JACK_DESC(2, str_daw),
+        TUD_MIDI_DESC_EP(ep_out, CFG_TUD_ENDPOINT_SIZE, 2),
+        TUD_MIDI_JACKID_IN_EMB(1), TUD_MIDI_JACKID_IN_EMB(2),
+        TUD_MIDI_DESC_EP((uint8_t)(0x80 | ep_in), CFG_TUD_ENDPOINT_SIZE, 2),
+        TUD_MIDI_JACKID_OUT_EMB(1), TUD_MIDI_JACKID_OUT_EMB(2),
+    };
+    *itf += 2;
+    memcpy(dst, d, sizeof d);
+    return sizeof d;
+}
+#else
+static USBMIDI usb_midi(GM_DEVICE_NAME);
+#endif
 
 void gm_esp_midi_begin(void)
 {
@@ -71,37 +155,82 @@ void gm_esp_midi_begin(void)
     USB.manufacturerName("gemifi");
     USB.productName(GM_DEVICE_NAME " (gemifi)");
     USB.serialNumber(usb_serial);
+#if GM_USB_DAW_PORT
+    tinyusb_enable_interface(USB_INTERFACE_MIDI, MIDI2_DESC_LEN, midi2_load_descriptor);
+#else
     usb_midi.begin();
+#endif
     USB.begin();
 }
 
 static void tp_rx(void)
 {
-    uint8_t buf[64];
-    uint32_t n;
-    while (tud_midi_available() && (n = tud_midi_stream_read(buf, sizeof(buf))) > 0)
-        for (uint32_t i = 0; i < n; i++)
-            gm_midi_rx_byte(buf[i]);
+    uint8_t ev[4];
+    for (int k = 0; k < 64 && tud_midi_available() && tud_midi_packet_read(ev); k++)
+        gm_midi_rx_usb(ev);
 }
+
+#if GM_USB_DAW_PORT
+/* Cable 1's ring, to TinyUSB. It is only entered when cable 0's ring is
+ * empty and left when it is empty itself, so TinyUSB's stream writer (one
+ * per interface) never sees two cables' messages interleaved mid-message. */
+static uint8_t tx_cable;
+
+static int daw_tx(void)
+{
+    while (daw_tail != daw_head) {
+        uint32_t at = daw_tail & (DAWQ_SIZE - 1u);
+        uint32_t n = (uint16_t)(daw_head - daw_tail);
+        if (n > DAWQ_SIZE - at)
+            n = DAWQ_SIZE - at;
+        uint32_t w = tud_midi_stream_write(1, &dawq[at], n);
+        daw_tail = (uint16_t)(daw_tail + w);
+        if (w < n)
+            return 0;                       /* FIFO full: stay on cable 1 */
+    }
+    return 1;
+}
+#endif
 
 static void tp_tx(void)
 {
     uint32_t n;
     if (!tud_mounted()) {
         tx_tail = tx_head;                  /* nobody listening */
+#if GM_USB_DAW_PORT
+        daw_tail = daw_head;
+#endif
         return;
     }
+#if GM_USB_DAW_PORT
+    if (tx_cable == 1) {
+        if (!daw_tx())
+            return;
+        tx_cable = 0;
+    }
+#endif
     const uint8_t *p;
     while ((n = txq_peek(&p)) > 0) {
         uint32_t w = tud_midi_stream_write(0, p, n);
         tx_tail = (uint16_t)(tx_tail + w);
         if (w < n)
-            break;                          /* endpoint FIFO full */
+            return;                         /* endpoint FIFO full */
     }
+#if GM_USB_DAW_PORT
+    if (daw_tail != daw_head) {
+        tx_cable = 1;
+        if (daw_tx())
+            tx_cable = 0;
+    }
+#endif
 }
 
 static int tp_idle(void)
 {
+#if GM_USB_DAW_PORT
+    if (daw_tail != daw_head)
+        return 0;
+#endif
     return txq_used() == 0;
 }
 

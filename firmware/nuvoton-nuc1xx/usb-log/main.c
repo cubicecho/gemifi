@@ -1,7 +1,7 @@
 /*
  * usb-log: milestone M2 (bootloader-design.md 10).
  *
- * Class-compliant USB-MIDI app, 1209:0002 "Keystation Mini 32 (gemifi)".
+ * Class-compliant USB-MIDI app, 1209:0002 "gemifi (Keystation Mini 32)".
  *   - Each button press/release: Note On/Off (channel 1, note 48 + button
  *     index), then an EVENT (type 1 = button) and a LOG SysEx message.
  *   - Answers HELLO (role 0) and the Universal Identity Request.
@@ -34,7 +34,7 @@
 static const uint8_t dev_desc[] = { USB_MIDI_DEVICE_DESC(0x1209, 0x0002, 0x0100) };
 static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC };
 static char serial[25];
-static const char *const strings[] = { "gemifi", BOARD_NAME " (gemifi)", serial };
+static const char *const strings[] = { "gemifi", "gemifi (" BOARD_NAME ")", serial };
 static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), 3, strings,
 };

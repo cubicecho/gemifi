@@ -13,7 +13,7 @@ facts:
   - [Memory, "32 KB app flash (APROM), 4 KB boot flash (LDROM), 4 KB data flash, 4 KB SRAM"]
   - [Controls, "32 keys with velocity, 7 buttons, 4 LEDs (2 bicolour), 1 knob"]
   - ["USB (stock)", "<code>0763:3111</code>, class-compliant USB MIDI"]
-  - ["USB (gemifi app)", "<code>1209:0002</code> “Keystation Mini 32 (gemifi)”"]
+  - ["USB (gemifi app)", "<code>1209:0002</code> “gemifi (Keystation Mini 32)”"]
   - ["USB (gemifi bootloader)", "<code>1209:0001</code> “gemifi boot (Keystation Mini 32)”"]
   - [gemifi platform, "<code>nuvoton-nuc1xx</code>, board id <code>0x0001</code>"]
 yaml:

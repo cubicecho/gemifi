@@ -33,11 +33,11 @@ static char serial[25];
  * strings 4 and 5, which is what most OSes show as the port names. */
 static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC2(4, 5) };
 static const char *const strings[] = {
-    "gemifi", GM_DEVICE_NAME " (gemifi)", serial, GM_DEVICE_NAME, GM_DAW_PORT_NAME,
+    "gemifi", "gemifi (" GM_DEVICE_NAME ")", serial, GM_DEVICE_NAME, GM_DAW_PORT_NAME,
 };
 #else
 static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC };
-static const char *const strings[] = { "gemifi", GM_DEVICE_NAME " (gemifi)", serial };
+static const char *const strings[] = { "gemifi", "gemifi (" GM_DEVICE_NAME ")", serial };
 #endif
 static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), sizeof(strings) / sizeof(strings[0]), strings,

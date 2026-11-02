@@ -68,7 +68,7 @@ the GitHub Pages address) gets its own add-on.
    byte stream and the rest (the ROM boot log, other MIDI) is dropped. Over USB MIDI the page
    lists MIDI ports, pairing each input with the output of the same name, and picks one whose
    name contains "gemifi" by itself. The device shows up as
-   "gemifi boot (…)" in the bootloader and "… (gemifi)" in the app, and is a different port after
+   "gemifi boot (…)" in the bootloader and "gemifi (…)" in the app, and is a different port after
    every reboot; the page follows it.
 2. **Device** asks HELLO on every (re)connection: role, board, firmware and protocol versions,
    max chunk, capabilities and UID. The two buttons send REBOOT(1) and REBOOT(0).

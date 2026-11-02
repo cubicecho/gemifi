@@ -11,7 +11,7 @@ facts:
   - [MIDI, "USB MIDI on the S2 and S3 (native USB); serial MIDI through the board's USB-serial chip on all of them; BLE MIDI on the ESP32 and S3 (untested)"]
   - [Controls, "Whatever you wire: buttons, LEDs, pots and faders, encoders, one key matrix"]
   - [Expanders, "74HC595, 74HC165, 74HC4051, 74HC4067, MCP23017, PCF8574"]
-  - ["USB (gemifi)", "<code>1209:0002</code> “&lt;name&gt; (gemifi)” on the S2 and S3; on the others, the board's own USB-serial chip"]
+  - ["USB (gemifi)", "<code>1209:0002</code> “gemifi (&lt;name&gt;)” on the S2 and S3; on the others, the board's own USB-serial chip"]
   - [gemifi platform, "<code>esp32</code>, <code>esp32s2</code>, <code>esp32s3</code>, <code>esp8266</code>; board ids <code>0x3F00</code>–<code>0x3FFF</code> are for DIY builds"]
 yaml:
   - devices/esp32-example.yaml

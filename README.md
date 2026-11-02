@@ -50,8 +50,12 @@ Your devices live in `./config`. Flashing over Web MIDI / Web Serial needs `loca
 
 On a docker host without the source, run the published image `ghcr.io/cubicecho/gemifi` with [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml); see "Deploy on a docker host" there.
 
-## Status (2026-10-30)
-- Keystation: probed, wired for SWD (TP1–TP4), stock firmware fully backed up, hardware map and stock bootloader analysed. M1 (`hello-led` over SWD) passed on hardware.
-- Built and host-tested, waiting for hardware tests: `usb-log` (M2), the bootloader test build (M3), the bootloader (M4), the generic `midi-controller` firmware, the web config editor, `gemifi.py` config commands. The order is in [`tools/README.md`](tools/README.md) §4a.
+## Status (2026-11-02)
+Early and experimental: expect the YAML format and the protocol to change.
+
+- **Keystation Mini 32 MK3: works.** The gemifi bootloader is in LDROM (installed once over SWD) and the generic `midi-controller` app is installed over USB. Checked on hardware on 2026-10-31: all 32 keys with velocity, all 7 buttons, the volume knob, all LEDs, settings from the web page, app updates over USB (about 4 s) and app ↔ bootloader reboots (milestones M1–M4 in [`tools/README.md`](tools/README.md) §4a).
+- **Merged but not yet checked on hardware:** the bootloader's boot-loop guard and stored serial, the resumable SWD verify, DAW feedback (host-driven LEDs, a second "DAW" port, the Mackie Control framework), and the USB product name "gemifi (<board>)".
+- **ESP32 / S2 / S3 / ESP8266:** build and pass host tests; not yet checked on hardware.
+- **Code 49/61, FCB1010:** researched or planned (`research/devices/`).
 
 Stock firmware dumps and vendor files are kept locally and are **not** committed (see `.gitignore`).

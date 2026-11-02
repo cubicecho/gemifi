@@ -1,6 +1,6 @@
 /**
  * Recognising gemifi ports by name (`protocol/sysex.md` §7). The product string is
- * "gemifi boot (<board>)" in the bootloader and "<board> (gemifi)" in the app; the OS port name
+ * "gemifi boot (<board>)" in the bootloader and "gemifi (<board>)" in the app; the OS port name
  * contains it, sometimes with a suffix such as " MIDI 1". HELLO is still the authority on role.
  */
 

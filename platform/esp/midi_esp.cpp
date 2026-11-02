@@ -153,7 +153,7 @@ void gm_esp_midi_begin(void)
     USB.VID(GM_USB_VID);
     USB.PID(GM_USB_PID);
     USB.manufacturerName("gemifi");
-    USB.productName(GM_DEVICE_NAME " (gemifi)");
+    USB.productName("gemifi (" GM_DEVICE_NAME ")");
     USB.serialNumber(usb_serial);
 #if GM_USB_DAW_PORT
     tinyusb_enable_interface(USB_INTERFACE_MIDI, MIDI2_DESC_LEN, midi2_load_descriptor);

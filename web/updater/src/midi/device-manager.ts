@@ -3,7 +3,7 @@
  * {@link DeviceLink} the flash sequence drives. Framework-free; the React layer subscribes to it.
  *
  * A gemifi device disappears and comes back as a different port on every reboot
- * ("gemifi boot (…)" in the bootloader, "… (gemifi)" in the app), so the manager follows it:
+ * ("gemifi boot (…)" in the bootloader, "gemifi (…)" in the app), so the manager follows it:
  * when the selected port goes away it selects the next gemifi port that appears.
  */
 

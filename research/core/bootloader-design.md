@@ -182,7 +182,7 @@ App side:
 | | Bootloader | App |
 |---|---|---|
 | VID:PID | 1209:xxxx (pid.codes, free for open-source hardware). Use a pid.codes test PID while developing | 1209:yyyy, **a different PID** |
-| Strings | "gemifi" / "gemifi boot (Keystation Mini 32)" / serial = chip UID (FMC UID read) | "gemifi" / "Keystation Mini 32 (gemifi)" / same serial |
+| Strings | "gemifi" / "gemifi boot (Keystation Mini 32)" / serial = chip UID (FMC UID read) | "gemifi" / "gemifi (Keystation Mini 32)" / same serial |
 | Interfaces | Audio Control + MIDI Streaming (1 embedded IN jack, 1 embedded OUT jack), bulk EP 0x81 IN / 0x01 OUT, 64 B | same MIDI function (+ optional extras, §5) |
 | EP0 | 64 B (stock uses 8; 64 is faster for descriptors) | 64 B |
 

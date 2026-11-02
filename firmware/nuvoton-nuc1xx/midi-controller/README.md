@@ -12,7 +12,7 @@ make DEVICE=<device.yaml>                # another device YAML (generated into b
 make DEVICE_DIR=<config dir> BUILD=<dir> # an already generated config (tools/builder does this)
 ```
 
-Output: `build/midi-controller.gfw`. With the Keystation config it is 14.7 KB of flash and 2.1 KB of static RAM (of 32 KB / 4 KB); host feedback is about 0.5 KB of that (`feedback: { enabled: false }` saves it, core/README.md "DAW feedback").
+Output: `build/midi-controller.gfw`. With the Keystation config it is 18.9 KB of flash and 2.1 KB of static RAM (of 32 KB / 4 KB); host feedback is about 0.5 KB of that (`feedback: { enabled: false }` saves it, core/README.md "DAW feedback").
 
 ## What it does (Keystation defaults)
 
@@ -28,32 +28,39 @@ Output: `build/midi-controller.gfw`. With the Keystation config it is 14.7 KB of
 
 **Host feedback** (core/README.md "DAW feedback"): with Live's **Remote** turned on for the Keystation's output port, a CC 80 from the host sets the Edit toggle (and its LED), and the host's CC 64 lights the Sustain LED for 2 s after each message. No second USB port: the descriptor is the same as before.
 
-Every button's action and CC/note number can be changed, and stored with "Save to device" (COMMIT). Holding **Pitch ▼ + Pitch ▲** at power-up starts with the defaults and ignores the stored profile (with the gemifi bootloader in LDROM, the same combo enters the bootloader instead).
+Every button's action and CC/note number can be changed per preset (see "Presets" below), and stored with "Save to device" (COMMIT). Holding **Pitch ▼ + Pitch ▲** at power-up starts with the defaults and ignores the stored profile (with the gemifi bootloader in LDROM, the same combo enters the bootloader instead).
 
 At power-up all LEDs light for 200 ms (lamp test). About 1.5 s later the firmware sends `LOG "<name> up"` and its version.
 
 ## Config (schema)
 
-Generated from `core/src/settings.c`; arrays are sized by the device. For the Keystation:
+Generated from `core/src/settings.c`; arrays are sized by the device. Scope P = per preset (schema flag bit 5), G = global. For the Keystation:
 
-| id | name | type | range | default |
-|---|---|---|---|---|
-| 1 | `midi.channel` | int | 1..16 | 1 |
-| 2 | `midi.transpose` | int (semitones) | −24..24 | 0 |
-| 3 | `midi.octave` | int | −4..4 | 0 (changed by the octave buttons → PARAM_CHANGED) |
-| 4 | `velocity.curve` | enum Normal / Soft / Hard / Fixed | | Normal |
-| 5 | `velocity.fixed` | int | 1..127 | 100 (also the velocity of "Note" buttons) |
-| 6 | `velocity.fast` | int (0.1 ms) | 1..500 | 12: key time that gives 127 |
-| 7 | `velocity.slow` | int (0.1 ms) | 20..2000 | 1200: key time that gives 1 |
-| 9 | `button.action[7]` | enum (core/README.md "Button actions") | | CC momentary, CC toggle, Octave down, Octave up, Pitch bend down, Pitch bend up, CC ramp |
-| 10 | `button.number[7]` | int | 0..127 | 64, 80, 0, 0, 0, 0, 1 |
-| 11 | `bend.glide` | int (ms) | 0..2000 | 80 |
-| 12 | `ramp.time` | int (ms) | 0..5000 | 300 |
-| 8 | `analog.cc[1]` | int | 0..127 | 7 |
-| 13 | `debug.events` | bool | | off (on: EVENT messages for keys, buttons, knob) |
-| 14 | `debug.log_level` | enum Off / Errors / Warnings / Info / Debug | | Info |
+| id | name | scope | type | range | default |
+|---|---|---|---|---|---|
+| 1 | `midi.channel` | P | int | 1..16 | 1 |
+| 2 | `midi.transpose` | P | int (semitones) | −24..24 | 0 |
+| 3 | `midi.octave` | P | int | −4..4 | 0 (changed by the octave buttons → PARAM_CHANGED; a preset switch resets it) |
+| 4 | `velocity.curve` | P | enum Normal / Soft / Hard / Fixed | | Normal |
+| 5 | `velocity.fixed` | P | int | 1..127 | 100 (also the velocity of "Note" buttons) |
+| 6 | `velocity.fast` | G | int (0.1 ms) | 1..500 | 16: key time that gives 127 |
+| 7 | `velocity.slow` | G | int (0.1 ms) | 20..2000 | 1200: key time that gives 1 |
+| 9 | `button.action[7]` | P | enum (core/README.md "Button actions", 0..15) | | CC momentary, CC toggle, Octave down, Octave up, Pitch bend down, Pitch bend up, CC ramp |
+| 10 | `button.number[7]` | P | int | 0..127 | 64, 80, 0, 0, 0, 0, 1 |
+| 11 | `bend.glide` | P | int (ms) | 0..2000 | 80 |
+| 12 | `ramp.time` | P | int (ms) | 0..5000 | 300 |
+| 8 | `analog.cc[1]` | P | int | 0..127 | 7 |
+| 13 | `debug.events` | G | bool | | off (on: EVENT messages for keys, buttons, knob) |
+| 14 | `debug.log_level` | G | enum Off / Errors / Warnings / Info / Debug | | Info |
+| 17 | `preset.active` | G | int | 1..8 | 1 (setting it switches preset) |
+| 18 | `preset.program` | P | int | −1..127 | −1 (Program Change sent on select; −1 = none) |
+| 19 | `preset.dirty` | – | bool, read-only, volatile | | unsaved host edits to the active preset |
 
-Devices with encoders also get `encoder.cc` (15) and `encoder.mode` (16).
+Devices with encoders also get `encoder.cc` (15) and `encoder.mode` (16), both per preset. Devices with one preset have `preset.active` (1..1) but not 18/19.
+
+**Button actions** added for presets: 13 Preset next, 14 Preset previous, 15 Preset select (`button.number` = the slot). Mackie Control moved from 13 to 16 (only on devices with `mcu:`).
+
+**Presets** (research/core/presets-design.md). The Keystation YAML defines 8 slots: Default, Drums, DAW and five copies of Default. Only the active preset is in RAM. A switch (SET_PARAM `preset.active`, a preset button, PRESET_SAVE) first sends Note Off for sounding keys and note buttons, CC 0 for held CC-momentary buttons and raised ramps, and centres pitch bend; buttons held through the switch stay silent until released. It then loads the slot (defaults → its YAML values → its stored edits), sends its Program Change if it has one, and PRESET_CHANGED. Host edits (SET_PARAM) to per-preset params make the preset dirty and are lost on a switch unless saved with COMMIT. COMMIT stores the globals and the active preset's differences from its YAML values. The active slot is stored 10 s after the last switch (or at COMMIT), so flipping through presets doesn't wear the flash.
 
 **Velocity.** Normal is linear in log(time) from 127 at `velocity.fast` to 1 at `velocity.slow`: about −18 per doubling of the key time with the defaults, close to the stock Keystation's feel (stock tables sampled for calibration only). Soft lifts the middle, Hard lowers it, Fixed always sends `velocity.fixed`.
 

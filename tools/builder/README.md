@@ -23,6 +23,7 @@ Platform toolchains (only needed for `build`):
 B=tools/builder/gemifi_build.py
 
 $B validate devices/keystation-mini32-mk3.yaml       # check it, print errors as file:line
+$B validate devices/*.yaml                           # several at once (exit 1 if any fails)
 $B generate devices/keystation-mini32-mk3.yaml -o /tmp/cfg   # write gm_device_config.h/.c only
 $B build    devices/keystation-mini32-mk3.yaml       # validate + generate + firmware build
 $B presets                                           # list presets in devices/
@@ -38,9 +39,25 @@ mine.yaml:31: error: analog[0].pin: PB0 has no ADC on nuvoton-nuc1xx (ADC pins: 
 mine.yaml:40: error: key_matrix.keys: 40 keys don't fit a 8 x 8 velocity matrix (at most 32)
 ```
 
-It checks: the format version (`gemifi: 2`; a format 1 file gets one error per old key saying what replaced it), the node `name` (lowercase, digits, `-`, at most 31), the platform and its pin names (NUC1xx `PA0`…`PD15`; ESP `GPIOn` / `n` per chip, `A0` on ESP8266), pin modes against what the pin is used for and what the chip can do (no pull-downs on NUC1xx, no pulls on ESP32 GPIO34–39, no `open_drain` yet), pins used twice (component pins, hub control pins and I2C pins all count), ADC-capable pins for analog inputs (or a mux whose `common_pin` is an ADC pin), output-capable pins for LEDs and matrix rows, hub ranges (`sr_count` 1–4, 8/16 mux channels, 16 MCP23017 / 8 PCF8574 pins) and that a hub pin names its hub with the right chip key (`{ pcf8574: p, number: 0 }`), which hubs each use allows (outputs: 595/MCP/PCF; inputs: 165/mux/MCP/PCF; matrix: MCU, 595 rows, 165 columns; encoders: not on a mux), ids (below), `led:`, `boot_combo` and hub references, button `cc:`/`note:` against the action, time periods (`125us`, `1.6ms`: a bare number is an error that says which unit to add), the key matrix (velocity needs even columns, keys fit the matrix, `first_note + keys ≤ 128`), `board_id ≤ 0x3FFF`, at most 32 buttons, I2C pins when an I2C hub exists, action names, 0..127 numbers, and unknown keys (with "did you mean").
+It checks: the format version (`gemifi: 2`; a format 1 file gets one error per old key saying what replaced it), the node `name` (lowercase, digits, `-`, at most 31), the platform and its pin names (NUC1xx `PA0`…`PD15`; ESP `GPIOn` / `n` per chip, `A0` on ESP8266), pin modes against what the pin is used for and what the chip can do (no pull-downs on NUC1xx, no pulls on ESP32 GPIO34–39, no `open_drain` yet), pins used twice (component pins, hub control pins and I2C pins all count), ADC-capable pins for analog inputs (or a mux whose `common_pin` is an ADC pin), output-capable pins for LEDs and matrix rows, hub ranges (`sr_count` 1–4, 8/16 mux channels, 16 MCP23017 / 8 PCF8574 pins) and that a hub pin names its hub with the right chip key (`{ pcf8574: p, number: 0 }`), which hubs each use allows (outputs: 595/MCP/PCF; inputs: 165/mux/MCP/PCF; matrix: MCU, 595 rows, 165 columns; encoders: not on a mux), ids (below), `led:`, `boot_combo` and hub references, button `cc:`/`note:`/`preset:` against the action, the `presets:` section (below), time periods (`125us`, `1.6ms`: a bare number is an error that says which unit to add), the key matrix (velocity needs even columns, keys fit the matrix, `first_note + keys ≤ 128`), `board_id ≤ 0x3FFF`, at most 32 buttons, I2C pins when an I2C hub exists, action names, 0..127 numbers, and unknown keys (with "did you mean").
 
 **Ids** follow ESPHome's rules: a C identifier (a letter, then letters, digits and `_`), not a C/C++ keyword, unique across the whole device (hubs and components share one namespace). gemifi also wants them lower_snake_case. Ids that YAML would read as something other than a name are refused with the reason: PyYAML follows YAML 1.1, so a bare `no`, `off`, `On`, `yes` or `true` is a boolean, `null` is nothing and `12` / `0x1F` are numbers; `y`, `n` and quoted `'no'` are refused too, because other YAML tools read them differently. A component with only a `name:` gets an id derived from it (`Pitch Down` → `pitch_down`); two derived ids that collide are an error naming both entries.
+
+**Presets** (`presets:`, the switchable sets of behaviours of [`core/README.md`](../../core/README.md) "Presets"; not the `devices/` templates below). The builder checks them like the components: `slots` 1..64 and at least the number listed, `revision` 0..16383, names (≤ 16 printable ASCII, unique, also against the "Preset N" of empty slots), `program` 0..127, preset 1 taking only `name`/`program`, component ids (with "did you mean"; an id of the wrong kind says what it is), the keys an override may have (hardware keys like `pin:`, `adc_min:`, `led:` and globals like `velocity.fast` or `midi.transport` are refused with where to set them instead), `cc:`/`note:`/`preset:` against the effective action (an override of an action that takes no number is an error here, not a warning), ranges and units, enum names (`curve`, encoder `mode`) and params the device doesn't have (`velocity.curve` without a velocity matrix, `bend`/`ramp` without buttons). An override equal to preset 1's value is dropped with a warning. The preset actions (`preset_next`, `preset_prev`, `preset_select`) need 2 or more slots.
+
+**Storage budget.** The builder works out the worst case of what the device stores (research/core/presets-design.md §10.5): a record per preset holding every per-preset value plus a name, and one for the globals. The per-preset / global split of the params lives in one table, `PARAMS` in `gemifi_device.py`, mirroring `core/src/settings.c`. Each record must fit the platform's record limit, and all of them (1 + `slots`) the platform's store:
+
+| Platform | Store | Budget |
+|---|---|---|
+| nuvoton-nuc1xx | data-flash journal | 6 usable 512 B pages (7, one kept spare); a record ≤ 512 B and never spans a page |
+| esp32 / esp32s2 / esp32s3 | NVS, a blob per slot | 12 KB in all, a blob ≤ 1984 B |
+| esp8266 | EEPROM sector | 4096 B for every slot together |
+
+Not fitting is an error that says the largest `slots` that fits; using more than half is a warning (a fuller store means more erase cycles) that also says how many slots stay under half. Without `presets:`, a record that doesn't fit is only a warning (it was so with the old record format). The summary line shows the numbers:
+
+```
+devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1836 B in 5 of 6 pages (3072 B)
+```
 
 Two hubs can share a control line (e.g. an sn74hc595 and an sn74hc165 on one clock and latch, or two muxes on the same select lines) only if each use sets `allow_other_uses: true` (`clock_pin: { number: GPIO18, allow_other_uses: true }`) and the line has the same job in each (clock with clock, latch with load). Component pins can't be shared. Making it work electrically is up to you.
 
@@ -94,7 +111,7 @@ Everything is under `/api/`. Errors are `{"error": "<message>"}` with a 4xx stat
 | `GET /api/devices` | `{"devices": [{"id", "root": "presets"\|"mine", "file", "name", "platform", "description", "images": [str], "writable": bool}], "user_dir"}`; `images` = the `.gfw`/`.bin` files at the top of that device's output dir |
 | `GET /api/presets` | `{"presets": [{"name", "platform", "description"}]}` |
 | `GET /api/file?id=` | `{"id", "text"}` |
-| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "diags": [{"level": "error"\|"warning", "path", "line", "msg"}]}` |
+| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "diags": [{"level": "error"\|"warning", "path", "line", "msg"}], "presets": {"slots": [{"slot", "name", "program", "changes", "listed"}], "revision", "given", "storage": {...the budget numbers}} \| null}` |
 | `POST /api/save {"id", "text"}` | `{"ok": true}`; 403 on a read-only preset |
 | `POST /api/new {"name", "preset"}` | `{"id"}` (`mine/<name>.yaml`); 400 if it exists or the name is bad |
 | `POST /api/delete {"id"}` | `{"ok": true}`; `mine/` only (403 for presets), also removes its build outputs; 409 during a build |

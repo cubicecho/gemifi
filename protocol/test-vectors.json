@@ -965,5 +965,426 @@
     }
    }
   ]
+ },
+ "presets": {
+  "_comment": [
+   "Presets (sysex.md 4.5): PRESET_INFO 0x0B, PRESET_SAVE 0x0C, PRESET_RESET 0x0D, PRESET_NAME 0x0E,",
+   "PRESET_CHANGED 0x63; select = SET_PARAM preset.active (id 17). HELLO caps bit 5 = presets.",
+   "PRESET_INFO reply: status, slot u14, count u14, active u14, flags (1 stored edits, 2 dirty, 4 YAML),",
+   "revision u14, stored_revision u14, program s32 (-1 = none), name string (u8 len 0..16 + ASCII).",
+   "schema: an example with the PRESET flag (bit 5 = 32) on per-preset params, and params 17..19."
+  ],
+  "cap_presets": 32,
+  "flag_preset": 32,
+  "schema": {
+   "desc": "example app schema with presets (v1)",
+   "raw": "01 03 07 00 04 4D 49 44 49 07 42 75 74 74 6F 6E 73 07 50 72 65 73 65 74 73 01 00 00 00 01 00 20 01 00 00 00 10 00 00 00 01 00 00 00 0C 6D 69 64 69 2E 63 68 61 6E 6E 65 6C 0C 4D 49 44 49 20 63 68 61 6E 6E 65 6C 06 00 00 00 01 00 10 01 00 00 00 E8 03 00 00 14 00 00 00 0D 76 65 6C 6F 63 69 74 79 2E 66 61 73 74 0D 56 65 6C 6F 63 69 74 79 20 66 61 73 74 06 30 2E 31 20 6D 73 09 00 02 01 02 00 2C 00 00 00 00 0F 00 00 00 01 00 00 00 0D 00 00 00 0D 62 75 74 74 6F 6E 2E 61 63 74 69 6F 6E 0D 42 75 74 74 6F 6E 20 61 63 74 69 6F 6E 07 53 75 73 74 61 69 6E 04 45 64 69 74 10 04 4E 6F 6E 65 0C 43 43 20 6D 6F 6D 65 6E 74 61 72 79 09 43 43 20 74 6F 67 67 6C 65 07 43 43 20 72 61 6D 70 04 4E 6F 74 65 0B 4F 63 74 61 76 65 20 64 6F 77 6E 09 4F 63 74 61 76 65 20 75 70 0E 54 72 61 6E 73 70 6F 73 65 20 64 6F 77 6E 0C 54 72 61 6E 73 70 6F 73 65 20 75 70 0F 50 69 74 63 68 20 62 65 6E 64 20 64 6F 77 6E 0D 50 69 74 63 68 20 62 65 6E 64 20 75 70 0C 50 72 6F 67 72 61 6D 20 6E 65 78 74 10 50 72 6F 67 72 61 6D 20 70 72 65 76 69 6F 75 73 0B 50 72 65 73 65 74 20 6E 65 78 74 0F 50 72 65 73 65 74 20 70 72 65 76 69 6F 75 73 0D 50 72 65 73 65 74 20 73 65 6C 65 63 74 0A 00 00 01 02 00 2C 00 00 00 00 7F 00 00 00 40 00 00 00 00 00 00 00 0D 62 75 74 74 6F 6E 2E 6E 75 6D 62 65 72 15 42 75 74 74 6F 6E 20 43 43 2F 6E 6F 74 65 20 6E 75 6D 62 65 72 07 53 75 73 74 61 69 6E 04 45 64 69 74 11 00 00 02 01 00 00 01 00 00 00 08 00 00 00 01 00 00 00 0D 70 72 65 73 65 74 2E 61 63 74 69 76 65 0D 41 63 74 69 76 65 20 70 72 65 73 65 74 12 00 00 02 01 00 20 FF FF FF FF 7F 00 00 00 FF FF FF FF 0E 70 72 65 73 65 74 2E 70 72 6F 67 72 61 6D 0E 50 72 6F 67 72 61 6D 20 43 68 61 6E 67 65 13 00 01 02 01 00 03 00 00 00 00 01 00 00 00 00 00 00 00 0C 70 72 65 73 65 74 2E 64 69 72 74 79 0D 55 6E 73 61 76 65 64 20 65 64 69 74 73",
+   "size": 596,
+   "parsed": {
+    "version": 1,
+    "groups": [
+     "MIDI",
+     "Buttons",
+     "Presets"
+    ],
+    "params": [
+     {
+      "id": 1,
+      "type": 0,
+      "group": 0,
+      "count": 1,
+      "flags": 32,
+      "min": 1,
+      "max": 16,
+      "defaults": [
+       1
+      ],
+      "name": "midi.channel",
+      "label": "MIDI channel",
+      "unit": "",
+      "index_labels": [],
+      "options": []
+     },
+     {
+      "id": 6,
+      "type": 0,
+      "group": 0,
+      "count": 1,
+      "flags": 16,
+      "min": 1,
+      "max": 1000,
+      "defaults": [
+       20
+      ],
+      "name": "velocity.fast",
+      "label": "Velocity fast",
+      "unit": "0.1 ms",
+      "index_labels": [],
+      "options": []
+     },
+     {
+      "id": 9,
+      "type": 2,
+      "group": 1,
+      "count": 2,
+      "flags": 44,
+      "min": 0,
+      "max": 15,
+      "defaults": [
+       1,
+       13
+      ],
+      "name": "button.action",
+      "label": "Button action",
+      "unit": "",
+      "index_labels": [
+       "Sustain",
+       "Edit"
+      ],
+      "options": [
+       "None",
+       "CC momentary",
+       "CC toggle",
+       "CC ramp",
+       "Note",
+       "Octave down",
+       "Octave up",
+       "Transpose down",
+       "Transpose up",
+       "Pitch bend down",
+       "Pitch bend up",
+       "Program next",
+       "Program previous",
+       "Preset next",
+       "Preset previous",
+       "Preset select"
+      ]
+     },
+     {
+      "id": 10,
+      "type": 0,
+      "group": 1,
+      "count": 2,
+      "flags": 44,
+      "min": 0,
+      "max": 127,
+      "defaults": [
+       64,
+       0
+      ],
+      "name": "button.number",
+      "label": "Button CC/note number",
+      "unit": "",
+      "index_labels": [
+       "Sustain",
+       "Edit"
+      ],
+      "options": []
+     },
+     {
+      "id": 17,
+      "type": 0,
+      "group": 2,
+      "count": 1,
+      "flags": 0,
+      "min": 1,
+      "max": 8,
+      "defaults": [
+       1
+      ],
+      "name": "preset.active",
+      "label": "Active preset",
+      "unit": "",
+      "index_labels": [],
+      "options": []
+     },
+     {
+      "id": 18,
+      "type": 0,
+      "group": 2,
+      "count": 1,
+      "flags": 32,
+      "min": -1,
+      "max": 127,
+      "defaults": [
+       -1
+      ],
+      "name": "preset.program",
+      "label": "Program Change",
+      "unit": "",
+      "index_labels": [],
+      "options": []
+     },
+     {
+      "id": 19,
+      "type": 1,
+      "group": 2,
+      "count": 1,
+      "flags": 3,
+      "min": 0,
+      "max": 1,
+      "defaults": [
+       0
+      ],
+      "name": "preset.dirty",
+      "label": "Unsaved edits",
+      "unit": "",
+      "index_labels": [],
+      "options": []
+     }
+    ]
+   }
+  },
+  "frames": [
+   {
+    "desc": "PRESET_INFO request slot 0 (the active one)",
+    "cmd": 11,
+    "seq": 50,
+    "payload": "00 00",
+    "frame": "F0 7D 67 6D 01 0B 32 02 00 00 00 40 F7",
+    "fields": {
+     "slot": 0
+    }
+   },
+   {
+    "desc": "PRESET_INFO reply: slot 2 of 8, active, unsaved and stored edits, YAML preset, revision 3, stored under 2, program 5, 'Drums'",
+    "cmd": 75,
+    "seq": 50,
+    "payload": "00 02 00 08 00 02 00 07 03 00 02 00 05 00 00 00 00 05 44 72 75 6D 73",
+    "frame": "F0 7D 67 6D 01 4B 32 17 00 00 02 00 08 00 02 00 07 03 00 02 00 05 00 00 00 00 05 44 72 75 6D 73 42 F7",
+    "fields": {
+     "status": 0,
+     "slot": 2,
+     "count": 8,
+     "active": 2,
+     "flags": 7,
+     "revision": 3,
+     "stored_revision": 2,
+     "program": 5,
+     "name": "Drums"
+    }
+   },
+   {
+    "desc": "PRESET_INFO request slot 8",
+    "cmd": 11,
+    "seq": 51,
+    "payload": "08 00",
+    "frame": "F0 7D 67 6D 01 0B 33 02 00 08 00 49 F7",
+    "fields": {
+     "slot": 8
+    }
+   },
+   {
+    "desc": "PRESET_INFO reply: slot 8, empty slot, no stored edits, no program, 'Preset 8'",
+    "cmd": 75,
+    "seq": 51,
+    "payload": "00 08 00 08 00 02 00 00 03 00 00 00 7F 7F 7F 7F 0F 08 50 72 65 73 65 74 20 38",
+    "frame": "F0 7D 67 6D 01 4B 33 1A 00 00 08 00 08 00 02 00 00 03 00 00 00 7F 7F 7F 7F 0F 08 50 72 65 73 65 74 20 38 0C F7",
+    "fields": {
+     "status": 0,
+     "slot": 8,
+     "count": 8,
+     "active": 2,
+     "flags": 0,
+     "revision": 3,
+     "stored_revision": 0,
+     "program": -1,
+     "name": "Preset 8"
+    }
+   },
+   {
+    "desc": "PRESET_INFO reply: 16-character name",
+    "cmd": 75,
+    "seq": 52,
+    "payload": "00 01 00 01 00 01 00 04 00 00 00 00 7F 00 00 00 00 10 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50",
+    "frame": "F0 7D 67 6D 01 4B 34 22 00 00 01 00 01 00 01 00 04 00 00 00 00 7F 00 00 00 00 10 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 40 F7",
+    "fields": {
+     "status": 0,
+     "slot": 1,
+     "count": 1,
+     "active": 1,
+     "flags": 4,
+     "revision": 0,
+     "stored_revision": 0,
+     "program": 127,
+     "name": "ABCDEFGHIJKLMNOP"
+    }
+   },
+   {
+    "desc": "PRESET_INFO reply: empty name",
+    "cmd": 75,
+    "seq": 53,
+    "payload": "00 01 00 01 00 01 00 01 7F 7F 7F 7F 00 00 00 00 00 00",
+    "frame": "F0 7D 67 6D 01 4B 35 12 00 00 01 00 01 00 01 00 01 7F 7F 7F 7F 00 00 00 00 00 00 13 F7",
+    "fields": {
+     "status": 0,
+     "slot": 1,
+     "count": 1,
+     "active": 1,
+     "flags": 1,
+     "revision": 16383,
+     "stored_revision": 16383,
+     "program": 0,
+     "name": ""
+    }
+   },
+   {
+    "desc": "PRESET_INFO reply BAD_PARAM (slot > count)",
+    "cmd": 75,
+    "seq": 54,
+    "payload": "0A",
+    "frame": "F0 7D 67 6D 01 4B 36 01 00 0A 0D F7",
+    "fields": {
+     "status": 10
+    }
+   },
+   {
+    "desc": "SET_PARAM request preset.active (id 17) = 3: select preset 3",
+    "cmd": 4,
+    "seq": 55,
+    "payload": "11 00 00 00 03 00 00 00 00",
+    "frame": "F0 7D 67 6D 01 04 37 09 00 11 00 00 00 03 00 00 00 00 59 F7",
+    "fields": {
+     "id": 17,
+     "index": 0,
+     "value": 3
+    }
+   },
+   {
+    "desc": "PRESET_SAVE request slot 4 (save-as)",
+    "cmd": 12,
+    "seq": 56,
+    "payload": "04 00",
+    "frame": "F0 7D 67 6D 01 0C 38 02 00 04 00 4B F7",
+    "fields": {
+     "slot": 4
+    }
+   },
+   {
+    "desc": "PRESET_SAVE reply OK",
+    "cmd": 76,
+    "seq": 56,
+    "payload": "00",
+    "frame": "F0 7D 67 6D 01 4C 38 01 00 00 06 F7",
+    "fields": {
+     "status": 0
+    }
+   },
+   {
+    "desc": "PRESET_RESET request slot 0 (all)",
+    "cmd": 13,
+    "seq": 57,
+    "payload": "00 00",
+    "frame": "F0 7D 67 6D 01 0D 39 02 00 00 00 49 F7",
+    "fields": {
+     "slot": 0
+    }
+   },
+   {
+    "desc": "PRESET_RESET reply OK",
+    "cmd": 77,
+    "seq": 57,
+    "payload": "00",
+    "frame": "F0 7D 67 6D 01 4D 39 01 00 00 08 F7",
+    "fields": {
+     "status": 0
+    }
+   },
+   {
+    "desc": "PRESET_RESET request slot 200",
+    "cmd": 13,
+    "seq": 58,
+    "payload": "48 01",
+    "frame": "F0 7D 67 6D 01 0D 3A 02 00 48 01 13 F7",
+    "fields": {
+     "slot": 200
+    }
+   },
+   {
+    "desc": "PRESET_RESET reply BAD_PARAM",
+    "cmd": 77,
+    "seq": 58,
+    "payload": "0A",
+    "frame": "F0 7D 67 6D 01 4D 3A 01 00 0A 13 F7",
+    "fields": {
+     "status": 10
+    }
+   },
+   {
+    "desc": "PRESET_NAME request slot 2 'Live set'",
+    "cmd": 14,
+    "seq": 59,
+    "payload": "02 00 08 4C 69 76 65 20 73 65 74",
+    "frame": "F0 7D 67 6D 01 0E 3B 0B 00 02 00 08 4C 69 76 65 20 73 65 74 5B F7",
+    "fields": {
+     "slot": 2,
+     "name": "Live set"
+    }
+   },
+   {
+    "desc": "PRESET_NAME reply OK",
+    "cmd": 78,
+    "seq": 59,
+    "payload": "00",
+    "frame": "F0 7D 67 6D 01 4E 3B 01 00 00 0B F7",
+    "fields": {
+     "status": 0
+    }
+   },
+   {
+    "desc": "PRESET_NAME request slot 2 '' (back to the YAML name)",
+    "cmd": 14,
+    "seq": 60,
+    "payload": "02 00 00",
+    "frame": "F0 7D 67 6D 01 0E 3C 03 00 02 00 00 50 F7",
+    "fields": {
+     "slot": 2,
+     "name": ""
+    }
+   },
+   {
+    "desc": "PRESET_NAME request slot 2, 17 characters (device replies BAD_VALUE)",
+    "cmd": 14,
+    "seq": 61,
+    "payload": "02 00 11 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 51",
+    "frame": "F0 7D 67 6D 01 0E 3D 14 00 02 00 11 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 51 4C F7",
+    "fields": {
+     "slot": 2,
+     "name": "ABCDEFGHIJKLMNOPQ"
+    }
+   },
+   {
+    "desc": "PRESET_NAME reply BAD_VALUE",
+    "cmd": 78,
+    "seq": 61,
+    "payload": "0B",
+    "frame": "F0 7D 67 6D 01 4E 3D 01 00 0B 18 F7",
+    "fields": {
+     "status": 11
+    }
+   },
+   {
+    "desc": "PRESET_CHANGED slot 3, clean",
+    "cmd": 99,
+    "seq": 70,
+    "payload": "03 00 00",
+    "frame": "F0 7D 67 6D 01 63 46 03 00 03 00 00 30 F7",
+    "fields": {
+     "slot": 3,
+     "dirty": 0
+    }
+   },
+   {
+    "desc": "PRESET_CHANGED slot 3, unsaved edits",
+    "cmd": 99,
+    "seq": 71,
+    "payload": "03 00 01",
+    "frame": "F0 7D 67 6D 01 63 47 03 00 03 00 01 32 F7",
+    "fields": {
+     "slot": 3,
+     "dirty": 1
+    }
+   }
+  ]
  }
 }

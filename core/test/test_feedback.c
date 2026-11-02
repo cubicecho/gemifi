@@ -14,7 +14,7 @@
 #include "gm_settings.h"
 #include "gm_feedback.h"
 #include "app_proto.h"
-#include "config_store.h"
+#include "params.h"
 #include "gsx.h"
 
 #if !(GM_FEEDBACK && GM_MCU && GM_USB_DAW_PORT && GM_LED_FB && GM_ANALOG_PICKUP)
@@ -58,10 +58,6 @@ void hal_midi_flush(uint32_t t) { (void)t; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
-
-int config_store_load(void) { return 0; }
-int config_store_commit(void) { return 0; }
-int config_store_erase(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -182,6 +178,15 @@ int main(void)
     gm_init(0x01020000u, 0);           /* fw 1.2.0 */
     run_ms(2000);
     out_n = 0;
+
+    /* button.action: the preset actions, then Mackie Control at 16 */
+    {
+        const param_def_t *act = params_find(P_BTN_ACTION);
+        CHECK(act && act->option_count == 17 && act->max == ACT_MCU && ACT_MCU == 16 &&
+              gm_cfg.btn_action[0] == ACT_MCU, "mcu action is 16, options 0..16");
+        CHECK(GM_N_PRESETS == 1 && params_find(P_PRESET_ACTIVE) && !params_find(P_PRESET_PROGRAM),
+              "one preset: preset.active only");
+    }
 
     /* -- dispatcher: SysEx still reaches the gemifi protocol on cable 0 -- */
     {

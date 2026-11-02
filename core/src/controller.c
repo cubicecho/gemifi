@@ -21,7 +21,7 @@
 #include "gm_hal.h"
 #include "app_proto.h"
 #include "params.h"
-#include "config_store.h"
+#include "gm_presets.h"
 #include "gm_feedback.h"
 #include "gm_mcu.h"
 
@@ -344,6 +344,7 @@ static void keys_poll(void)
 
 #if GM_N_BUTTONS > 0
 static uint32_t btn_stable, btn_last, btn_toggled;
+static uint32_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
 static uint8_t btn_note[NB], btn_chan[NB];
@@ -438,6 +439,15 @@ static void button_changed(uint32_t i, int down)
             midi2(0xC0 | chan(), (uint32_t)program);
         }
         break;
+    case ACT_PRESET_NEXT:
+    case ACT_PRESET_PREV:
+        if (down)
+            presets_step(act == ACT_PRESET_NEXT ? 1 : -1);
+        break;
+    case ACT_PRESET_SELECT:
+        if (down && num >= 1 && num <= GM_N_PRESETS)
+            presets_select(num);
+        break;
 #if GM_MCU
     case ACT_MCU:
         gm_mcu_note(num, down);
@@ -454,9 +464,15 @@ static void buttons_sample(void)
     if (s == btn_last && s != btn_stable) {
         uint32_t diff = s ^ btn_stable;
         btn_stable = s;
-        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++)
-            if ((diff >> i) & 1u)
-                button_changed(i, (s >> i) & 1u);
+        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+            if (!((diff >> i) & 1u))
+                continue;
+            if ((btn_ignore >> i) & 1u) {
+                btn_ignore &= ~(1u << i);   /* released after a preset switch */
+                continue;
+            }
+            button_changed(i, (s >> i) & 1u);
+        }
     }
     btn_last = s;
 }
@@ -821,6 +837,51 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
 }
 #endif
 
+/* ---- preset switch: let go of everything --------------------------------- */
+
+void gm_release_all(void)
+{
+#if GM_HAS_MATRIX
+    if (gm_device.matrix)
+        for (uint32_t k = 0; k < NK; k++) {
+            if (knote[k] == NOTE_NONE)
+                continue;
+            midi3(0x80 | kchan[k], knote[k], 0);
+            knote[k] = NOTE_NONE;           /* its release then sends nothing */
+        }
+#endif
+#if GM_N_BUTTONS > 0
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+        int held = (btn_stable >> i) & 1u;
+        int32_t act = gm_cfg.btn_action[i];
+        if (btn_note[i] != NOTE_NONE) {
+            midi3(0x80 | btn_chan[i], btn_note[i], 0);
+            btn_note[i] = NOTE_NONE;
+        }
+        if (held && act == ACT_CC_MOMENTARY)
+            cc((uint32_t)gm_cfg.btn_number[i], 0);
+#if GM_MCU
+        if (held && act == ACT_MCU)
+            gm_mcu_note((uint32_t)gm_cfg.btn_number[i], 0);
+#endif
+        if (act == ACT_CC_RAMP && ramp_sent[i] != 0)
+            cc((uint32_t)gm_cfg.btn_number[i], 0);
+        ramp_q8[i] = 0;
+        ramp_sent[i] = 0;
+    }
+    btn_ignore = btn_stable;
+    btn_toggled = 0;
+    if (bend_sent != 0x7FFFFFFF && bend_sent != 0)
+        midi3(0xE0 | chan(), 0, 0x40);      /* centre */
+    bend = bend_target = 0;
+    bend_sent = 0;
+#endif
+#if GM_N_ANALOGS > 0 && GM_ANALOG_PICKUP
+    for (uint32_t i = 0; i < NA; i++)
+        a_pick[i] = -1;
+#endif
+}
+
 /* ---- init and main loop ----------------------------------------------- */
 
 uint32_t gm_buttons_now(void)
@@ -937,9 +998,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #endif
 
     gm_settings_init();
-    params_defaults();
-    if (!safe)
-        config_store_load();
+    presets_boot(safe);
     app_log_limit = (uint8_t)gm_cfg.log_level;
     app_proto_init(fw_version, 1);
 
@@ -968,6 +1027,7 @@ void gm_poll(void)
     uint32_t now = hal_millis();
 
     app_proto_poll();
+    presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;
 
     if (has_i2c_hubs && now - t_i2c >= I2C_MS) {

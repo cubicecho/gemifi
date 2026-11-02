@@ -54,3 +54,23 @@ key_matrix:
   # soft playing 21-54 ms, normal 3-7 ms, hard 1.2-2.5 ms between contacts.
   # 2.0/80 felt hot at the top and too quiet at the bottom.
   velocity: { fast: 1.6ms, slow: 120ms }
+
+# Presets (core/README.md "Presets"): slot 1 is everything above; the others list only what
+# they change. Slots 4-8 start as copies of slot 1, to fill in from the web editor.
+presets:
+  slots: 8
+  list:
+    - name: Default
+    - name: Drums
+      midi: { channel: 10 }
+      velocity: { curve: hard }
+      buttons:
+        sustain: { action: note, note: 36 }      # kick
+        edit:    { action: note, note: 38 }      # snare
+    - name: DAW
+      buttons:
+        sustain: { cc: 66 }                      # sostenuto, still momentary
+        edit:    { action: cc_momentary, cc: 81 }
+        mod:     { action: cc_toggle, cc: 82 }
+      analog:
+        volume: { cc: 11 }                       # expression

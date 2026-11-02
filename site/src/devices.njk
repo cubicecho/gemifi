@@ -1,0 +1,57 @@
+---
+layout: base.njk
+title: Devices
+description: MIDI controllers gemifi runs on, is being ported to, or has been researched for — with an honest status for each.
+permalink: /devices/
+---
+<section class="hero">
+  <h1>Devices</h1>
+  <p>Where gemifi runs today, what's in progress, and what we've only studied so far.</p>
+</section>
+
+<section class="section">
+  <ul class="card-grid device-grid">
+    {% for d in collections.devices %}
+    <li>
+      <article class="card">
+        <p class="eyebrow">{{ d.data.maker }}</p>
+        <h3><a class="card-link" href="{{ d.url | url }}">{{ d.data.model }}</a></h3>
+        <p>{{ d.data.summary }}</p>
+        <div class="card-foot">
+          <span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span>
+        </div>
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section">
+  <h2>What the statuses mean</h2>
+  <dl class="facts legend">
+    {% for key, st in statuses %}
+    <div>
+      <dt><span class="status status-{{ key }}">{{ st.label }}</span></dt>
+      <dd>{{ st.description }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+</section>
+
+<section class="section">
+  <h2>Add a device</h2>
+  <div class="prose">
+    <p>
+      Each device is one Markdown file in
+      <a href="{{ site.tree }}site/src/devices" rel="noopener"><code>site/src/devices/</code></a>.
+      Copy the closest one, change its front matter (maker, model, status, the
+      facts table, the device YAML) and rewrite the sections below it. The
+      device list and its page build themselves from that file.
+    </p>
+    <p>
+      If you've got gemifi running on something new, the device YAML goes in
+      <a href="{{ site.tree }}devices" rel="noopener"><code>devices/</code></a>.
+      Only add facts you've checked, and say so where something isn't known.
+    </p>
+  </div>
+</section>

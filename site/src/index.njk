@@ -1,0 +1,142 @@
+---
+layout: base.njk
+---
+<section class="hero project-hero">
+  <h1>{{ site.name }}</h1>
+  <p>{{ site.tagline }}</p>
+  <p class="cta">
+    <a class="button" href="{{ '/get-started/' | url }}">Get started</a>
+    <a class="button secondary" href="{{ '/devices/' | url }}">See devices</a>
+    <a class="button secondary" href="{{ site.repo }}" rel="noopener">GitHub ↗</a>
+  </p>
+</section>
+
+<section class="section">
+  <h2>What it does</h2>
+  <p class="section-intro">
+    gemifi is open-source firmware for MIDI controllers, in the spirit of
+    ESPHome. Describe the hardware in a YAML file, build the firmware, and
+    flash it from the browser. Use it to revive or repurpose a cheap keyboard,
+    or to build your own controller on an ESP32.
+  </p>
+
+  <ul class="card-grid">
+    <li>
+      <article class="card">
+        <h3>Describe it in YAML</h3>
+        <p>Keys, buttons, LEDs, knobs, faders, encoders and expander chips, each with a pin and a default MIDI message.</p>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3>Build it in the dashboard</h3>
+        <p>Edit and check the YAML in a web dashboard that runs from one Docker image, then build the firmware with one click.</p>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3>Flash it from the browser</h3>
+        <p>Install updates over Web MIDI or Web Serial, watch the device's log, and change what each control sends without rebuilding.</p>
+      </article>
+    </li>
+  </ul>
+</section>
+
+<section class="section">
+  <h2>How it works</h2>
+  <ol class="flow">
+    <li>
+      <span class="flow-step">Device YAML</span>
+      <span class="flow-note"><code>devices/&lt;device&gt;.yaml</code>: what's wired to which pin</span>
+    </li>
+    <li>
+      <span class="flow-step">Builder and dashboard</span>
+      <span class="flow-note">Docker image <code>{{ site.image }}</code>: checks the YAML, generates the tables, compiles</span>
+    </li>
+    <li>
+      <span class="flow-step">Web updater</span>
+      <span class="flow-note">Flashes the image over Web MIDI (USB) or Web Serial, shows logs, edits settings</span>
+    </li>
+    <li>
+      <span class="flow-step">Your controller</span>
+      <span class="flow-note">A class-compliant MIDI device that also speaks gemifi's SysEx protocol</span>
+    </li>
+  </ol>
+  <div class="prose">
+    <p>
+      On a commercial keyboard, gemifi needs a debug probe once, to put its
+      small USB bootloader on the chip. After that every update goes over USB
+      from the browser. ESP chips have a bootloader built in, so they need no
+      probe at all.
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <h2>A device in YAML</h2>
+  <p class="section-intro">
+    Part of the description of the M-Audio Keystation Mini 32 MK3. The format
+    follows ESPHome's conventions for pins, ids and names.
+  </p>
+  <div class="prose wide">
+<pre class="code"><code>{% raw %}gemifi: 2
+name: keystation-mini32
+friendly_name: Keystation Mini 32
+project:
+  version: 0.1.5
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 125us
+boot_combo: [pitch_down, pitch_up]
+
+buttons:
+  - { id: sustain, pin: { number: PA1, inverted: true }, action: cc_momentary, cc: 64, led: sustain_led }
+  - { id: oct_down, name: Oct -, pin: { number: PA3, inverted: true }, action: octave_down }
+  - { id: pitch_down, pin: { number: PA5, inverted: true }, action: bend_down }
+
+leds:
+  - { id: sustain_led, pin: { number: PA12, inverted: true } }
+
+analog:
+  - { id: volume, pin: PA0, cc: 7, adc_min: 32, adc_max: 4064 }
+
+key_matrix:
+  type: velocity
+  rows: [PA8, PA9, PC0, PC1, PC2, PC3, PC6, PC7]
+  columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
+  keys: 32
+  first_note: 48
+  velocity: { fast: 1.6ms, slow: 120ms }{% endraw %}</code></pre>
+  </div>
+  <p class="more">
+    <a href="{{ site.blob }}devices/keystation-mini32-mk3.yaml" rel="noopener">The full file</a> ·
+    <a href="{{ site.blob }}core/README.md#device-yaml" rel="noopener">The YAML format</a>
+  </p>
+</section>
+
+<section class="section">
+  <h2>Status</h2>
+  <p class="section-intro">
+    Early and experimental. Expect the YAML format and the protocol to change.
+  </p>
+  <ul class="status-list">
+    {% for d in collections.devices %}
+    <li>
+      <span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span>
+      <a href="{{ d.url | url }}">{{ d.data.maker }} {{ d.data.model }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section">
+  <h2>Links</h2>
+  <ul class="link-list">
+    <li><a href="{{ site.repo }}" rel="noopener">Source on GitHub</a> — MIT license</li>
+    <li><a href="{{ site.blob }}tools/builder/README.md" rel="noopener">Builder and dashboard docs</a>, including Docker</li>
+    <li><a href="{{ site.blob }}web/updater/README.md" rel="noopener">Web updater docs</a>, including browser support</li>
+    <li><a href="{{ site.blob }}protocol/sysex.md" rel="noopener">The SysEx protocol</a></li>
+    <li><a href="{{ site.docker }}" rel="noopener">Docker image</a> <code>{{ site.image }}</code></li>
+  </ul>
+</section>

@@ -1,0 +1,210 @@
+/*
+ * gemifi-only rules. Loaded after cubesite.css, so anything here wins.
+ *
+ * If a rule in this file would be right for every project site, it belongs in
+ * cubesite's theme/cubesite.css instead — send it there and re-sync.
+ *
+ * Only the theme's tokens are used: muted text is foreground at 60%, lines are
+ * foreground at 10%, and the status colours are the theme's positive / info /
+ * warning.
+ */
+
+:root {
+  --muted-fg: color-mix(in oklab, var(--foreground) 60%, transparent);
+  --hairline: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+/* The theme's `.hero p { margin: 0 }` outranks `.cta`'s top margin, which
+   leaves the buttons touching the tagline. */
+.hero .cta {
+  margin-top: 1.5rem;
+}
+
+/* small label above a title: the maker on a device card and page */
+.eyebrow {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted-fg);
+}
+.card .eyebrow {
+  flex: none;
+}
+.hero .eyebrow {
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+
+.crumb {
+  margin: 1rem 0 0;
+  font-size: 0.95rem;
+}
+.device-hero {
+  padding-top: 1.5rem;
+}
+
+/* status badge: the label is always text, the colour only supports it */
+.status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted-fg);
+  background: var(--hairline);
+}
+.status-works {
+  color: var(--positive);
+  background: color-mix(in oklab, var(--positive) 12%, transparent);
+}
+.status-in-progress {
+  color: var(--info);
+  background: color-mix(in oklab, var(--info) 12%, transparent);
+}
+.status-researched {
+  color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+}
+.hero .meta .status-note {
+  color: var(--muted-fg);
+}
+
+/* the "before you flash" note on every device page */
+.callout {
+  max-width: 42rem;
+  margin: 2rem 0 0;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  border-left: 4px solid var(--warning);
+  background: color-mix(in oklab, var(--warning) 10%, transparent);
+}
+
+/* label / value rows */
+.facts {
+  margin: 0;
+  max-width: 48rem;
+}
+.facts > div {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  gap: 0.25rem 1.5rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.facts dt {
+  color: var(--muted-fg);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.facts code,
+.flow code,
+.link-list code,
+.callout code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.legend > div {
+  grid-template-columns: 8rem 1fr;
+  align-items: center;
+}
+@media (max-width: 40rem) {
+  .facts > div {
+    grid-template-columns: 1fr;
+  }
+  .legend > div {
+    grid-template-columns: 8rem 1fr;
+  }
+}
+
+/* device page body: the theme's prose starts each h2 with a 2rem gap; the
+   first one sits right under "At a glance" */
+.device-body > h2:first-child {
+  margin-top: 0;
+}
+
+.photo-placeholder {
+  max-width: 42rem;
+  padding: 1.25rem;
+  border: 1px dashed color-mix(in oklab, var(--foreground) 25%, transparent);
+  border-radius: var(--radius);
+  color: var(--muted-fg);
+}
+.photo-placeholder p {
+  margin: 0;
+}
+.photo-placeholder p + p {
+  margin-top: 0.5rem;
+}
+
+/* home: YAML → builder → updater → device */
+.flow {
+  list-style: none;
+  counter-reset: step;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 1rem;
+}
+.flow li {
+  counter-increment: step;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--secondary);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+.flow-step {
+  font-weight: 600;
+}
+.flow-step::before {
+  content: counter(step) ". ";
+  color: var(--muted-fg);
+}
+.flow-note {
+  font-size: 0.95rem;
+  color: var(--muted-fg);
+  overflow-wrap: anywhere;
+}
+
+.prose.wide {
+  max-width: none;
+}
+.more {
+  margin: 0.75rem 0 0;
+  font-size: 0.95rem;
+}
+
+.status-list,
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.status-list li {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  align-items: center;
+  gap: 1rem;
+}
+.status-list .status {
+  justify-self: start;
+}
+.link-list li {
+  color: var(--muted-fg);
+}
+
+/* footer: the non-affiliation notice gets its own line above the rest */
+.site-footer .disclaimer {
+  flex-basis: 100%;
+  max-width: 48rem;
+  margin: 0;
+}

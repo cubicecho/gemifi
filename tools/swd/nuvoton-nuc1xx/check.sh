@@ -3,14 +3,14 @@
 # 4 words of APROM (lock check: all 0xFFFFFFFF = locked or blank, a vector table = unlocked).
 # Writes nothing to the chip. For CONFIG0/1 (needs a brief halt) use read-config.sh.
 #
-# Usage: check.sh [--dry-run] [-h]
+# Usage: check.sh [--dry-run] [--probe buspirate|cmsis-dap] [-h]
 #   PROBE=buspirate|cmsis-dap  BP_PORT=/dev/ttyUSB0  DRY_RUN=1   (see common.sh)
 source "$(dirname "$0")/common.sh"
-for a in "$@"; do
-  case "$a" in
-    --dry-run) DRY_RUN=1 ;;
+while [ $# -gt 0 ]; do
+  common_opt "$@"; if [ "$COMMON_SHIFT" -gt 0 ]; then shift "$COMMON_SHIFT"; continue; fi
+  case "$1" in
     -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
-    *) die "unknown argument: $a" ;;
+    *) die "unknown argument: $1" ;;
   esac
 done
 

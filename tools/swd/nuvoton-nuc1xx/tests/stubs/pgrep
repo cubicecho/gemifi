@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fake pgrep for the offline tests: "no openocd running".
+exit 1

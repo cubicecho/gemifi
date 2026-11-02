@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # READ-ONLY full backup of the NUC120: APROM, LDROM, data flash and CONFIG0/1. Writes nothing to the chip.
 #
-# Usage: dump.sh <outdir> [--resume] [--compare <old-backup-dir>] [--dry-run]
+# Usage: dump.sh <outdir> [--resume] [--compare <old-backup-dir>] [--dry-run] [--probe buspirate|cmsis-dap]
 #
 #   APROM (32 KB)      dump_image over the AHB, read twice in two sessions and compared
 #                      -> aprom-read1.bin, aprom-read2.bin
@@ -18,10 +18,10 @@ source "$(dirname "$0")/common.sh"
 
 out=""; resume=0; compare=""
 while [ $# -gt 0 ]; do
+  common_opt "$@"; if [ "$COMMON_SHIFT" -gt 0 ]; then shift "$COMMON_SHIFT"; continue; fi
   case "$1" in
     --resume) resume=1 ;;
     --compare) compare="$2"; shift ;;
-    --dry-run) DRY_RUN=1 ;;
     -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     -*) die "unknown option $1" ;;
     *) [ -z "$out" ] || die "only one <outdir>"; out="$1" ;;
@@ -36,6 +36,8 @@ if [ -d "$out" ] && [ -n "$(ls -A "$out" 2>/dev/null)" ]; then
 fi
 is_dry || { mkdir -p "$out/isp" && date -Is >>"$out/.gemifi-dump"; } || die "can't create $out"
 out="$(cd "$out" 2>/dev/null && pwd || echo "$out")"
+probe_args
+RESUME="$PROBE_ENV$(print_cmd "$0" "$out" --resume "${PROBE_ARGS[@]}")"
 
 if ! is_dry && [ -f "$out/SHA256SUMS" ] && "$PY" "$SWD_DIR/backup-check.py" "$out" --require aprom:32768 \
      --require ldrom.bin:4096 --require dataflash.bin:4096 --require config.txt 2>/dev/null; then
@@ -56,9 +58,9 @@ for n in 1 2; do
   log="$(new_log aprom-read$n)"
   OPENOCD_TIMEOUT="${OPENOCD_TIMEOUT_APROM:-1800}" run_openocd "$log" \
     -c init -c gemifi_check_pdid -c gemifi_show_aprom_head -c "dump_image {$f} 0x00000000 0x8000" -c shutdown \
-    || die "APROM read $n failed; rerun with --resume"
+    || die "APROM read $n failed; rerun: $RESUME"
   is_dry && continue
-  aprom_ok "$f" || die "APROM read $n is incomplete; rerun with --resume"
+  aprom_ok "$f" || die "APROM read $n is incomplete; rerun: $RESUME"
   if [ "$(log_value "$log" LOCK)" = locked-or-erased ]; then
     die "APROM reads as all 0xFFFFFFFF: the chip is LOCKED (or blank). This dump is worthless. Do not write anything; run read-config.sh and see tools/README.md."
   fi
@@ -78,7 +80,7 @@ for pass in 1 2; do
     # shellcheck disable=SC2086
     set -- $r
     info "ISP $1 pass $pass"
-    isp_dump_range "$out" "$1" "$2" "$3" "$pass" || die "ISP dump stopped; replug (keyboard out first), then rerun: $0 $out --resume"
+    isp_dump_range "$out" "$1" "$2" "$3" "$pass" || die "ISP dump stopped; replug (keyboard out first), then rerun: $RESUME"
   done
 done
 if ! is_dry; then

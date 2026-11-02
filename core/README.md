@@ -18,7 +18,10 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `include/app_proto.h`, `src/app_proto.c` | app-side request handling: HELLO, REBOOT, identity, config, FW_* (via `hal_fw_ops`), LOG/EVENT/PARAM_CHANGED |
 | `include/gm_device.h` | the hardware model: virtual pins, hubs, buttons, LEDs, analog inputs, encoders, key matrix |
 | `include/gm_hal.h` | what a platform provides |
-| `include/gm_controller.h`, `src/controller.c` | the runtime: scanning, actions, velocity, LEDs, MIDI out |
+| `include/gm_controller.h`, `src/controller.c` | the runtime: scanning, actions, velocity, LEDs, MIDI out, host feedback (F1) |
+| `src/midi_in.c` | incoming MIDI: USB-MIDI packets or a byte stream, sorted by port into SysEx (the protocol), feedback and MCU |
+| `include/gm_feedback.h` | the feedback switches (`GM_FEEDBACK`, `GM_MCU`, ...) and the calls between the files above |
+| `include/gm_mcu.h`, `src/mcu.c` | Mackie Control on the DAW port; empty unless the YAML has `mcu:` |
 | `src/vpin.c` | virtual pins: MCU pins via the HAL, expander hubs in software |
 | `src/settings.c` | the param table, sized from the device's component counts |
 
@@ -52,17 +55,17 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 
 | Component | Fields | Params it creates (per item, as arrays) |
 |---|---|---|
-| button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions) or `note:` (action `note`) | `button.action`, `button.number` |
-| LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour) | – (LEDs show their button's state, or the octave/transpose level) |
-| analog (pot, slider, fader, expression) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc` | `analog.cc` |
-| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc` | `encoder.cc`, `encoder.mode` |
+| button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`) or `mcu:` (action `mcu`) | `button.action`, `button.number` |
+| LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
+| analog (pot, slider, fader, expression) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, optional `takeover:`, `mcu:` | `analog.cc` |
+| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:` | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
 
 Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`. The list with ids is in `src/settings.c`; ids never change meaning.
 
 **Key matrix.** One row is driven at a time (to the active level: high, or low with `inverted`), the columns are read, then the row is released. `type: switch`: key = row + rows × column. `type: velocity`: two contacts per key; key k is on row k % rows and columns 2p, 2p+1 with p = k / rows. Whichever contact closes first starts the timer, the second sends Note On with a velocity from the time between them, and the key is released when both are open. Put diodes on the matrix if more than one key can be held.
 
-**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`. Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
+**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with `mcu:` only, 13 Mackie Control (`mcu`). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the MCU note for `mcu` (from `mcu: play` etc.). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
 
 **Encoder modes** (`encoder.mode`): 0 absolute (0..127, sends the value), 1 relative two's complement (1 = +1, 127 = −1), 2 relative offset (65 = +1, 63 = −1).
 
@@ -164,6 +167,106 @@ key_matrix:
 
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
 
+## DAW feedback
+
+What the host (a DAW) sends back reaches the controller: LEDs follow the DAW's state, toggles and encoders stay in sync with it, knobs don't jump, and a second USB port can speak Mackie Control. Plan and decisions: issue #22.
+
+**Incoming MIDI** (`src/midi_in.c`). The platform hands over USB-MIDI event packets (`gm_midi_rx_usb`, NUC and ESP32-S2/S3 USB: the cable is kept) or a byte stream (`gm_midi_rx_byte`, serial and BLE: one port, running status handled). SysEx on the main port (cable 0) goes to the gemifi protocol exactly as before; Note On/Off, CC, pitch bend, channel pressure and realtime (clock `F8`, start `FA`, continue `FB`, stop `FC`) go to the feedback code, and on the DAW port (cable 1) to Mackie Control. `feedback: { enabled: false }` without `mcu:` compiles all of that out (SysEx only, as before).
+
+### Plain feedback (F1, every DAW)
+
+Works with any host that sends MIDI back to the controller's port. In Ableton Live: Preferences → Link, Tempo & MIDI → turn on **Remote** for the controller's *output* port; Live then sends the value of every parameter mapped to one of our CCs/notes when it changes. For clock and transport LEDs, also turn on **Sync** for that output.
+
+Messages count on the device's MIDI channel (`midi.channel`) unless an LED names one.
+
+| On the device | What the host's message does | YAML |
+|---|---|---|
+| `cc_toggle` button | its CC sets the toggle state (≥ 64 = on), so its LED and the next press agree with the DAW | nothing: always on |
+| `cc_momentary` / `cc_ramp` / `note` button with an LED | its CC / note lights the LED | nothing (see "LED ownership") |
+| LED | follows a note, a CC, the beat or the transport | `feedback:` on the LED |
+| encoder, mode absolute | its CC becomes the encoder's value: the next turn continues from there | nothing: always on |
+| analog | pick-up: after the host sets a value, the knob is silent until it reaches or crosses it | `takeover: pickup` |
+
+```yaml
+feedback:                     # optional; these are the defaults
+  enabled: true               # false: ignore everything but SysEx (and MCU, if mcu: is given)
+  led_owner: host_then_local  # default for every LED: host_then_local | host | local
+  led_timeout: 2s             # host_then_local: how long the host's last word lasts (a period, or never)
+
+leds:
+  - id: arm_led
+    pin: PC4
+    feedback: { note: 40, channel: 16 }    # velocity 0 off, 1 blinking, 2..127 on
+  - id: mute_led
+    pin: PC8
+    feedback: { cc: 90 }                   # value 0 off, 1 blinking, 2..127 on; channel: midi.channel
+  - id: beat_led
+    pin: PC5
+    feedback: { clock: beat }              # lit for the first 16th of every beat (MIDI clock)
+  - id: play_led
+    pin: PC6
+    feedback: { transport: playing }       # Start / Continue on, Stop off
+  - id: sustain_led
+    pin: PA12
+    owner: host                            # the host only (LED off until it sends something)
+    timeout: never                         # (only used with host_then_local)
+
+analog:
+  - { id: volume, pin: PA0, cc: 7, takeover: pickup }   # none (default) | pickup
+```
+
+LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). Other palettes (bicolour, RGB) are still open (#22).
+
+### LED ownership
+
+An LED can have a local state (its button: held, toggled, the octave, ...) and a host state (the host's last message for it). `owner:` decides which one shows; `feedback.led_owner` sets the default for every LED:
+
+| `owner:` | Shows |
+|---|---|
+| `host_then_local` (default) | the host's state for `timeout` (default 2s, `feedback.led_timeout`) after the host's last message for it, then the local state again. `timeout: never`: the host's state from its first message on |
+| `host` | only the host's state (off until the host sends something) |
+| `local` | only the local state; the host's messages are ignored |
+
+An LED with no local state (no button uses it) always shows the host's state, whatever the owner. LEDs driven by Mackie Control (an `action: mcu` button's LED, `feedback: { mcu: ... }`, ring LEDs) default to `host`, since MCU hosts only send LED changes. The default timeout is a question in #22.
+
+### Second USB port and Mackie Control
+
+`mcu:` turns on Mackie Control (MCU, written from community documentation of the protocol; "Mackie Control" names only what it's compatible with). On USB the device then gets a second MIDI port, `<friendly_name> DAW` (USB-MIDI cable 1 on the same endpoints; `usb: { daw_port: true }`, the default with `mcu:`), and MCU lives there, so keys and knobs on the main port are never read as MCU buttons. Without `mcu:` the USB descriptor is unchanged, byte for byte. On serial and BLE there is one port: `mcu:` makes the whole device speak MCU (plain feedback is then off, and the builder refuses `feedback:` sources that need it).
+
+In the DAW: Live: Control Surface "MackieControl", input and output = the DAW port. Bitwig, REAPER, Logic, Cubase: their "Mackie Control" surface on the DAW port.
+
+```yaml
+mcu:
+  extender: false                 # true: answer as an MCU XT (SysEx device id 0x15 instead of 0x14)
+
+buttons:
+  - { id: play, pin: PB0, mcu: play, led: play_led }        # action: mcu (implied); Note On 0x5E; LED from the host
+  - { id: rec_1, pin: PB1, mcu: rec_1, led: rec_1_led }     # 0x00
+leds:
+  - { id: play_led, pin: PC0 }
+  - { id: rec_1_led, pin: PC1 }
+  - { id: record_led, pin: PC2, feedback: { mcu: record } } # an MCU LED without a button
+  - { id: r0, pin: PD0 }
+  - { id: r1, pin: PD1 }
+  - { id: r2, pin: PD2 }
+analog:
+  - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, mcu: fader_1 }   # pitch bend ch 1; takeover: pickup by default
+encoders:
+  - { id: pan_1, pin_a: GPIO20, pin_b: GPIO21, mcu: vpot_1, ring: [r0, r1, r2] }   # CC 0x10 relative; ring from CC 0x30
+```
+
+| YAML | MCU message |
+|---|---|
+| button `mcu:` / LED `feedback: { mcu: }` | Note On ch 1: `rec_1`–`rec_8` 0x00–07, `solo_1`–`8` 0x08–0F, `mute_1`–`8` 0x10–17, `select_1`–`8` 0x18–1F, `vpot_push_1`–`8` 0x20–27, `track` `send` `pan` `plugin` `eq` `instrument` 0x28–2D, `bank_left` `bank_right` `channel_left` `channel_right` 0x2E–31, `flip` `global` `name_value` `smpte_beats` 0x32–35, `f1`–`f8` 0x36–3D, `midi_tracks` `inputs` `audio_tracks` `audio_instruments` `aux` `busses` `outputs` `user` 0x3E–45, `shift` `option` `control` `alt` 0x46–49, `read` `write` `trim` `touch` `latch` `group` 0x4A–4F, `save` `undo` `cancel` `enter` 0x50–53, `marker` `nudge` `cycle` `drop` `replace` `click` `solo` 0x54–5A, `rewind` `fast_forward` `stop` `play` `record` 0x5B–5F, `up` `down` `left` `right` `zoom` `scrub` 0x60–65, `user_a` `user_b` 0x66–67, `fader_touch_1`–`8` 0x68–6F, `master_touch` 0x70, `smpte_led` `beats_led` `rude_solo_led` 0x71–73, `relay` 0x76. Press 7F, release 00; the host's 00 / 01 / 7F = off / blinking / on |
+| analog `mcu: fader_1`–`fader_8`, `master` | pitch bend ch 1–8 / 9, 14 bit, both ways (no motors: the host's position is the pick-up target) |
+| encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17: 01–0F = +n, 41–4F = −n |
+| encoder `ring:` (1–16 LED ids, leftmost first) | CC 0x30–0x37 from the host: position 1–11 spread over the LEDs, modes dot / boost-cut / wrap / spread |
+| (automatic) | the version request `F0 00 00 66 14 13 00 F7` gets `… 14 14 "V1.02" F7` (from the firmware version), which is all Live asks |
+
+Not done yet (TODO in `src/mcu.c`): the host-connection challenge/response (`00`/`01`/`02`/`03`; Live doesn't use it, other hosts not checked), LCD text (`12`, hook `gm_mcu_on_lcd`), meters (channel pressure, passed to the hook `gm_mcu_on_meter`, nothing shows them), the timecode display (CC 0x40–0x4B), the ring's centre LED, fader touch notes, extender chaining beyond one device id.
+
+**Cost** (NUC120, Keystation config): plain feedback (the default) adds about 0.5 KB of flash and 24 B of RAM; `feedback: { enabled: false }` leaves 60 B (the packet dispatcher); `mcu:` adds about 0.5 KB more. Each LED with a host state uses 5 B of RAM; per-LED settings, pick-up and MCU tables are only generated when the YAML uses them.
+
 ## Generated code (tools/builder output)
 
 `gm_device_config.h`:
@@ -185,10 +288,18 @@ key_matrix:
 #define GM_USB_PID 0x0002
 #define GM_HAS_I2C 0
 #define GM_PLATFORM "nuvoton-nuc1xx"
+/* host feedback / DAW ("DAW feedback") */
+#define GM_FEEDBACK 1                     /* F1 on the main port (feedback: enabled) */
+#define GM_LED_FB 0                       /* 1: gm_led_fb[] has per-LED sources / owners */
+#define GM_LED_OWNER 0                    /* feedback.led_owner: 0 host_then_local, 1 host, 2 local */
+#define GM_LED_TIMEOUT 200                /* feedback.led_timeout, 10 ms units (0xFFFF = never) */
+#define GM_ANALOG_PICKUP 0                /* 1: gm_analog_pickup[] */
+#define GM_MCU 0                          /* 1: mcu: (then also GM_MCU_CABLE, GM_MCU_ID) */
+#define GM_USB_DAW_PORT 0                 /* 1: second USB-MIDI cable (then also GM_DAW_PORT_NAME) */
 /* ESP only: */
 #define GM_MIDI_TRANSPORT GM_MIDI_USB     /* GM_MIDI_USB / _SERIAL / _BLE, values in gm_hal.h */
 #define GM_I2C_SDA 8                      /* GPIO numbers, when i2c: is given; */
 #define GM_I2C_SCL 9                      /* otherwise the board's default Wire pins */
 ```
 Optional build flags on ESP: `GM_MIDI_BAUD` (serial transport, default 115200), `GM_FW_VERSION` (`major << 24 | minor << 16 | patch`; normally set by the YAML `project: { version }`).
-`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.
+`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Only when the YAML uses them: `gm_led_fb[]` (`GM_LED_FB`), `gm_analog_pickup[]` (`GM_ANALOG_PICKUP`), `gm_analog_mcu[]`, `gm_encoder_mcu[]`, `gm_encoder_ring[]` (`GM_MCU`). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.

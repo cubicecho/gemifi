@@ -22,15 +22,25 @@
 #include "gm_device.h"
 #include "gm_device_config.h"
 #include "app_proto.h"
+#include "gm_feedback.h"
 
 #define FW_VERSION GEMIFI_VERSION(FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH)
 
 static uint8_t dev_desc[] = { USB_MIDI_DEVICE_DESC(0x1209, 0x0002, 0x0100) };
-static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC };
 static char serial[25];
+#if GM_USB_DAW_PORT
+/* Two ports (cables) on the one endpoint pair; the jacks are named after
+ * strings 4 and 5, which is what most OSes show as the port names. */
+static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC2(4, 5) };
+static const char *const strings[] = {
+    "gemifi", GM_DEVICE_NAME " (gemifi)", serial, GM_DEVICE_NAME, GM_DAW_PORT_NAME,
+};
+#else
+static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC };
 static const char *const strings[] = { "gemifi", GM_DEVICE_NAME " (gemifi)", serial };
+#endif
 static const usbd_desc_t usb_desc = {
-    dev_desc, cfg_desc, sizeof(cfg_desc), 3, strings,
+    dev_desc, cfg_desc, sizeof(cfg_desc), sizeof(strings) / sizeof(strings[0]), strings,
 };
 
 /* Longest scan seen, in timer ticks (12 per us), and whether the period had
@@ -131,7 +141,7 @@ int main(void)
     int cleared = 0, reported = 0;
     for (;;) {
         usbd_poll();
-        midi_rx_drain(gm_midi_rx_byte);
+        midi_rx_drain(gm_midi_rx_usb);
         gm_poll();
         /* Boot-loop guard (bootloader-design.md 3.6): we ran for 5 s. */
         if (!reported && sys_tick_ms() >= 2500u) {

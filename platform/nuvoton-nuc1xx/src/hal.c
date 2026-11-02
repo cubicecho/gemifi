@@ -156,6 +156,17 @@ void hal_midi_send(const uint8_t *m, uint32_t n)
     midi_tx_event(m[0] >> 4, m[0], n > 1 ? m[1] : 0, n > 2 ? m[2] : 0);
 }
 
+void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
+{
+    if (!n)
+        return;
+    if (m[0] == 0xF0) {
+        midi_tx_sysex_cable(cable, m, n);
+        return;
+    }
+    midi_tx_event((uint8_t)(cable << 4 | m[0] >> 4), m[0], n > 1 ? m[1] : 0, n > 2 ? m[2] : 0);
+}
+
 void hal_midi_poll(void)
 {
     midi_tx_poll();

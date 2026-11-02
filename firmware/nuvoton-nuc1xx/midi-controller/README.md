@@ -12,7 +12,7 @@ make DEVICE=<device.yaml>                # another device YAML (generated into b
 make DEVICE_DIR=<config dir> BUILD=<dir> # an already generated config (tools/builder does this)
 ```
 
-Output: `build/midi-controller.gfw`. With the Keystation config it is 12.7 KB of flash and 1.7 KB of static RAM (of 32 KB / 4 KB).
+Output: `build/midi-controller.gfw`. With the Keystation config it is 14.7 KB of flash and 2.1 KB of static RAM (of 32 KB / 4 KB); host feedback is about 0.5 KB of that (`feedback: { enabled: false }` saves it, core/README.md "DAW feedback").
 
 ## What it does (Keystation defaults)
 
@@ -25,6 +25,8 @@ Output: `build/midi-controller.gfw`. With the Keystation config it is 12.7 KB of
 | Pitch ▼ / ▲ | pitch bend to the end stop with an 80 ms glide, back to centre on release |
 | Mod | CC 1 ramp up to 127 over 300 ms while held, back down on release |
 | Volume knob | CC 7 |
+
+**Host feedback** (core/README.md "DAW feedback"): with Live's **Remote** turned on for the Keystation's output port, a CC 80 from the host sets the Edit toggle (and its LED), and the host's CC 64 lights the Sustain LED for 2 s after each message. No second USB port: the descriptor is the same as before.
 
 Every button's action and CC/note number can be changed, and stored with "Save to device" (COMMIT). Holding **Pitch ▼ + Pitch ▲** at power-up starts with the defaults and ignores the stored profile (with the gemifi bootloader in LDROM, the same combo enters the bootloader instead).
 

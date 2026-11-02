@@ -21,10 +21,45 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 
 FORMAT_VERSION = 2
 
-# core/README.md "Button actions"
+# core/README.md "Button actions". `mcu` (13) only exists on devices with an `mcu:` section.
 ACTIONS = ["none", "cc_momentary", "cc_toggle", "cc_ramp", "note", "octave_down", "octave_up",
-           "transpose_down", "transpose_up", "bend_down", "bend_up", "program_next", "program_prev"]
+           "transpose_down", "transpose_up", "bend_down", "bend_up", "program_next", "program_prev", "mcu"]
 CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
+
+# ---- host feedback / DAW (core/README.md "DAW feedback") ----
+# LED owners (gm_device.h GM_OWNER_*): who drives an LED that both the host and the device want.
+LED_OWNERS = {"host_then_local": 0, "host": 1, "local": 2}
+LED_SOURCES = {"note": 1, "cc": 2, "clock": 3, "transport": 4, "mcu": 5}   # gm_device.h GM_FB_*
+LED_SOURCE_VALUES = {"clock": ["beat"], "transport": ["playing"]}
+TAKEOVER = ["none", "pickup"]
+DEFAULT_LED_TIMEOUT_MS = 2000
+TIMEOUT_NEVER = 0xFFFF            # gm_device.h GM_TIMEOUT_NEVER (10 ms units otherwise)
+
+# Mackie Control names -> Note On numbers (buttons and their LEDs), from the community documentation
+# of the MCU / Logic Control protocol (core/README.md "Mackie Control").
+MCU_NOTES = {}
+for _i in range(8):
+    MCU_NOTES[f"rec_{_i + 1}"] = 0x00 + _i
+    MCU_NOTES[f"solo_{_i + 1}"] = 0x08 + _i
+    MCU_NOTES[f"mute_{_i + 1}"] = 0x10 + _i
+    MCU_NOTES[f"select_{_i + 1}"] = 0x18 + _i
+    MCU_NOTES[f"vpot_push_{_i + 1}"] = 0x20 + _i
+    MCU_NOTES[f"f{_i + 1}"] = 0x36 + _i
+    MCU_NOTES[f"fader_touch_{_i + 1}"] = 0x68 + _i
+for _n, _name in enumerate(["track", "send", "pan", "plugin", "eq", "instrument", "bank_left", "bank_right",
+                            "channel_left", "channel_right", "flip", "global", "name_value", "smpte_beats"]):
+    MCU_NOTES[_name] = 0x28 + _n
+for _n, _name in enumerate(["midi_tracks", "inputs", "audio_tracks", "audio_instruments", "aux", "busses",
+                            "outputs", "user", "shift", "option", "control", "alt", "read", "write", "trim",
+                            "touch", "latch", "group", "save", "undo", "cancel", "enter", "marker", "nudge",
+                            "cycle", "drop", "replace", "click", "solo", "rewind", "fast_forward", "stop",
+                            "play", "record", "up", "down", "left", "right", "zoom", "scrub", "user_a",
+                            "user_b"]):
+    MCU_NOTES[_name] = 0x3E + _n
+MCU_NOTES.update({"master_touch": 0x70, "smpte_led": 0x71, "beats_led": 0x72, "rude_solo_led": 0x73,
+                  "relay": 0x76})
+MCU_FADERS = {**{f"fader_{i + 1}": i for i in range(8)}, "master": 8}     # pitch bend channel
+MCU_VPOTS = {f"vpot_{i + 1}": i for i in range(8)}                        # CC 0x10 + n / ring 0x30 + n
 
 # Hubs (I/O expanders), declared ESPHome style: one top-level list per chip, named like the
 # ESPHome component where there is one. A pin on a hub names the hub by its chip key:
@@ -54,7 +89,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
-            "usb", "midi", "i2c", "scan_interval", "boot_combo", *HUB_TYPES,
+            "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "leds", "analog", "encoders", "key_matrix"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -437,6 +472,10 @@ class Device:
         self.version = None
         self.boot_combo = []
         self.i2c = None
+        self.feedback = True
+        self.led_owner, self.led_timeout = 0, DEFAULT_LED_TIMEOUT_MS // 10
+        self.mcu = None              # Hub(extender=bool, cable=0|1) when mcu: is given
+        self.daw_port = False
 
 
 class Use:
@@ -950,16 +989,21 @@ def validate(data, file=None):
 
     # usb
     dev.usb = (0, 0)
+    daw_port = None
     if "usb" in data:
-        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), ["vid", "pid"])
+        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), ["vid", "pid", "daw_port"])
         if usb is not None:
             dev.usb = (v.integer(usb, "vid", "usb", 0, 0xFFFF, required=True) or 0,
                        v.integer(usb, "pid", "usb", 0, 0xFFFF, required=True) or 0)
+            if "daw_port" in usb:
+                daw_port = (v.boolean(usb, "daw_port", "usb"), usb.line_of("daw_port"))
             if tr != "usb":
                 v.warn("usb", data.line_of("usb"), f"ignored: midi.transport is {tr}")
     elif tr == "usb":
         dev.usb = DEFAULT_USB
         v.warn("usb", data.line, "not given: using the pid.codes test IDs 1209:0002 (development only)")
+    validate_feedback(v, dev, data)
+    validate_mcu(v, dev, data, tr, daw_port)
 
     dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
 
@@ -1023,6 +1067,10 @@ def validate(data, file=None):
         if len(lst) > 255:
             v.err(kind, data.line_of(kind), f"{len(lst)} items: at most 255")
 
+    if dev.mcu is not None and dev.mcu.cable == 0 and (
+            dev.matrix or any(b.action_name == "note" for b in dev.buttons)):
+        v.warn("mcu", dev.mcu.line, "Mackie Control on the only port: hosts read every Note On there as an "
+                                    "MCU button, keys included (a USB DAW port avoids that: usb.daw_port)")
     for h in dev.hubs:
         if not h.used:
             v.warn(h.path, h.line, f"hub '{h.id}' is not used by any component")
@@ -1030,6 +1078,76 @@ def validate(data, file=None):
     if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix):
         v.warn("", data.line, "the device has no inputs (buttons, analog, encoders or key_matrix)")
     return (None if errors(v.diags) else dev), v.diags
+
+
+def validate_timeout(v, d, key, path, default):
+    """An LED timeout: a time period (10 ms steps, 10ms..655s) or `never`. -> 10 ms units."""
+    if key not in d or d[key] is None:
+        return default
+    if isinstance(d[key], str) and d[key].strip().lower() == "never":
+        return TIMEOUT_NEVER
+    t = v.period(d, key, path, 10_000, 655_340_000, step_us=10_000, example="2s")
+    return default if t is None else t
+
+
+def validate_owner(v, d, path):
+    if d.get("owner") is None:
+        return None
+    o = d["owner"]
+    if o not in LED_OWNERS:
+        close = difflib.get_close_matches(str(o), list(LED_OWNERS), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(f"{path}.owner", d.line_of("owner"), f"unknown owner '{d.raw_of('owner')}' ({hint}valid: "
+                                                   f"{', '.join(LED_OWNERS)})")
+        return None
+    return LED_OWNERS[o]
+
+
+def validate_feedback(v, dev, data):
+    """feedback: { enabled, led_owner, led_timeout } (all optional): F1 host feedback on the main port."""
+    if data.get("feedback") is None:
+        return
+    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), ["enabled", "led_owner", "led_timeout"])
+    if fb is None:
+        return
+    dev.feedback = v.boolean(fb, "enabled", "feedback", default=True)
+    if fb.get("led_owner") is not None:
+        o = LED_OWNERS.get(fb["led_owner"])
+        if o is None:
+            v.err("feedback.led_owner", fb.line_of("led_owner"),
+                  f"unknown owner '{fb.raw_of('led_owner')}' (valid: {', '.join(LED_OWNERS)})")
+        else:
+            dev.led_owner = o
+    dev.led_timeout = validate_timeout(v, fb, "led_timeout", "feedback", dev.led_timeout)
+    if not dev.feedback and len(fb) > 1:
+        v.warn("feedback", data.line_of("feedback"), "enabled: false: the other feedback settings only "
+                                                     "matter for the MCU port")
+
+
+def validate_mcu(v, dev, data, tr, daw_port):
+    """mcu: { extender } turns on Mackie Control. On USB it gets the second cable (usb.daw_port, default
+    on with mcu:); on serial / BLE (one port) the whole device speaks MCU."""
+    if "mcu" in data:
+        m = data["mcu"]
+        if m is None:
+            m = LDict()
+            m.line = data.line_of("mcu")
+        m = v.mapping(m, "mcu", data.line_of("mcu"), ["extender"])
+        if m is not None:
+            ext = v.boolean(m, "extender", "mcu")
+            dev.mcu = Hub(extender=ext, cable=0, line=data.line_of("mcu"))
+    if daw_port is not None:
+        want, line = daw_port
+        if want and tr != "usb":
+            v.err("usb.daw_port", line, f"a second port needs USB MIDI (midi.transport is {tr})")
+        elif want and dev.mcu is None:
+            v.err("usb.daw_port", line, "the DAW port carries Mackie Control: add an `mcu:` section "
+                                        "(or remove daw_port)")
+        dev.daw_port = bool(want) and tr == "usb" and dev.mcu is not None
+    else:
+        dev.daw_port = dev.mcu is not None and tr == "usb"
+    if dev.mcu is not None:
+        dev.mcu.cable = 1 if dev.daw_port else 0
 
 
 def validate_names(v, dev, data):
@@ -1064,19 +1182,26 @@ def validate_components(v, dev, data):
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2"], renamed=RENAMED_ID)
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "feedback", "owner", "timeout"],
+                      renamed=RENAMED_ID)
         if d is None:
             continue
         ident = v.ident(d, p, "LED", len(dev.leds))
         name = v.display_name(d, p, ident)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
         pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
-        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN))
+        src = validate_led_source(v, dev, d, p)
+        owner = validate_owner(v, d, p)
+        timeout = validate_timeout(v, d, "timeout", p, None)
+        if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
+            v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
+        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN, source=src,
+                            owner=owner, timeout=timeout, path=p, line=d.line, used_by=[]))
 
     buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
     for i, d in enumerate(buttons):
         p = f"buttons[{i}]"
-        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "led"],
+        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "led", "mcu"],
                       renamed=RENAMED_BUTTON)
         if d is None:
             continue
@@ -1084,14 +1209,19 @@ def validate_components(v, dev, data):
         name = v.display_name(d, p, ident)
         unique_name(v, names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
-        act = d.get("action", "none")
+        act = d.get("action", "mcu" if "mcu" in d else "none")
         if act not in ACTIONS:
             close = difflib.get_close_matches(str(act), ACTIONS, 1)
             hint = f"did you mean '{close[0]}'? " if close else ""
             v.err(f"{p}.action", d.line_of("action"), f"unknown action '{act}' ({hint}valid: "
                                                        f"{', '.join(ACTIONS)})")
             act = "none"
-        num = button_number(v, d, p, act)
+        if act == "mcu" or "mcu" in d:
+            num = button_mcu(v, dev, d, p, act)
+            if act != "mcu":
+                act = "none"
+        else:
+            num = button_number(v, d, p, act)
         led = -1
         if d.get("led") is not None:
             idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
@@ -1100,32 +1230,37 @@ def validate_components(v, dev, data):
                 if led > 127:
                     v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
                     led = -1
+        if led >= 0:
+            dev.leds[led].used_by.append(("button", act))
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTIONS.index(act),
                                action_name=act, number=num, led=led))
 
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
     for i, d in enumerate(analogs):
         p = f"analog[{i}]"
-        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "adc_min", "adc_max"],
-                      renamed=RENAMED_ANALOG)
+        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "adc_min", "adc_max", "takeover",
+                                                 "mcu"], renamed=RENAMED_ANALOG)
         if d is None:
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
         name = v.display_name(d, p, ident)
         unique_name(v, names, "analog input", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
+        fader = mcu_name(v, dev, d, p, MCU_FADERS, "fader_1")
+        cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
         if lo == hi:
             v.err(p, d.line, f"adc_min and adc_max are both {lo}")
-        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi))
+        pickup = validate_takeover(v, dev, d, p, fader)
+        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi,
+                               pickup=pickup, mcu=fader))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
     for i, d in enumerate(encs):
         p = f"encoders[{i}]"
-        d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent"],
-                      renamed=RENAMED_ENCODER)
+        d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
+                                              "ring"], renamed=RENAMED_ENCODER)
         if d is None:
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
@@ -1143,10 +1278,167 @@ def validate_components(v, dev, data):
             if pn and pn.hub and dev.hubs[pn.hub - 1].type in I2C_HUBS:
                 v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
                                                      "loop: fast spinning may miss steps")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=True)
+        vpot = mcu_name(v, dev, d, p, MCU_VPOTS, "vpot_1")
+        cc = v.integer(d, "cc", p, 0, 127, default=0, required=vpot is None)
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
+        ring = encoder_ring(v, dev, d, p, vpot)
         dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
-                                cc=cc, steps=spd))
+                                cc=cc, steps=spd, mcu=vpot, ring=ring))
+    check_mcu_unique(v, dev, data)
+
+
+def mcu_needed(v, dev, path, line):
+    if dev.mcu is None:
+        v.err(path, line, "Mackie Control needs an `mcu:` section at the top level")
+        return False
+    return True
+
+
+def mcu_name(v, dev, d, p, table, example):
+    """A component's `mcu:` (fader_1 / vpot_1 / ...) -> its number, or None."""
+    if d.get("mcu") is None:
+        return None
+    raw, line = d.raw_of("mcu"), d.line_of("mcu")
+    if not mcu_needed(v, dev, f"{p}.mcu", line):
+        return None
+    if d["mcu"] not in table:
+        close = difflib.get_close_matches(raw, list(table), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(f"{p}.mcu", line, f"unknown MCU control '{raw}' ({hint}valid: {', '.join(table)})")
+        return None
+    return table[d["mcu"]]
+
+
+def button_mcu(v, dev, d, p, act):
+    """action: mcu + mcu: <button> -> the default button.number (the MCU note)."""
+    line = d.line_of("mcu") if "mcu" in d else d.line
+    if act != "mcu":
+        v.err(f"{p}.mcu", line, f"mcu: is for action: mcu (this button's action is {act}; leave action: out "
+                                "or set it to mcu)")
+        return 0
+    if not mcu_needed(v, dev, f"{p}.action", d.line_of("action") if "action" in d else line):
+        return 0
+    for k in ("cc", "note"):
+        if k in d:
+            v.err(f"{p}.{k}", d.line_of(k), f"action mcu takes mcu: (e.g. `mcu: play`), not {k}:")
+    if d.get("mcu") is None:
+        v.err(p, d.line, "action mcu needs mcu: (the MCU button, e.g. `mcu: play`, `rec_1`, `f1`)")
+        return 0
+    if d["mcu"] not in MCU_NOTES:
+        close = difflib.get_close_matches(d.raw_of("mcu"), list(MCU_NOTES), 1)
+        hint = f"; did you mean '{close[0]}'?" if close else " (core/README.md \"Mackie Control\" has the list)"
+        v.err(f"{p}.mcu", line, f"unknown MCU button '{d.raw_of('mcu')}'{hint}")
+        return 0
+    return MCU_NOTES[d["mcu"]]
+
+
+def validate_takeover(v, dev, d, p, fader):
+    """analog takeover: none | pickup. MCU faders default to pickup (no motors to follow the host)."""
+    if d.get("takeover") is None:
+        return fader is not None
+    t = d["takeover"]
+    if t not in TAKEOVER:
+        v.err(f"{p}.takeover", d.line_of("takeover"), f"unknown takeover '{d.raw_of('takeover')}' "
+                                                      f"(valid: {', '.join(TAKEOVER)})")
+        return False
+    if t == "pickup" and fader is None and not f1_on(dev):
+        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + f1_off_why(dev))
+        return False
+    return t == "pickup"
+
+
+def encoder_ring(v, dev, d, p, vpot):
+    """ring: [LED ids] around an MCU V-Pot (leftmost first)."""
+    if d.get("ring") is None:
+        return []
+    line = d.line_of("ring")
+    if vpot is None:
+        if dev.mcu is not None or "mcu" not in d:
+            v.err(f"{p}.ring", line, "ring: shows an MCU V-Pot ring: give the encoder `mcu: vpot_N`")
+        return []
+    lst = v.seq(d["ring"], f"{p}.ring", line)
+    if not 1 <= len(lst) <= 16:
+        v.err(f"{p}.ring", line, f"{len(lst)} LEDs: a ring has 1..16")
+    out = []
+    for k in range(len(lst)):
+        idx = v.ref(lst, k, f"{p}.ring[{k}]", lst.line_of(k), "LED", "LEDs")
+        if idx is not None:
+            out.append(idx)
+            dev.leds[idx].used_by.append(("ring", None))
+    return out
+
+
+def check_mcu_unique(v, dev, data):
+    seen = {}
+    for kind, lst, table in (("analog", dev.analogs, MCU_FADERS), ("encoders", dev.encoders, MCU_VPOTS)):
+        names = {n: k for k, n in table.items()}
+        for i, c in enumerate(lst):
+            if c.mcu is None:
+                continue
+            key = (kind, c.mcu)
+            if key in seen:
+                v.err(f"{kind}[{i}].mcu", data.line_of(kind), f"'{names[c.mcu]}' is already used by {seen[key]}")
+            seen.setdefault(key, f"{kind}[{i}]")
+    for b in dev.leds:
+        if any(k == "ring" for k, _ in b.used_by) and (len(b.used_by) > 1 or b.source):
+            v.warn(b.path, b.line, f"LED '{b.id}' is in a V-Pot ring and also used elsewhere: the ring "
+                                   "will overwrite it")
+
+
+def f1_on(dev):
+    """Plain feedback reaches the main port: enabled, and the main port isn't the MCU port."""
+    return dev.feedback and not (dev.mcu is not None and dev.mcu.cable == 0)
+
+
+def f1_off_why(dev):
+    if not dev.feedback:
+        return "feedback is off (feedback: { enabled: false })"
+    return ("with mcu: on a single port (no USB DAW port), everything the host sends is read as "
+            "Mackie Control")
+
+
+def validate_led_source(v, dev, d, p):
+    """LED feedback: { note | cc | clock | transport | mcu, channel } -> (source, num, channel) or None."""
+    if d.get("feedback") is None:
+        return None
+    fp, line = f"{p}.feedback", d.line_of("feedback")
+    f = v.mapping(d["feedback"], fp, line, [*LED_SOURCES, "channel"])
+    if f is None:
+        return None
+    kinds = [k for k in LED_SOURCES if k in f]
+    if len(kinds) != 1:
+        v.err(fp, line, ("give one of " if not kinds else f"only one of {', '.join(kinds)}; one of ") +
+              "note: / cc: (a number), clock: beat, transport: playing, mcu: <MCU LED>")
+        return None
+    k = kinds[0]
+    kl = f.line_of(k)
+    ch = 0
+    if "channel" in f:
+        if k in ("note", "cc"):
+            ch = v.integer(f, "channel", fp, 1, 16, default=0)
+        else:
+            v.err(f"{fp}.channel", f.line_of("channel"), f"only for note: / cc: (a {k} source has no channel)")
+    if k == "mcu":
+        if not mcu_needed(v, dev, f"{fp}.mcu", kl):
+            return None
+        if f["mcu"] not in MCU_NOTES:
+            close = difflib.get_close_matches(f.raw_of("mcu"), list(MCU_NOTES), 1)
+            hint = f"; did you mean '{close[0]}'?" if close else ""
+            v.err(f"{fp}.mcu", kl, f"unknown MCU LED '{f.raw_of('mcu')}'{hint}")
+            return None
+        return (LED_SOURCES[k], MCU_NOTES[f["mcu"]], 0)
+    if not f1_on(dev):
+        v.err(f"{fp}.{k}", kl, f"{k}: is plain feedback, but " + f1_off_why(dev))
+        return None
+    if k in LED_SOURCE_VALUES:
+        if f[k] not in LED_SOURCE_VALUES[k]:
+            v.err(f"{fp}.{k}", kl, f"'{f.raw_of(k)}' isn't a {k} source (valid: {', '.join(LED_SOURCE_VALUES[k])})")
+            return None
+        return (LED_SOURCES[k], 0, 0)
+    num = v.integer(f, k, fp, 0, 127, default=None)
+    if num is None:
+        return None
+    return (LED_SOURCES[k], num, ch)
 
 
 def unique_name(v, names, kind, name, path, d):
@@ -1401,6 +1693,7 @@ def generate(dev, source="device.yaml"):
     if dev.i2c:
         h += [f"#define GM_I2C_SDA {dev.i2c[0].num} /* {dev.i2c[0].desc} */",
               f"#define GM_I2C_SCL {dev.i2c[1].num} /* {dev.i2c[1].desc} */"]
+    h += feedback_defines(dev)
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -1486,7 +1779,91 @@ def generate(dev, source="device.yaml"):
           arr("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons]),
           arr("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
           arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
+    c += feedback_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+
+
+OWNER_NAMES = {n: k for k, n in LED_OWNERS.items()}
+SOURCE_ENUM = {0: "GM_FB_NONE", 1: "GM_FB_NOTE", 2: "GM_FB_CC", 3: "GM_FB_CLOCK", 4: "GM_FB_PLAYING", 5: "GM_FB_MCU"}
+OWNER_ENUM = {0: "GM_OWNER_HOST_THEN_LOCAL", 1: "GM_OWNER_HOST", 2: "GM_OWNER_LOCAL"}
+
+
+def fmt_timeout(t):
+    if t == TIMEOUT_NEVER:
+        return "never"
+    return f"{t / 100:g}s" if t % 10 == 0 and t >= 100 else fmt_us(t * 10_000)
+
+
+def led_fb_rows(dev):
+    """Per LED (source, num, channel, owner, timeout); None when every LED uses the device defaults
+    (then no table is generated)."""
+    rows, special = [], False
+    for x in dev.leds:
+        src = x.source or (0, 0, 0)
+        owner = x.owner
+        if owner is None:
+            mcu_driven = src[0] == LED_SOURCES["mcu"] or any(
+                k == "ring" or a == "mcu" for k, a in x.used_by)
+            owner = LED_OWNERS["host"] if mcu_driven else dev.led_owner
+        timeout = dev.led_timeout if x.timeout is None else x.timeout
+        if src[0] or owner != dev.led_owner or timeout != dev.led_timeout:
+            special = True
+        rows.append((src, owner, timeout))
+    return rows if special else None
+
+
+def feedback_defines(dev):
+    mcu = dev.mcu
+    pickup = any(a.pickup for a in dev.analogs)
+    h = ["", "/* host feedback / DAW (core/README.md \"DAW feedback\") */",
+         f"#define GM_FEEDBACK {1 if f1_on(dev) else 0}",
+         f"#define GM_LED_FB {1 if led_fb_rows(dev) else 0}",
+         f"#define GM_LED_OWNER {dev.led_owner} /* {OWNER_NAMES[dev.led_owner]} */",
+         f"#define GM_LED_TIMEOUT {dev.led_timeout} /* {fmt_timeout(dev.led_timeout)}, 10 ms units */",
+         f"#define GM_ANALOG_PICKUP {1 if pickup else 0}",
+         f"#define GM_MCU {1 if mcu else 0}",
+         f"#define GM_USB_DAW_PORT {1 if dev.daw_port else 0}"]
+    if mcu:
+        h += [f"#define GM_MCU_CABLE {mcu.cable} /* {'the DAW port' if mcu.cable else 'the only port'} */",
+              f"#define GM_MCU_ID 0x{0x15 if mcu.extender else 0x14:02X} /* {'MCU XT' if mcu.extender else 'MCU'} */"]
+    if dev.daw_port:
+        h.append(f"#define GM_DAW_PORT_NAME {c_str(dev.name + ' DAW')}")
+    return h
+
+
+def feedback_tables(dev):
+    c = []
+    rows = led_fb_rows(dev)
+    if rows:
+        c.append("const gm_led_fb_t gm_led_fb[GM_N_LEDS] = {")
+        for x, (src, owner, timeout) in zip(dev.leds, rows):
+            to = "GM_TIMEOUT_NEVER" if timeout == TIMEOUT_NEVER else str(timeout)
+            c.append(f"    {{ {SOURCE_ENUM[src[0]]}, {src[1]}, {src[2]}, {OWNER_ENUM[owner]}, {to} }}, "
+                     f"/* {_comment(x.id)} */")
+        c += ["};", ""]
+    if any(a.pickup for a in dev.analogs):
+        c.append("const uint8_t gm_analog_pickup[GM_N_ANALOGS] = { " +
+                 ", ".join("1" if a.pickup else "0" for a in dev.analogs) + " };")
+        c.append("")
+    if dev.mcu:
+        def mcu_arr(lst):
+            return ", ".join("GM_MCU_NONE" if x.mcu is None else str(x.mcu) for x in lst) or "GM_MCU_NONE"
+        c.append(f"const uint8_t gm_analog_mcu[{'GM_N_ANALOGS' if dev.analogs else '1'}] = "
+                 f"{{ {mcu_arr(dev.analogs)} }};")
+        c.append(f"const uint8_t gm_encoder_mcu[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
+                 f"{{ {mcu_arr(dev.encoders)} }};")
+        rings = []
+        for i, e in enumerate(dev.encoders):
+            if e.ring:
+                c.append(f"static const uint8_t ring_{i}[{len(e.ring)}] = {{ {', '.join(map(str, e.ring))} }}; "
+                         f"/* {_comment(e.id)} */")
+                rings.append(f"{{ ring_{i}, {len(e.ring)} }}")
+            else:
+                rings.append("{ 0, 0 }")
+        c.append(f"const gm_ring_t gm_encoder_ring[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
+                 f"{{ {', '.join(rings) or '{ 0, 0 }'} }};")
+        c.append("")
+    return c
 
 
 def write_generated(dev, out_dir, source):

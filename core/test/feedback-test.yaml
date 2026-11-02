@@ -1,0 +1,46 @@
+# Test device for core/test/test_feedback.c: host feedback (F1) and Mackie
+# Control on a USB DAW port. Not a real board; the pins only need to be
+# distinct for the simulated HAL.
+gemifi: 2
+name: feedback-test
+friendly_name: Feedback Test
+board_id: 0x3F10
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }   # daw_port: on by default with mcu:
+scan_interval: 500us
+
+feedback:
+  led_timeout: 1s            # host_then_local LEDs: back to local 1 s after the host's last word
+
+mcu: {}                      # Mackie Control on the "Feedback Test DAW" port
+
+buttons:
+  - { id: play,   pin: { number: PB0, inverted: true }, mcu: play, led: play_led }
+  - { id: toggle, pin: { number: PB1, inverted: true }, action: cc_toggle, cc: 80, led: toggle_led }
+  - { id: mom,    pin: { number: PB2, inverted: true }, action: cc_momentary, cc: 64, led: mom_led }
+  - { id: pad,    pin: { number: PB3, inverted: true }, action: note, note: 36, led: pad_led }
+
+leds:
+  - { id: play_led,   pin: PC0 }
+  - { id: toggle_led, pin: PC1 }
+  - { id: mom_led,    pin: PC2 }
+  - { id: pad_led,    pin: PC3, owner: local }
+  - { id: arm_led,    pin: PC4, feedback: { note: 40, channel: 16 } }
+  - { id: beat_led,   pin: PC5, feedback: { clock: beat } }
+  - { id: run_led,    pin: PC6, feedback: { transport: playing } }
+  - { id: rec_led,    pin: PC7, feedback: { mcu: record } }
+  - { id: cc_led,     pin: PC8, feedback: { cc: 90 } }
+  - { id: r0, pin: PD0 }
+  - { id: r1, pin: PD1 }
+  - { id: r2, pin: PD2 }
+  - { id: r3, pin: PD3 }
+  - { id: r4, pin: PD4 }
+
+analog:
+  - { id: knob,  pin: PA0, cc: 7, takeover: pickup }
+  - { id: fader, pin: PA1, mcu: fader_1 }          # pitch bend ch 1; pick-up by default
+
+encoders:
+  - { id: enc, pin_a: PB4, pin_b: PB5, cc: 30 }    # absolute (encoder.mode 0)
+  - { id: pan, pin_a: PB6, pin_b: PB7, mcu: vpot_1, ring: [r0, r1, r2, r3, r4] }

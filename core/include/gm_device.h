@@ -112,6 +112,41 @@ typedef struct {
     uint8_t settle_us;     /* wait after driving a row                      */
 } gm_matrix_t;
 
+/* ---- host feedback and Mackie Control --------------------------------
+ * core/README.md "DAW feedback". These tables are generated only when the
+ * YAML uses them (GM_LED_FB, GM_ANALOG_PICKUP, GM_MCU in gm_device_config.h),
+ * so a device without them pays nothing. */
+enum {                      /* gm_led_fb_t.source: what the host drives it with */
+    GM_FB_NONE = 0,         /* only its button's echo (if a button has it)   */
+    GM_FB_NOTE = 1,         /* Note On/Off num on channel; velocity = level  */
+    GM_FB_CC = 2,           /* CC num on channel; value = level              */
+    GM_FB_CLOCK = 3,        /* MIDI clock: lit for the first 16th of a beat  */
+    GM_FB_PLAYING = 4,      /* Start / Continue = on, Stop = off             */
+    GM_FB_MCU = 5,          /* Mackie Control LED: Note On num, MCU port     */
+};
+enum {                      /* who drives an LED that both sides want         */
+    GM_OWNER_HOST_THEN_LOCAL = 0,   /* host, until timeout after its last word */
+    GM_OWNER_HOST = 1,              /* only the host                           */
+    GM_OWNER_LOCAL = 2,             /* only the device (host ignored)          */
+};
+#define GM_TIMEOUT_NEVER 0xFFFFu
+
+typedef struct {
+    uint8_t source;
+    uint8_t num;            /* note / CC / MCU note number                   */
+    uint8_t channel;        /* 1..16; 0 = the midi.channel param             */
+    uint8_t owner;
+    uint16_t timeout;       /* host_then_local: 10 ms units, or GM_TIMEOUT_NEVER */
+} gm_led_fb_t;
+
+/* LEDs around an MCU V-Pot (encoder), leftmost first. */
+typedef struct {
+    const uint8_t *leds;
+    uint8_t n;
+} gm_ring_t;
+
+#define GM_MCU_NONE 0xFFu
+
 typedef struct {
     const char *name;            /* "Keystation Mini 32"                */
     uint16_t board_id;           /* sysex.md 7                          */
@@ -140,6 +175,13 @@ extern const int32_t gm_button_action_defaults[];
 extern const int32_t gm_button_number_defaults[];
 extern const int32_t gm_analog_cc_defaults[];
 extern const int32_t gm_encoder_cc_defaults[];
+
+/* Feedback / MCU tables (see above), each sized by its component count. */
+extern const gm_led_fb_t gm_led_fb[];        /* GM_LED_FB: per LED            */
+extern const uint8_t gm_analog_pickup[];     /* GM_ANALOG_PICKUP: 1 = pick-up */
+extern const uint8_t gm_analog_mcu[];        /* GM_MCU: fader 0..7, master 8, or GM_MCU_NONE */
+extern const uint8_t gm_encoder_mcu[];       /* GM_MCU: V-Pot 0..7, or GM_MCU_NONE */
+extern const gm_ring_t gm_encoder_ring[];    /* GM_MCU: ring LEDs per encoder */
 
 #ifdef __cplusplus
 }

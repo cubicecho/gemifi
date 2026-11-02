@@ -8,6 +8,8 @@
  *     through a small queue.
  *   gm_poll() (main loop): everything that sends MIDI, buttons, analog
  *     inputs, ramps, LEDs, I2C hubs, the protocol.
+ * Host feedback (gm_fb_msg, from midi_in.c) also runs in the main loop: the
+ * platform feeds received MIDI from its main loop.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -20,6 +22,8 @@
 #include "app_proto.h"
 #include "params.h"
 #include "config_store.h"
+#include "gm_feedback.h"
+#include "gm_mcu.h"
 
 #define BTN_SAMPLE_MS   5u
 #define ANALOG_MS       2u          /* one analog input per period */
@@ -434,6 +438,11 @@ static void button_changed(uint32_t i, int down)
             midi2(0xC0 | chan(), (uint32_t)program);
         }
         break;
+#if GM_MCU
+    case ACT_MCU:
+        gm_mcu_note(num, down);
+        break;
+#endif
     default:                        /* ACT_NONE, ACT_CC_RAMP (in ramps_ms) */
         break;
     }
@@ -495,6 +504,29 @@ static void ramps_ms(uint32_t now)
 static int32_t a_filt[NA];          /* 0..4095 << 2 */
 static int16_t a_sent[NA];          /* last 7-bit value, -1 = none yet */
 static uint8_t a_next;
+#if GM_ANALOG_PICKUP
+/* Pick-up: after the host sets a value the knob isn't at, the knob stays
+ * silent until it reaches or crosses that value. */
+static int8_t a_pick[NA];           /* host value to reach, -1 = in control */
+static int8_t a_side[NA];           /* side of a_pick the knob was on: -1 / 1 */
+#endif
+
+void gm_analog_host(uint32_t i, uint32_t value)
+{
+#if GM_ANALOG_PICKUP
+    if (!gm_analog_pickup[i])
+        return;
+    int32_t at = a_sent[i];
+    a_pick[i] = -1;
+    if (at >= 0 && at != (int32_t)value) {
+        a_pick[i] = (int8_t)value;
+        a_side[i] = (int8_t)(at < (int32_t)value ? -1 : 1);
+    }
+#else
+    (void)i;
+    (void)value;
+#endif
+}
 
 static void analog_poll(void)
 {
@@ -524,7 +556,20 @@ static void analog_poll(void)
         int16_t q = (int16_t)(pos >> 5);
         if (q != a_sent[i]) {
             a_sent[i] = q;
-            cc((uint32_t)gm_cfg.analog_cc[i], (uint32_t)q);
+#if GM_ANALOG_PICKUP
+            if (a_pick[i] >= 0) {
+                int side = q < a_pick[i] ? -1 : q > a_pick[i] ? 1 : 0;
+                if (side == a_side[i])
+                    return;                 /* not picked up yet */
+                a_pick[i] = -1;
+            }
+#endif
+#if GM_MCU
+            if (gm_analog_mcu[i] != GM_MCU_NONE)
+                gm_mcu_fader(gm_analog_mcu[i], (uint32_t)pos << 2);
+            else
+#endif
+                cc((uint32_t)gm_cfg.analog_cc[i], (uint32_t)q);
             event(EV_ANALOG, i, (uint32_t)pos << 2);
         }
     }
@@ -544,6 +589,12 @@ static void encoders_poll(void)
             continue;
         enc_delta[i] = (int16_t)(enc_delta[i] - d);
         event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
+#if GM_MCU
+        if (gm_encoder_mcu[i] != GM_MCU_NONE) {
+            gm_mcu_vpot(gm_encoder_mcu[i], d);
+            continue;
+        }
+#endif
         uint32_t num = (uint32_t)gm_cfg.enc_cc[i];
         switch (gm_cfg.enc_mode[i]) {
         case ENC_REL_TWOS:
@@ -568,8 +619,16 @@ static void encoders_poll(void)
 
 /* ---- LEDs ------------------------------------------------------------- */
 
+/* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
+ * (bicolour). LV_BLINK | level: that level, blinking (host feedback). */
+#define LV_BLINK 0x80u
+
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
+#if GM_HOST_LEDS
+    if (level & LV_BLINK)
+        level = blink_on ? level & ~LV_BLINK : 0;
+#endif
     if (vpin_is_none(l->pin2)) {
         vpin_write(l->pin, level > 0);
         return;
@@ -578,9 +637,49 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
     vpin_write(l->pin2, level == 2 || level == 3 || (level >= 4 && blink_on));
 }
 
+#if GM_HOST_LEDS
+#define NL GM_ARR(GM_N_LEDS)
+#define HOST_NONE 0xFFu
+static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
+static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
+
+void gm_led_host(uint32_t led, uint32_t value)
+{
+    if (led >= GM_N_LEDS)
+        return;
+    led_host_lv[led] = (uint8_t)(value == 0 ? 0 : value == 1 ? (LV_BLINK | 1u) : 1u);
+    led_host_t[led] = hal_millis();
+}
+
+/* Who drives LED i (core/README.md "LED ownership"). local = the device's
+ * own state for it (its button's); an LED no button uses has no local
+ * state, so the host always drives it. */
+static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t now)
+{
+#if GM_LED_FB
+    uint32_t owner = gm_led_fb[i].owner, timeout = gm_led_fb[i].timeout;
+#else
+    uint32_t owner = GM_LED_OWNER, timeout = GM_LED_TIMEOUT;
+#endif
+    uint32_t h = led_host_lv[i];
+    if (owner == GM_OWNER_LOCAL)
+        return local;
+    if (owner == GM_OWNER_HOST || !has_local)
+        return h == HOST_NONE ? 0 : h;
+    if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && now - led_host_t[i] >= timeout * 10u)
+        led_host_lv[i] = (uint8_t)(h = HOST_NONE);   /* host went quiet: local again */
+    return h == HOST_NONE ? local : h;
+}
+#endif
+
 static void leds_update(uint32_t now)
 {
     int blink_on = (now / 500u) & 1u;
+#if GM_HOST_LEDS
+    uint8_t local[NL], has_local[NL];
+    for (uint32_t i = 0; i < NL; i++)
+        local[i] = has_local[i] = 0;
+#endif
     for (uint32_t i = 0; i < gm_device.n_buttons; i++) {
         int8_t li = gm_device.buttons[i].led;
         if (li < 0 || li >= (int8_t)gm_device.n_leds)
@@ -614,9 +713,113 @@ static void leds_update(uint32_t now)
             break;
         }
 #endif
+#if GM_HOST_LEDS
+        local[li] = (uint8_t)level;
+        has_local[li] = 1;
+#else
         led_show(&gm_device.leds[li], level, blink_on);
+#endif
+    }
+#if GM_HOST_LEDS
+    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+        led_show(&gm_device.leds[i], led_level(i, local[i], has_local[i], now), blink_on);
+#endif
+}
+
+/* ---- host feedback (F1) ------------------------------------------------ */
+
+#if GM_FEEDBACK
+static uint8_t clock_n;             /* MIDI clocks since the last beat, 0..23 */
+
+#if GM_LED_FB
+/* The host's value for every LED with this explicit source. */
+static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value)
+{
+    for (uint32_t i = 0; i < GM_N_LEDS; i++) {
+        const gm_led_fb_t *f = &gm_led_fb[i];
+        if (f->source != source)
+            continue;
+        if (source == GM_FB_NOTE || source == GM_FB_CC) {
+            uint32_t want = f->channel ? f->channel - 1u : chan();
+            if (f->num != num || want != ch)
+                continue;
+        }
+        gm_led_host(i, value);
     }
 }
+#else
+#define leds_from(source, num, ch, value) ((void)0)
+#endif
+
+void gm_fb_msg(const uint8_t *m, uint32_t n)
+{
+    uint32_t st = m[0];
+    if (st >= 0xF8) {
+        if (st == 0xF8) {                       /* clock: 24 per quarter note */
+            if (clock_n == 0)
+                leds_from(GM_FB_CLOCK, 0, 0, 127);
+            else if (clock_n == 6)
+                leds_from(GM_FB_CLOCK, 0, 0, 0);
+            clock_n = (uint8_t)(clock_n >= 23 ? 0 : clock_n + 1);
+        } else if (st == 0xFA || st == 0xFB) {  /* start / continue */
+            if (st == 0xFA)
+                clock_n = 0;
+            leds_from(GM_FB_PLAYING, 0, 0, 127);
+        } else if (st == 0xFC) {                /* stop */
+            leds_from(GM_FB_PLAYING, 0, 0, 0);
+            leds_from(GM_FB_CLOCK, 0, 0, 0);
+        }
+        return;
+    }
+    if (n < 3)
+        return;                     /* program change, channel pressure: nothing yet */
+    uint32_t type = st & 0xF0u, ch = st & 0x0Fu, num = m[1], v = m[2];
+    if (type == 0x80) {
+        type = 0x90;
+        v = 0;
+    }
+    if (type != 0x90 && type != 0xB0)
+        return;                     /* pitch bend, poly pressure: nothing yet */
+    leds_from(type == 0x90 ? GM_FB_NOTE : GM_FB_CC, num, ch, v);
+    if (ch != chan())
+        return;
+#if GM_N_BUTTONS > 0
+    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+        if ((uint32_t)gm_cfg.btn_number[i] != num)
+            continue;
+        int32_t act = gm_cfg.btn_action[i];
+        int8_t li = gm_device.buttons[i].led;
+        if (type == 0xB0 && act == ACT_CC_TOGGLE) {
+            /* the host's echo is the toggle's state (and so its LED's) */
+            if (v >= 64)
+                btn_toggled |= 1u << i;
+            else
+                btn_toggled &= ~(1u << i);
+        } else if (li >= 0 && (type == 0xB0 ? act == ACT_CC_MOMENTARY || act == ACT_CC_RAMP
+                                            : act == ACT_NOTE)) {
+            gm_led_host((uint32_t)li, v);
+        }
+    }
+#endif
+    if (type != 0xB0)
+        return;
+#if GM_N_ANALOGS > 0
+    for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
+#if GM_MCU
+        if (gm_analog_mcu[i] != GM_MCU_NONE)
+            continue;                       /* an MCU fader follows pitch bend */
+#endif
+        if ((uint32_t)gm_cfg.analog_cc[i] == num)
+            gm_analog_host(i, v);
+    }
+#endif
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+        if ((uint32_t)gm_cfg.enc_cc[i] == num && gm_cfg.enc_mode[i] == ENC_ABSOLUTE)
+            enc_value[i] = (int16_t)v;      /* absolute: carry on from the host's value */
+#endif
+}
+#endif
 
 /* ---- init and main loop ----------------------------------------------- */
 
@@ -717,8 +920,20 @@ void gm_init(uint32_t fw_version, int safe_mode)
     }
 #endif
 #if GM_N_ANALOGS > 0
-    for (uint32_t i = 0; i < NA; i++)
+    for (uint32_t i = 0; i < NA; i++) {
         a_sent[i] = -1;
+#if GM_ANALOG_PICKUP
+        a_pick[i] = -1;
+#endif
+    }
+#endif
+
+#if GM_HOST_LEDS
+    for (uint32_t i = 0; i < NL; i++)
+        led_host_lv[i] = HOST_NONE;
+#endif
+#if GM_MCU
+    gm_mcu_init(fw_version);
 #endif
 
     gm_settings_init();
@@ -738,11 +953,6 @@ void gm_init(uint32_t fw_version, int safe_mode)
         led_show(&gm_device.leds[i], 0, 0);
     vpin_flush();
     vpin_flush_i2c();
-}
-
-void gm_midi_rx_byte(uint8_t b)
-{
-    app_proto_rx_byte(b);
 }
 
 void gm_poll(void)

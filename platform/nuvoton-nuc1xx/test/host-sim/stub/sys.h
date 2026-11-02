@@ -13,5 +13,9 @@ typedef struct { uint32_t magic, magic_inv, boot_count, reason; } gemifi_mailbox
 extern volatile gemifi_mailbox_t sim_mailbox;
 #define MAILBOX (&sim_mailbox)
 #define MAILBOX_MAGIC_BOOT 0x544F4F42u
+#define MAILBOX_REASON_REBOOT    1u
+#define MAILBOX_REASON_BOOT_LOOP 2u
+#define MAILBOX_BOOT_TRIES       3u
+uint32_t sys_reset_cause(void);
 __attribute__((noreturn)) void sys_reset_to(int to_ldrom);
 #endif

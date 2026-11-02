@@ -14,6 +14,8 @@ static uint32_t ms;
 static jmp_buf jb;
 int sim_result;              /* 1 = handoff app (BS=0), 2 = reset to LDROM, 3 = update mode */
 int sim_bad_writes;          /* writes/erases outside the allowed region */
+uint32_t sim_rstsrc;         /* GCR_RSTSRC at the next boot (cleared when read) */
+int sim_uid_fail;            /* 1: the UID command is refused (NUC120BN) */
 uint8_t sim_flash[0x20000];  /* APROM 0..0x8000, data flash 0x1F000 */
 static uint8_t out[4096]; static int out_n;
 
@@ -23,6 +25,7 @@ void sys_tick_init(void) {}
 uint32_t sys_tick_ms(void) { return ms += 1; }
 void sys_delay_ms(uint32_t d) { ms += d; }
 void sys_reset_to(int to_ldrom) { longjmp(jb, to_ldrom ? 2 : 1); }
+uint32_t sys_reset_cause(void) { uint32_t r = sim_rstsrc; sim_rstsrc = 0; return r; }
 
 static int allowed(uint32_t a) {
 #ifdef TEST_IN_APROM
@@ -35,7 +38,11 @@ void fmc_open(void) {}
 uint32_t fmc_read(uint32_t a) { uint32_t w; if (a + 4 > sizeof sim_flash) return 0xFFFFFFFF; memcpy(&w, sim_flash + a, 4); return w; }
 int fmc_erase_page(uint32_t a) { if (!allowed(a) || (a & 511)) { sim_bad_writes++; return -1; } memset(sim_flash + a, 0xFF, 512); return 0; }
 int fmc_program(uint32_t a, uint32_t w) { if (!allowed(a) || (a & 3)) { sim_bad_writes++; return -1; } uint32_t o; memcpy(&o, sim_flash + a, 4); o &= w; memcpy(sim_flash + a, &o, 4); return 0; }
-int fmc_read_uid(uint8_t u[12]) { for (int i = 0; i < 12; i++) u[i] = 0xA0 + i; return 0; }
+int fmc_read_uid(uint32_t w[3]) {
+    uint8_t *u = (uint8_t *)w;
+    for (int i = 0; i < 12; i++) u[i] = sim_uid_fail ? 0 : 0xA0 + i;
+    return sim_uid_fail ? -1 : 0;
+}
 
 void usbd_init(const usbd_desc_t *d) { (void)d; longjmp(jb, 3); }
 void usbd_poll(void) {}

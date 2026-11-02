@@ -190,7 +190,7 @@ The bootloader starts the app only if all of these hold: the magic matches, the 
 
 ## 6. Boot handoff and mailbox (NUC1xx)
 
-- **SRAM mailbox:** 16 bytes at `0x2000_0FF0` that neither side initialises: `magic` u32, `magic_inv` u32 (= ~magic), `boot_count` u32, `reason` u32. `reason` values: 0 = none, 1 = REBOOT to bootloader requested over SysEx; others are reserved. The bootloader doesn't act on `reason`; it's for logging. Both the bootloader and the app put their stack top at `0x2000_0FF0`.
+- **SRAM mailbox:** 16 bytes at `0x2000_0FF0` that neither side initialises: `magic` u32, `magic_inv` u32 (= ~magic), `boot_count` u32, `reason` u32. `reason` values: 0 = none, 1 = REBOOT to bootloader requested over SysEx, 2 = the bootloader stayed because of the boot-loop guard; others are reserved. The bootloader doesn't act on `reason`; it's for logging. After a cold start (GCR_RSTSRC POR, LVR or BOD) the bootloader zeroes `boot_count` and `reason`, because SRAM is random then. Both the bootloader and the app put their stack top at `0x2000_0FF0`.
 - **App "reboot to bootloader":**
   1. Send the REBOOT reply and wait about 50 ms.
   2. Set magic = `'BOOT'` (0x544F4F42) and magic_inv.
@@ -199,9 +199,11 @@ The bootloader starts the app only if all of these hold: the magic matches, the 
 - **The bootloader stays in update mode if any of these is true:**
   - the mailbox magic is `'BOOT'` with a matching inverse;
   - the **Pitch▼ + Pitch▲** buttons are held at reset (Keystation; active-low, sampled 3 times over about 20 ms);
+  - `boot_count` ≥ 3: the app came back to the bootloader 3 times in a row without clearing it (boot-loop guard; it sets `reason` = 2);
   - the app is invalid (§5).
 
-  It clears the magic either way. To start the app: unlock, ISPCON.BS = 0, IPRSTC1.CPU_RST.
+  It clears the magic either way. To start the app: `boot_count`++, unlock, ISPCON.BS = 0, IPRSTC1.CPU_RST. When it stays, it sets `boot_count` to 0.
+- **App side of the guard:** set `boot_count` = 0 after running normally for about 5 s.
 
 ## 7. IDs
 
@@ -210,7 +212,7 @@ The bootloader starts the app only if all of these hold: the magic matches, the 
 | M-Audio Keystation Mini 32 MK3 | 0x0001 | Nuvoton NUC120LC1BN (32 KB APROM, 4 KB LDROM, 4 KB SRAM) |
 | DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F02 `esp8266-example`) |
 
-USB IDs during development: pid.codes **test** PIDs, development use only. Bootloader `1209:0001`, app `1209:0002` (verify against pid.codes' test range before relying on them). Strings: manufacturer "gemifi"; product "gemifi boot (<board>)" or "<board> (gemifi)"; serial = chip UID in hex. Chips without a UID (the NUC120BN on the Keystation Mini 32) use a random 96-bit ID made on first boot and kept in the last data-flash page (`platform/nuvoton-nuc1xx/src/hal.c`); a factory reset keeps it. Never reuse M-Audio's `0763:3111` or Medeli's `0A67:138F`.
+USB IDs during development: pid.codes **test** PIDs, development use only. Bootloader `1209:0001`, app `1209:0002` (verify against pid.codes' test range before relying on them). Strings: manufacturer "gemifi"; product "gemifi boot (<board>)" or "<board> (gemifi)"; serial = chip UID in hex. Chips without a UID (the NUC120BN on the Keystation Mini 32) use a random 96-bit ID made on first boot and kept in the last data-flash page (`platform/nuvoton-nuc1xx/src/hal.c`); a factory reset keeps it. The bootloader reads the same record (it never writes it), so both report the same serial; before any app has made the record, the bootloader's serial is all zeros. Never reuse M-Audio's `0763:3111` or Medeli's `0A67:138F`.
 
 ## 8. Per-board constants
 The 512-byte page, APROM size and 200 ms timeout above are NUC1xx values. Other chip families will define their own; `max_chunk` (from HELLO/FW_BEGIN) and the board table are the places to carry them. Revisit when a second family is added.

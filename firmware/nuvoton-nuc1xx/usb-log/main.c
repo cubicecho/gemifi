@@ -48,7 +48,7 @@ static gsx_rx_t rx;
 static uint8_t tx_buf[48];           /* last request reply, kept for resends */
 static uint16_t tx_len;
 static uint32_t last_req;            /* 0x10000 | seq << 8 | cmd, 0 = none */
-static uint8_t uid[12];
+static uint32_t uid[3];                 /* LE words = the HELLO uid bytes */
 static uint8_t unsol_seq;
 static uint8_t reboot_mode;          /* 0 none, 1 app, 2 bootloader */
 static uint32_t reboot_at;
@@ -60,10 +60,8 @@ static void make_serial(void)
     static const char hex[] = "0123456789ABCDEF";
     fmc_open();
     fmc_read_uid(uid);
-    for (uint32_t i = 0; i < 24; i++) {
-        uint32_t byte = uid[(i / 8) * 4 + 3 - ((i / 2) & 3)];
-        serial[i] = hex[(i & 1) ? (byte & 0xF) : (byte >> 4)];
-    }
+    for (uint32_t i = 0; i < 24; i++)
+        serial[i] = hex[(uid[i / 8] >> (28 - 4 * (i & 7))) & 0xF];
 }
 
 /* ---- unsolicited messages --------------------------------------------- */
@@ -121,6 +119,8 @@ static void log_boot_info(void)
     p = put_hex(p, boot_mb.magic_inv, 8);
     *p++ = ' ';
     p = put_hex(p, boot_mb.boot_count, 8);
+    *p++ = ' ';                             /* reason: 1 REBOOT(1), 2 boot loop */
+    p = put_hex(p, boot_mb.reason, 8);
     *p = 0;
     send_log(2, s, 0);
     midi_tx_flush(50);
@@ -153,7 +153,7 @@ static uint32_t cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
     gsx_put(t, GSX_PROTO_VERSION);
     gsx_put_u(t, 0, 2);                     /* max_chunk: none in the app */
     gsx_put_u(t, GSX_CAP_LOG | GSX_CAP_EVENT, 2);
-    gsx_put_packed(t, uid, sizeof(uid));
+    gsx_put_packed(t, (const uint8_t *)uid, sizeof(uid));
     return GSX_OK;
 }
 

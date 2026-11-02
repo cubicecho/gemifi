@@ -134,7 +134,7 @@ int fmc_program(uint32_t a, uint32_t w)
     memcpy(dflash + (a - FLASH_DATA_BASE), &o, 4);
     return 0;
 }
-int fmc_read_uid(uint8_t u[12]) { hal_uid(u); return 0; }
+int fmc_read_uid(uint32_t u[3]) { uint8_t b[12]; hal_uid(b); memcpy(u, b, 12); return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 

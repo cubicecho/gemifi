@@ -10,6 +10,17 @@ import gemifi_proto as gp
 import gemifi_image as gi
 
 GFW = open(R + "/firmware/nuvoton-nuc1xx/hello-led/build/hello-led.gfw", "rb").read()
+# GCR_RSTSRC bits (platform/nuvoton-nuc1xx/include/nuc1xx.h)
+RST_POR, RST_PIN, RST_WDT, RST_LVR, RST_BOD, RST_SYS, RST_CPU = 1, 2, 4, 8, 16, 32, 0x80
+DEVID = 0x1FE00                                       # FLASH_DEVID_ADDR
+DEV_ID = (0x056FA782, 0x3BA4BC9A, 0xE9B60810)         # the dev unit's stored ID
+DEV_SERIAL = b"056FA7823BA4BC9AE9B60810"
+
+def devid_record(ids, magic=0x44494447, crc_xor=0):
+    """The app's device-ID record (platform/nuvoton-nuc1xx/src/hal.c)."""
+    head = struct.pack("<4I", magic, *ids)
+    return head + struct.pack("<I", (zlib.crc32(head) ^ crc_xor) & 0xFFFFFFFF)
+
 fails = 0
 def check(cond, msg):
     global fails
@@ -26,13 +37,22 @@ class Dev:
         ctypes.memmove(ctypes.addressof(self.flash) + base, data, len(data))
     def getflash(self, base, n):
         return bytes(self.flash[base:base+n])
-    def boot(self, buttons=0, mailbox=None):
+    def boot(self, buttons=0, mailbox=None, rstsrc=RST_CPU, count=None, reason=None):
+        """One reset. rstsrc is GCR_RSTSRC as the bootloader finds it (default:
+        the CPU_RST of a hand-off or REBOOT); count/reason preset the mailbox."""
         ctypes.c_uint32.in_dll(self.L, "sim_buttons").value = buttons
-        mb = (ctypes.c_uint32 * 4).in_dll(self.L, "sim_mailbox")
+        ctypes.c_uint32.in_dll(self.L, "sim_rstsrc").value = rstsrc
+        mb = self.mailbox()
         if mailbox: mb[0], mb[1] = mailbox, (~mailbox) & 0xFFFFFFFF
         else: mb[0] = mb[1] = 0x12345678
+        if count is not None: mb[2] = count
+        if reason is not None: mb[3] = reason
         r = self.L.sim_boot()
         return r, mb[0]
+    def mailbox(self):
+        return (ctypes.c_uint32 * 4).in_dll(self.L, "sim_mailbox")
+    def uid_fail(self, on):
+        ctypes.c_int.in_dll(self.L, "sim_uid_fail").value = 1 if on else 0
     def raw(self, msg):
         buf = (ctypes.c_uint8 * 4096)()
         n = self.L.sim_feed(bytes(msg), len(msg), buf)
@@ -65,6 +85,35 @@ def upload(d, img, base, mc, tamper=None, wrongver=None):
     f = d.req(gp.FW_END)
     return ("end", f.status)
 
+def boot_loop_tests(d):
+    """Boot-loop guard (issue #1, bootloader-design.md 3.6). Needs a valid app."""
+    mb = d.mailbox()
+    r, _ = d.boot(rstsrc=RST_POR, count=0xDEADBEEF, reason=0x5A5A5A5A)
+    check(r == 1 and mb[2] == 1 and mb[3] == 0, f"POR, random mailbox -> count and reason reset, hand-off (count={mb[2]:#x})")
+    check(ctypes.c_uint32.in_dll(d.L, "sim_rstsrc").value == 0, "RSTSRC read and cleared")
+    res = [d.boot()[0] for _ in range(2)]
+    check(res == [1, 1] and mb[2] == 3, f"app dies before 5 s: hand-offs 2 and 3 (count={mb[2]})")
+    r, _ = d.boot()
+    check(r == 3 and mb[3] == 2 and mb[2] == 0, f"3 failed boots -> update mode, reason 2, count cleared (r={r})")
+    r, _ = d.boot()
+    check(r == 1 and mb[2] == 1, "REBOOT(0) / reset after the trap -> fresh tries")
+    ok = True
+    for _ in range(10):
+        r, _ = d.boot(); ok &= r == 1
+        mb[2] = 0                                      # app ran 5 s and cleared it
+    check(ok, "app that clears the count -> always handed off (10 boots)")
+    for name, rs in [("LVR", RST_LVR), ("BOD", RST_BOD), ("POR+pin", RST_POR | RST_PIN)]:
+        r, _ = d.boot(rstsrc=rs, count=7)
+        check(r == 1 and mb[2] == 1, f"{name} with count 7 -> count reset, hand-off")
+    for name, rs in [("pin reset", RST_PIN), ("watchdog", RST_WDT), ("SYSRESETREQ", RST_SYS), ("CPU reset", RST_CPU)]:
+        r, _ = d.boot(rstsrc=rs, count=3, reason=0)
+        check(r == 3 and mb[3] == 2, f"{name} (warm) with count 3 -> stays (r={r})")
+    r, _ = d.boot(mailbox=0x544F4F42, count=3, reason=1)
+    check(r == 3 and mb[3] == 1 and mb[2] == 0, "BOOT magic with count 3 -> stays, reason 1 kept, count cleared")
+    r, _ = d.boot(count=2)
+    check(r == 1 and mb[2] == 3, "count 2 -> one more try")
+    mb[2] = 0
+
 for variant in ["libboot.so", "libboot_test.so"]:
     test = "test" in variant
     base = 0x1F000 if test else 0
@@ -80,6 +129,29 @@ for variant in ["libboot.so", "libboot_test.so"]:
     h = gp.parse_hello(f.payload)
     print("     hello:", h)
     check(f.status == 0 and h.role == 1 and h.board_id == 1 and h.max_chunk == 256 and gp.valid_max_chunk(h.max_chunk), "HELLO")
+    # USB serial / HELLO uid (issue #2)
+    check(d.L.sim_serial() == b"A3A2A1A0A7A6A5A4ABAAA9A8" and h.uid == bytes(range(0xA0, 0xAC)),
+          "chip UID -> serial is the UID words in hex")
+    d.setflash(DEVID, devid_record(DEV_ID))
+    d.L.sim_enter_update()
+    check(d.L.sim_serial() == b"A3A2A1A0A7A6A5A4ABAAA9A8", "chip UID wins over a stored ID")
+    d.uid_fail(True)
+    def serial_hello():
+        d.L.sim_enter_update()
+        return d.L.sim_serial(), gp.parse_hello(d.req(gp.HELLO).payload).uid
+    sr, uid = serial_hello()
+    check(sr == DEV_SERIAL and uid == struct.pack("<3I", *DEV_ID),
+          f"no UID + valid GDID record -> serial and HELLO uid from it ({sr})")
+    check(d.getflash(DEVID, 20) == devid_record(DEV_ID), "GDID record left untouched")
+    for name, rec in [("bad CRC", devid_record(DEV_ID, crc_xor=1)),
+                      ("wrong magic", devid_record(DEV_ID, magic=0x44494448)),
+                      ("one ID bit flipped", devid_record(DEV_ID)[:4] + bytes([0x83]) + devid_record(DEV_ID)[5:]),
+                      ("erased page", b"\xff" * 20)]:
+        d.setflash(DEVID, rec)
+        sr, uid = serial_hello()
+        check(sr == b"0" * 24 and uid == bytes(12), f"no UID + {name} -> zeros ({sr})")
+    d.uid_fail(False)
+    d.L.sim_enter_update()
     # FW_DATA before BEGIN
     f = d.req(gp.FW_DATA, gp.req_fw_data(0x200, b"\0"*4)); check(f.status == gp.BAD_STATE if hasattr(gp,'BAD_STATE') else f.status == 4, "FW_DATA without BEGIN -> BAD_STATE")
     f = d.req(gp.FW_BEGIN, gp.req_fw_begin(len(GFW), 0, 2, 0)); check(f.status == 8, "wrong board -> BAD_BOARD")
@@ -150,6 +222,7 @@ for variant in ["libboot.so", "libboot_test.so"]:
     f = d.req(gp.REBOOT, b"\x05"); check(f.status == 2, "REBOOT(5) -> BAD_CMD")
     if not test:
         r, mb = d.boot(); check(r == 1, f"valid app -> handoff to APROM (r={r})")
+        boot_loop_tests(d)
         r, mb = d.boot(buttons=(1<<5)|(1<<6)); check(r == 3, "Pitch combo -> update mode")
         r, mb = d.boot(buttons=(1<<5)); check(r == 1, "only Pitch-down -> handoff")
         r, mb = d.boot(mailbox=0x544F4F42); check(r == 3 and mb == 0, "mailbox BOOT -> update mode, magic cleared")

@@ -36,11 +36,13 @@ The decoded `FirmwareFile` is a series of 0x41E-byte update blocks:
 
 After the 89 data blocks come 11 more records:
 - Ten 18-byte `00 10 6a 04 da 3b 09 01 AA AA …` records for addresses 0x08018800-0x0801AC00, in 0x400 steps. These are probably page erases past the end of the app.
-- One full `04 28 …` block at 0x0801B000. It is mostly 0xFF, with a small table at the end (`c0 b0 1b 00 00 40 00 d0 1b …`) that is probably an app-valid/metadata record.
+- One full `04 28 …` block at 0x0801B000. It is all 0xFF except the last halfword, which is a checksum over the whole app area (0x08002400-0x0801B3FD). See [analysis/custom-firmware-path.md](analysis/custom-firmware-path.md).
 
-Settings (including the per-unit calibration) live in an "EEPROM" emulated in flash at 0x0801B400-0x0801FBFF, so updates don't touch them. Whether the bootloader also checks the app image itself is still unknown.
+Settings (including the per-unit calibration) live in an "EEPROM" emulated in flash at 0x0801B400-0x0801FBFF, so updates don't touch them. Whether the bootloader checks that image checksum at every boot is still unknown.
 
-**Update protocol:** worked out from the updater exe. It's plain SysEx: a start message `F0 5A 57 6E 28 3C 4E 45 F7`, then each record as 11-byte chunks in ASCII hex, acknowledged with `F0 45 F7`. Full details are in [analysis/update-protocol.md](analysis/update-protocol.md). `scripts/update_protocol.py` checks a file, rebuilds it around a new app image (byte-identical round trip on the stock file), and writes the exact SysEx stream. Still open: how the keyboard enters update mode (the UI just says "turn it off and on").
+**Update protocol:** worked out from the updater exe. It's plain SysEx: a start message `F0 5A 57 6E 28 3C 4E 45 F7`, then each record as 11-byte chunks in ASCII hex, acknowledged with `F0 45 F7`. Full details are in [analysis/update-protocol.md](analysis/update-protocol.md). `scripts/update_protocol.py` checks a file, rebuilds it around a new app image (byte-identical round trip on the stock file), and writes the exact SysEx stream. Entering update mode: the stock app answers the start message by writing a request flag to the last flash page (0x0801FC00), and the bootloader picks it up at the next power-on. Details are in [analysis/custom-firmware-path.md](analysis/custom-firmware-path.md).
+
+**Custom firmware path:** [analysis/custom-firmware-path.md](analysis/custom-firmware-path.md) asks whether gemifi can replace only the app through the vendor bootloader. Answer: probably yes, with no SWD needed. That still needs a hardware test, and the doc lists the tests.
 
 ## Why the controls feel mushy
 

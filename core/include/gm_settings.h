@@ -54,6 +54,9 @@ enum {
     ACT_PROGRAM_PREV,
     ACT_COUNT
 };
+/* Mackie Control button (button.number = its MCU note). Only on devices with
+ * mcu: (GM_MCU), where it is offered as one more action. */
+#define ACT_MCU ACT_COUNT
 
 enum { ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET };
 

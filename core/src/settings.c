@@ -29,10 +29,17 @@ static const char *const curve_opts[] = { "Normal", "Soft", "Hard", "Fixed" };
 #endif
 static const char *const log_opts[] = { "Off", "Errors", "Warnings", "Info", "Debug" };
 #if GM_N_BUTTONS > 0
-static const char *const action_opts[ACT_COUNT] = {
+#ifndef GM_MCU
+#define GM_MCU 0
+#endif
+#define N_ACTIONS (ACT_COUNT + (GM_MCU ? 1 : 0))
+static const char *const action_opts[N_ACTIONS] = {
     "None", "CC momentary", "CC toggle", "CC ramp", "Note",
     "Octave down", "Octave up", "Transpose down", "Transpose up",
     "Pitch bend down", "Pitch bend up", "Program next", "Program previous",
+#if GM_MCU
+    "Mackie Control",
+#endif
 };
 #endif
 
@@ -88,8 +95,8 @@ static const param_def_t params[] = {
 
 #if GM_N_BUTTONS > 0
     { .id = P_BTN_ACTION, .type = PT_ENUM, .group = G_BUTTONS, .count = GM_N_BUTTONS,
-      .min = 0, .max = ACT_COUNT - 1, .defs = gm_button_action_defaults,
-      .options = action_opts, .option_count = ACT_COUNT, .index_labels = button_labels,
+      .min = 0, .max = N_ACTIONS - 1, .defs = gm_button_action_defaults,
+      .options = action_opts, .option_count = N_ACTIONS, .index_labels = button_labels,
       .name = "button.action", .label = "Action", .values = gm_cfg.btn_action },
     { .id = P_BTN_NUMBER, .type = PT_INT, .group = G_BUTTONS, .count = GM_N_BUTTONS,
       .min = 0, .max = 127, .defs = gm_button_number_defaults, .index_labels = button_labels,

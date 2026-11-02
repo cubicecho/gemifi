@@ -31,8 +31,17 @@ void gm_scan_tick(void);
  * sets it, so key velocities stay right. */
 extern volatile uint32_t gm_scan_period_us;
 
-/* Platform -> core: every received MIDI byte. */
+/* Platform -> core: received MIDI (core/src/midi_in.c). A platform calls
+ * one of the two for everything it receives:
+ *   gm_midi_rx_byte  a MIDI 1.0 byte stream (serial, BLE): one port, cable 0;
+ *   gm_midi_rx_usb   one 4-byte USB-MIDI 1.0 event packet (cable << 4 | CIN,
+ *                    then 3 bytes), so the cable (port) is kept.
+ * SysEx on the main port goes to the gemifi protocol (app_proto.h) as it
+ * always did; channel messages and realtime (clock, start/stop) go to the
+ * host feedback code (F1) and, on the DAW port, to Mackie Control (gm_mcu.h)
+ * when the device has them (core/README.md "DAW feedback"). */
 void gm_midi_rx_byte(uint8_t b);
+void gm_midi_rx_usb(const uint8_t ev[4]);
 
 /* Buttons held right now (bit = button index), for the boot combo check
  * before gm_init (reads the pins directly). */

@@ -58,6 +58,10 @@ int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n);
 /* MIDI out: one complete message (channel message, or F0 ... F7).
  * Queues; hal_midi_poll() sends what it can without blocking. */
 void hal_midi_send(const uint8_t *msg, uint32_t n);
+/* The same on a USB-MIDI cable (port): 0 = main, 1 = the "<name> DAW" port
+ * (GM_USB_DAW_PORT). Only needed when the device has a DAW port or MCU;
+ * platforms without cables send everything on their one port. */
+void hal_midi_send_cable(uint8_t cable, const uint8_t *msg, uint32_t n);
 void hal_midi_poll(void);
 /* Send queued data now (waits up to timeout_ms): for protocol replies. */
 void hal_midi_flush(uint32_t timeout_ms);

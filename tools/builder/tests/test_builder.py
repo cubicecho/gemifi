@@ -603,6 +603,157 @@ class TestValidation(unittest.TestCase):
         _d, diags = load(MINIMAL_NUC + "name: again\n")
         self.assertIn("duplicate key 'name' (first on line 2)", diags[0].msg)
         self.assertEqual(diags[0].line, 9)
+FEEDBACK_TEST = os.path.join(REPO, "core", "test", "feedback-test.yaml")
+
+FB_NUC = MINIMAL_NUC + """\
+leds:
+  - { id: l1, pin: PC0 }
+  - { id: l2, pin: PC1 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestFeedback(unittest.TestCase):
+    """Host feedback (F1), LED ownership, the USB DAW port and Mackie Control (core/README.md
+    "DAW feedback")."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+
+    def header(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def warns(self, text):
+        return [str(d) for d in self.errs(text, level="warning")]
+
+    def test_keystation_defaults(self):
+        dev, _ = gd.load_device(KEYSTATION)
+        h = gd.generate(dev, "k.yaml")["gm_device_config.h"]
+        for d in ("GM_FEEDBACK 1", "GM_LED_FB 0", "GM_LED_OWNER 0", "GM_LED_TIMEOUT 200 /* 2s",
+                  "GM_ANALOG_PICKUP 0", "GM_MCU 0", "GM_USB_DAW_PORT 0"):
+            self.assertIn(f"#define {d}", h)
+        self.assertNotIn("GM_DAW_PORT_NAME", h)
+
+    def test_feedback_section(self):
+        h, _ = self.header(FB_NUC + "feedback: { enabled: false }\n")
+        self.assertIn("#define GM_FEEDBACK 0", h)
+        h, _ = self.header(FB_NUC + "feedback: { led_owner: local, led_timeout: never }\n")
+        self.assertIn("#define GM_LED_OWNER 2 /* local */", h)
+        self.assertIn("#define GM_LED_TIMEOUT 65535 /* never", h)
+        h, _ = self.header(FB_NUC + "feedback: { led_timeout: 250ms }\n")
+        self.assertIn("#define GM_LED_TIMEOUT 25 ", h)
+        self.assertError(FB_NUC + "feedback: { led_owner: daw }\n", r"unknown owner 'daw'.*host_then_local")
+        self.assertError(FB_NUC + "feedback: { led_timeout: 2 }\n", r"needs a unit")
+        self.assertError(FB_NUC + "feedback: { enable: false }\n", r"did you mean 'enabled'")
+
+    def test_led_sources(self):
+        h, c = self.header(FB_NUC.replace("{ id: l1, pin: PC0 }",
+                                          "{ id: l1, pin: PC0, feedback: { note: 40, channel: 16 } }")
+                           .replace("{ id: l2, pin: PC1 }",
+                                    "{ id: l2, pin: PC1, feedback: { clock: beat }, owner: host }"))
+        self.assertIn("#define GM_LED_FB 1", h)
+        self.assertIn("{ GM_FB_NOTE, 40, 16, GM_OWNER_HOST_THEN_LOCAL, 200 }, /* l1 */", c)
+        self.assertIn("{ GM_FB_CLOCK, 0, 0, GM_OWNER_HOST, 200 }, /* l2 */", c)
+        h, c = self.header(FB_NUC.replace("{ id: l1, pin: PC0 }",
+                                          "{ id: l1, pin: PC0, feedback: { transport: playing }, timeout: never }"))
+        self.assertIn("{ GM_FB_PLAYING, 0, 0, GM_OWNER_HOST_THEN_LOCAL, GM_TIMEOUT_NEVER }", c)
+        bad = FB_NUC.replace("{ id: l1, pin: PC0 }", "{ id: l1, pin: PC0, feedback: %s }")
+        self.assertError(bad % "{ note: 1, cc: 2 }", r"only one of note, cc")
+        self.assertError(bad % "{ channel: 2 }", r"give one of note: / cc:")
+        self.assertError(bad % "{ clock: bar }", r"'bar' isn't a clock source \(valid: beat\)")
+        self.assertError(bad % "{ clock: beat, channel: 2 }", r"only for note: / cc:")
+        self.assertError(bad % "{ cc: 200 }", r"out of range")
+        self.assertError(bad % "{ mcu: play }", r"needs an `mcu:` section")
+        self.assertError(bad % "{ cc: 1 }" + "feedback: { enabled: false }\n", r"feedback is off")
+        self.assertError(FB_NUC.replace("{ id: l1, pin: PC0 }", "{ id: l1, pin: PC0, owner: daw }"),
+                         r"unknown owner 'daw'")
+        w = self.warns(FB_NUC.replace("{ id: l1, pin: PC0 }", "{ id: l1, pin: PC0, owner: host, timeout: 1s }"))
+        self.assertTrue(any("only used with owner: host_then_local" in x for x in w), w)
+
+    def test_takeover(self):
+        knob = MINIMAL_NUC + "analog:\n  - { id: k, pin: PA0, cc: 7%s }\n"
+        h, c = self.header(knob % ", takeover: pickup")
+        self.assertIn("#define GM_ANALOG_PICKUP 1", h)
+        self.assertIn("gm_analog_pickup[GM_N_ANALOGS] = { 1 };", c)
+        h, _ = self.header(knob % ", takeover: none")
+        self.assertIn("#define GM_ANALOG_PICKUP 0", h)
+        self.assertError(knob % ", takeover: scale", r"unknown takeover 'scale'")
+        self.assertError(knob % ", takeover: pickup" + "feedback: { enabled: false }\n", r"pickup needs the host")
+
+    def test_daw_port_and_mcu(self):
+        h, c = self.header(MINIMAL_NUC + "mcu:\n")
+        self.assertIn("#define GM_MCU 1", h)
+        self.assertIn("#define GM_USB_DAW_PORT 1", h)
+        self.assertIn("#define GM_MCU_CABLE 1", h)
+        self.assertIn("#define GM_MCU_ID 0x14", h)
+        self.assertIn('#define GM_DAW_PORT_NAME "test DAW"', h)
+        self.assertIn("gm_encoder_ring[1] = { { 0, 0 } };", c)
+        h, _ = self.header(MINIMAL_NUC + "mcu: { extender: true }\n")
+        self.assertIn("#define GM_MCU_ID 0x15", h)
+        h, _ = self.header(MINIMAL_NUC.replace("pid: 0x0002 }", "pid: 0x0002, daw_port: false }") + "mcu: {}\n")
+        self.assertIn("#define GM_USB_DAW_PORT 0", h)
+        self.assertIn("#define GM_MCU_CABLE 0", h)
+        self.assertIn("#define GM_FEEDBACK 0", h)      # the only port is the MCU port
+        self.assertError(MINIMAL_NUC.replace("pid: 0x0002 }", "pid: 0x0002, daw_port: true }"),
+                         r"DAW port carries Mackie Control: add an `mcu:`")
+        esp = MINIMAL_ESP.format(plat="esp32", tr="serial")
+        self.assertError(esp + "usb: { vid: 1, pid: 2, daw_port: true }\nmcu: {}\n", r"needs USB MIDI")
+        w = self.warns(esp + "mcu: {}\nbuttons: [{ id: n, pin: GPIO4, action: note, note: 60 }]\n")
+        self.assertTrue(any("Mackie Control on the only port" in x for x in w), w)
+        self.assertError(esp + "mcu: {}\nleds: [{ id: l, pin: GPIO4, feedback: { cc: 3 } }]\n",
+                         r"read as Mackie Control")
+
+    def test_mcu_components(self):
+        base = FB_NUC + "mcu: {}\n"
+        h, c = self.header(base.replace("action: cc_momentary, cc: 1", "mcu: play, led: l1") +
+                           "analog: [{ id: f, pin: PA0, mcu: master }]\n"
+                           "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_3, ring: [l2] }]\n")
+        self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 13 }; /* mcu */", c)
+        self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 94 };", c)
+        self.assertIn("{ GM_FB_NONE, 0, 0, GM_OWNER_HOST, 200 }, /* l1 */", c)   # MCU-driven: host
+        self.assertIn("{ GM_FB_NONE, 0, 0, GM_OWNER_HOST, 200 }, /* l2 */", c)   # ring LED
+        self.assertIn("gm_analog_mcu[GM_N_ANALOGS] = { 8 };", c)
+        self.assertIn("gm_analog_pickup[GM_N_ANALOGS] = { 1 };", c)                 # MCU fader default
+        self.assertIn("gm_encoder_mcu[GM_N_ENCODERS] = { 2 };", c)
+        self.assertIn("static const uint8_t ring_0[1] = { 1 };", c)
+        self.assertIn("{ ring_0, 1 }", c)
+        self.assertIn("#define GM_LED_FB 1", h)
+        btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
+        self.assertError(btn % "mcu: play", r"needs an `mcu:` section")
+        self.assertError(btn % "action: mcu" + "mcu: {}\n", r"action mcu needs mcu:")
+        self.assertError(btn % "mcu: plya" + "mcu: {}\n", r"unknown MCU button 'plya'; did you mean 'play'")
+        self.assertError(btn % "action: note, note: 3, mcu: play" + "mcu: {}\n", r"mcu: is for action: mcu")
+        self.assertError(btn % "mcu: play, cc: 3" + "mcu: {}\n", r"takes mcu:.*not cc:")
+        self.assertError(base + "analog: [{ id: f, pin: PA0, mcu: fader_9 }]\n", r"unknown MCU control 'fader_9'")
+        self.assertError(base + "analog: [{ id: f, pin: PA0 }]\n", r"is required", path="analog[0].cc")
+        self.assertError(base + "analog: [{ id: f, pin: PA0, mcu: fader_1 }, { id: g, pin: PA1, mcu: fader_1 }]\n",
+                         r"'fader_1' is already used by analog\[0\]")
+        self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring: [l1] }]\n",
+                         r"give the encoder `mcu: vpot_N`")
+        self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_1, ring: [nope] }]\n",
+                         r"no LED with id 'nope'")
+
+    def test_feedback_test_device(self):
+        """core/test's feedback device validates cleanly (test_feedback.c runs on it)."""
+        dev, diags = gd.load_device(FEEDBACK_TEST)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertEqual([str(d) for d in diags if d.level != "info"], [])
+
+
+@unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
+class TestFeedbackCompiles(unittest.TestCase):
+    setUp = TestGenerateCompiles.setUp
+    tearDown = TestGenerateCompiles.tearDown
+    gcc = TestGenerateCompiles.gcc
+    compile_with_core = TestGenerateCompiles.compile_with_core
+
+    def test_feedback_device_compiles(self):
+        dev, _ = gd.load_device(FEEDBACK_TEST)
+        self.compile_with_core(gen_dir(dev, self.tmp, "fb"))
+
+
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
 class TestCli(unittest.TestCase):
     def setUp(self):

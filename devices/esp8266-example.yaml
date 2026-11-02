@@ -1,21 +1,22 @@
 # Example ESP8266 controller with serial MIDI over the USB-UART (Wemos D1 mini).
 # The default device of firmware/esp/midi-controller (esp8266).
-gemifi: 1
-name: ESP8266 Example
+gemifi: 2
+name: esp8266-example
+friendly_name: ESP8266 Example
 description: ESP8266 (D1 mini) example, serial MIDI, 2 buttons, 1 LED, 1 pot on A0
 board_id: 0x3F02               # 0x3F00-0x3FFF: DIY / private
 platform: esp8266
 chip: d1_mini                  # PlatformIO board id
 midi: { transport: serial }
-scan_us: 1000
-boot_combo: [Button 1, Button 2]
+scan_interval: 1ms
+boot_combo: [button_1, button_2]
 
 buttons:
-  - { label: Button 1, pin: { pin: GPIO14, pullup: true, inverted: true }, action: cc_momentary, number: 64, led: LED }   # D5
-  - { label: Button 2, pin: { pin: GPIO12, pullup: true, inverted: true }, action: cc_toggle, number: 80 }               # D6
+  - { id: button_1, pin: { number: GPIO14, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 64, led: led }   # D5
+  - { id: button_2, pin: { number: GPIO12, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80 }               # D6
 
 leds:
-  - { label: LED, pin: { pin: GPIO2, inverted: true } }    # on-board LED (D4)
+  - { id: led, pin: { number: GPIO2, inverted: true } }    # on-board LED (D4)
 
 analog:
-  - { label: Pot, pin: A0, cc: 7 }
+  - { id: pot, pin: A0, cc: 7 }

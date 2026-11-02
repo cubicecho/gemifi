@@ -388,7 +388,7 @@ static void button_changed(uint32_t i, int down)
     int32_t act = gm_cfg.btn_action[i];
     uint32_t num = (uint32_t)gm_cfg.btn_number[i];
     event(EV_BUTTON, i, (uint32_t)down);
-    app_log(LOG_DEBUG, gm_device.buttons[i].label, down ? " down" : " up");
+    app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? " down" : " up");
     switch (act) {
     case ACT_CC_MOMENTARY:
         cc(num, down ? 127 : 0);

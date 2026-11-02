@@ -152,7 +152,8 @@ param_count × param:
   string name            stable machine key, e.g. "midi.channel" (used for backups)
   string label           display text, e.g. "MIDI channel"
   string unit            only if HAS_UNIT
-  count × string         index labels, only if INDEX_LABELS (e.g. "Sustain", "Edit", …)
+  count × string         index labels, only if INDEX_LABELS (e.g. "Sustain", "Edit", …;
+                         gemifi firmware sends the components' display names, YAML name:)
   if type == enum:
     u8  option_count     option i has value min + i; max must equal min + option_count - 1
     option_count × string

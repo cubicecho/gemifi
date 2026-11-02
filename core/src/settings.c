@@ -36,7 +36,7 @@ static const char *const action_opts[ACT_COUNT] = {
 };
 #endif
 
-/* Index labels come from the device's component labels. */
+/* Index labels are the components' display names (YAML name:, or from the id). */
 static const char *button_labels[GM_ARR(GM_N_BUTTONS)];
 static const char *analog_labels[GM_ARR(GM_N_ANALOGS)];
 static const char *encoder_labels[GM_ARR(GM_N_ENCODERS)];
@@ -51,11 +51,11 @@ static const char *const enc_mode_opts[] = {
 void gm_settings_init(void)
 {
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
-        button_labels[i] = gm_device.buttons[i].label;
+        button_labels[i] = gm_device.buttons[i].name;
     for (uint32_t i = 0; i < gm_device.n_analogs; i++)
-        analog_labels[i] = gm_device.analogs[i].label;
+        analog_labels[i] = gm_device.analogs[i].name;
     for (uint32_t i = 0; i < gm_device.n_encoders; i++)
-        encoder_labels[i] = gm_device.encoders[i].label;
+        encoder_labels[i] = gm_device.encoders[i].name;
 }
 
 static const param_def_t params[] = {

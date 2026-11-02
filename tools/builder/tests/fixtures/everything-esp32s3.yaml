@@ -1,6 +1,7 @@
 # Test fixture: every hub type and component kind on an ESP32-S3.
-gemifi: 1
-name: "Everything \"S3\" ?? test"
+gemifi: 2
+name: everything-s3
+friendly_name: "Everything \"S3\" ?? test"
 description: builder test fixture (all hub types)
 board_id: 0x3FFE
 platform: esp32s3
@@ -8,78 +9,91 @@ chip: esp32-s3-devkitc-1
 midi: { transport: usb }
 usb: { vid: 0x1209, pid: 0x0002 }
 i2c: { sda: GPIO8, scl: GPIO9 }
-scan_us: 250
-boot_combo: [Shift A, PCF 0]
+scan_interval: 250us
+boot_combo: [shift_a, pcf_0]
 
-hubs:
+# hubs are numbered in file order: leds595 1, rows595 2, buttons165 3, cols165 4,
+# faders 5, knobs 6, mcp 7, pcf 8
+sn74hc595:
   - id: leds595                # LED chain
-    type: 74hc595
-    data: GPIO10
-    clock: GPIO11
-    latch: GPIO12
-    enable: GPIO13
-    chain: 2
-  - id: buttons165
-    type: 74hc165
-    data: GPIO14
-    clock: GPIO15
-    latch: GPIO16
+    data_pin: GPIO10
+    clock_pin: GPIO11
+    latch_pin: GPIO12
+    oe_pin: GPIO13
+    sr_count: 2
   - id: rows595                # matrix rows; shares clock/latch with cols165
-    type: 74hc595
-    data: GPIO17
-    clock: GPIO18
-    latch: GPIO21
-    shared: true
-  - id: cols165                # matrix cols
-    type: 74hc165
-    data: GPIO38
-    clock: GPIO18
-    latch: GPIO21
-    shared: true
+    data_pin: GPIO17
+    clock_pin: { number: GPIO18, allow_other_uses: true }
+    latch_pin: { number: GPIO21, allow_other_uses: true }
+
+sn74hc165:
+  - id: buttons165
+    data_pin: GPIO14
+    clock_pin: GPIO15
+    load_pin: GPIO16
+  - id: cols165                # matrix columns
+    data_pin: GPIO38
+    clock_pin: { number: GPIO18, allow_other_uses: true }
+    load_pin: { number: GPIO21, allow_other_uses: true }
+
+cd74hc4051:
   - id: faders
-    type: 74hc4051
-    select: [GPIO4, GPIO5, GPIO6]
-    common: GPIO1
-    settle_us: 5
+    pin_s0: GPIO4
+    pin_s1: GPIO5
+    pin_s2: GPIO6
+    common_pin: GPIO1
+    delay: 5us
+
+cd74hc4067:
   - id: knobs
-    type: 74hc4067
-    select: [GPIO39, GPIO40, GPIO41, GPIO42]
-    common: GPIO2
-    enable: GPIO47
+    pin_s0: GPIO39
+    pin_s1: GPIO40
+    pin_s2: GPIO41
+    pin_s3: GPIO42
+    common_pin: GPIO2
+    enable_pin: GPIO47
+
+mcp23017:
   - id: mcp
-    type: mcp23017
     address: 0x21
+
+pcf8574:
   - id: pcf
-    type: pcf8574
     address: 0x38
 
 buttons:
-  - { label: Shift A, pin: { hub: buttons165, pin: 0, inverted: true }, action: cc_momentary, number: 64, led: L0 }
-  - { label: Shift B, pin: { hub: buttons165, pin: 7, inverted: true }, action: note, number: 60, led: Bi }
-  - { label: PCF 0,   pin: { hub: pcf, pin: P0, inverted: true }, action: program_next }
-  - { label: PCF 1,   pin: { hub: pcf, pin: 1, inverted: true }, action: program_prev }
-  - { label: Mux btn, pin: { hub: knobs, channel: 15, inverted: true }, action: transpose_up }
-  - { label: MCU btn, pin: { pin: GPIO48, pullup: true, inverted: true }, action: bend_up }
+  - { id: shift_a, pin: { sn74hc165: buttons165, number: 0, inverted: true }, action: cc_momentary, cc: 64, led: l0 }
+  - { id: shift_b, pin: { sn74hc165: buttons165, number: 7, inverted: true }, action: note, note: 60, led: bi }
+  - { name: PCF 0, pin: { pcf8574: pcf, number: P0, inverted: true }, action: program_next }
+  - { name: PCF 1, pin: { pcf8574: pcf, number: 1, inverted: true }, action: program_prev }
+  - { id: mux_btn, name: Mux btn, pin: { cd74hc4067: knobs, number: 15, inverted: true }, action: transpose_up }
+  - { id: mcu_btn, pin: { number: GPIO48, mode: INPUT_PULLUP, inverted: true }, action: bend_up }
 
 leds:
-  - { label: L0, pin: { hub: leds595, pin: 0 } }
-  - { label: Bi, pin: { hub: leds595, pin: 15 }, pin2: { hub: mcp, pin: GPB7 } }
-  - { label: PCF LED, pin: { hub: pcf, pin: 7, inverted: true } }
+  - { id: l0, pin: { sn74hc595: leds595, number: 0 } }
+  - { id: bi, pin: { sn74hc595: leds595, number: 15 }, pin2: { mcp23xxx: mcp, number: GPB7 } }
+  - { id: pcf_led, pin: { pcf8574: pcf, number: 7, inverted: true } }
 
 analog:
-  - { label: Fader 1, pin: { hub: faders, channel: 0 }, cc: 20 }
-  - { label: Fader 8, pin: { hub: faders, channel: 7 }, cc: 27, raw_min: 4095, raw_max: 0 }
-  - { label: Knob 1,  pin: { hub: knobs, channel: 0 }, cc: 70 }
-  - { label: Direct,  pin: GPIO3, cc: 7 }
+  - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, cc: 20 }
+  - { id: fader_8, pin: { cd74hc4051: faders, number: 7 }, cc: 27, adc_min: 4095, adc_max: 0 }
+  - { id: knob_1,  pin: { cd74hc4067: knobs, number: 0 }, cc: 70 }
+  - { id: direct,  pin: GPIO3, cc: 7 }
 
 encoders:
-  - { label: Enc MCP, a: { hub: mcp, pin: 0, pullup: true }, b: { hub: mcp, pin: 1, pullup: true }, cc: 30, steps_per_detent: 2 }
-  - { label: Enc MCU, a: { pin: GPIO7, pullup: true }, b: { pin: GPIO44, pullup: true }, cc: 31 }
+  - id: enc_mcp
+    name: Enc MCP
+    pin_a: { mcp23xxx: mcp, number: 0, mode: INPUT_PULLUP }
+    pin_b: { mcp23xxx: mcp, number: 1, mode: INPUT_PULLUP }
+    cc: 30
+    steps_per_detent: 2
+  - { id: enc_mcu, name: Enc MCU, pin_a: { number: GPIO7, mode: INPUT_PULLUP }, pin_b: { number: GPIO44, mode: INPUT_PULLUP }, cc: 31 }
 
 key_matrix:
-  kind: switch
-  rows: [{ hub: rows595, pin: 0 }, { hub: rows595, pin: 1 }, { hub: rows595, pin: 2 }, { hub: rows595, pin: 3 }]
-  cols: [{ hub: cols165, pin: 0 }, { hub: cols165, pin: 1 }, { hub: cols165, pin: 2 }, { hub: cols165, pin: 3 },
-         { hub: cols165, pin: 4 }, { hub: cols165, pin: 5 }]
+  type: switch
+  rows: [{ sn74hc595: rows595, number: 0 }, { sn74hc595: rows595, number: 1 },
+         { sn74hc595: rows595, number: 2 }, { sn74hc595: rows595, number: 3 }]
+  columns: [{ sn74hc165: cols165, number: 0 }, { sn74hc165: cols165, number: 1 }, { sn74hc165: cols165, number: 2 },
+            { sn74hc165: cols165, number: 3 }, { sn74hc165: cols165, number: 4 }, { sn74hc165: cols165, number: 5 }]
   keys: 24
   first_note: 36

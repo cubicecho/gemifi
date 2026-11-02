@@ -1,52 +1,56 @@
 # M-Audio Keystation Mini 32 MK3 with gemifi (Nuvoton NUC120LC1BN).
 # Pins: research/devices/m-audio-keystation-mini32-mk3/analysis/hw-map.md
-gemifi: 1
-name: Keystation Mini 32
+gemifi: 2
+name: keystation-mini32
+friendly_name: Keystation Mini 32
 description: M-Audio Keystation Mini 32 MK3 (NUC120), 32 velocity keys, 7 buttons, volume knob
-version: 0.1.5              # firmware version, shown in HELLO and the .gfw header
+project:
+  version: 0.1.5            # firmware version, shown in HELLO and the .gfw header
 board_id: 0x0001
 platform: nuvoton-nuc1xx
 chip: NUC120LC1BN
 usb: { vid: 0x1209, pid: 0x0002 }
-scan_us: 125               # stock rate; the scan takes ~20 us of it
-boot_combo: [Pitch down, Pitch up]
+scan_interval: 125us       # stock rate; the scan takes ~20 us of it
+boot_combo: [pitch_down, pitch_up]
 
 # Buttons: PA1..PA7, active-low, external pull-ups (NUC120 has no internal pulls).
+# The names show in the web config page and are the CLI's index keys (button.action:Oct -);
+# without name: the name comes from the id (pitch_down -> "Pitch down").
 buttons:
-  - label: Sustain
-    pin: 
-      pin: PA1
+  - id: sustain
+    pin:
+      number: PA1
       inverted: true
     action: cc_momentary
-    number: 64
-    led: Sustain LED
-  - { label: Edit,       pin: { pin: PA2, inverted: true }, action: cc_toggle,    number: 80, led: Edit LED }
-  - { label: Oct -,      pin: { pin: PA3, inverted: true }, action: octave_down,  led: Oct - LED }
-  - { label: Oct +,      pin: { pin: PA4, inverted: true }, action: octave_up,    led: Oct + LED }
-  - { label: Pitch down, pin: { pin: PA5, inverted: true }, action: bend_down }
-  - { label: Pitch up,   pin: { pin: PA6, inverted: true }, action: bend_up }
-  - { label: Mod,        pin: { pin: PA7, inverted: true }, action: cc_ramp,      number: 1 }
+    cc: 64
+    led: sustain_led
+  - { id: edit,       pin: { number: PA2, inverted: true }, action: cc_toggle,   cc: 80, led: edit_led }
+  - { id: oct_down,   name: Oct -, pin: { number: PA3, inverted: true }, action: octave_down, led: oct_down_led }
+  - { id: oct_up,     name: Oct +, pin: { number: PA4, inverted: true }, action: octave_up,   led: oct_up_led }
+  - { id: pitch_down, pin: { number: PA5, inverted: true }, action: bend_down }
+  - { id: pitch_up,   pin: { number: PA6, inverted: true }, action: bend_up }
+  - { id: mod,        pin: { number: PA7, inverted: true }, action: cc_ramp,     cc: 1 }
 
 # LEDs: active-low. Octave LEDs are bicolour (second colour on the PWM pins).
 leds:
-  - { label: Sustain LED, pin: { pin: PA12, inverted: true } }
-  - { label: Edit LED,    pin: { pin: PA13, inverted: true } }
-  - { label: Oct - LED,   pin: { pin: PA10, inverted: true }, pin2: { pin: PA14, inverted: true } }
-  - { label: Oct + LED,   pin: { pin: PA11, inverted: true }, pin2: { pin: PA15, inverted: true } }
+  - { id: sustain_led,  pin: { number: PA12, inverted: true } }
+  - { id: edit_led,     pin: { number: PA13, inverted: true } }
+  - { id: oct_down_led, pin: { number: PA10, inverted: true }, pin2: { number: PA14, inverted: true } }
+  - { id: oct_up_led,   pin: { number: PA11, inverted: true }, pin2: { number: PA15, inverted: true } }
 
 analog:
-  - { label: Volume, pin: PA0, cc: 7, raw_min: 32, raw_max: 4064 }
+  - { id: volume, pin: PA0, cc: 7, adc_min: 32, adc_max: 4064 }
 
 # 8 drive rows (active-high) x 8 sense columns (external pull-downs),
 # two contacts per key.
 key_matrix:
-  kind: velocity
+  type: velocity
   rows: [PA8, PA9, PC0, PC1, PC2, PC3, PC6, PC7]
-  cols: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
+  columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
   keys: 32
   first_note: 48
-  settle_us: 1
+  settle: 1us
   # Key times for velocity 127 and 1, tuned on this keybed (2026-10-31):
   # soft playing 21-54 ms, normal 3-7 ms, hard 1.2-2.5 ms between contacts.
   # 2.0/80 felt hot at the top and too quiet at the bottom.
-  velocity: { fast_ms: 1.6, slow_ms: 120 }
+  velocity: { fast: 1.6ms, slow: 120ms }

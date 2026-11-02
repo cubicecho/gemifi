@@ -215,7 +215,8 @@ void vpin_refresh(void)
         const gm_hub_t *h = &gm_device.hubs[i];
         if (h->type != GM_HUB_HC165)
             continue;
-        /* SH/LD low loads the parallel inputs; then QH = first chip's H
+        /* Pin numbers as ESPHome: 0-7 on the chip wired to the MCU, 0 = its A.
+         * SH/LD low loads the parallel inputs; then QH = first chip's H
          * (pin 7), and each clock shifts the next bit in. */
         hal_pin_write(h->latch.num, 0);
         hal_delay_us(1);

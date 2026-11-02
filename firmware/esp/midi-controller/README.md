@@ -21,13 +21,13 @@ pio run -d firmware/esp/midi-controller -e <esp32|esp32s2|esp32s3|esp8266>
 ```
 
 - `GM_DEVICE_DIR`: an already generated config; an absolute path, or a path relative to the repo root. `firmware/esp/gemifi_esp.py` adds it to the include path and compiles its `.c` files together with `core/src/*.c`. Without it, the config is generated from `GM_DEVICE` (a YAML path, same rules), which defaults to `devices/esp32-example.yaml` for `esp32s2`/`esp32s3` and `devices/esp8266-example.yaml` for `esp8266`. `esp32` has no default and needs a device.
-- Device settings come from `gm_device_config.h`: `GM_MIDI_TRANSPORT`, `GM_I2C_SDA`/`GM_I2C_SCL`, `GM_BOARD_ID`, `GM_DEVICE_NAME`, `GM_USB_VID`/`GM_USB_PID`, and optionally `GM_FW_VERSION` (from the YAML `version:`, default 0.1.0) and `GM_MIDI_BAUD`.
+- Device settings come from `gm_device_config.h`: `GM_MIDI_TRANSPORT`, `GM_I2C_SDA`/`GM_I2C_SCL`, `GM_BOARD_ID`, `GM_DEVICE_NAME`, `GM_USB_VID`/`GM_USB_PID`, and optionally `GM_FW_VERSION` (from the YAML `project: { version }`, default 0.1.0) and `GM_MIDI_BAUD`.
 - **Board:** `pio run` has no `--project-option`. To use a board other than the env's default (`esp32dev`, `esp32-s2-saola-1`, `esp32-s3-devkitc-1`, `d1_mini`), set `GM_PIO_EXTRA` to an ini file that overrides the env. The env's `board_build.*` settings still apply.
   ```ini
   [env:esp32s3]
   board = lolin_s3
   ```
-- Output: `<build dir>/<env>/firmware.bin` (the OTA image), plus `bootloader.bin`, `partitions.bin`, and `webflash/` (the parts and `manifest.json` for ESP Web Tools; its `version` is the YAML `version:`, or `dev`).
+- Output: `<build dir>/<env>/firmware.bin` (the OTA image), plus `bootloader.bin`, `partitions.bin`, and `webflash/` (the parts and `manifest.json` for ESP Web Tools; its `version` is the YAML `project: { version }`, or `dev`).
 
 `PLATFORMIO_BUILD_FLAGS` adds compiler flags (e.g. `-DGM_FW_VERSION=0x00010200`).
 

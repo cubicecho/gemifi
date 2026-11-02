@@ -295,7 +295,7 @@ gemifi.py restore kms32.json [--commit]
 gemifi.py log --names                 # LOG/EVENT/PARAM_CHANGED, with param names from the schema
 ```
 
-- A param is named by its `name` or `id`; array params take `:INDEX`, where INDEX is a number or an index label (any case). `set` needs the index for array params.
+- A param is named by its `name` or `id`; array params take `:INDEX`, where INDEX is a number or an index label (any case; the component's display name, YAML `name:`). `set` needs the index for array params.
 - Values: a number (`0x..` works), an enum option label (any case), `on`/`off` (also true/false, yes/no) for bool, and for note params a note name with **MIDI 60 = C4** (so 0 = C-1, 127 = G9; `F#3`, `Bb2` work). A trailing unit is allowed (`bend.glide=120ms`).
 - `set` checks every value against the schema before sending anything. SET_PARAM is live at once; nothing is kept over a power cycle until `commit` (or `--commit`).
 - `get`, `backup` and `restore` use GET_PARAMS/SET_PARAMS (runs of 16) for array params and fall back to single GET/SET_PARAM if the device replies BAD_CMD. If a run fails in `restore`, it retries that run one value at a time, so each bad entry is reported on its own.

@@ -38,9 +38,11 @@ mine.yaml:31: error: analog[0].pin: PB0 has no ADC on nuvoton-nuc1xx (ADC pins: 
 mine.yaml:40: error: key_matrix.keys: 40 keys don't fit a 8 x 8 velocity matrix (at most 32)
 ```
 
-It checks: the platform and its pin names (NUC1xx `PA0`…`PD15`; ESP `GPIOn` / `n` per chip, `A0` on ESP8266), pins used twice (component pins, hub control pins and I2C pins all count), ADC-capable pins for analog inputs (or a mux whose `common` is an ADC pin), output-capable pins for LEDs and matrix rows, hub ids/types/ranges (`chain` 1–4, 8/16 mux channels, 16 MCP23017 / 8 PCF8574 pins), which hub types each use allows (outputs: 595/MCP/PCF; inputs: 165/mux/MCP/PCF; matrix: MCU, 595 rows, 165 cols; encoders: not on a mux), unique labels, `led:` and `boot_combo` references, the key matrix (velocity needs even cols, keys fit the matrix, `first_note + keys ≤ 128`), `board_id ≤ 0x3FFF`, at most 32 buttons, I2C pins when an I2C hub exists, action names, 0..127 numbers, and unknown keys (with "did you mean").
+It checks: the format version (`gemifi: 2`; a format 1 file gets one error per old key saying what replaced it), the node `name` (lowercase, digits, `-`, at most 31), the platform and its pin names (NUC1xx `PA0`…`PD15`; ESP `GPIOn` / `n` per chip, `A0` on ESP8266), pin modes against what the pin is used for and what the chip can do (no pull-downs on NUC1xx, no pulls on ESP32 GPIO34–39, no `open_drain` yet), pins used twice (component pins, hub control pins and I2C pins all count), ADC-capable pins for analog inputs (or a mux whose `common_pin` is an ADC pin), output-capable pins for LEDs and matrix rows, hub ranges (`sr_count` 1–4, 8/16 mux channels, 16 MCP23017 / 8 PCF8574 pins) and that a hub pin names its hub with the right chip key (`{ pcf8574: p, number: 0 }`), which hubs each use allows (outputs: 595/MCP/PCF; inputs: 165/mux/MCP/PCF; matrix: MCU, 595 rows, 165 columns; encoders: not on a mux), ids (below), `led:`, `boot_combo` and hub references, button `cc:`/`note:` against the action, time periods (`125us`, `1.6ms`: a bare number is an error that says which unit to add), the key matrix (velocity needs even columns, keys fit the matrix, `first_note + keys ≤ 128`), `board_id ≤ 0x3FFF`, at most 32 buttons, I2C pins when an I2C hub exists, action names, 0..127 numbers, and unknown keys (with "did you mean").
 
-Two hubs can share a control line (e.g. a 74HC595 and a 74HC165 on the same clock and latch, or two muxes on the same select lines) only if every hub involved has `shared: true` and the line has the same role in each. Making that work electrically is up to you.
+**Ids** follow ESPHome's rules: a C identifier (a letter, then letters, digits and `_`), not a C/C++ keyword, unique across the whole device (hubs and components share one namespace). gemifi also wants them lower_snake_case. Ids that YAML would read as something other than a name are refused with the reason: PyYAML follows YAML 1.1, so a bare `no`, `off`, `On`, `yes` or `true` is a boolean, `null` is nothing and `12` / `0x1F` are numbers; `y`, `n` and quoted `'no'` are refused too, because other YAML tools read them differently. A component with only a `name:` gets an id derived from it (`Pitch Down` → `pitch_down`); two derived ids that collide are an error naming both entries.
+
+Two hubs can share a control line (e.g. an sn74hc595 and an sn74hc165 on one clock and latch, or two muxes on the same select lines) only if each use sets `allow_other_uses: true` (`clock_pin: { number: GPIO18, allow_other_uses: true }`) and the line has the same job in each (clock with clock, latch with load). Component pins can't be shared. Making it work electrically is up to you.
 
 **build** writes into `build/devices/<name>/` (`<name>` = the YAML file name without `.yaml`; `-o` picks another directory):
 
@@ -48,16 +50,16 @@ Two hubs can share a control line (e.g. a 74HC595 and a 74HC165 on the same cloc
 |---|---|
 | `config/gm_device_config.{h,c}` | generated tables |
 | `fw/` (NUC) or `pio/` (ESP) | the platform's build directory |
-| `<name>.gfw`, `<name>.bin` | the image(s), copied here at the end |
+| `<image>.gfw`, `<image>.bin` | the image(s), copied here at the end. `<image>` is the node name and version, as ESPHome names its builds: `keystation-mini32-0.1.5` (just the node name without `project: { version }`). The previous build's images are removed first. |
 
 - NUC1xx: `make -C firmware/nuvoton-nuc1xx/midi-controller DEVICE_DIR=<config> BUILD=<out>/fw`, image `midi-controller.gfw`.
-- ESP: `GM_DEVICE_DIR=<config> GM_PIO_EXTRA=<out>/board.ini PLATFORMIO_BUILD_DIR=<out>/pio pio run -d firmware/esp/midi-controller -e <platform>`. `board.ini` sets `board = <chip>` for that env (pio has no command-line board override). Outputs copied to `<out>/`: `<name>.bin` (the app, for OTA over SysEx), `<name>-factory.bin` (merged, flash at 0x0 for a first install), `<name>-bootloader.bin`, `<name>-partitions.bin`, and `webflash/` (ESP Web Tools `manifest.json` + parts).
+- ESP: `GM_DEVICE_DIR=<config> GM_PIO_EXTRA=<out>/board.ini PLATFORMIO_BUILD_DIR=<out>/pio pio run -d firmware/esp/midi-controller -e <platform>`. `board.ini` sets `board = <chip>` for that env (pio has no command-line board override). Outputs copied to `<out>/`: `<image>.bin` (the app, for OTA over SysEx), `<image>-factory.bin` (merged, flash at 0x0 for a first install), `<image>-bootloader.bin`, `<image>-partitions.bin`, and `webflash/` (ESP Web Tools `manifest.json` + parts).
 
 Flash the image with the **web updater** (`cd web/updater && npm run dev`) or `tools/host/gemifi.py`. The builder doesn't flash.
 
 ## Presets
 
-A preset is any `devices/*.yaml`. `presets` lists them with their `platform` and top-level `description:`. `new <name> --preset <preset>` copies one to `~/gemifi-devices/<name>.yaml` (`--dir` picks another directory, `--force` overwrites) for you to edit. To add a preset, put a valid YAML with a `description:` line in `devices/`. `tests/test_builder.py` checks that every preset validates and compiles.
+A preset is any `devices/*.yaml`. `presets` lists them with their `platform` and top-level `description:`. `new <name> --preset <preset>` copies one to `~/gemifi-devices/<name>.yaml` (`--dir` picks another directory, `--force` overwrites) for you to edit; when `<name>` is a valid node name (lowercase, digits, `-`) it also becomes the copy's `name:`. To add a preset, put a valid YAML with a `description:` line in `devices/`. `tests/test_builder.py` checks that every preset validates and compiles.
 
 ## Dashboard
 

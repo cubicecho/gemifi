@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if title %}{{ title }} · {{ site.name }}{% else %}{{ site.name }} — {{ site.tagline }}{% endif %}</title>
+    <meta name="description" content="{{ description or site.description }}" />
+    <meta property="og:title" content="{{ title or site.name }}" />
+    <meta property="og:description" content="{{ description or site.description }}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="{{ site.url }}" />
+    <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | url }}" />
+    <!-- The shared theme first, then this project's own rules on top of it. -->
+    <link rel="stylesheet" href="{{ '/css/cubesite.css' | url }}" />
+    <link rel="stylesheet" href="{{ '/css/site.css' | url }}" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="{{ '/' | url }}">
+        {% include "mark.njk" %}
+        <span class="name">{{ site.name }}</span>
+      </a>
+      {#- page.url has no path prefix, so compare it to the bare path. -#}
+      <nav>
+        <a href="{{ '/' | url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>Home</a>
+        <a href="{{ '/devices/' | url }}"{% if page.url.startsWith('/devices/') %} aria-current="page"{% endif %}>Devices</a>
+        <a href="{{ '/get-started/' | url }}"{% if page.url == '/get-started/' %} aria-current="page"{% endif %}>Get started</a>
+        <a href="{{ site.repo }}" rel="noopener">GitHub ↗</a>
+        <a href="{{ site.org }}" rel="noopener">Cubic Echo ↗</a>
+      </nav>
+    </header>
+
+    <main>
+      {{ content | safe }}
+    </main>
+
+    <footer class="site-footer">
+      <p class="disclaimer">
+        gemifi is an independent project, not affiliated with or endorsed by
+        M-Audio/inMusic, Behringer, or any other hardware maker. Product names are
+        trademarks of their owners and are used only to identify compatible
+        hardware. Flashing gemifi replaces the stock firmware and may void your
+        warranty.
+      </p>
+      <span>© {% year %} Cubic Echo · MIT license</span>
+      <span class="footer-links">
+        <a href="{{ site.repo }}" rel="noopener">Source</a>
+        <a href="{{ site.org }}" rel="noopener">cubicecho.com</a>
+      </span>
+    </footer>
+  </body>
+</html>

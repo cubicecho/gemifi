@@ -1,0 +1,67 @@
+---
+layout: base.njk
+---
+{%- set st = statuses[status] -%}
+<p class="crumb"><a href="{{ '/devices/' | url }}">← All devices</a></p>
+
+<section class="hero device-hero">
+  <p class="eyebrow">{{ maker }}</p>
+  <h1>{{ model }}</h1>
+  <p>{{ summary }}</p>
+  <p class="meta">
+    <span class="status status-{{ status }}">{{ st.label }}</span>
+    <span class="status-note">{{ st.description }}</span>
+  </p>
+</section>
+
+{% if warning !== false %}
+<aside class="callout callout-warning" role="note">
+  <strong>Before you flash.</strong>
+  Flashing gemifi replaces the stock firmware and may void your warranty.
+  Keep a backup of the stock firmware{% if restore %}, and read “Back to stock” below{% endif %}
+  before you write anything.
+</aside>
+{% endif %}
+
+<section class="section">
+  <h2>At a glance</h2>
+  <dl class="facts">
+    <div><dt>Maker</dt><dd>{{ maker }}</dd></div>
+    <div><dt>Model</dt><dd>{{ model }}</dd></div>
+    <div><dt>Status</dt><dd>{{ st.label }}</dd></div>
+    {% for row in facts %}
+    <div><dt>{{ row[0] }}</dt><dd>{{ row[1] | safe }}</dd></div>
+    {% endfor %}
+    <div>
+      <dt>Device YAML</dt>
+      <dd>
+        {% if yaml and yaml.length %}
+          {% for y in yaml %}<a href="{{ site.blob }}{{ y }}" rel="noopener"><code>{{ y }}</code></a>{% if not loop.last %}<br />{% endif %}{% endfor %}
+        {% else %}
+          None yet.
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<section class="section">
+  <div class="prose device-body">
+    {{ content | safe }}
+  </div>
+</section>
+
+<section class="section">
+  <h2>Photos</h2>
+  <div class="photo-placeholder">
+    <p><strong>Photos wanted.</strong> {{ photos or "We don't have our own photos of this device yet." }}</p>
+    <p>If you have one open, a photo of the board (both sides) and of the
+    connectors helps the next person. Open an issue or a pull request on
+    <a href="{{ site.repo }}" rel="noopener">GitHub</a>.</p>
+  </div>
+</section>
+
+<p class="readme-link">
+  Something here wrong or out of date? The research notes behind this page are in the
+  <a href="{{ site.repo }}" rel="noopener">repo</a>; corrections are welcome as issues or pull requests.
+</p>

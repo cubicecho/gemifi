@@ -23,6 +23,20 @@
  * packer (whole-image checksum at 0x0801B3FE), so the image ends below it. */
 #define GEMIFI_IMG_LIMIT       0x0801B000u
 
+/* The gemifi bootloader (bootloader/stm32f1) at 0x08000000 marks itself with
+ * this right after its vector table, so an app can tell it from M-Audio's
+ * bootloader and say so in HELLO (caps bit 7, protocol/sysex.md 4.1). */
+#define GEMIFI_BOOT_MARK_ADDR  0x08000130u
+#define GEMIFI_BOOT_MAGIC      0x4C424D47u   /* 'GMBL' */
+
+struct gemifi_boot_mark {
+    uint32_t magic;
+    uint16_t board_id;
+    uint16_t mark_version;     /* 1 */
+    uint32_t boot_version;     /* major << 24 | minor << 16 | patch */
+    uint32_t reserved;
+};
+
 struct gemifi_img_hdr {
     uint32_t magic;
     uint16_t hdr_version;

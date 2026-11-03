@@ -324,7 +324,10 @@ static uint32_t cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
     gsx_put_u(t, FW_VERSION, 5);
     gsx_put(t, GSX_PROTO_VERSION);
     gsx_put_u(t, 0, 2);                     /* max_chunk: no upload here */
-    gsx_put_u(t, GSX_CAP_LOG, 2);
+    uint16_t caps = GSX_CAP_LOG;
+    if (*(const volatile uint32_t *)GEMIFI_BOOT_MARK_ADDR == GEMIFI_BOOT_MAGIC)
+        caps |= GSX_CAP_GEMIFI_BOOT;       /* uploads via the gemifi bootloader */
+    gsx_put_u(t, caps, 2);
     gsx_put_packed(t, uid, sizeof(uid));
     return GSX_OK;
 }
@@ -404,7 +407,6 @@ int main(void)
     hse = sys_clock_init();
     sys_tick_init();
     hal_delay_calibrate();
-    board_gpio_init();
 #if PROBE_RAM
     ram_probe();
 #endif

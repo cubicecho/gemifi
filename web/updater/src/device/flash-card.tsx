@@ -12,7 +12,7 @@ import { Upload } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { type AbImageResult, isAbDevice, prepareAbImage } from '../protocol/ab-image.ts';
-import { BoardUpdate, boardLabel, CODE61_BOARD_ID } from '../protocol/boards.ts';
+import { boardLabel, CODE61_BOARD_ID, usesVendorUpdate } from '../protocol/boards.ts';
 import {
   type DeviceLink,
   FLASH_PHASE_LABELS,
@@ -251,7 +251,7 @@ export function FlashCard({
   const gfwResult = picked?.isGfw === true ? validateImage(picked.bytes, device?.boardId) : null;
   // A stock M-Audio update file (hex text) goes to the Code 61's bootloader as it is.
   const stockResult = picked !== null && picked.isGfw === false ? parseStockUpdateFile(picked.bytes) : null;
-  const isVendorGfw = gfwResult?.ok === true && gfwResult.image.board.update === BoardUpdate.MaudioVendor;
+  const isVendorGfw = gfwResult?.ok === true && usesVendorUpdate(gfwResult.image.board, device);
   const isVendor = stockResult !== null || isVendorGfw;
   const abResult =
     picked !== null && picked.isGfw === false && stockResult === null

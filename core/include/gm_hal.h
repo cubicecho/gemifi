@@ -84,6 +84,11 @@ typedef struct {
 } hal_fw_ops_t;
 const hal_fw_ops_t *hal_fw_ops(void);
 
+/* Extra HELLO caps bits the platform knows about (e.g. GSX_CAP_GEMIFI_BOOT on
+ * boards where the bootloader may be the vendor's or gemifi's). A weak
+ * default returning 0 is in core/src/app_proto.c. */
+uint16_t hal_extra_caps(void);
+
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
  * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */
 

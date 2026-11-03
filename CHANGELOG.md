@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.12.0](https://github.com/cubicecho/gemifi/compare/v0.11.0...v0.12.0) (2026-11-03)
+
+
+### Features
+
+* **code61:** button mode, button LEDs, pad LEDs, display map ([39adf82](https://github.com/cubicecho/gemifi/commit/39adf829919e45165e9a5c5bb97a724fd90ae2c7))
+* rgb_serial LED hub, pad LEDs, faster button debounce ([261088a](https://github.com/cubicecho/gemifi/commit/261088a53813f6da33061abb7335cf3caeeba1b3))
+
 # [0.11.0](https://github.com/cubicecho/gemifi/compare/v0.10.0...v0.11.0) (2026-11-03)
 
 

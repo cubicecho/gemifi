@@ -20,15 +20,15 @@ Output: `build/midi-controller.gfw`. With the Keystation config it is 18.9 KB of
 |---|---|
 | 32 keys | Note On/Off from note 48 (C3), velocity from the time between the two key contacts |
 | Sustain | CC 64 momentary, Sustain LED lit while held |
-| Edit | CC 80 toggle, Edit LED shows the state |
+| Edit | edit mode (core/README.md "Modes"), Edit LED lit: the keys stop playing and become function keys until Edit is pressed again. E3, then a white key from D4 = preset 1..8; F3 / G3 = previous / next preset; A3, then a key from C4 = channel 1..16; C3 octave reset, C#3 / D#3 octave −/+, D3 transpose reset; C5..F5 velocity curve normal / soft / hard / fixed. After a preset switch, Oct − blinks its number |
 | Oct − / Oct + | octave −4..+4 (both together: back to 0); LEDs show the octave like the stock firmware (1 = colour A, 2 = both, 3 = colour B, 4 = blinking) |
 | Pitch ▼ / ▲ | pitch bend to the end stop with an 80 ms glide, back to centre on release |
 | Mod | CC 1 ramp up to 127 over 300 ms while held, back down on release |
 | Volume knob | CC 7 |
 
-**Host feedback** (core/README.md "DAW feedback"): with Live's **Remote** turned on for the Keystation's output port, a CC 80 from the host sets the Edit toggle (and its LED), and the host's CC 64 lights the Sustain LED for 2 s after each message. No second USB port: the descriptor is the same as before.
+**Host feedback** (core/README.md "DAW feedback"): with Live's **Remote** turned on for the Keystation's output port, a button's own CC echoed by the host sets its toggle state and LED, and the host's CC 64 lights the Sustain LED for 2 s after each message. No second USB port: the descriptor is the same as before.
 
-Every button's action and CC/note number can be changed per preset (see "Presets" below), and stored with "Save to device" (COMMIT). Holding **Pitch ▼ + Pitch ▲** at power-up starts with the defaults and ignores the stored profile (with the gemifi bootloader in LDROM, the same combo enters the bootloader instead).
+Every button's action and CC/note number (except Edit's, the mode button) can be changed per preset (see "Presets" below), and stored with "Save to device" (COMMIT). Holding **Pitch ▼ + Pitch ▲** at power-up starts with the defaults and ignores the stored profile (with the gemifi bootloader in LDROM, the same combo enters the bootloader instead).
 
 At power-up all LEDs light for 200 ms (lamp test). About 1.5 s later the firmware sends `LOG "<name> up"` and its version.
 

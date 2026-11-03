@@ -15,7 +15,7 @@ P_CHANNEL, P_OCTAVE, P_VEL_CURVE, P_VEL_FIXED, P_VEL_FAST = 1, 3, 4, 5, 6
 P_ANALOG_CC, P_ACTION, P_NUMBER, P_GLIDE, P_RAMP, P_LOG = 8, 9, 10, 11, 12, 14
 P_ACTIVE, P_PROGRAM, P_DIRTY = gp.P_PRESET_ACTIVE, gp.P_PRESET_PROGRAM, gp.P_PRESET_DIRTY
 ACT_NOTE, ACT_PRESET_NEXT, ACT_PRESET_PREV = 4, 13, 14
-SUSTAIN, EDIT, MOD = 0, 1, 6               # button indexes
+SUSTAIN, EDIT, MOD = 0, 1, 6               # button indexes (Edit: the mode button)
 N_SLOTS = 8
 
 fails = 0
@@ -193,8 +193,8 @@ check(gp.parse_param_reply(r.payload).value == 2, "SET_PARAM preset.active = 2 O
 check([(x.slot, x.dirty) for x in changed(u)] == [(2, 0)], f"PRESET_CHANGED (2, clean): {changed(u)}")
 check(not param_changed(u), "no PARAM_CHANGED for a host switch")
 check(d.get(P_ACTIVE) == 2 and d.get(P_CHANNEL) == 10 and d.get(P_VEL_CURVE) == 2, "Drums: channel 10, curve hard")
-check([d.get(P_ACTION, i) for i in (0, 1)] == [ACT_NOTE, ACT_NOTE] and [d.get(P_NUMBER, i) for i in (0, 1)] == [36, 38],
-      "Drums: sustain/edit = note 36/38")
+check([d.get(P_ACTION, i) for i in (SUSTAIN, MOD)] == [ACT_NOTE, ACT_NOTE] and [d.get(P_NUMBER, i) for i in (SUSTAIN, MOD)] == [36, 38],
+      "Drums: sustain/mod = note 36/38")
 check(d.get(P_ACTION, 2) == 5 and d.get(P_ANALOG_CC) == 7, "Drums: the rest is slot 1's (oct- action, volume CC 7)")
 _, _, c = d.press(SUSTAIN); check(notes(c) == [bytes([0x99, 36, 100])], f"sustain -> Note On 36 ch 10: {c}")
 _, _, c = d.release(SUSTAIN); check(notes(c) == [bytes([0x89, 36, 0])], f"release -> Note Off 36 ch 10: {c}")
@@ -231,7 +231,7 @@ i2 = d.info(2); check(i2.stored and i2.yaml and i2.stored_revision == 0 and not 
 check(not d.info(1).stored, "slot 1 still has nothing stored")
 d.reboot()
 check(d.get(P_ACTIVE) == 2 and d.info(0).slot == 2, "after reboot: slot 2 active")
-check(d.get(P_NUMBER, 0) == 40 and d.get(P_NUMBER, 1) == 38 and d.get(P_CHANNEL) == 10, "after reboot: the edit is there, YAML values too")
+check(d.get(P_NUMBER, 0) == 40 and d.get(P_NUMBER, MOD) == 38 and d.get(P_CHANNEL) == 10, "after reboot: the edit is there, YAML values too")
 check(d.info(2).stored and d.get(P_DIRTY) == 0, "after reboot: stored, clean")
 _, _, c = d.press(SUSTAIN); d.release(SUSTAIN)
 check(notes(c) == [bytes([0x99, 40, 100])], f"sustain sends the stored note 40: {c}")
@@ -442,5 +442,24 @@ after = {k: (d.select(k), read_slot(), d.info(k).name)[1:] for k in range(1, 9)}
 diff = [k for k in range(1, 9) if (k != 6 and after[k] != before[k])]
 check(not diff, f"restored presets match after a reboot {diff}")
 check(after[6][1] == "Six" and after[6][0][(P_GLIDE, 0)] == 66, "slot 6 name and stored value restored")
+
+# ---- 11. edit mode (devices/keystation-mini32-mk3.yaml modes:) ---------------
+print("-- edit mode: Edit, E3, then a white key picks a preset")
+E3, E4, B3 = 4, 16, 11                      # keys: C3 = key 0
+d.ok(gp.FACTORY_RESET); d.take()
+_, _, c = d.key(0, 1); check(notes(c) and notes(c)[0][:2] == bytes([0x90, 48]), "C3 plays")
+_, _, c = d.press(EDIT); check(notes(c) == [bytes([0x80, 48, 0])] and not any(m[0] & 0xF0 == 0xB0 for m in c),
+                               f"Edit: Note Off for the held key, no CC: {c}")
+_, _, c = d.release(EDIT); check(not c, "Edit release: nothing")
+_, _, c = d.key(0, 0); check(not notes(c), "the held key's release: nothing")
+_, u, c = d.key(B3, 1); d.key(B3, 0); check(not c and not u, "unbound key: nothing")
+_, u, c = d.key(E3, 1); d.key(E3, 0); check(not notes(c) and not changed(u), "E3: into the preset pick")
+_, u, c = d.key(E4, 1); d.key(E4, 0)
+check([x.slot for x in changed(u)] == [2] and d.get(P_ACTIVE) == 2 and not notes(c), f"E4: preset 2, no notes {changed(u)}")
+check([(x.id, x.value) for x in param_changed(u)] == [(P_ACTIVE, 2)], "PARAM_CHANGED preset.active = 2")
+d.press(EDIT); d.release(EDIT)
+_, _, c = d.key(E4, 1); check(notes(c) and notes(c)[0][:2] == bytes([0x99, 64]), f"Edit again: E4 plays on ch 10: {c}")
+d.key(E4, 0)
+d.ok(gp.FACTORY_RESET); d.take()
 
 print("FAILS:", fails); sys.exit(1 if fails else 0)

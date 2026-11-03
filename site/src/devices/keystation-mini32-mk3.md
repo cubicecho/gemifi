@@ -39,7 +39,7 @@ Default mapping (every button's action and number can be changed from the web pa
 |---|---|
 | 32 keys | Notes from 48 (C3), with velocity |
 | Sustain | CC 64 while held |
-| Edit | CC 80, toggles |
+| Edit | Edit mode: the keys pick presets (E3, then a white key from D4), channels (A3, then a key from C4), octave and velocity curve, until Edit is pressed again |
 | Oct − / Oct + | Shift the octave −4 to +4; both together go back to 0 |
 | Pitch ▼ / ▲ | Pitch bend to the end with an 80 ms glide, back on release |
 | Mod | CC 1, ramps up to 127 over 300 ms while held |

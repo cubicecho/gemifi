@@ -222,6 +222,47 @@ typedef struct {
 
 extern const gm_preset_def_t gm_presets[];   /* GM_N_PRESETS entries */
 
+/* Modes (research/core/presets-design.md §6, core/README.md "Modes"):
+ * layers that turn the keys into function keys. Generated only when the
+ * YAML has modes: (GM_N_MODES > 0 in gm_device_config.h). A root mode is
+ * entered and left with its toggle button; a sub-mode (parent) is entered
+ * from a key and goes back to its parent after one action. */
+enum {                           /* gm_mode_key_t.op                      */
+    GM_MK_PRESET = 1,            /* arg = slot 1..GM_N_PRESETS            */
+    GM_MK_PRESET_NEXT,
+    GM_MK_PRESET_PREV,
+    GM_MK_OCTAVE_DOWN,
+    GM_MK_OCTAVE_UP,
+    GM_MK_OCTAVE_RESET,
+    GM_MK_TRANSPOSE_DOWN,
+    GM_MK_TRANSPOSE_UP,
+    GM_MK_TRANSPOSE_RESET,
+    GM_MK_CHANNEL,               /* arg = 1..16                           */
+    GM_MK_CURVE,                 /* arg = velocity.curve value            */
+    GM_MK_MODE,                  /* arg = mode index: go to that sub-mode */
+};
+#define GM_MODE_NONE 0xFFu
+
+typedef struct {
+    uint8_t key;                 /* key matrix index (the physical key)   */
+    uint8_t op;                  /* GM_MK_*                               */
+    uint8_t arg;
+} gm_mode_key_t;
+
+typedef struct {
+    uint8_t toggle;              /* button index; GM_MODE_NONE: sub-mode  */
+    uint8_t parent;              /* mode index, or GM_MODE_NONE           */
+    uint8_t root;                /* the root mode it belongs to (itself)  */
+    int8_t led;                  /* lit while active, or -1               */
+    uint8_t led_blink;           /* 1: led blinks instead                 */
+    int8_t blink_count;          /* preset switch: this LED blinks the slot number, or -1 */
+    int8_t blink_done;           /* ... then it and this one flash once, or -1 */
+    uint8_t n_keys;
+    const gm_mode_key_t *keys;   /* sorted by key                         */
+} gm_mode_t;
+
+extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
+
 #ifdef __cplusplus
 }
 #endif

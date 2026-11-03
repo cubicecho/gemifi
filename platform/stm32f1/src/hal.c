@@ -275,6 +275,7 @@ void hal_uid(uint8_t uid[12])
 void hal_reboot(int to_bootloader)
 {
     irq_disable_all();
+    sys_tick_irq_disable();         /* the delay below polls SysTick */
     NVIC_ICER(0) = 0xFFFFFFFFu;     /* the next stage starts with no IRQs */
     NVIC_ICER(1) = 0xFFFFFFFFu;
     TIM_CR1(TIM2_BASE) = 0;

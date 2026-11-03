@@ -145,6 +145,7 @@ static void scan_timer_start(uint32_t period_us)
     TIM_EGR(SCAN_TIM) = TIM_EGR_UG;     /* load PSC now (URS: no UIF) */
     TIM_SR(SCAN_TIM) = 0;
     TIM_DIER(SCAN_TIM) = TIM_DIER_UIE;
+    NVIC_IPR8(IRQ_TIM2) = 0x80;         /* below USB (0x40): USB may interrupt a scan */
     TIM_CR1(SCAN_TIM) = TIM_CR1_URS | TIM_CR1_CEN;
     NVIC_ISER(IRQ_TIM2 / 32) = 1u << (IRQ_TIM2 % 32);
     irq_enable_all();
@@ -175,6 +176,11 @@ int main(void)
     usbd_init(&usb_desc);
 
     scan_timer_start(gm_device.scan_us);
+    /* USB from its interrupt, above the scan: a long main-loop pass (the
+     * pads, an LED refresh, a flash write) can't miss the host's deadlines
+     * (2 ms after SET_ADDRESS). The millisecond count from SysTick's. */
+    usbd_irq_enable(0x40);
+    sys_tick_irq_enable();
 
     /* No boot-loop guard here (the NUC's SRAM mailbox): on this board the
      * way back is the recovery combo at reset (vendor update-request flag)

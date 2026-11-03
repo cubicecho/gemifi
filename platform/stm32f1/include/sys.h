@@ -35,6 +35,10 @@ int sys_hse_ok(void);
  * makes delays and timeouts longer, never shorter. Works with interrupts
  * disabled. */
 void sys_tick_init(void);
+/* Count milliseconds from the SysTick interrupt instead of by polling, so a
+ * long main-loop pass doesn't lose time. Needs interrupts enabled. */
+void sys_tick_irq_enable(void);
+void sys_tick_irq_disable(void);  /* back to polling (interrupts off) */
 uint32_t sys_tick_ms(void);
 void sys_delay_ms(uint32_t ms);
 

@@ -46,7 +46,33 @@ type RunState =
   | { kind: 'vendor'; progress: VendorProgress }
   | { kind: 'done'; info: HelloInfo }
   | { kind: 'vendor-done'; portName: string }
+  /** The stock app accepted the update request on Windows: the user closes Chrome before the power cycle. */
+  | { kind: 'vendor-restart' }
   | { kind: 'failed'; title: string; message: string };
+
+/** An upload stored before the keyboard vanished, offered again ({@link FlashCardProps.resume}). */
+export interface ResumeOffer {
+  image: PickedImage;
+  /** A port named like M-Audio's bootloader ("Code updater") is connected. */
+  isBootloaderPresent: boolean;
+  /** Web MIDI access has been granted. */
+  isMidiReady: boolean;
+}
+
+/** What the reader is told on Windows, where Chrome can hang when a MIDI device is switched off. */
+const windowsRestartSteps = (
+  <>
+    <p>
+      The keyboard will start in update mode. Chrome on Windows can stop responding when a MIDI device is switched off,
+      so:
+    </p>
+    <ol className="list-decimal pl-4">
+      <li>Close Chrome completely.</li>
+      <li>Switch the keyboard off and on (its display shows 'update').</li>
+      <li>Reopen this page — it offers to finish.</li>
+    </ol>
+  </>
+);
 
 /** Props of {@link FlashCard}. */
 export interface FlashCardProps {
@@ -61,6 +87,16 @@ export interface FlashCardProps {
   onRunningChange: (isRunning: boolean) => void;
   /** Called after an upload ends, so the page asks HELLO again (a serial link keeps its client). */
   onFinished: () => void;
+  /** An upload stored before the keyboard went into update mode, to finish; null when none. */
+  resume: ResumeOffer | null;
+  /** Forgets {@link FlashCardProps.resume}. */
+  onDismissResume: () => void;
+  /** Stores the image before the keyboard vanishes from USB, so a reopened page can finish. */
+  onBeforeVanish: (image: PickedImage) => Promise<void>;
+  /** Called after M-Audio's bootloader took every record. */
+  onUploaded: () => void;
+  /** Windows: the stock app's update request ends the run, and the user closes Chrome first. */
+  isWindows: boolean;
 }
 
 /**
@@ -233,6 +269,11 @@ export function FlashCard({
   probePorts,
   onRunningChange,
   onFinished,
+  resume,
+  onDismissResume,
+  onBeforeVanish,
+  onUploaded,
+  isWindows,
 }: FlashCardProps) {
   const [version, setVersion] = useState('');
   const [vendorLog, setVendorLog] = useState<string[]>([]);
@@ -281,6 +322,10 @@ export function FlashCard({
   }
 
   const startVendor = (ports: () => readonly ProbePort[]) => {
+    if (picked === null) {
+      return;
+    }
+    const image = picked;
     let records: Uint8Array[];
     if (stockResult?.ok === true) {
       records = stockResult.records;
@@ -302,6 +347,8 @@ export function FlashCard({
       signal: abort.signal,
       onProgress: (progress) => setRun({ kind: 'vendor', progress }),
       onLog: (line) => setVendorLog((lines) => [...lines, line]),
+      beforeVanish: () => onBeforeVanish(image),
+      stopForPowerCycle: isWindows,
       ...(isGemifiApp
         ? {
             request: async () => {
@@ -311,7 +358,14 @@ export function FlashCard({
         : {}),
     })
       .then(
-        (portName) => setRun({ kind: 'vendor-done', portName }),
+        (outcome) => {
+          if (outcome.kind === 'done') {
+            onUploaded();
+            setRun({ kind: 'vendor-done', portName: outcome.portName });
+          } else {
+            setRun({ kind: 'vendor-restart' });
+          }
+        },
         (error: unknown) => {
           setRun({
             kind: 'failed',
@@ -377,6 +431,11 @@ export function FlashCard({
   const vendorPhase = run.kind === 'vendor' ? run.progress.phase : null;
   const isAwaitingPowerCycle =
     vendorPhase === VendorPhase.WaitingForBootloader || vendorPhase === VendorPhase.PowerCycle;
+  const isRunIdle = isRunning === false;
+  // A stored upload: ready once the bootloader is here; until then, what to do (not after the Windows steps).
+  const isResumeReady = isRunIdle && resume?.isBootloaderPresent === true && picked === resume.image;
+  const isResumeWaiting = isRunIdle && run.kind !== 'vendor-restart' && resume?.isBootloaderPresent === false;
+  const dismissResume = <Button size="sm" variant="outline" content="Dismiss" onClick={onDismissResume} />;
   const isChecked = gfwResult?.ok === true || abResult?.ok === true || stockResult?.ok === true;
   const isReachable = isVendor ? probePorts !== null : link !== null && device !== null;
   const isFlashable = isChecked && mismatch.length === 0 && isReachable;
@@ -402,6 +461,26 @@ export function FlashCard({
       description="A .gfw for the Keystation's bootloader or the Code 61 (through M-Audio's bootloader), an M-Audio update file to restore the Code 61's stock firmware, or an ESP app .bin for an ESP32 or ESP8266 build that updates itself. The image is checked here first; nothing is sent until it passes."
       contentSlot={
         <>
+          {isResumeReady ? (
+            <Alert
+              variant="info"
+              title="Finish the update"
+              description={`The keyboard is in M-Audio's update mode. Upload ${resume.image.name} to finish.`}
+              actionSlot={dismissResume}
+            />
+          ) : null}
+          {isResumeWaiting ? (
+            <Alert
+              variant="info"
+              title={`${resume.image.name} is waiting to be uploaded`}
+              description={
+                resume.isMidiReady
+                  ? "Switch the keyboard on; it should show 'update'."
+                  : "Connect USB MIDI above, then switch the keyboard on; it should show 'update'."
+              }
+              actionSlot={dismissResume}
+            />
+          ) : null}
           {picked === null ? (
             <FilePicker
               label="Choose a .gfw, .bin or M-Audio update file"
@@ -460,11 +539,25 @@ export function FlashCard({
               description={`The device restarted and answers with firmware ${formatVersion(run.info.fwVersion)}.`}
             />
           ) : null}
-          {isAwaitingPowerCycle ? (
+          {isAwaitingPowerCycle && isWindows === false ? (
             <Alert
               variant="warning"
               title="Turn the keyboard off and on"
               description="The Code 61 enters M-Audio's update mode at power-on. Switch it off, then on again; the page asks for the bootloader every 2 s and carries on by itself. Nothing to do if it is in update mode already."
+            />
+          ) : null}
+          {isAwaitingPowerCycle && isWindows ? (
+            <Alert
+              variant="warning"
+              title="If the browser stops responding"
+              description="Chrome on Windows can hang while the keyboard restarts. If it does, close Chrome completely, reopen this page, and it offers to finish the upload."
+            />
+          ) : null}
+          {run.kind === 'vendor-restart' ? (
+            <Alert
+              variant="warning"
+              title="Close Chrome, then turn the keyboard off and on"
+              description={windowsRestartSteps}
             />
           ) : null}
           {run.kind === 'vendor-done' ? (

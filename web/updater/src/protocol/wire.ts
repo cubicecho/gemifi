@@ -155,6 +155,8 @@ export const Capability = {
   Log: 1 << 2,
   Event: 1 << 3,
   Feedback: 1 << 6,
+  /** REBOOT(1) leads to a gemifi bootloader, on a board that may also have a vendor one (Code 61). */
+  GemifiBoot: 1 << 7,
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
 

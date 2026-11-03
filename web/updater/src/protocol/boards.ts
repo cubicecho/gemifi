@@ -1,6 +1,6 @@
 /** The boards gemifi knows (`protocol/sysex.md` §7) and the memory facts an image is checked against. */
 
-import { BOARD_ID_DIGITS, HEX_RADIX } from './wire.ts';
+import { BOARD_ID_DIGITS, Capability, HEX_RADIX, Role } from './wire.ts';
 
 /** One board. */
 export interface Board {
@@ -108,4 +108,25 @@ export function boardLabel(id: number): string {
   const hex = formatBoardId(id);
   const board = boardById(id);
   return board ? `${board.name} (${hex})` : `unknown board ${hex}`;
+}
+
+/**
+ * Whether an image for `board` goes through M-Audio's bootloader on this device. A Code 61 can carry
+ * either bootloader: a device already in a gemifi bootloader (HELLO role 1, which only a gemifi
+ * bootloader answers), or an app that reports caps bit 7, takes the gemifi upload; otherwise the board's
+ * default applies, so a Code 61 with its stock bootloader, or one not connected, keeps the vendor path.
+ *
+ * @param board - The image's board.
+ * @param device - The connected device's HELLO, or null.
+ * @returns True for the vendor path.
+ */
+export function usesVendorUpdate(board: Board, device: { role: number; caps: number } | null): boolean {
+  if (board.update !== BoardUpdate.MaudioVendor) {
+    return false;
+  }
+  if (device === null) {
+    return true;
+  }
+  const isGemifiBoot = device.role === Role.Boot || (device.caps & Capability.GemifiBoot) !== 0;
+  return isGemifiBoot === false;
 }

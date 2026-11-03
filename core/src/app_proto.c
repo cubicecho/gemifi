@@ -78,9 +78,14 @@ void app_proto_init(uint32_t version, int config)
 #endif
 }
 
+__attribute__((weak)) uint16_t hal_extra_caps(void)
+{
+    return 0;
+}
+
 static uint16_t caps(void)
 {
-    uint16_t c = GSX_CAP_LOG | GSX_CAP_EVENT;
+    uint16_t c = GSX_CAP_LOG | GSX_CAP_EVENT | hal_extra_caps();
     if (has_config)
         c |= GSX_CAP_CONFIG | GSX_CAP_PRESETS;
 #if GM_HOST_FB

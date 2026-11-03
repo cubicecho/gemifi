@@ -18,6 +18,7 @@
 #include "recovery.h"
 #include "usbd.h"
 #include "usb_midi.h"
+#include "gemifi_image.h"
 
 uint32_t hal_millis(void)
 {
@@ -273,5 +274,13 @@ void hal_reboot(int to_bootloader)
 
 const hal_fw_ops_t *hal_fw_ops(void)
 {
-    return 0;                       /* the vendor bootloader takes uploads */
+    return 0;                       /* the bootloader takes uploads */
+}
+
+/* Which bootloader sits below us: gemifi's marks itself at 0x08000130
+ * (gemifi_image.h); anything else is taken to be M-Audio's. */
+uint16_t hal_extra_caps(void)
+{
+    const volatile uint32_t *m = (const volatile uint32_t *)GEMIFI_BOOT_MARK_ADDR;
+    return *m == GEMIFI_BOOT_MAGIC ? GSX_CAP_GEMIFI_BOOT : 0;
 }

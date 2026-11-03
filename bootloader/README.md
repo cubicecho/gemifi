@@ -5,6 +5,7 @@ A gemifi bootloader starts the app firmware, and takes new firmware over USB-MID
 | Chip family | Directory | Where it lives | Size budget |
 |---|---|---|---|
 | Nuvoton NUC100/NUC120 | [`nuvoton-nuc1xx/`](nuvoton-nuc1xx/) | 4 KB LDROM | 4096 B (currently 4080 B) |
+| STM32F1 (M-Audio Code 61) | [`stm32f1/`](stm32f1/) | 0x08000000, below the app at 0x08002400 | 9216 B (currently 6028 B) |
 
 Every gemifi bootloader follows these rules:
 

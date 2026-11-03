@@ -115,6 +115,7 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 3: EVENT messages
 - bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
 - bit 6: host feedback (§4.6: GET_COMPONENT, the FB_* notifications and BOOTED)
+- bit 7: gemifi bootloader: REBOOT(1) leads to a gemifi bootloader (role 1). Only meaningful on boards that may instead carry a vendor bootloader (the Code 61: M-Audio's, with its own update protocol). An app sets it when it finds the gemifi bootloader's marker; without it, hosts use the board's vendor path.
 
 ### 4.1.1 HELLO `node` (node name)
 

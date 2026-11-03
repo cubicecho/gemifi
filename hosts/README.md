@@ -4,7 +4,7 @@ Scripts that run inside a DAW and drive gemifi devices with the host feedback pr
 
 | Directory | Host |
 |---|---|
-| `ableton-live/` | Ableton Live 11/12 Remote Script (Python 3) |
+| `ableton-live/` | Ableton Live 11/12 Remote Script (Python 3). Unit-tested, not yet tried in Live; see its README |
 
 ## Roles
 

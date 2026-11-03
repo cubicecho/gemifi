@@ -495,6 +495,10 @@ def print_unsolicited(f, schema=None):
             print(describe_param_changed(gp.parse_param_changed(f.payload), schema), flush=True)
         elif f.cmd == gp.PRESET_CHANGED:
             print(gp.parse_preset_changed(f.payload), flush=True)
+        elif f.cmd == gp.BOOTED:
+            h = gp.parse_booted(f.payload)
+            print(f"BOOTED {h.node or 'device'}, fw {gp.fmt_version(h.fw_version)}, caps 0x{h.caps:04x} "
+                  "(it restarted: its feedback state is gone)", flush=True)
         else:
             print(f"[unsolicited 0x{f.cmd:02x}] {f.payload.hex()}", flush=True)
     except gp.ProtocolError as e:

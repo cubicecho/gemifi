@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SysexClient } from '../protocol/client.ts';
 import { toHex } from '../protocol/encoding.ts';
-import { type DeviceMessage, encoderDelta } from '../protocol/messages.ts';
+import { type DeviceMessage, encoderDelta, formatVersion } from '../protocol/messages.ts';
 import { EventType } from '../protocol/wire.ts';
 
 /** How many lines each view keeps. */
@@ -38,6 +38,10 @@ export function formatDeviceMessage(message: DeviceMessage): string {
     // PARAM_CHANGED carries no device time, so its time column is blank.
     const blank = ' '.repeat(timeColumn(0).length);
     return `${blank} PARAM ${message.id}[${message.index}] = ${message.value}`;
+  }
+  if (message.kind === 'booted') {
+    const blank = ' '.repeat(timeColumn(0).length);
+    return `${blank} BOOTED ${message.hello.nodeName ?? 'device'} ${formatVersion(message.hello.fwVersion)}`;
   }
   const time = timeColumn(message.tMs);
   if (message.kind === 'log') {

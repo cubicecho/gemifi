@@ -52,6 +52,7 @@ LOG = 0x60
 EVENT = 0x61
 PARAM_CHANGED = 0x62
 PRESET_CHANGED = 0x63
+BOOTED = 0x64                  # sysex.md 4.6.3: HELLO's fields, sent once after boot (caps bit 6)
 
 CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "FW_DATA",
              FW_END: "FW_END", FW_ABORT: "FW_ABORT", GET_SCHEMA: "GET_SCHEMA", GET_PARAM: "GET_PARAM",
@@ -59,7 +60,7 @@ CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "F
              SET_PARAMS: "SET_PARAMS", COMMIT: "COMMIT", FACTORY_RESET: "FACTORY_RESET", LOG: "LOG",
              EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED", PRESET_INFO: "PRESET_INFO",
              PRESET_SAVE: "PRESET_SAVE", PRESET_RESET: "PRESET_RESET", PRESET_NAME: "PRESET_NAME",
-             PRESET_CHANGED: "PRESET_CHANGED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
+             PRESET_CHANGED: "PRESET_CHANGED", BOOTED: "BOOTED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
              FB_LED_RGB: "FB_LED_RGB", FB_LEDS: "FB_LEDS", FB_VALUE: "FB_VALUE", FB_RING: "FB_RING",
              FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE"}
 
@@ -400,6 +401,16 @@ def build_hello_reply(h, status=OK):
             (bytes([len(h.node)]) + h.node.encode("ascii") if h.node else b""))
 
 
+def parse_booted(payload):
+    """BOOTED (sysex.md 4.6.3) -> Hello: the HELLO reply's fields without the status byte."""
+    return parse_hello(bytes([OK]) + bytes(payload))
+
+
+def build_booted(h):
+    """Device side: the BOOTED payload for Hello h."""
+    return build_hello_reply(h)[1:]
+
+
 @dataclass
 class LogMsg:
     level: int
@@ -684,6 +695,14 @@ KIND_NAMES = {KIND_BUTTON: "button", KIND_KEYS: "keys", KIND_ANALOG: "analog", K
 NONE_INDEX = 0x3FFF            # "no LED" in a button's `led` and an encoder's `center`
 LSTRING_MAX = 31               # sysex.md 2: lstring = u8 len (0..31) + ASCII
 COLOURS = {1: "single", 2: "bicolour", 3: "RGB"}
+# Fields added after the first F3 firmware (sysex.md 4.6.1 "Added fields"); None in a Component = not reported.
+TAKEOVER_NONE, TAKEOVER_PICKUP = 0, 1
+TAKEOVERS = {TAKEOVER_NONE: "none", TAKEOVER_PICKUP: "pickup"}
+ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU = 0, 1, 2, 3
+ENC_MODES = {ENC_ABSOLUTE: "absolute", ENC_REL_TWOS: "relative_twos", ENC_REL_OFFSET: "relative_offset",
+             ENC_MCU: "mcu_vpot"}
+OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
+OWNERS = {OWNER_HOST_THEN_LOCAL: "host_then_local", OWNER_HOST: "host", OWNER_LOCAL: "local"}
 DISPLAY_TYPES = {1: "characters", 2: "segments"}
 RING_DOT, RING_BOOST, RING_WRAP, RING_SPREAD = 0, 1, 2, 3
 RING_MODES = {"dot": RING_DOT, "boost": RING_BOOST, "wrap": RING_WRAP, "spread": RING_SPREAD}
@@ -758,6 +777,9 @@ class Component:
     ring: int = 0                  # encoder: LEDs in its ring (0 = none)
     center: int = NONE_INDEX       # encoder: centre LED index
     colours: int = 1               # LED: 1 single, 2 bicolour, 3 RGB
+    takeover: int | None = None    # analog: 0 none, 1 pick-up (None: older firmware didn't say)
+    mode: int | None = None        # encoder: 0 absolute, 1/2 relative, 3 Mackie V-Pot (None: not reported)
+    owner: int | None = None       # LED: 0 host_then_local, 1 host, 2 local (None: not reported)
     cols: int = 0                  # display
     rows: int = 0                  # display
     display_type: int = 0          # display: 1 characters, 2 segments (the spec's `type`)
@@ -767,6 +789,21 @@ class Component:
     def kind_name(self):
         return KIND_NAMES.get(self.kind, f"kind{self.kind}")
 
+    @property
+    def takes_value(self):
+        """Whether FB_VALUE does anything here (sysex.md 4.6.2): a pick-up analog input or an absolute encoder.
+        True when the device didn't report it (older firmware), as hosts assumed before."""
+        if self.kind == KIND_ANALOG:
+            return self.takeover is None or self.takeover == TAKEOVER_PICKUP
+        if self.kind == KIND_ENCODER:
+            return self.mode is None or self.mode == ENC_ABSOLUTE
+        return False
+
+    @property
+    def host_drives(self):
+        """Whether FB_LED and friends reach this LED: everything but owner local (or unreported)."""
+        return self.kind == KIND_LED and self.owner != OWNER_LOCAL
+
     def extras_text(self):
         """The kind's extra fields in words, for tables."""
         k = self.kind
@@ -774,11 +811,15 @@ class Component:
             return "no LED" if self.led == NONE_INDEX else f"LED {self.led}"
         if k == KIND_KEYS:
             return f"{self.keys} keys from {note_name(self.first_note)} ({self.first_note})"
+        if k == KIND_ANALOG:
+            return "" if self.takeover is None else "takeover " + TAKEOVERS.get(self.takeover, str(self.takeover))
         if k == KIND_ENCODER:
             ring = f"ring of {self.ring}" if self.ring else "no ring"
-            return ring + ("" if self.center == NONE_INDEX else f", centre LED {self.center}")
+            ring += "" if self.center == NONE_INDEX else f", centre LED {self.center}"
+            return ring + ("" if self.mode is None else ", " + ENC_MODES.get(self.mode, f"mode {self.mode}"))
         if k == KIND_LED:
-            return COLOURS.get(self.colours, f"colours {self.colours}")
+            text = COLOURS.get(self.colours, f"colours {self.colours}")
+            return text + ("" if self.owner is None else ", owner " + OWNERS.get(self.owner, str(self.owner)))
         if k == KIND_DISPLAY:
             return f"{self.cols}x{self.rows} " + DISPLAY_TYPES.get(self.display_type, f"type {self.display_type}")
         return self.extra.hex(" ") if self.extra else ""
@@ -791,10 +832,12 @@ class Component:
             j["led"] = None if self.led == NONE_INDEX else self.led
         elif k == KIND_KEYS:
             j.update(keys=self.keys, first_note=self.first_note)
+        elif k == KIND_ANALOG:
+            j["takeover"] = self.takeover
         elif k == KIND_ENCODER:
-            j.update(ring=self.ring, center=None if self.center == NONE_INDEX else self.center)
+            j.update(ring=self.ring, center=None if self.center == NONE_INDEX else self.center, mode=self.mode)
         elif k == KIND_LED:
-            j["colours"] = self.colours
+            j.update(colours=self.colours, owner=self.owner)
         elif k == KIND_DISPLAY:
             j.update(cols=self.cols, rows=self.rows, type=self.display_type)
         elif self.extra:
@@ -802,7 +845,8 @@ class Component:
         return j
 
 
-# Bytes of each kind's extra fields after `role` (sysex.md 4.6.1 table).
+# Bytes of each kind's extra fields after `role` that every F3 device sends (sysex.md 4.6.1 table); the added
+# fields (takeover, mode, owner: one byte each, last) are optional.
 COMPONENT_EXTRA_LEN = {KIND_BUTTON: 2, KIND_KEYS: 3, KIND_ANALOG: 0, KIND_ENCODER: 3, KIND_LED: 1, KIND_DISPLAY: 3}
 
 
@@ -832,17 +876,22 @@ def parse_component(payload):
         c.led = dec_u14(rest[0:2])
     elif kind == KIND_KEYS:
         c.keys, c.first_note = dec_u14(rest[0:2]), rest[2]
+    elif kind == KIND_ANALOG:
+        c.takeover = rest[0] if len(rest) > 0 else None
     elif kind == KIND_ENCODER:
         c.ring, c.center = rest[0], dec_u14(rest[1:3])
+        c.mode = rest[3] if len(rest) > 3 else None
     elif kind == KIND_LED:
         c.colours = rest[0]
+        c.owner = rest[1] if len(rest) > 1 else None
     elif kind == KIND_DISPLAY:
         c.cols, c.rows, c.display_type = rest[0], rest[1], rest[2]
     return c
 
 
 def build_component_reply(c, status=OK):
-    """Device side (tests, the simulator, the vectors). Strings over 31 characters are cut, as the device does."""
+    """Device side (tests, the simulator, the vectors). Strings over 31 characters are cut, as the device does.
+    The added fields (takeover, mode, owner) are sent when set, else left out like older firmware."""
     if status != OK:
         return bytes([status])
     out = bytes([OK, c.kind]) + u14(c.index) + u14(c.count)
@@ -854,19 +903,29 @@ def build_component_reply(c, status=OK):
     elif k == KIND_KEYS:
         _check_byte(c.first_note, "first_note")
         out += u14(c.keys) + bytes([c.first_note])
+    elif k == KIND_ANALOG:
+        out += _opt_byte(c.takeover, "takeover")
     elif k == KIND_ENCODER:
         _check_byte(c.ring, "ring")
-        out += bytes([c.ring]) + u14(c.center)
+        out += bytes([c.ring]) + u14(c.center) + _opt_byte(c.mode, "mode")
     elif k == KIND_LED:
         _check_byte(c.colours, "colours")
-        out += bytes([c.colours])
+        out += bytes([c.colours]) + _opt_byte(c.owner, "owner")
     elif k == KIND_DISPLAY:
         for v, what in ((c.cols, "cols"), (c.rows, "rows"), (c.display_type, "type")):
             _check_byte(v, what)
         out += bytes([c.cols, c.rows, c.display_type])
-    elif k != KIND_ANALOG:
+    else:
         out += bytes(c.extra)
     return out
+
+
+def _opt_byte(v, what):
+    """An added field (sysex.md 4.6.1): left out when None, as older firmware does."""
+    if v is None:
+        return b""
+    _check_byte(v, what)
+    return bytes([v])
 
 
 # -- notifications (sysex.md 4.6.2): payload builders; send them with Session.notify, which never waits --

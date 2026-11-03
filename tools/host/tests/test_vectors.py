@@ -86,15 +86,24 @@ class TestVectors(unittest.TestCase):
                 for k in ("id", "name", "role"):
                     f[k], i = lstr(p, i)
                 k, rest = p[1], p[i:]
+
+                def opt(j):                 # an added field (4.6.1): absent in older firmware
+                    return rest[j] if len(rest) > j else None
                 extra = {1: lambda: {"led": nn(u14(rest, 0))},
                          2: lambda: {"keys": u14(rest, 0), "first_note": rest[2]},
-                         3: lambda: {},
-                         4: lambda: {"ring": rest[0], "center": nn(u14(rest, 1))},
-                         5: lambda: {"colours": rest[0]},
+                         3: lambda: {"takeover": opt(0)},
+                         4: lambda: {"ring": rest[0], "center": nn(u14(rest, 1)), "mode": opt(3)},
+                         5: lambda: {"colours": rest[0], "owner": opt(1)},
                          6: lambda: {"cols": rest[0], "rows": rest[1], "type": rest[2]}}[k]()
-                self.assertEqual(len(rest), {1: 2, 2: 3, 3: 0, 4: 3, 5: 1, 6: 3}[k])
+                self.assertIn(len(rest), {1: [2], 2: [3], 3: [0, 1], 4: [3, 4], 5: [1, 2], 6: [3]}[k])
                 f.update(extra)
                 return f
+            if cmd == 0x64:                 # BOOTED: HELLO's fields without the status (4.6.3)
+                n = p[27] if len(p) > 27 else 0
+                return {"role": p[0], "board_id": u14(p, 1),
+                        "fw_version": p[3] | p[4] << 7 | p[5] << 14 | p[6] << 21 | p[7] << 28,
+                        "proto_version": p[8], "max_chunk": u14(p, 9), "caps": u14(p, 11),
+                        "uid": gp.unpack7(p[13:27]).hex().upper(), "node": p[28:28 + n].decode("ascii") or None}
             if cmd == 0x20:
                 self.assertEqual(len(p), 3)
                 return {"led": u14(p, 0), "level": p[2]}
@@ -132,7 +141,12 @@ class TestVectors(unittest.TestCase):
             elif gp.is_notification(t["cmd"]):
                 self.assertTrue(f.is_notification)
                 gp.parse_notification(t["cmd"], p)
-        self.assertTrue({0x11, 0x51, *range(0x20, 0x27)} <= seen)
+            elif t["cmd"] == gp.BOOTED:
+                h = gp.parse_booted(p)
+                self.assertEqual((h.board_id, h.caps, h.node), (t["fields"]["board_id"], t["fields"]["caps"],
+                                                                t["fields"]["node"]))
+                self.assertEqual(gp.build_booted(h), p)
+        self.assertTrue({0x11, 0x51, 0x64, *range(0x20, 0x27)} <= seen)
         self.assertTrue({("kind", k) for k in range(1, 7)} <= seen)
 
     def test_image(self):

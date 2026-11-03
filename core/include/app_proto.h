@@ -4,7 +4,8 @@
  * Handles HELLO, REBOOT (via the SRAM mailbox), the Universal Identity
  * Request, the config commands (GET_SCHEMA, GET/SET_PARAM(S), COMMIT,
  * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h) and answers FW_*
- * with BAD_STATE. Sends LOG, EVENT, PARAM_CHANGED and PRESET_CHANGED.
+ * with BAD_STATE. Sends LOG, EVENT, PARAM_CHANGED, PRESET_CHANGED and,
+ * with host feedback, BOOTED (once, 1.5 s after app_proto_init).
  *
  * Platform independent: it talks to the chip only through gm_hal.h (and
  * the store through gm_presets.h). FW_* go to hal_fw_ops() when the platform has one (A/B

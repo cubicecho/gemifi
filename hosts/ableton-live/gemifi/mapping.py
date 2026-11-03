@@ -231,10 +231,12 @@ class Mapping(object):
     # ---- setup ----
 
     def bind(self, components):
-        """Build the bindings from the device's component list (roles already normalised)."""
+        """Build the bindings from the device's component list (roles already normalised).
+        LEDs with owner: local ignore FB_LED, so they get no binding (sysex.md 4.6.1 `owner`)."""
         self._buttons, self._leds, self._analogs, self._encoders = {}, {}, {}, {}
         self.unknown_roles = []
         self.forget()
+        local = set(c.index for c in components if c.kind == P.KIND_LED and c.local_only)
         for c in components:
             role = c.role
             if not role:
@@ -246,9 +248,11 @@ class Mapping(object):
                     continue
                 b = _ButtonBinding(c, br)
                 self._buttons[c.index] = b
-                if c.has_led:
+                if c.has_led and c.led not in local:
                     self._leds[c.led] = _LedBinding(c.led, b.level)
             elif c.kind == P.KIND_LED:
+                if c.local_only:
+                    continue
                 br = self._button_role(role)
                 if br is None:
                     self._unknown(c)
@@ -564,7 +568,8 @@ class Mapping(object):
             self._value_cache[k] = now
             b.picked = False                    # the target moved away from the knob
             b.last_raw = None
-            self.notify(P.FB_VALUE, P.fb_value(P.KIND_ANALOG, b.component.index, now[1]))
+            if b.component.takes_value:         # takeover: none ignores FB_VALUE (sysex.md 4.6.2)
+                self.notify(P.FB_VALUE, P.fb_value(P.KIND_ANALOG, b.component.index, now[1]))
 
     def _refresh_encoder(self, b):
         c = b.component
@@ -578,7 +583,8 @@ class Mapping(object):
             now = (p.key, v)
             if self._value_cache.get(k) != now:
                 self._value_cache[k] = now
-                self.notify(P.FB_VALUE, P.fb_value(P.KIND_ENCODER, c.index, v))
+                if c.takes_value:               # a relative encoder ignores FB_VALUE (sysex.md 4.6.2)
+                    self.notify(P.FB_VALUE, P.fb_value(P.KIND_ENCODER, c.index, v))
             ring = (P.RING_BOOST_CUT, v, True, False) if p.bipolar else (P.RING_WRAP, v, False, False)
         if c.ring and self._ring_cache.get(c.index) != ring:
             self._ring_cache[c.index] = ring

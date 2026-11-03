@@ -205,3 +205,51 @@ def test_release_restores_debug_events():
     assert [(f.cmd, f.payload) for f in fake.notifications] == [(P.FB_RELEASE, bytes([0]))]
     assert fake.params[P.PARAM_DEBUG_EVENTS] == 0
     assert dev.state == D.IDLE
+
+
+def test_booted_resyncs():
+    """sysex.md 4.6.3: BOOTED means the device restarted; start again and re-send everything."""
+    fake = FakeDevice()
+    dev = connect(fake)
+    dev.start()
+    assert dev.state == D.READY and fake.params[P.PARAM_DEBUG_EVENTS] == 1
+    hellos = fake.count(P.HELLO)
+    fake.boot()
+    assert dev.lost_calls == [dev]
+    assert fake.count(P.HELLO) == hellos + 1
+    assert dev.state == D.READY and len(dev.ready_calls) == 2     # enumerated again
+    assert fake.params[P.PARAM_DEBUG_EVENTS] == 1                  # events back on
+    assert dev.sends_booted
+
+
+def test_booted_before_start_or_after_release_is_ignored():
+    fake = FakeDevice()
+    dev = connect(fake)
+    fake.boot()                         # not started yet
+    assert dev.state == D.IDLE and fake.requests == []
+    dev.start()
+    dev.release()
+    n = len(fake.requests)
+    fake.boot()
+    assert dev.state == D.IDLE and len(fake.requests) == n
+
+
+def test_keepalive_slows_down_with_booted():
+    """Firmware with the added GET_COMPONENT fields also sends BOOTED: poll every ~30 s, not ~5 s."""
+    from fakes import C
+    old = FakeDevice()
+    dev = connect(old, keepalive_ticks=5, keepalive_booted_ticks=20)
+    dev.start()
+    assert not dev.sends_booted
+    for _ in range(5):
+        dev.tick()
+    assert old.count(P.GET_PARAM) == 2               # enabling + one keep-alive
+    new = FakeDevice([C(P.KIND_LED, 0, "", colours=1, owner=P.OWNER_HOST)])
+    dev = connect(new, keepalive_ticks=5, keepalive_booted_ticks=20)
+    dev.start()
+    assert dev.sends_booted
+    for _ in range(19):
+        dev.tick()
+    assert new.count(P.GET_PARAM) == 1
+    dev.tick()
+    assert new.count(P.GET_PARAM) == 2

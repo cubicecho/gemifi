@@ -11,13 +11,16 @@ import {
   ComponentKind,
   DATA_MASK,
   DisplayType,
+  EncoderMode,
   FB_LEDS_MAX,
   FB_TEXT_MAX,
   LedColours,
+  LedOwner,
   NONE_INDEX,
   ReleaseWhat,
   RingMode,
   Status,
+  Takeover,
 } from './wire.ts';
 
 /** What every component's description starts with (§4.6.1). */
@@ -53,6 +56,8 @@ export interface KeyMatrixComponent extends ComponentBase {
 /** An analog input: a pot, slider, fader or expression input. */
 export interface AnalogComponent extends ComponentBase {
   kind: typeof ComponentKind.Analog;
+  /** 0 none, 1 pick-up; null from firmware that doesn't report it. */
+  takeover: number | null;
 }
 
 /** An encoder: its LED ring, if it has one. */
@@ -62,6 +67,8 @@ export interface EncoderComponent extends ComponentBase {
   ring: number;
   /** Its centre LED's index, or null for none. */
   center: number | null;
+  /** 0 absolute, 1 and 2 relative, 3 Mackie V-Pot; null from firmware that doesn't report it. */
+  mode: number | null;
 }
 
 /** An LED. */
@@ -69,6 +76,8 @@ export interface LedComponent extends ComponentBase {
   kind: typeof ComponentKind.Led;
   /** 1 single, 2 bicolour, 3 RGB. */
   colours: number;
+  /** 0 host_then_local, 1 host, 2 local; null from firmware that doesn't report it. */
+  owner: number | null;
 }
 
 /** A display. */
@@ -110,6 +119,49 @@ export const LED_COLOURS_NAMES: Readonly<Record<number, string>> = Object.freeze
   [LedColours.Bicolour]: 'bicolour',
   [LedColours.Rgb]: 'RGB',
 });
+
+/** A reader's name for each analog `takeover`. */
+export const TAKEOVER_NAMES: Readonly<Record<number, string>> = Object.freeze({
+  [Takeover.None]: 'no takeover',
+  [Takeover.Pickup]: 'pick-up',
+});
+
+/** A reader's name for each encoder `mode`. */
+export const ENCODER_MODE_NAMES: Readonly<Record<number, string>> = Object.freeze({
+  [EncoderMode.Absolute]: 'absolute',
+  [EncoderMode.RelativeTwos]: "relative (two's complement)",
+  [EncoderMode.RelativeOffset]: 'relative (offset 64)',
+  [EncoderMode.McuVpot]: 'Mackie V-Pot',
+});
+
+/** A reader's name for each LED `owner`. */
+export const LED_OWNER_NAMES: Readonly<Record<number, string>> = Object.freeze({
+  [LedOwner.HostThenLocal]: 'host, then local',
+  [LedOwner.Host]: 'host',
+  [LedOwner.Local]: 'local only',
+});
+
+/**
+ * Whether FB_VALUE does anything to this component (§4.6.2): a pick-up analog input or an
+ * absolute encoder. True when the firmware doesn't say, as before the fields were added.
+ *
+ * @param component - An analog input or an encoder.
+ * @returns Whether to offer a value.
+ */
+export function takesValue(component: AnalogComponent | EncoderComponent): boolean {
+  if (component.kind === ComponentKind.Analog) {
+    return component.takeover === null || component.takeover === Takeover.Pickup;
+  }
+  return component.mode === null || component.mode === EncoderMode.Absolute;
+}
+
+/**
+ * @param led - An LED.
+ * @returns Whether FB_LED reaches it: every owner but local.
+ */
+export function hostDrives(led: LedComponent): boolean {
+  return led.owner !== LedOwner.Local;
+}
 
 /** A reader's name for each display `type`. */
 export const DISPLAY_TYPE_NAMES: Readonly<Record<number, string>> = Object.freeze({
@@ -172,8 +224,19 @@ export function getComponentPayload(kind: ComponentKind, index: number): number[
 }
 
 /**
+ * Reads an added field (§4.6.1 "Added fields"): one byte, or null when the firmware ends before it.
+ *
+ * @param reader - The reply, at the field.
+ * @returns The byte, or null.
+ */
+function optionalByte(reader: PayloadReader): number | null {
+  return reader.remaining > 0 ? reader.byte() : null;
+}
+
+/**
  * Parses GET_COMPONENT's reply fields (§4.6.1): `kind`, `index` u14, `count` u14, `id`, `name`
- * and `role` lstrings, then the kind's extra fields. Bytes after those are later fields, ignored.
+ * and `role` lstrings, then the kind's extra fields. The added fields (`takeover`, `mode`,
+ * `owner`) are null when older firmware leaves them out. Bytes after those are later fields, ignored.
  *
  * @param body - The reply payload without its status byte.
  * @returns The component.
@@ -194,11 +257,16 @@ export function parseComponent(body: ArrayLike<number>): Component {
     case ComponentKind.KeyMatrix:
       return { kind, ...base, keys: reader.u14(), firstNote: reader.byte() };
     case ComponentKind.Analog:
-      return { kind, ...base };
-    case ComponentKind.Encoder:
-      return { kind, ...base, ring: reader.byte(), center: noneToNull(reader.u14()) };
-    case ComponentKind.Led:
-      return { kind, ...base, colours: reader.byte() };
+      return { kind, ...base, takeover: optionalByte(reader) };
+    case ComponentKind.Encoder: {
+      const ring = reader.byte();
+      const center = noneToNull(reader.u14());
+      return { kind, ...base, ring, center, mode: optionalByte(reader) };
+    }
+    case ComponentKind.Led: {
+      const colours = reader.byte();
+      return { kind, ...base, colours, owner: optionalByte(reader) };
+    }
     case ComponentKind.Display:
       return { kind, ...base, cols: reader.byte(), rows: reader.byte(), type: reader.byte() };
     default:

@@ -3,7 +3,11 @@
 
     searching --HELLO ok, caps bit 6--> enumerating --all kinds read--> enabling --debug.events=1--> ready
         |                                                                                          |
-        +--HELLO ok, no caps bit 6--> unsupported              keep-alive fails / events turned off +--> searching
+        +--HELLO ok, no caps bit 6--> unsupported    BOOTED / keep-alive fails / events turned off +--> searching
+
+A device restart is seen from its BOOTED message (sysex.md 4.6.3). The keep-alive (reading
+debug.events back) stays as the fallback: every ~5 s for firmware without BOOTED, every ~30 s
+for firmware that has it, in case BOOTED went out before the port was open.
 
 Pure Python, no Live imports. Time is a tick counter: the surface calls tick() from Live's
 update_display (about every 100 ms). Requests are stop-and-wait (sysex.md 1): one outstanding
@@ -20,6 +24,7 @@ TIMEOUT_TICKS = 3
 MAX_TRIES = 6                 # 5 resends of the same seq
 RESCAN_TICKS = 30             # after a failed search, try HELLO again ~3 s later
 KEEPALIVE_TICKS = 50          # in ready, read debug.events every ~5 s to notice a replug / reboot
+KEEPALIVE_BOOTED_TICKS = 300  # ... every ~30 s when the device sends BOOTED (sysex.md 4.6.3)
 
 # mcu: names used as roles -> the script's role names (hosts/README.md, "Roles").
 MCU_ROLE_MAP = {
@@ -67,12 +72,14 @@ class Device(object):
     """
 
     def __init__(self, send, timeout_ticks=TIMEOUT_TICKS, max_tries=MAX_TRIES, rescan_ticks=RESCAN_TICKS,
-                 keepalive_ticks=KEEPALIVE_TICKS):
+                 keepalive_ticks=KEEPALIVE_TICKS, keepalive_booted_ticks=KEEPALIVE_BOOTED_TICKS):
         self._send = send
         self.timeout_ticks = timeout_ticks
         self.max_tries = max_tries
         self.rescan_ticks = rescan_ticks
         self.keepalive_ticks = keepalive_ticks
+        self.keepalive_booted_ticks = keepalive_booted_ticks
+        self.sends_booted = False     # BOOTED seen, or a GET_COMPONENT reply with the added fields
         self.on_ready = None
         self.on_lost = None
         self.on_event = None
@@ -96,6 +103,7 @@ class Device(object):
         self._queue = []
         self.hello = None
         self.components = {}
+        self.sends_booted = False
         self.state = SEARCHING
         self._request(P.HELLO, b"", self._on_hello, self._on_search_failed)
 
@@ -242,6 +250,21 @@ class Device(object):
             if pid == P.PARAM_DEBUG_EVENTS and value == 0 and self.state == READY:
                 self._log("debug.events turned off on the device; turning it back on")
                 self._enable_events()
+        elif frame.cmd == P.BOOTED:
+            self._on_booted(frame)
+
+    def _on_booted(self, frame):
+        """sysex.md 4.6.3: the device restarted, so every FB_* state and debug.events are gone.
+        Start again from HELLO (an upload may have changed its components) and re-send everything."""
+        try:
+            h = P.parse_booted(frame.payload)
+        except P.ProtocolError as e:
+            self._log("bad BOOTED: %s" % e)
+            return
+        if self.state == IDLE:
+            return                                # not started (or released): nothing to re-send
+        self._lost("device restarted (BOOTED, fw %s)" % h.version_text)
+        self.sends_booted = True                  # after _lost: start() forgets the old device
 
     # ---- the steps ----
 
@@ -293,6 +316,8 @@ class Device(object):
                 return
             c.kind, c.index = kind, index         # trust our request over the echo
             c.role = normalise_role(c.role)
+            if c.reports_added_fields:
+                self.sends_booted = True          # same firmware change as BOOTED
             self.components[kind].append(c)
             if index + 1 < c.count:
                 self._get_component(kind, index + 1)
@@ -337,7 +362,7 @@ class Device(object):
                 self._log("debug.events is %d after SET_PARAM 1" % value)
             was_ready = self.state == READY
             self.state = READY
-            self._wait = self.keepalive_ticks
+            self._wait = self._keepalive_interval()
             if not was_ready and self.on_ready is not None:
                 self.on_ready(self)
 
@@ -357,15 +382,18 @@ class Device(object):
                 # Rebooted or replugged: its FB_* states are gone and the firmware may differ.
                 self._lost("debug.events is off (device restarted?)")
                 return
-            self._wait = self.keepalive_ticks
+            self._wait = self._keepalive_interval()
 
         def err(status):
             if status is None:
                 self._lost("keep-alive timed out")
             else:
-                self._wait = self.keepalive_ticks
+                self._wait = self._keepalive_interval()
 
         self._request(P.GET_PARAM, P.req_get_param(P.PARAM_DEBUG_EVENTS, 0), ok, err)
+
+    def _keepalive_interval(self):
+        return self.keepalive_booted_ticks if self.sends_booted else self.keepalive_ticks
 
     def _lost(self, why):
         self._log("lost device: %s" % why)

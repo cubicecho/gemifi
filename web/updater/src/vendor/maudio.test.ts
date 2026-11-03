@@ -209,11 +209,13 @@ describe('vendor upload', () => {
     const keyboard = new FakePort();
     keyboard.answer = (m) => (isStart(m) ? 0x15 : null); // the stock app: request set, power-cycle
     const other = new FakePort();
+    const released: string[] = [];
     let ports: ProbePort[] = [
-      { id: 'Code 61', name: 'Code 61', selected: true, transport: keyboard },
-      { id: 'Synth', name: 'Synth', selected: false, transport: other },
+      { id: 'Code 61', name: 'Code 61', selected: true, transport: keyboard, release: () => released.push('Code 61') },
+      { id: 'Synth', name: 'Synth', selected: false, transport: other, release: () => released.push('Synth') },
     ];
     const phases: VendorProgress['phase'][] = [];
+    let releasedAtPowerCycle: string[] = [];
     const bootloader = new FakePort();
     let isRecordEnd = 0;
     bootloader.answer = (m) => {
@@ -233,6 +235,7 @@ describe('vendor upload', () => {
           phases.push(p.phase);
         }
         if (p.phase === 'power-cycle' && ports.length === 2) {
+          releasedAtPowerCycle = [...released];
           // The user turns the keyboard off; it comes back as the bootloader, unselected.
           ports = [must(ports[1])];
           setTimeout(() => {
@@ -245,6 +248,8 @@ describe('vendor upload', () => {
     expect(phases).toEqual(['waiting-for-bootloader', 'power-cycle', 'writing', 'done']);
     expect(other.received.length).toBe(0);
     expect(keyboard.received.length).toBe(1);
+    // The keyboard's port is closed before the user is asked to switch it off; others are left alone.
+    expect(releasedAtPowerCycle).toEqual(['Code 61']);
     expect(bootloader.received.filter(isStart).length).toBe(2);
     expect(decodeRecords(bootloader.received)).toEqual(join(records));
     expect(isRecordEnd).toBeGreaterThan(0);

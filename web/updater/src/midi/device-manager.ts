@@ -53,15 +53,29 @@ export function midiUnavailableReason(): MidiUnavailable | null {
 }
 
 /**
- * A transport over one input/output pair.
+ * A transport over one input/output pair. The input is opened the first time the transport is
+ * used, not when it's made: the M-Audio updater makes one for every port on the computer, and on
+ * Windows opening a port another program holds can stall the browser.
  *
  * @param pair - The ports.
- * @returns The transport.
+ * @returns The transport, and `release` to close both ports.
  */
-function pairTransport(pair: PortPair): Transport {
-  void pair.input.open().catch(() => undefined);
+function pairTransport(pair: PortPair): Transport & { release: () => void } {
+  let isOpen = false;
+  const open = () => {
+    if (isOpen === false) {
+      isOpen = true;
+      void pair.input.open().catch(() => undefined);
+    }
+  };
   return {
+    release() {
+      isOpen = false;
+      void pair.input.close().catch(() => undefined);
+      void pair.output.close().catch(() => undefined);
+    },
     send(bytes) {
+      open();
       try {
         pair.output.send(bytes);
       } catch (error) {
@@ -73,6 +87,7 @@ function pairTransport(pair: PortPair): Transport {
       }
     },
     subscribe(listener) {
+      open();
       const onMessage = (event: MIDIMessageEvent) => {
         if (event.data) {
           listener(event.data);
@@ -129,7 +144,10 @@ export class DeviceManager implements DeviceLink {
   /** Set once the user picks a port by hand, so a manual choice of a non-gemifi port is kept. */
   #isManual = false;
   /** Raw transports handed to the vendor uploader, one per input port. */
-  readonly #rawTransports = new WeakMap<MIDIInput, { output: MIDIOutput; transport: Transport }>();
+  readonly #rawTransports = new WeakMap<
+    MIDIInput,
+    { output: MIDIOutput; transport: ReturnType<typeof pairTransport> }
+  >();
 
   /**
    * @param access - From {@link requestSysexAccess}.
@@ -232,7 +250,16 @@ export class DeviceManager implements DeviceLink {
         raw = { output: pair.output, transport: pairTransport(pair) };
         this.#rawTransports.set(pair.input, raw);
       }
-      return { id: pair.id, name: pair.name, selected: pair.id === selected?.id, transport: raw.transport };
+      const { transport } = raw;
+      const release = () => {
+        // The selected port's client holds the same ports open: let go of it too.
+        if (this.#snapshot.selected?.input === pair.input) {
+          this.select(null);
+        }
+        transport.release();
+        this.#rawTransports.delete(pair.input);
+      };
+      return { id: pair.id, name: pair.name, selected: pair.id === selected?.id, transport, release };
     });
   };
 

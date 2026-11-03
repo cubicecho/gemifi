@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -1365,6 +1366,36 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         rc, _, err = self.run_cli("new", "x", "--preset", "nope", "--dir", self.tmp)
         self.assertIn("unknown preset", err)
+
+
+@unittest.skipUnless(shutil.which("openssl"), "needs openssl")
+class TestDashboardTLS(unittest.TestCase):
+    """A browser that rejects the self-signed certificate (the first visit) is logged in one line,
+    with no traceback from the handler."""
+
+    def test_rejected_certificate(self):
+        import ssl
+        import socket
+        import dashboard
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        cert, key = os.path.join(tmp, "c.pem"), os.path.join(tmp, "k.pem")
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj",
+                        "/CN=localhost", "-keyout", key, "-out", cert], check=True, capture_output=True)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        roots = dashboard.Roots(tmp, os.path.join(tmp, "build"), readonly_presets=True)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            srv, port = start_server(roots, tls=ctx)
+            self.addCleanup(srv.shutdown)
+            client = ssl.create_default_context()           # verifies: rejects the self-signed cert
+            with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
+                with self.assertRaises(ssl.SSLError):
+                    client.wrap_socket(raw, server_hostname="localhost")
+            time.sleep(0.3)                                 # let the handler thread finish
+        self.assertNotIn("Traceback", err.getvalue())
+        self.assertNotIn("Bad file descriptor", err.getvalue())
 
 
 def start_server(roots, **opts):

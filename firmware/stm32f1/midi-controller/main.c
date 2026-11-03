@@ -49,6 +49,10 @@ static const usbd_desc_t usb_desc = {
  * the main loop and with it USB. */
 #define SCAN_TIM TIM2_BASE
 static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
+/* Main loop passes, wall time in cycles (the scan interrupt included): the
+ * slowest one, and how many took over 1 ms / 2 ms. USB is polled once per
+ * pass, and the host allows ~2 ms after SET_ADDRESS. */
+static uint32_t loop_max, loop_over1, loop_over2;
 static volatile uint8_t scan_slowed;
 #define SCAN_MAX_US 4000u
 
@@ -114,6 +118,9 @@ static void report_scan(void)
             fmt_num(b, ", panel ", gm_scan_part_max[1] / mhz, " us"));
     app_log(LOG_INFO, fmt_num(a, "scan encoders ", gm_scan_part_max[2] / mhz, " us"),
             fmt_num(b, ", clock ", mhz, " MHz"));
+    app_log(LOG_INFO, fmt_num(a, "main loop max ", loop_max, " us"),
+            fmt_num(b, ", over 1 ms ", loop_over1, ""));
+    app_log(LOG_INFO, fmt_num(a, "main loop over 2 ms ", loop_over2, ""), "");
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));
@@ -174,11 +181,18 @@ int main(void)
      * and the IWDG, which turns a hang into a reset. */
     /* Scan timing at 2.5 s (boot) and 10 s (steady state). */
     int reported = 0;
+    uint32_t mhz = sys_hclk_hz / 1000000u, c_last = DWT_CYCCNT;
     for (;;) {
         sys_iwdg_kick();
         usbd_poll();
         midi_rx_drain(gm_midi_rx_usb);
         gm_poll();
+        uint32_t c_now = DWT_CYCCNT, us = (c_now - c_last) / mhz;
+        c_last = c_now;
+        if (us > loop_max)
+            loop_max = us;
+        loop_over1 += us > 1000u;
+        loop_over2 += us > 2000u;
         uint32_t now = sys_tick_ms();
         if ((reported == 0 && now >= 2500u) || (reported == 1 && now >= 10000u)) {
             reported++;

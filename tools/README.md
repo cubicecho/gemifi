@@ -268,6 +268,7 @@ python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # 
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
 python3 tools/host/gemifi.py presets | preset select|save|reset|rename     # presets, below
+python3 tools/host/gemifi.py components | fb led|rgb|leds|value|ring|text|release   # host feedback, below
 cd tools/host && python3 -m unittest            # codec, mkimage, upload against a simulated bootloader, vectors
 python3 tools/host/make_test_vectors.py         # regenerate protocol/test-vectors.json (--check to compare)
 ```
@@ -397,3 +398,22 @@ gemifi.py preset rename 2 "Kit"            # "" = back to the firmware's name
 **Presets and firmware updates (`flash`).**
 - Before the upload, on a device with presets, `flash` saves a backup to `gemifi-backup-<board>-<version>-<time>.json` in the current directory. `--backup FILE` picks the name (and also works on a device without presets); `--no-backup` skips it. If the device is already in the bootloader, there is nothing to read, and it says so.
 - After the upload, it reads PRESET_INFO for every slot. If a slot's stored edits were made on another presets revision (the firmware's YAML presets changed), it lists them and asks: keep your edits on top of the new presets (Enter, the default), or use the firmware's presets (PRESET_RESET on every slot; names too; the globals stay). `--keep-presets` and `--use-firmware-presets` answer in advance. Either way, `gemifi.py restore <backup>` undoes it.
+
+### Host feedback (`gemifi.py`, app firmware with HELLO caps bit 6)
+
+`protocol/sysex.md` §4.6. For trying out what a DAW script does: list the controls, then drive LEDs, values, rings and text by component index.
+
+```sh
+gemifi.py components [--json]               # kind, index, id, name, role and extras (LED, ring, keys...)
+gemifi.py fb led rec on                     # LEVEL 0..127 (0 off, 1 blink, 2..127 on) or off/blink/on
+gemifi.py fb rgb 4 127 0 0 [--blink]
+gemifi.py fb leds 0 on off 64 127           # several LEDs from the first one on
+gemifi.py fb value analog fader1 8192       # analog pick-up target / encoder value, 0..16383
+gemifi.py fb ring enc1 boost 4096 [--center]   # dot | boost | wrap | spread
+gemifi.py fb text 0 1 4 "Track 1"
+gemifi.py fb release [all|leds|values|text] # hand the states back to the device
+```
+
+- An LED, encoder, analog input or display is a number (its index) or a component id (YAML `id:`, any case), looked up with GET_COMPONENT. For an LED, a button's id means the button's LED and an encoder's id its centre LED.
+- `fb` commands are notifications: sent once, never answered, so they return at once and can't report an error from the device.
+- Both commands refuse a device without caps bit 6 (older firmware would answer a notification with BAD_CMD in the LOG/EVENT range).

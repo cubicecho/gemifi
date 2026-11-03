@@ -30,7 +30,7 @@ import gemifi_build as gb
 import gemifi_device as gd
 
 NAME = "gemifi builder"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml")
 IMAGE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.(gfw|bin)")
 DEFAULT_BUILD_DIR = os.path.join(gb.REPO, "build", "devices")

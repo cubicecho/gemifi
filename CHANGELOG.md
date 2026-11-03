@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.5.0](https://github.com/cubicecho/gemifi/compare/v0.4.0...v0.5.0) (2026-11-03)
+
+
+### Features
+
+* **hosts:** Bitwig extension for host feedback (F3) ([f404965](https://github.com/cubicecho/gemifi/commit/f4049650bc393658f7b59e6fdbb52c0d9fe158fb))
+* **protocol:** GET_COMPONENT takeover/mode/owner and a BOOTED message ([b124ba6](https://github.com/cubicecho/gemifi/commit/b124ba6d78af107cc7e9be881f99e9449214df4c))
+
 # [0.4.0](https://github.com/cubicecho/gemifi/compare/v0.3.0...v0.4.0) (2026-11-03)
 
 

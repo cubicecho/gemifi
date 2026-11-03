@@ -38,6 +38,8 @@ public final class Protocol {
     public static final int LOG = 0x60;
     public static final int EVENT = 0x61;
     public static final int PARAM_CHANGED = 0x62;
+    /** sysex.md §4.6.3: HELLO's fields, sent once after the device starts. */
+    public static final int BOOTED = 0x64;
 
     // Host feedback notifications (sysex.md §4.6.2). Never answered.
     public static final int FB_LED = 0x20;
@@ -90,6 +92,12 @@ public final class Protocol {
 
     /** "None" in GET_COMPONENT extra fields (no LED, no centre LED). */
     public static final int NONE_INDEX = 0x3FFF;
+    // Fields added to GET_COMPONENT after the first F3 firmware (sysex.md §4.6.1 "Added fields").
+    // A Component holds null for one the device didn't send.
+    public static final int TAKEOVER_NONE = 0, TAKEOVER_PICKUP = 1;
+    public static final int ENC_ABSOLUTE = 0, ENC_REL_TWOS = 1, ENC_REL_OFFSET = 2, ENC_MCU = 3;
+    public static final int OWNER_HOST_THEN_LOCAL = 0, OWNER_HOST = 1, OWNER_LOCAL = 2;
+
     public static final int U14_MAX = 0x3FFF;
     public static final int LSTRING_MAX = 31;
 
@@ -431,6 +439,11 @@ public final class Protocol {
                 unpack7(Arrays.copyOfRange(payload, 14, 28)), node);
     }
 
+    /** BOOTED payload (sysex.md §4.6.3) → Hello: a HELLO reply without its status byte. */
+    public static Hello parseBooted(byte[] payload) throws ProtocolException {
+        return parseHello(concat(bytes(OK), payload));
+    }
+
     /** Device side (tests, fake device). */
     public static byte[] buildHelloReply(Hello h) {
         byte[] node = h.node == null ? new byte[0]
@@ -485,6 +498,12 @@ public final class Protocol {
         public int cols;
         public int rows;
         public int displayType;
+        /** Analog: 0 none, 1 pick-up; null = not reported (older firmware). */
+        public Integer takeover;
+        /** Encoder: 0 absolute, 1/2 relative, 3 Mackie V-Pot (non-zero = relative); null = not reported. */
+        public Integer mode;
+        /** LED: 0 host_then_local, 1 host, 2 local; null = not reported. */
+        public Integer owner;
 
         public Component() {}
 
@@ -499,6 +518,31 @@ public final class Protocol {
 
         public boolean hasLed() {
             return kind == KIND_BUTTON && led != NONE_INDEX;
+        }
+
+        /**
+         * Whether FB_VALUE does anything (sysex.md §4.6.2): a pick-up analog input or an absolute
+         * encoder. True when the device didn't say, as the extension assumed before the field existed.
+         */
+        public boolean takesValue() {
+            if (kind == KIND_ANALOG) return takeover == null || takeover == TAKEOVER_PICKUP;
+            if (kind == KIND_ENCODER) return mode == null || mode == ENC_ABSOLUTE;
+            return false;
+        }
+
+        /** An LED with owner: local ignores every FB_* (sysex.md §4.6.2 "Ownership"). */
+        public boolean localOnly() {
+            return kind == KIND_LED && owner != null && owner == OWNER_LOCAL;
+        }
+
+        /** Whether the reply carried its kind's added field (so the firmware also sends BOOTED). */
+        public boolean reportsAddedFields() {
+            switch (kind) {
+                case KIND_ANALOG: return takeover != null;
+                case KIND_ENCODER: return mode != null;
+                case KIND_LED: return owner != null;
+                default: return false;
+            }
         }
 
         @Override
@@ -532,14 +576,19 @@ public final class Protocol {
                 c.keys = decU14(payload, p);
                 c.firstNote = at(payload, p + 2);
                 break;
+            case KIND_ANALOG:
+                c.takeover = left > 0 ? at(payload, p) : null;
+                break;
             case KIND_ENCODER:
                 if (left < 3) throw new ProtocolException(missing);
                 c.ring = at(payload, p);
                 c.center = decU14(payload, p + 1);
+                c.mode = left > 3 ? at(payload, p + 3) : null;
                 break;
             case KIND_LED:
                 if (left < 1) throw new ProtocolException(missing);
                 c.colours = at(payload, p);
+                c.owner = left > 1 ? at(payload, p + 1) : null;
                 break;
             case KIND_DISPLAY:
                 if (left < 3) throw new ProtocolException(missing);
@@ -548,7 +597,7 @@ public final class Protocol {
                 c.displayType = at(payload, p + 2);
                 break;
             default:
-                // analog: no extras; unknown kinds: ignore whatever follows
+                // unknown kinds: ignore whatever follows (takeover / mode / owner are absent in older firmware)
                 break;
         }
         return c;
@@ -561,11 +610,16 @@ public final class Protocol {
         switch (c.kind) {
             case KIND_BUTTON: return concat(head, u14(c.led));
             case KIND_KEYS: return concat(head, u14(c.keys), bytes(c.firstNote));
-            case KIND_ENCODER: return concat(head, bytes(c.ring), u14(c.center));
-            case KIND_LED: return concat(head, bytes(c.colours));
+            case KIND_ANALOG: return concat(head, opt(c.takeover));
+            case KIND_ENCODER: return concat(head, bytes(c.ring), u14(c.center), opt(c.mode));
+            case KIND_LED: return concat(head, bytes(c.colours), opt(c.owner));
             case KIND_DISPLAY: return concat(head, bytes(c.cols, c.rows, c.displayType));
             default: return head;
         }
+    }
+
+    private static byte[] opt(Integer v) {
+        return v == null ? new byte[0] : bytes(v);
     }
 
     // ---- EVENT (0x61) ----

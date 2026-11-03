@@ -6,6 +6,7 @@ import gemifi.bitwig.core.Protocol.Frame;
 import gemifi.bitwig.core.Protocol.Hello;
 import gemifi.bitwig.core.Protocol.ProtocolException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -34,6 +35,25 @@ final class FakeDevice {
 
     static Component led(String role) {
         return c(Protocol.KIND_LED, role);
+    }
+
+    /** GET_COMPONENT's added fields (sysex.md §4.6.1); null = older firmware that doesn't send them. */
+    static Component led(String role, Integer owner) {
+        Component c = led(role);
+        c.owner = owner;
+        return c;
+    }
+
+    static Component analog(String role, Integer takeover) {
+        Component c = c(Protocol.KIND_ANALOG, role);
+        c.takeover = takeover;
+        return c;
+    }
+
+    static Component encoder(String role, int ring, Integer mode) {
+        Component c = encoder(role, ring);
+        c.mode = mode;
+        return c;
     }
 
     /** A small device using several roles (plus mcu: names and an x_ role). */
@@ -159,8 +179,16 @@ final class FakeDevice {
         return n;
     }
 
-    /** Simulates a power cycle: volatile debug.events goes back to 0. */
+    /** Simulates a power cycle without BOOTED (older firmware, or a port opened too late). */
     void reboot() {
         params.put(Protocol.PARAM_DEBUG_EVENTS, 0);
+    }
+
+    /** A restart as newer firmware does it: debug.events back to 0, then BOOTED (sysex.md §4.6.3). */
+    void boot() {
+        reboot();
+        notifications.clear();
+        byte[] reply = Protocol.buildHelloReply(hello);
+        out.accept(Protocol.buildFrame(Protocol.BOOTED, 5, Arrays.copyOfRange(reply, 1, reply.length)));
     }
 }

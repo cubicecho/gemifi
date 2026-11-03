@@ -22,6 +22,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -188,12 +191,19 @@ class ProtocolTest {
         assertEquals(-2, Protocol.parseEvent(Protocol.buildEvent(4, 0, -2, 0)).delta());
     }
 
+    /** A JSON field that may be null (an added field older firmware doesn't send). */
+    static Integer optInt(JsonObject o, String name) {
+        JsonElement e = o.get(name);
+        return e == null || e.isJsonNull() ? null : e.getAsInt();
+    }
+
     @Test
     void getComponent() throws ProtocolException {
         JsonObject fb = vectors.getAsJsonObject("feedback");
         assertEquals(Protocol.CAP_FEEDBACK, fb.get("cap_feedback").getAsInt());
         assertEquals(Protocol.NONE_INDEX, fb.get("none_index").getAsInt());
         int replies = 0;
+        Set<String> seen = new HashSet<>();
         for (JsonElement e : fb.getAsJsonArray("frames")) {
             JsonObject o = e.getAsJsonObject();
             JsonObject fields = o.getAsJsonObject("fields");
@@ -224,7 +234,8 @@ class ProtocolTest {
                         break;
                     case Protocol.KIND_ENCODER:
                         assertEquals(fields.get("ring").getAsInt(), c.ring);
-                        assertEquals(fields.get("center").getAsInt(), c.center);
+                        Integer center = optInt(fields, "center");
+                        assertEquals(center == null ? Protocol.NONE_INDEX : center, c.center);
                         break;
                     case Protocol.KIND_LED:
                         assertEquals(fields.get("colours").getAsInt(), c.colours);
@@ -237,11 +248,101 @@ class ProtocolTest {
                     default:
                         break;
                 }
-                assertArrayEquals(payload, Protocol.buildComponentReply(c), o.get("desc").getAsString());
+                // sysex.md §4.6.1 "Added fields": present, or null when older firmware leaves them out
+                String desc = o.get("desc").getAsString();
+                if (fields.has("takeover")) {
+                    assertEquals(optInt(fields, "takeover"), c.takeover, desc);
+                    seen.add("takeover " + (c.takeover == null));
+                }
+                if (fields.has("mode")) {
+                    assertEquals(optInt(fields, "mode"), c.mode, desc);
+                    seen.add("mode " + (c.mode == null));
+                }
+                if (fields.has("owner")) {
+                    assertEquals(optInt(fields, "owner"), c.owner, desc);
+                    seen.add("owner " + (c.owner == null));
+                }
+                assertArrayEquals(payload, Protocol.buildComponentReply(c), desc);
                 replies++;
             }
         }
-        assertEquals(8, replies);
+        assertEquals(15, replies);
+        assertEquals(Set.of("takeover false", "takeover true", "mode false", "mode true",
+                "owner false", "owner true"), seen);
+    }
+
+    @Test
+    void addedComponentFields() throws ProtocolException {
+        Component a = new Component(Protocol.KIND_ANALOG, 0, 1, "", "", "");
+        a.takeover = Protocol.TAKEOVER_PICKUP;
+        assertArrayEquals(hex("00 03 00 00 01 00 00 00 00 01"), Protocol.buildComponentReply(a));
+        Component e = new Component(Protocol.KIND_ENCODER, 0, 1, "", "", "");
+        e.ring = 5;
+        e.center = 200;
+        e.mode = Protocol.ENC_REL_OFFSET;
+        byte[] eb = Protocol.buildComponentReply(e);
+        assertArrayEquals(hex("05 48 01 02"), Arrays.copyOfRange(eb, eb.length - 4, eb.length));
+        Component x = new Component(Protocol.KIND_LED, 0, 1, "", "", "");
+        x.colours = 2;
+        x.owner = Protocol.OWNER_LOCAL;
+        byte[] xb = Protocol.buildComponentReply(x);
+        assertArrayEquals(hex("02 02"), Arrays.copyOfRange(xb, xb.length - 2, xb.length));
+        for (Component c : new Component[] {a, e, x}) {
+            Component got = Protocol.parseComponentReply(Protocol.buildComponentReply(c));
+            assertEquals(c.takeover, got.takeover);
+            assertEquals(c.mode, got.mode);
+            assertEquals(c.owner, got.owner);
+            assertTrue(got.reportsAddedFields());
+        }
+        Component oldEnc = new Component(Protocol.KIND_ENCODER, 0, 1, "", "", "");
+        oldEnc.ring = 3;
+        Component old = Protocol.parseComponentReply(Protocol.buildComponentReply(oldEnc));
+        assertNull(old.mode);
+        assertTrue(old.takesValue());
+        assertFalse(old.reportsAddedFields());
+
+        Component none = new Component(Protocol.KIND_ANALOG, 0, 1, "", "", "");
+        assertTrue(none.takesValue());                   // not reported: as before
+        none.takeover = Protocol.TAKEOVER_NONE;
+        assertFalse(none.takesValue());
+        assertTrue(a.takesValue());
+        Component mcu = new Component(Protocol.KIND_ENCODER, 0, 1, "", "", "");
+        mcu.mode = Protocol.ENC_MCU;
+        assertFalse(mcu.takesValue());
+        Component abs = new Component(Protocol.KIND_ENCODER, 0, 1, "", "", "");
+        abs.mode = Protocol.ENC_ABSOLUTE;
+        assertTrue(abs.takesValue());
+        assertTrue(x.localOnly());
+        assertFalse(new Component(Protocol.KIND_LED, 0, 1, "", "", "").localOnly());
+        Component host = new Component(Protocol.KIND_LED, 0, 1, "", "", "");
+        host.owner = Protocol.OWNER_HOST_THEN_LOCAL;
+        assertFalse(host.localOnly());
+    }
+
+    @Test
+    void booted() throws ProtocolException {
+        int n = 0;
+        for (JsonElement e : vectors.getAsJsonObject("feedback").getAsJsonArray("frames")) {
+            JsonObject o = e.getAsJsonObject();
+            if (o.get("cmd").getAsInt() != Protocol.BOOTED) continue;
+            JsonObject f = o.getAsJsonObject("fields");
+            Frame fr = Protocol.parseFrame(hex(o.get("frame").getAsString()));
+            assertTrue(fr.isUnsolicited());
+            Hello h = Protocol.parseBooted(fr.payload);
+            assertEquals(f.get("role").getAsInt(), h.role);
+            assertEquals(f.get("board_id").getAsInt(), h.boardId);
+            assertEquals(f.get("fw_version").getAsLong(), h.fwVersion);
+            assertEquals(f.get("proto_version").getAsInt(), h.protoVersion);
+            assertEquals(f.get("max_chunk").getAsInt(), h.maxChunk);
+            assertEquals(f.get("caps").getAsInt(), h.caps);
+            assertArrayEquals(hex(f.get("uid").getAsString()), h.uid);
+            assertEquals(f.get("node").getAsString(), h.node);
+            assertTrue(h.hasFeedback());
+            byte[] reply = Protocol.buildHelloReply(h);
+            assertArrayEquals(fr.payload, Arrays.copyOfRange(reply, 1, reply.length));
+            n++;
+        }
+        assertEquals(1, n);
     }
 
     @Test

@@ -11,9 +11,11 @@ import gemifi.bitwig.core.Protocol.Component;
 import gemifi.bitwig.core.Protocol.Event;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
@@ -197,7 +199,10 @@ public final class Mapping {
 
     // ---- setup ----
 
-    /** Builds the bindings from the device's components (roles already normalised). */
+    /**
+     * Builds the bindings from the device's components (roles already normalised). LEDs with
+     * owner: local ignore FB_LED, so they get no binding (sysex.md §4.6.1 {@code owner}).
+     */
     public void bind(List<Component> components) {
         buttons.clear();
         leds.clear();
@@ -206,6 +211,10 @@ public final class Mapping {
         unknownRoles.clear();
         unsupportedRoles.clear();
         forget();
+        Set<Integer> local = new HashSet<>();
+        for (Component c : components) {
+            if (c.kind == Protocol.KIND_LED && c.localOnly()) local.add(c.index);
+        }
         // Buttons first, so a button's own LED binding (which knows "held") wins over a kind-5 LED role.
         for (Component c : components) {
             if (c.kind != Protocol.KIND_BUTTON || c.role.isEmpty() || !usable(c)) continue;
@@ -216,12 +225,12 @@ public final class Mapping {
             }
             ButtonBinding b = new ButtonBinding(c, br);
             buttons.put(c.index, b);
-            if (c.hasLed()) leds.put(c.led, b::level);
+            if (c.hasLed() && !local.contains(c.led)) leds.put(c.led, b::level);
         }
         for (Component c : components) {
             if (c.role.isEmpty()) continue;
             if (c.kind == Protocol.KIND_LED) {
-                if (!usable(c)) continue;
+                if (c.localOnly() || !usable(c)) continue;
                 ButtonRole br = buttonRole(c.role);
                 if (br == null) {
                     unknown(c);
@@ -564,7 +573,9 @@ public final class Mapping {
             analogCache.put(idx, now);
             b.picked = false;                 // the target moved away from the knob
             b.lastRaw = null;
-            notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ANALOG, idx, now.value));
+            if (b.component.takesValue()) {         // takeover: none ignores FB_VALUE (sysex.md §4.6.2)
+                notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ANALOG, idx, now.value));
+            }
         }
     }
 
@@ -580,7 +591,9 @@ public final class Mapping {
             Sent now = new Sent(p.key(), v);
             if (!now.equals(encoderCache.get(c.index))) {
                 encoderCache.put(c.index, now);
-                notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ENCODER, c.index, v));
+                if (c.takesValue()) {                // a relative encoder ignores FB_VALUE (sysex.md §4.6.2)
+                    notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ENCODER, c.index, v));
+                }
             }
             ring = p.bipolar() ? new Ring(Protocol.RING_BOOST_CUT, v, true, false)
                     : new Ring(Protocol.RING_WRAP, v, false, false);

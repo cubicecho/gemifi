@@ -21,8 +21,12 @@ import java.util.function.IntConsumer;
  * <pre>
  * searching --HELLO ok, caps bit 6--&gt; enumerating --all kinds read--&gt; enabling --debug.events=1--&gt; ready
  *     |                                                                                       |
- *     +--HELLO ok, no caps bit 6--&gt; unsupported          keep-alive fails / events turned off +--&gt; searching
+ *     +--HELLO ok, no caps bit 6--&gt; unsupported BOOTED / keep-alive fails / events turned off +--&gt; searching
  * </pre>
+ *
+ * <p>A device restart is seen from its BOOTED message (§4.6.3). The keep-alive (reading
+ * debug.events back) stays as the fallback: every ~5 s for firmware without BOOTED, every ~30 s
+ * for firmware that has it, in case BOOTED went out before the port was open.
  *
  * <p>Pure Java, no Bitwig imports; a port of {@code hosts/ableton-live/gemifi/device.py}. Time is a
  * tick counter: the extension calls {@link #tick()} about every 100 ms. Requests are stop-and-wait
@@ -40,6 +44,8 @@ public final class Device {
     public static final int RESCAN_TICKS = 30;
     /** In ready, read debug.events every ~5 s to notice a replug / reboot. */
     public static final int KEEPALIVE_TICKS = 50;
+    /** ... every ~30 s when the device sends BOOTED (§4.6.3). */
+    public static final int KEEPALIVE_BOOTED_TICKS = 300;
 
     /** Callbacks; any may be left null. */
     public interface Listener {
@@ -83,6 +89,9 @@ public final class Device {
     private final int maxTries;
     private final int rescanTicks;
     private final int keepaliveTicks;
+    private final int keepaliveBootedTicks;
+    /** BOOTED seen, or a GET_COMPONENT reply with the added fields. */
+    private boolean sendsBooted;
     private Listener listener = new Listener() {};
 
     private State state = State.IDLE;
@@ -96,10 +105,16 @@ public final class Device {
     private int enumKind;
 
     public Device(Consumer<byte[]> send) {
-        this(send, TIMEOUT_TICKS, MAX_TRIES, RESCAN_TICKS, KEEPALIVE_TICKS);
+        this(send, TIMEOUT_TICKS, MAX_TRIES, RESCAN_TICKS, KEEPALIVE_TICKS, KEEPALIVE_BOOTED_TICKS);
     }
 
     public Device(Consumer<byte[]> send, int timeoutTicks, int maxTries, int rescanTicks, int keepaliveTicks) {
+        this(send, timeoutTicks, maxTries, rescanTicks, keepaliveTicks, KEEPALIVE_BOOTED_TICKS);
+    }
+
+    public Device(Consumer<byte[]> send, int timeoutTicks, int maxTries, int rescanTicks, int keepaliveTicks,
+            int keepaliveBootedTicks) {
+        this.keepaliveBootedTicks = keepaliveBootedTicks;
         this.send = send;
         this.timeoutTicks = timeoutTicks;
         this.maxTries = maxTries;
@@ -119,6 +134,11 @@ public final class Device {
 
     public Hello hello() {
         return hello;
+    }
+
+    /** Whether this firmware sends BOOTED (seen one, or GET_COMPONENT's added fields). */
+    public boolean sendsBooted() {
+        return sendsBooted;
     }
 
     public boolean isReady() {
@@ -143,10 +163,16 @@ public final class Device {
 
     /** (Re)starts from scratch: forget everything and send HELLO. */
     public void start() {
+        restart(false);
+    }
+
+    /** {@code booted}: the restart is for a BOOTED, so this firmware is known to send it. */
+    private void restart(boolean booted) {
         pending = null;
         queue.clear();
         hello = null;
         components.clear();
+        sendsBooted = booted;
         state = State.SEARCHING;
         request(Protocol.HELLO, new byte[0], this::onHello, s -> onSearchFailed());
     }
@@ -297,10 +323,28 @@ public final class Device {
                     log("debug.events turned off on the device; turning it back on");
                     enableEvents();
                 }
+            } else if (frame.cmd == Protocol.BOOTED) {
+                onBooted(frame);
             }
         } catch (ProtocolException e) {
             // malformed unsolicited message: drop it
         }
+    }
+
+    /**
+     * §4.6.3: the device restarted, so every FB_* state and debug.events are gone. Start again
+     * from HELLO (an upload may have changed its components) and re-send everything.
+     */
+    private void onBooted(Frame frame) {
+        Hello h;
+        try {
+            h = Protocol.parseBooted(frame.payload);
+        } catch (ProtocolException e) {
+            log("bad BOOTED: " + e.getMessage());
+            return;
+        }
+        if (state == State.IDLE) return;            // not started (or released): nothing to re-send
+        lost("device restarted (BOOTED, fw " + h.versionText() + ")", true);
     }
 
     // ---- the steps ----
@@ -362,6 +406,7 @@ public final class Device {
             c.kind = kind;                       // trust our request over the echo
             c.index = index;
             c.role = Roles.normalise(c.role);
+            if (c.reportsAddedFields()) sendsBooted = true;   // same firmware change as BOOTED
             components.get(kind).add(c);
             if (index + 1 < c.count && index + 1 < Protocol.NONE_INDEX) getComponent(kind, index + 1);
             else enumNextKind();
@@ -396,7 +441,7 @@ public final class Device {
             if (p[2] != 1) log("debug.events is " + p[2] + " after SET_PARAM 1");
             boolean wasReady = state == State.READY;
             state = State.READY;
-            wait = keepaliveTicks;
+            wait = keepaliveInterval();
             if (!wasReady) listener.onReady(this);
         }, status -> {
             if (status == GAVE_UP) {
@@ -416,21 +461,29 @@ public final class Device {
                 lost("debug.events is off (device restarted?)");
                 return;
             }
-            wait = keepaliveTicks;
+            wait = keepaliveInterval();
         }, status -> {
             if (status == GAVE_UP) lost("keep-alive timed out");
-            else wait = keepaliveTicks;
+            else wait = keepaliveInterval();
         });
     }
 
+    private int keepaliveInterval() {
+        return sendsBooted ? keepaliveBootedTicks : keepaliveTicks;
+    }
+
     private void lost(String why) {
+        lost(why, false);
+    }
+
+    private void lost(String why, boolean booted) {
         log("lost device: " + why);
         boolean wasReady = state == State.READY;
         state = State.SEARCHING;
         pending = null;
         queue.clear();
         if (wasReady) listener.onLost(this);
-        start();
+        restart(booted);
     }
 
     private void log(String text) {

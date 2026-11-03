@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +38,11 @@ class MappingTest {
             public void onReady(Device d) {
                 mapping.bind(d.allComponents());
                 mapping.refresh();
+            }
+
+            @Override
+            public void onLost(Device d) {
+                mapping.release();                                  // as GemifiExtension does
             }
 
             @Override
@@ -398,5 +404,70 @@ class MappingTest {
         assertEquals(0, Mapping.stripNumber("volume_0", "volume_"));
         assertEquals(0, Mapping.stripNumber("volume_x", "volume_"));
         assertEquals(0, Mapping.stripNumber("volume_", "volume_"));
+    }
+
+    @Test
+    void addedFieldsLimitWhatIsSent() throws ProtocolException {
+        // sysex.md §4.6.1: no FB_VALUE to an analog input without pick-up or a relative encoder, and
+        // nothing to an owner: local LED (its button still works).
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.button("play", 0));
+        comps.add(FakeDevice.button("stop", 1));
+        comps.add(FakeDevice.analog("volume_1", Protocol.TAKEOVER_NONE));
+        comps.add(FakeDevice.analog("volume_2", Protocol.TAKEOVER_PICKUP));
+        comps.add(FakeDevice.encoder("device_param_1", 5, Protocol.ENC_REL_TWOS));
+        comps.add(FakeDevice.encoder("pan_1", 0, Protocol.ENC_ABSOLUTE));
+        comps.add(FakeDevice.encoder("device_param_2", 5, Protocol.ENC_MCU));
+        comps.add(FakeDevice.led("", Protocol.OWNER_LOCAL));
+        comps.add(FakeDevice.led("", Protocol.OWNER_HOST_THEN_LOCAL));
+        comps.add(FakeDevice.led("metronome", Protocol.OWNER_LOCAL));
+        setUp(comps);
+        List<Frame> first = new ArrayList<>(fake.notifications);
+        Values v = values();
+        assertFalse(v.values.containsKey("3:0"), "takeover none: no FB_VALUE");
+        assertTrue(v.values.containsKey("3:1"));
+        assertFalse(v.values.containsKey("4:0"), "relative encoder: no FB_VALUE");
+        assertTrue(v.rings.containsKey(0), "its ring still follows");
+        assertTrue(v.values.containsKey("4:1"));
+        assertFalse(v.values.containsKey("4:2"), "Mackie V-Pot counts as relative");
+        assertTrue(v.rings.containsKey(2));
+        fake.notifications.addAll(first);
+        assertEquals(Set.of(1), leds().keySet());                            // LEDs 0 and 2 are local
+        press(0);                                                            // play still works
+        assertTrue(model.flag(TransportFlag.PLAYING));
+        assertTrue(leds().isEmpty());
+        // host-side pick-up still applies to the analog input without device pick-up
+        FakeModel.FParam vol = (FakeModel.FParam) model.tracks.get(0).param(TrackParam.VOLUME);   // 0.85
+        fake.event(Protocol.KIND_ANALOG, 0, 1000);
+        assertEquals(0.85, vol.value, 1e-9);
+        // the relative encoder still nudges, and its ring moves
+        fake.event(Protocol.KIND_ENCODER, 0, 3);
+        Values v1 = values();
+        assertFalse(v1.values.containsKey("4:0"));
+        assertEquals(Mapping.to14(3.0 / Mapping.ENCODER_STEPS), v1.rings.get(0)[1]);
+    }
+
+    @Test
+    void olderFirmwareGetsEverything() throws ProtocolException {
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.analog("volume_1", null));
+        comps.add(FakeDevice.encoder("device_param_1", 5, null));
+        comps.add(FakeDevice.led("metronome", null));
+        setUp(comps);
+        List<Frame> first = new ArrayList<>(fake.notifications);
+        Values v = values();
+        assertTrue(v.values.containsKey("3:0"));
+        assertTrue(v.values.containsKey("4:0"));
+        fake.notifications.addAll(first);
+        assertEquals(Set.of(0), leds().keySet());
+    }
+
+    @Test
+    void bootedResendsEverything() throws ProtocolException {
+        mapping.refresh();
+        fake.take(-1);
+        fake.boot();                                                         // re-enumerates: onLost + onReady
+        assertTrue(device.isReady());
+        assertEquals(8, leds().size());
     }
 }

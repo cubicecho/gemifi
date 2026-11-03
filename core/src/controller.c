@@ -809,6 +809,17 @@ void gm_analog_host(uint32_t i, uint32_t value)
 static int32_t a_filt[NA];          /* 0..4095 << 2 */
 static int16_t a_sent[NA];          /* last 7-bit value, -1 = none yet */
 static uint8_t a_next;
+/* analog.mode pitch bend: the reading at power-up is the centre (a sprung
+ * wheel rests there); BEND_DEAD either side of it is no bend. Readings
+ * past BEND_END of either end are full bend. A change under BEND_STEP is
+ * noise, except to the centre or an end. The dead zone and the noise step
+ * are raw ADC counts, so they stay the same size on a wheel whose
+ * adc_min..adc_max is only a small part of 0..4095 (the Code 61's: ~940). */
+#define BEND_DEAD 16                /* raw counts */
+#define BEND_END 8                  /* 0..4095 after adc_min / adc_max */
+#define BEND_STEP 6                 /* raw counts */
+static int16_t a_center[NA];        /* 0..4095 */
+static int16_t a_bend[NA];          /* last pitch bend sent, 0..16383 */
 #if GM_ANALOG_PICKUP
 /* Pick-up: after the host sets a value the knob isn't at, the knob stays
  * silent until it reaches or crosses that value. */
@@ -833,10 +844,35 @@ void gm_analog_host(uint32_t i, uint32_t value)
 #endif
 }
 
-static void analog_poll(void)
+/* Pitch bend from analog input i at pos (0..4095): centre to each end is
+ * one half of the 14-bit range. */
+static void analog_bend(uint32_t i, int32_t pos)
 {
-    uint32_t i = a_next;
-    a_next = (uint8_t)((a_next + 1u) % GM_N_ANALOGS);
+    const gm_analog_t *a = &gm_device.analogs[i];
+    int32_t range = a->raw_max > a->raw_min ? a->raw_max - a->raw_min : a->raw_min - a->raw_max;
+    if (range == 0)
+        range = 4095;
+    int32_t dead = BEND_DEAD * 4095 / range;          /* in 0..4095 units */
+    int32_t step = BEND_STEP * 16384 / range;         /* in bend units */
+    int32_t c = a_center[i], b = 8192;
+    if (pos > c + dead) {
+        int32_t span = 4095 - BEND_END - c - dead;
+        b = span > 0 ? 8192 + (pos - c - dead) * 8191 / span : 16383;
+    } else if (pos < c - dead) {
+        int32_t span = c - dead - BEND_END;
+        b = span > 0 ? 8192 - (c - dead - pos) * 8192 / span : 0;
+    }
+    b = b < 0 ? 0 : b > 16383 ? 16383 : b;
+    int32_t last = a_bend[i], d = b > last ? b - last : last - b;
+    if (d == 0 || (d < step && b != 8192 && b != 0 && b != 16383))
+        return;
+    a_bend[i] = (int16_t)b;
+    midi3(0xE0 | chan(), (uint32_t)b & 0x7Fu, (uint32_t)b >> 7);
+    event(EV_ANALOG, i, (uint32_t)pos << 2);
+}
+
+static void analog_read(uint32_t i)
+{
     const gm_analog_t *a = &gm_device.analogs[i];
     int32_t raw = vpin_analog(a->pin);
     if (raw < 0)
@@ -851,10 +887,16 @@ static void analog_poll(void)
     if (a_sent[i] < 0) {
         a_filt[i] = v << 2;                 /* first reading: no message */
         a_sent[i] = (int16_t)(v >> 5);
+        a_center[i] = (int16_t)v;
+        a_bend[i] = 8192;
         return;
     }
     a_filt[i] += v - (a_filt[i] >> 2);     /* 4-sample moving average */
     int32_t pos = a_filt[i] >> 2;           /* 0..4095 */
+    if (gm_cfg.analog_mode[i] == AN_MODE_BEND) {
+        analog_bend(i, pos);
+        return;
+    }
     int32_t center = a_sent[i] * 32 + 16;
     if (pos - center > 24 || center - pos > 24 ||
         (pos >= 4088 && a_sent[i] != 127) || (pos <= 8 && a_sent[i] != 0)) {
@@ -878,6 +920,18 @@ static void analog_poll(void)
             event(EV_ANALOG, i, (uint32_t)pos << 2);
         }
     }
+}
+
+/* One input per ANALOG_MS in turn, and every pitch-bend input each time
+ * as well, so a wheel follows quickly however many inputs there are. */
+static void analog_poll(void)
+{
+    uint32_t i = a_next;
+    a_next = (uint8_t)((a_next + 1u) % GM_N_ANALOGS);
+    analog_read(i);
+    for (uint32_t k = 0; k < GM_N_ANALOGS; k++)
+        if (k != i && gm_cfg.analog_mode[k] == AN_MODE_BEND)
+            analog_read(k);
 }
 #endif
 

@@ -168,7 +168,7 @@ per = {p.name for p in s.params if p.per_preset}
 glob = {p.name for p in s.params if not p.per_preset}
 print("     per preset:", sorted(per)); print("     global:", sorted(glob))
 check(per == {"midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "velocity.fixed", "button.action",
-              "button.number", "bend.glide", "ramp.time", "analog.cc", "preset.program"}, "schema: PRESET flag on the mapping params")
+              "button.number", "bend.glide", "ramp.time", "analog.cc", "analog.mode", "preset.program"}, "schema: PRESET flag on the mapping params")
 check({"velocity.fast", "velocity.slow", "debug.events", "debug.log_level", "preset.active", "preset.dirty"} <= glob,
       "schema: calibration, debug and preset.active/dirty are global")
 pa, pdirty = s.by_id(P_ACTIVE), s.by_id(P_DIRTY)

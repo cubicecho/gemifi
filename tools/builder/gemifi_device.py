@@ -75,6 +75,7 @@ PARAMS = [  # (name, id, scope, count(dev))
         ("pad.channel", 21, PRESET), ("pad.curve", 22, PRESET), ("pad.aftertouch", 23, PRESET),
         ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
         ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
+    ("analog.mode", 29, PRESET, lambda d: len(d.analogs)),
 ]
 # Params whose stored values can need 16 bits (settings.c min/max outside -128..127); every other
 # value fits a byte. The packed stm32f1 record (platform/stm32f1/src/config_store.c) sizes its groups
@@ -98,6 +99,7 @@ def stored_counts(dev):
 # enum's YAML names in value order.
 CURVES = ["normal", "soft", "hard", "fixed"]
 ENC_MODES = ["absolute", "relative_twos", "relative_offset"]
+ANALOG_MODES = ["cc", "pitch_bend"]    # analog.mode (gm_settings.h AN_MODE_*)
 PRESET_GLOBALS = {
     "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
              "transpose": ("midi.transpose", 0, "int", -24, 24),
@@ -123,7 +125,7 @@ PRESET_NOT_HERE = {
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu"], ["id", "name", "pin", "led", "daw"]),
-    "analog": ("analog input", "analog inputs", ["cc"],
+    "analog": ("analog input", "analog inputs", ["cc", "mode"],
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
                  ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw"]),
@@ -1486,8 +1488,8 @@ def validate_components(v, dev, data):
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
     for i, d in enumerate(analogs):
         p = f"analog[{i}]"
-        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "adc_min", "adc_max", "takeover",
-                                                 "mcu", "daw"], renamed=RENAMED_ANALOG)
+        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max",
+                                                 "takeover", "mcu", "daw"], renamed=RENAMED_ANALOG)
         if d is None:
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
@@ -1495,14 +1497,21 @@ def validate_components(v, dev, data):
         unique_name(v, names, "analog input", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
         fader = mcu_name(v, dev, d, p, MCU_FADERS, "fader_1")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None)
+        mode = 0
+        if "mode" in d:
+            mode = enum_value(v, d, "mode", f"{p}.mode", ANALOG_MODES)
+            mode = 0 if mode is None else mode
+        if mode == 1 and fader is not None:
+            v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
+                                                  "drop mode: pitch_bend or mcu:")
+        cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None and mode == 0)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
         if lo == hi:
             v.err(p, d.line, f"adc_min and adc_max are both {lo}")
         pickup = validate_takeover(v, dev, d, p, fader)
-        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi,
-                               pickup=pickup, mcu=fader, daw=daw_role(v, dev, d, p)))
+        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, mode=mode, raw_min=lo,
+                               raw_max=hi, pickup=pickup, mcu=fader, daw=daw_role(v, dev, d, p)))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
     for i, d in enumerate(encs):
@@ -2510,8 +2519,13 @@ def preset_values(v, dev, d, p):
                     put("button.number", idx, num, b.number, f"{cp}.{nk or 'action'}", line(nk or "action"),
                         f"button.number[{cid}]")
             elif sec == "analog":
-                put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
-                    line("cc"), f"analog.cc[{cid}]")
+                if "cc" in o:
+                    put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
+                        line("cc"), f"analog.cc[{cid}]")
+                if "mode" in o:
+                    m = enum_value(v, o, "mode", f"{cp}.mode", ANALOG_MODES)
+                    put("analog.mode", idx, m, dev.analogs[idx].mode, f"{cp}.mode", line("mode"),
+                        f"analog.mode[{cid}]", None if m is None else ANALOG_MODES[m])
             elif sec == "pads":
                 put("pad.note", idx, v.integer(o, "note", cp, 0, 127), dev.pads[idx].note, f"{cp}.note",
                     line("note"), f"pad.note[{cid}]")
@@ -3229,6 +3243,8 @@ def generate(dev, source="device.yaml"):
               f" /* {acts} */" if acts else ""),
           arr("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons]),
           arr("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
+          arr("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs],
+              " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""),
           arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
     c += feedback_tables(dev)
     c += preset_tables(dev)

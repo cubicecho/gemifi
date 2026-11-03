@@ -13,7 +13,7 @@ scan_interval: 250us
 boot_combo: [shift_a, pcf_0]
 
 # hubs are numbered in file order: leds595 1, rows595 2, buttons165 3, cols165 4,
-# faders 5, knobs 6, mcp 7, pcf 8
+# faders 5, knobs 6, mcp 7, pcf 8, tm_a 9, tm_b 10
 sn74hc595:
   - id: leds595                # LED chain
     data_pin: GPIO10
@@ -61,6 +61,19 @@ pcf8574:
   - id: pcf
     address: 0x38
 
+tm1628:                        # two LED drivers sharing CLK and DIO
+  - id: tm_a
+    clk_pin: { number: GPIO35, allow_other_uses: true }
+    dio_pin: { number: GPIO36, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: GPIO37
+    intensity: 2
+    grids: 6
+  - id: tm_b
+    clk_pin: { number: GPIO35, allow_other_uses: true }
+    dio_pin: { number: GPIO36, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: GPIO0
+    ram_bytes: 6
+
 buttons:
   - { id: shift_a, pin: { sn74hc165: buttons165, number: 0, inverted: true }, action: cc_momentary, cc: 64, led: l0 }
   - { id: shift_b, pin: { sn74hc165: buttons165, number: 7, inverted: true }, action: note, note: 60, led: bi }
@@ -73,6 +86,12 @@ leds:
   - { id: l0, pin: { sn74hc595: leds595, number: 0 } }
   - { id: bi, pin: { sn74hc595: leds595, number: 15 }, pin2: { mcp23xxx: mcp, number: GPB7 } }
   - { id: pcf_led, pin: { pcf8574: pcf, number: 7, inverted: true } }
+  - { id: tm_led, pin: { tm1628: tm_a, number: 37 } }
+  - { id: tm_led_b, pin: { tm1628: tm_b, number: 47, inverted: true } }
+  - id: tm_rgb                 # RGB LED on three RAM bits: red, green, blue
+    pin: { tm1628: tm_a, number: 0 }
+    pin2: { tm1628: tm_a, number: 1 }
+    pin3: { tm1628: tm_a, number: 8 }
 
 analog:
   - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, cc: 20 }

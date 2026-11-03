@@ -344,7 +344,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 | 0x25 | FB_TEXT | `display` u14, `row` (1 byte), `col` (1 byte), text (7-bit ASCII, ≤ 64 bytes) |
 | 0x26 | FB_RELEASE | `what` (1 byte: 0 everything, 1 LEDs, 2 values, 3 text) |
 
-**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. It's on/off only, not a brightness. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2, and 1 blinks colour 1. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED it shows colour 1 if `r` ≥ `g`, else colour 2 (black = off). No current device has RGB LEDs, so `colours` 3 is reserved for when one does.
+**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. It's on/off only, not a brightness. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2, and 1 blinks colour 1. On an RGB LED, any level other than 0 is white (the LEDs are on/off, so there is no brightness). FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED it shows colour 1 if `r` ≥ `g`, else colour 2; on an RGB LED (`colours` 3: one on/off pin per channel) each channel is on if it is at least half the brightest one, so 127/60/0 is red + green (black = off).
 
 **Ownership.** FB_* states are host states, like plain feedback (`owner:` in `core/README.md`), with one difference: they don't time out (`led_timeout` doesn't apply), because the script is the authority while it runs. An LED with `owner: local` ignores them. FB_RELEASE hands the chosen states back to local, as if the host had never set them.
 

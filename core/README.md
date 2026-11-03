@@ -32,7 +32,7 @@ Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 
 Every pin in a device is a `gm_pin_t { hub, flags, num }`:
 - `hub = 0`: a pin of the MCU. `num` is the platform's pin number: NUC1xx `port * 16 + bit` (`PA0` = 0, `PB12` = 28, `PC7` = 39); ESP32/ESP8266 the GPIO number.
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
-- `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins).
+- `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` `dio_pin`, platform mode `HAL_OUT_OD`).
 
 Hubs are declared ESPHome style, one top-level list per chip, named like the ESPHome component:
 
@@ -44,10 +44,47 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `cd74hc4067` | `GM_HUB_MUX` | `pin_s0`–`pin_s3`, `common_pin`, optional `enable_pin`, `delay` | 16 input channels, as above |
 | `mcp23017` | `GM_HUB_MCP23017` | I2C (`address`, default 0x20; the `i2c:` pins) | 16 GPIO (`0`–`15` or `GPA0`–`GPB7`) |
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
+| `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
 A pin on a hub names the hub by its chip key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
 Inputs on HC165, MCP23017 and PCF8574 are read once per scan into a cache, and outputs on HC595 are written once per scan, so a whole key matrix can live on shift registers.
+
+### TM1628 LED drivers
+
+`tm1628` covers the TM1628 and its relatives that take the same commands (TM1638, TM1620, …: set `ram_bytes` to what the chip has or what the board uses). They're output-only here: the key-scan inputs aren't read.
+
+- **Pin numbers** are display RAM bits: `number = byte * 8 + bit`, bit 0 = the LSB of the byte. `{ tm1628: leds_a, number: 37 }` is byte 4 (address 0xC4), bit 5. On a TM1628 in its usual wiring, byte 2g is SEG1–SEG8 of grid g+1 and byte 2g+1 is SEG9–SEG14, but the board decides what each bit lights.
+- **Sharing**: several chips can share `clk_pin` and `dio_pin` (`allow_other_uses: true` on each), each with its own `stb_pin`. TM1628 lines can't be shared with other hubs' lines.
+- **Writing**: `vpin_write` only changes a RAM copy (`GM_TM1628_RAM` bytes in `vpin.c`) and marks the chip dirty if a bit changed. The main loop writes dirty chips after each LED update (every 10 ms), never the scan interrupt: a 14-byte chip is about 150 clocks at 1 µs per half clock, roughly 0.3 ms. A write is: the display-mode command (`grids - 4`, only if `grids:` is set), 0x40 (write, auto-increment), 0xC0 and all `ram_bytes` bytes, then 0x88 | `intensity` (display on). Bits go LSB first, DIO set while CLK is low and taken on the rising edge; the bus idles with STB, CLK and DIO high. Each chip is written once at start-up (all off after the lamp test), so it's cleared even with no LEDs on it.
+- **Brightness** is per chip (`intensity`, the chip's PWM). LEDs on it are on/off, like other LEDs.
+
+```yaml
+tm1628:
+  - id: leds_a
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PA15
+  - id: leds_b
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PC12
+    ram_bytes: 6
+leds:
+  - { id: shift_led, pin: { tm1628: leds_a, number: 37 } }
+  - { id: pad_1, pin: { tm1628: leds_b, number: 0 }, pin2: { tm1628: leds_b, number: 1 }, pin3: { tm1628: leds_b, number: 2 } }
+```
+
+**Finding which bit lights what** (a board whose map is unknown): make a test YAML with one LED per bit, with no buttons using them, so the host drives them all:
+
+```yaml
+leds:
+  - { id: a_0, pin: { tm1628: leds_a, number: 0 }, feedback: { note: 0 } }
+  - { id: a_1, pin: { tm1628: leds_a, number: 1 }, feedback: { note: 1 } }
+  # ... one per bit; the second chip on channel 2: feedback: { note: 0, channel: 2 }
+```
+
+Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
 
 ## Components
 
@@ -56,7 +93,7 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 | Component | Fields | Params it creates (per item, as arrays) |
 |---|---|---|
 | button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`) or `mcu:` (action `mcu`) | `button.action`, `button.number` |
-| LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
+| LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
 | analog (pot, slider, fader, expression) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, optional `takeover:`, `mcu:` | `analog.cc` |
 | encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:` | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
@@ -297,7 +334,7 @@ analog:
   - { id: volume, pin: PA0, cc: 7, takeover: pickup }   # none (default) | pickup
 ```
 
-LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour; RGB is still open (#6).
+LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour, and set an RGB LED's colour (FB_LED_RGB). An RGB LED (`pin3:`) shows white for any level from its button, plain feedback, Mackie Control or FB_LED; only FB_LED_RGB picks a colour, with each channel on or off (on if it is at least half the brightest channel: 127/60/0 is red and green).
 
 ### LED ownership
 

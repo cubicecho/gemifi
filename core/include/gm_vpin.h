@@ -5,10 +5,13 @@
  * Levels are *logical*: 1 = active (pressed, lit, row driven), with
  * GM_PIN_INVERT applied. Hub I/O is cached:
  *   - HC165 / MCP23017 / PCF8574 inputs are read by vpin_refresh();
- *   - HC595 / MCP23017 / PCF8574 outputs are written by vpin_flush().
+ *   - HC595 / MCP23017 / PCF8574 outputs are written by vpin_flush(),
+ *     TM1628 outputs by vpin_flush_tm1628().
  * Shift-register hubs are refreshed/flushed from the scan tick (fast GPIO);
  * I2C hubs only from the main loop (vpin_refresh_i2c / vpin_flush_i2c),
- * because I2C can't run in an interrupt on most platforms.
+ * because I2C can't run in an interrupt on most platforms. TM1628 hubs are
+ * also written from the main loop (vpin_flush_tm1628): a whole chip takes
+ * a few hundred us of bit-banging, too long for the scan tick.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -39,6 +42,7 @@ void vpin_refresh(void);           /* shift-register inputs                  */
 void vpin_flush(void);             /* shift-register outputs (if changed)    */
 void vpin_refresh_i2c(void);
 void vpin_flush_i2c(void);
+void vpin_flush_tm1628(void);      /* TM1628 RAM (if changed)                */
 
 #ifdef __cplusplus
 }

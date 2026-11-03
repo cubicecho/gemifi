@@ -8,6 +8,7 @@
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
+# test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
@@ -18,6 +19,8 @@ DEVICE := $(ROOT)/devices/keystation-mini32-mk3.yaml
 DEV    := $(BUILD)/device
 FB_DEVICE := feedback-test.yaml
 FB_DEV    := $(BUILD)/device-feedback
+TM_DEVICE := tm1628-test.yaml
+TM_DEV    := $(BUILD)/device-tm1628
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -25,6 +28,10 @@ endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(FB_DEVICE) -o $(FB_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(FB_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TM_DEVICE) -o $(TM_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(TM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
@@ -39,12 +46,15 @@ SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
 
 FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 
+TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
+
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback
+test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_tm1628
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
+	$(BUILD)/test_tm1628
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -53,6 +63,10 @@ $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_conf
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(FB_DEV) $(FB_SRCS) -o $@
+
+$(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(TM_DEV) $(TM_SRCS) -o $@
 
 clean:
 	rm -rf $(BUILD)

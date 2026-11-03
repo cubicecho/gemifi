@@ -3,6 +3,8 @@
  *
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
+ * TM1628 hubs keep their display RAM in tm_ram (GM_TM1628_RAM bytes, all
+ * TM1628 hubs back to back), since a chip has more than 32 bits.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -11,6 +13,9 @@
 #include "gm_device_config.h"
 
 #define N_HUBS (GM_N_HUBS > 0 ? GM_N_HUBS : 1)
+#ifndef GM_TM1628_RAM
+#define GM_TM1628_RAM 0             /* no TM1628 hub */
+#endif
 
 typedef struct {
     uint32_t in;          /* last read, electrical levels, bit = hub pin */
@@ -21,9 +26,14 @@ typedef struct {
     uint8_t cfg_dirty;    /* MCP: IODIR/GPPU need writing                 */
     uint8_t never;        /* outputs never written yet                    */
     int8_t channel;       /* MUX: selected channel, -1 = none             */
+    uint8_t tm_dirty;     /* TM1628: RAM changed since the last write     */
+    uint16_t tm_off;      /* TM1628: its bytes in tm_ram                  */
 } hub_state_t;
 
 static hub_state_t hs[N_HUBS];
+#if GM_TM1628_RAM > 0
+static uint8_t tm_ram[GM_TM1628_RAM];
+#endif
 
 static const gm_hub_t *hub_of(gm_pin_t p)
 {
@@ -46,13 +56,17 @@ int vpin_on_i2c(gm_pin_t p)
 static void mcu_out(gm_pin_t p, int level)
 {
     if (p.hub == 0) {
-        hal_pin_mode(p.num, HAL_OUT);
+        hal_pin_write(p.num, level);    /* first too: no glitch where it can */
+        hal_pin_mode(p.num, (p.flags & GM_PIN_OPEN_DRAIN) ? HAL_OUT_OD : HAL_OUT);
         hal_pin_write(p.num, level);
     }
 }
 
 void vpin_init(void)
 {
+#if GM_TM1628_RAM > 0
+    uint32_t tm_off = 0;
+#endif
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
@@ -64,6 +78,8 @@ void vpin_init(void)
         s->cfg_dirty = 1;
         s->never = 1;
         s->channel = -1;
+        s->tm_dirty = 0;
+        s->tm_off = 0;
         switch (h->type) {
         case GM_HUB_HC595:
             mcu_out(h->data, 0);
@@ -86,6 +102,19 @@ void vpin_init(void)
                              (h->common.flags & GM_PIN_PULLUP) ? HAL_IN_PULLUP :
                              (h->common.flags & GM_PIN_PULLDOWN) ? HAL_IN_PULLDOWN : HAL_IN);
             break;
+#if GM_TM1628_RAM > 0
+        case GM_HUB_TM1628:
+            /* Idle: STB, CLK and DIO high. RAM all off, written on the
+             * first vpin_flush_tm1628(). */
+            mcu_out(h->latch, 1);
+            mcu_out(h->clock, 1);
+            mcu_out(h->data, 1);
+            s->tm_off = (uint16_t)tm_off;
+            s->tm_dirty = 1;
+            for (uint32_t k = 0; k < h->ram_bytes && tm_off < GM_TM1628_RAM; k++)
+                tm_ram[tm_off++] = 0;
+            break;
+#endif
         default:
             break;
         }
@@ -100,7 +129,7 @@ void vpin_input(gm_pin_t p)
         return;
     }
     const gm_hub_t *h = hub_of(p);
-    if (!h)
+    if (!h || h->type == GM_HUB_TM1628)
         return;
     hub_state_t *s = &hs[p.hub - 1];
     s->dir_out &= ~(1u << p.num);
@@ -121,6 +150,10 @@ void vpin_output(gm_pin_t p)
     const gm_hub_t *h = hub_of(p);
     if (!h)
         return;
+    if (h->type == GM_HUB_TM1628) {
+        vpin_write(p, 0);
+        return;
+    }
     hs[p.hub - 1].dir_out |= 1u << p.num;
     hs[p.hub - 1].cfg_dirty = 1;
     vpin_write(p, 0);
@@ -165,6 +198,8 @@ int vpin_read(gm_pin_t p)
         mux_select(h, s, p.num);
         return hal_pin_read(h->common.num) ^ inv;
     }
+    if (h->type == GM_HUB_TM1628)
+        return 0;                       /* outputs only */
     return (int)((s->in >> p.num) & 1u) ^ inv;
 }
 
@@ -175,9 +210,24 @@ void vpin_write(gm_pin_t p, int active)
         hal_pin_write(p.num, level);
         return;
     }
-    if (!hub_of(p))
+    const gm_hub_t *h = hub_of(p);
+    if (!h)
         return;
     hub_state_t *s = &hs[p.hub - 1];
+#if GM_TM1628_RAM > 0
+    if (h->type == GM_HUB_TM1628) {
+        uint32_t k = p.num >> 3u;
+        if (k >= h->ram_bytes || s->tm_off + k >= GM_TM1628_RAM)
+            return;
+        uint8_t *b = &tm_ram[s->tm_off + k], m = (uint8_t)(1u << (p.num & 7u));
+        uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
+        if (v != *b) {
+            *b = v;
+            s->tm_dirty = 1;
+        }
+        return;
+    }
+#endif
     if (level)
         s->out |= 1u << p.num;
     else
@@ -256,6 +306,74 @@ void vpin_flush(void)
         s->never = 0;
     }
 }
+
+/* ---- TM1628 LED drivers ------------------------------------------------ */
+
+#if GM_TM1628_RAM > 0
+/* One byte, LSB first: DIO is set while CLK is low and taken on the rising
+ * edge. 1 us per half clock keeps well inside the datasheet (CLK <= 1 MHz,
+ * PWCLK >= 400 ns) with a slow pull-up on an open-drain DIO. */
+static void tm_byte(const gm_hub_t *h, uint32_t v)
+{
+    for (uint32_t b = 0; b < 8u; b++) {
+        hal_pin_write(h->clock.num, 0);
+        hal_pin_write(h->data.num, (v >> b) & 1u);
+        hal_delay_us(1);
+        hal_pin_write(h->clock.num, 1);
+        hal_delay_us(1);
+    }
+}
+
+static void tm_start(const gm_hub_t *h)
+{
+    hal_pin_write(h->latch.num, 0);
+    hal_delay_us(1);
+}
+
+/* STB high ends a command; PWSTB >= 1 us before the next one. */
+static void tm_end(const gm_hub_t *h)
+{
+    hal_pin_write(h->latch.num, 1);
+    hal_pin_write(h->data.num, 1);
+    hal_delay_us(1);
+}
+
+static void tm_cmd(const gm_hub_t *h, uint32_t cmd)
+{
+    tm_start(h);
+    tm_byte(h, cmd);
+    tm_end(h);
+}
+
+void vpin_flush_tm1628(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        hub_state_t *s = &hs[i];
+        if (h->type != GM_HUB_TM1628 || !s->tm_dirty)
+            continue;
+        s->tm_dirty = 0;
+        uint32_t n = h->ram_bytes;
+        if (s->tm_off + n > GM_TM1628_RAM)
+            n = GM_TM1628_RAM - s->tm_off;
+        /* Mode (if set), data write with auto-increment, address 0 and
+         * the whole RAM, then display on at the brightness. */
+        if (h->grids >= 4u && h->grids <= 7u)
+            tm_cmd(h, h->grids - 4u);
+        tm_cmd(h, 0x40u);
+        tm_start(h);
+        tm_byte(h, 0xC0u);
+        for (uint32_t k = 0; k < n; k++)
+            tm_byte(h, tm_ram[s->tm_off + k]);
+        tm_end(h);
+        tm_cmd(h, 0x88u | (h->brightness & 7u));
+    }
+}
+#else
+void vpin_flush_tm1628(void)
+{
+}
+#endif
 
 /* ---- I2C hubs --------------------------------------------------------- */
 

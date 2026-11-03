@@ -252,7 +252,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
+            "buttons", "led_defaults", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
             "displays"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -1488,14 +1488,106 @@ def suggest_node_name(text):
     return s or "my-controller"
 
 
+# LED looks (idle: / active:): which of the LED's pins are lit, bit 0 = pin, 1 = pin2, 2 = pin3. Names per
+# kind of LED; "on" is the LED's default active look on every kind.
+LED_LOOKS = {
+    "single": {"off": 0, "on": 1},
+    "bicolour": {"off": 0, "on": 1, "colour1": 1, "colour2": 2, "both": 3},
+    "rgb": {"off": 0, "on": 7, "red": 1, "green": 2, "yellow": 3, "blue": 4, "magenta": 5, "cyan": 6,
+            "white": 7},
+}
+LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
+LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
+
+
+def led_kind(pin2, pin3):
+    return "rgb" if pin3 is not NO_PIN else "bicolour" if pin2 is not NO_PIN else "single"
+
+
+def look_word(d, key):
+    """The look as written: `on` / `off` read as booleans unquoted, so take the raw text then."""
+    x = d.get(key)
+    return str(d.raw_of(key) if isinstance(x, bool) else x).strip().lower()
+
+
+def validate_led_defaults(v, data):
+    """led_defaults: { idle, active }: every LED's looks unless it sets its own. Any name of any kind of LED;
+    each LED shows the nearest it can (resolve_led_default)."""
+    out = {}
+    if data.get("led_defaults") is None:
+        return out
+    d = v.mapping(data["led_defaults"], "led_defaults", data.line_of("led_defaults"), ["idle", "active"])
+    if d is None:
+        return out
+    for key in ("idle", "active"):
+        if d.get(key) is None:
+            continue
+        w = look_word(d, key)
+        if w != "on" and w not in LED_LOOK_NAMES:
+            close = difflib.get_close_matches(w, ["on", *LED_LOOK_NAMES], 1)
+            hint = f"did you mean '{close[0]}'? " if close else ""
+            v.err(f"led_defaults.{key}", d.line_of(key), f"unknown look '{w}' ({hint}valid: on, "
+                                                          f"{', '.join(LED_LOOK_NAMES)})")
+            continue
+        out[key] = w
+    return out
+
+
+def resolve_led_default(kind, word):
+    """A led_defaults look on an LED of this kind: its own name if it has it, else the pins of that look it
+    has, else (a colour it can't show) its first colour."""
+    if word in LED_LOOKS[kind]:
+        return LED_LOOKS[kind][word]
+    want = LED_LOOK_NAMES[word]
+    has = {"single": 1, "bicolour": 3, "rgb": 7}[kind]
+    return (want & has) or 1
+
+
+def validate_led_looks(v, d, p, kind, defaults):
+    """(idle, active) pin masks for one LED, or None for the defaults (generated as 0)."""
+    looks = list(LED_DEFAULT_LOOK[kind])
+    given = False
+    set_active = False
+    for k, key in enumerate(("idle", "active")):
+        if d.get(key) is not None:
+            w = look_word(d, key)
+            if w not in LED_LOOKS[kind]:
+                other = [x for x in ("rgb", "bicolour") if w in LED_LOOKS[x]]
+                what = {"single": "a single-colour LED (pin only)", "bicolour": "a bicolour LED (pin, pin2)",
+                        "rgb": "an RGB LED (pin, pin2, pin3)"}[kind]
+                if other:
+                    msg = f"'{w}' is a look for {'an RGB' if other[0] == 'rgb' else 'a bicolour'} LED; {what} takes"
+                else:
+                    close = difflib.get_close_matches(w, list(LED_LOOKS[kind]), 1)
+                    msg = (f"unknown look '{w}' (did you mean '{close[0]}'?);" if close else f"unknown look '{w}';") + \
+                          f" {what} takes"
+                v.err(f"{p}.{key}", d.line_of(key), f"{msg} {', '.join(LED_LOOKS[kind])}")
+                continue
+            looks[k] = LED_LOOKS[kind][w]
+            given = True
+            set_active = set_active or k == 1
+        elif key in defaults:
+            looks[k] = resolve_led_default(kind, defaults[key])
+            given = True
+    if not given:
+        return None
+    if looks[0] == looks[1]:
+        if not set_active:
+            looks[1] = 0            # lit when idle and no active: of its own: dark when active
+        else:
+            v.warn(p, d.line, "idle and active look the same: the LED never shows its state")
+    return tuple(looks)
+
+
 def validate_components(v, dev, data):
     names = {}       # (kind, display name) -> path, for the duplicate-name warning
     # LEDs first (buttons refer to them)
+    led_defaults = validate_led_defaults(v, data)
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "pin3", "feedback", "owner", "timeout",
-                                                     "daw"],
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback",
+                                                     "owner", "timeout", "daw"],
                       renamed=RENAMED_ID)
         if d is None:
             continue
@@ -1506,6 +1598,7 @@ def validate_components(v, dev, data):
         pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
         if d.get("pin3") is not None and d.get("pin2") is None:
             v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
+        looks = validate_led_looks(v, d, p, led_kind(pin2 or NO_PIN, pin3 or NO_PIN), led_defaults)
         src = validate_led_source(v, dev, d, p)
         owner = validate_owner(v, d, p)
         timeout = validate_timeout(v, d, "timeout", p, None)
@@ -1513,7 +1606,7 @@ def validate_components(v, dev, data):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
         led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
         dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
-                            pin3=pin3 or NO_PIN, source=src,
+                            pin3=pin3 or NO_PIN, looks=looks, source=src,
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
                             daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
@@ -3246,8 +3339,8 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
-              for x in dev.leds]
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)} }}, "
+              f"/* {_comment(x.id)}: {_comment(x.pin.desc)} */" for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:
         c.append("static const gm_analog_t analogs[GM_N_ANALOGS] = {")
@@ -3356,6 +3449,12 @@ def fmt_timeout(t):
     if t == TIMEOUT_NEVER:
         return "never"
     return f"{t / 100:g}s" if t % 10 == 0 and t >= 100 else fmt_us(t * 10_000)
+
+
+def led_looks_c(x):
+    """gm_led_t.looks: 0 for the defaults, else GM_LED_LOOKS(idle, active)."""
+    looks = getattr(x, "looks", None)
+    return ", 0" if looks is None else f", GM_LED_LOOKS({looks[0]}, {looks[1]})"
 
 
 def led_fb_rows(dev):

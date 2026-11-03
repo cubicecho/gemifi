@@ -84,9 +84,9 @@ buttons:
 
 leds:
   - { id: l0, pin: { sn74hc595: leds595, number: 0 } }
-  - { id: bi, pin: { sn74hc595: leds595, number: 15 }, pin2: { mcp23xxx: mcp, number: GPB7 } }
+  - { id: bi, pin: { sn74hc595: leds595, number: 15 }, pin2: { mcp23xxx: mcp, number: GPB7 }, idle: colour2 }
   - { id: pcf_led, pin: { pcf8574: pcf, number: 7, inverted: true } }
-  - { id: tm_led, pin: { tm1628: tm_a, number: 37 } }
+  - { id: tm_led, pin: { tm1628: tm_a, number: 37 }, idle: on }
   - { id: tm_led_b, pin: { tm1628: tm_b, number: 47, inverted: true } }
   - id: tm_rgb                 # RGB LED on three RAM bits: red, green, blue
     pin: { tm1628: tm_a, number: 0 }

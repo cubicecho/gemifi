@@ -1,0 +1,32 @@
+# leds-test.yaml with feedback off (no host LEDs: the local-only LED path)
+# for core/test/test_leds.c. Keep the two in step.
+gemifi: 2
+name: leds-local-test
+friendly_name: LED Looks Test
+board_id: 0x3F13
+feedback: { enabled: false }
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+buttons:
+  - { id: b_single, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 20, led: single_led }
+  - { id: b_bi, pin: { number: PB1, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 21, led: bi_led }
+  - { id: b_rgb, pin: { number: PB5, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 22, led: rgb_led }
+  - { id: b_oct, pin: { number: PB3, mode: INPUT_PULLUP, inverted: true }, action: octave_up, led: oct_led }
+  - { id: b_def, pin: { number: PB4, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 23, led: def_led }
+
+leds:
+  - { id: single_led, pin: PC0, idle: on }                             # 0: lit until pressed
+  - { id: bi_led, pin: PC1, pin2: PC2, idle: colour2, active: colour1 } # 1
+  - { id: rgb_led, pin: PC3, pin2: PC4, pin3: PC5, idle: blue, active: white }   # 2
+  - { id: oct_led, pin: PC6, pin2: PC7, idle: colour1, active: colour2 } # 3: octave count levels
+  - { id: def_led, pin: PC8 }                                           # 4: no looks: as before
+  - { id: spare_led, pin: PC9, idle: on }                               # 5: no button drives it
+  - id: fb_led                                                          # 6: (no host feedback here)
+    pin: PC10
+    pin2: PC11
+    pin3: PC12
+    idle: blue
+    active: green

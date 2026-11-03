@@ -1352,9 +1352,29 @@ static void encoders_poll(void)
 /* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
  * (bicolour). LV_BLINK | level: that level, blinking (host feedback).
  * RGB LEDs: LV_RGB | colour (bit 0 red, 1 green, 2 blue), from FB_LED_RGB;
- * any other level > 0 is white. */
+ * any other level > 0 is white. Off (0) and a plain on (1; any on level of
+ * a single-colour or RGB LED) show the LED's idle and active looks
+ * (gm_led_t.looks); a blink's dark half is the idle look. */
 #define LV_BLINK 0x80u
 #define LV_RGB 0x40u
+
+/* Light the pins in mask m (bit 0 pin, 1 pin2, 2 pin3), the others dark. */
+static void led_pins(const gm_led_t *l, uint32_t m)
+{
+    vpin_write(l->pin, m & 1u);
+    if (!vpin_is_none(l->pin2))
+        vpin_write(l->pin2, (m >> 1) & 1u);
+    if (!vpin_is_none(l->pin3))
+        vpin_write(l->pin3, (m >> 2) & 1u);
+}
+
+/* The LED's idle (active = 0) or active look, as a pin mask. */
+static uint32_t led_look(const gm_led_t *l, int active)
+{
+    if (!(l->looks & 0x80u))
+        return active ? (vpin_is_none(l->pin3) ? 1u : 7u) : 0u;
+    return active ? (l->looks >> 3) & 7u : l->looks & 7u;
+}
 
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
@@ -1362,19 +1382,16 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
     if (level & LV_BLINK)
         level = blink_on ? level & ~LV_BLINK : 0;
 #endif
-    if (vpin_is_none(l->pin2)) {
-        vpin_write(l->pin, level > 0);
-        return;
-    }
-    if (!vpin_is_none(l->pin3)) {
-        uint32_t c = level == 0 ? 0 : (level & LV_RGB) ? level & 7u : 7u;
-        vpin_write(l->pin, c & 1u);
-        vpin_write(l->pin2, (c >> 1) & 1u);
-        vpin_write(l->pin3, (c >> 2) & 1u);
-        return;
-    }
-    vpin_write(l->pin, level == 1 || level == 2);
-    vpin_write(l->pin2, level == 2 || level == 3 || (level >= 4 && blink_on));
+    uint32_t m;
+    if (level == 0)
+        m = led_look(l, 0);
+    else if (!vpin_is_none(l->pin3))
+        m = (level & LV_RGB) ? level & 7u : led_look(l, 1);
+    else if (vpin_is_none(l->pin2) || level == 1)
+        m = led_look(l, 1);
+    else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
+        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, 0);
+    led_pins(l, m);
 }
 
 #if GM_HOST_LEDS
@@ -1547,7 +1564,7 @@ static void leds_walk(uint32_t now)
     if (paused)
         t_step = now;
     for (uint32_t i = 0; i < gm_device.n_leds; i++)
-        led_show(&gm_device.leds[i], i == step ? 2u : 0u, 1);
+        led_pins(&gm_device.leds[i], i == step ? 7u : 0u);   /* every pin, whatever its looks */
 }
 #endif
 
@@ -1622,6 +1639,11 @@ static void leds_update(uint32_t now)
         if (lv != 0xFFu)
             led_set(i, lv, blink_on);
     }
+#endif
+#if !GM_HOST_LEDS
+    for (uint32_t i = 0; i < gm_device.n_leds; i++)
+        if (led_shown[i] == 0xFFFFu)
+            led_set(i, 0, blink_on);    /* driven by nothing: its idle look, once */
 #endif
 #if GM_HOST_LEDS
     (void)blink_on;                 /* leds_apply() works it out */
@@ -1979,14 +2001,14 @@ void gm_init(uint32_t fw_version, int safe_mode)
 
     /* Lamp test: every LED on briefly. */
     for (uint32_t i = 0; i < gm_device.n_leds; i++)
-        led_show(&gm_device.leds[i], 2, 1);
+        led_pins(&gm_device.leds[i], 7u);
     vpin_flush();
     vpin_flush_i2c();
     vpin_flush_tm1628();
     hal_delay_us(200000);
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
-        led_show(&gm_device.leds[i], 0, 0);
-        led_shown[i] = 0xFFFFu;         /* leds_update writes each once */
+        led_pins(&gm_device.leds[i], 0);
+        led_shown[i] = 0xFFFFu;         /* leds_update writes each once (its idle look, if off) */
     }
     vpin_flush();
     vpin_flush_i2c();

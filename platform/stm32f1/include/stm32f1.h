@@ -67,6 +67,7 @@
 #define RCC_APB1_TIM2   (1u << 0)
 #define RCC_APB1_TIM3   (1u << 1)
 #define RCC_APB1_TIM4   (1u << 2)
+#define RCC_APB1_USART2 (1u << 17)
 #define RCC_APB1_USB    (1u << 23)
 #define RCC_APB1_PWR    (1u << 28)
 
@@ -272,5 +273,26 @@ static inline void irq_restore(uint32_t pm)
 {
     __asm__ volatile ("msr primask, %0" :: "r"(pm) : "memory");
 }
+
+
+/* ---- USART2 (TX on PA2) and its transmit DMA, DMA1 channel 7 ---- */
+#define USART2_BASE     0x40004400u
+#define USART2_SR       REG32(USART2_BASE + 0x00u)
+#define USART2_DR       REG32(USART2_BASE + 0x04u)
+#define USART2_BRR      REG32(USART2_BASE + 0x08u)
+#define USART2_CR1      REG32(USART2_BASE + 0x0Cu)
+#define USART2_CR3      REG32(USART2_BASE + 0x14u)
+#define USART_CR1_UE    (1u << 13)
+#define USART_CR1_TE    (1u << 3)
+#define USART_CR3_DMAT  (1u << 7)
+#define DMA1_BASE       0x40020000u
+#define DMA1_IFCR       REG32(DMA1_BASE + 0x04u)
+#define DMA1_CCR(ch)    REG32(DMA1_BASE + 0x08u + 20u * ((ch) - 1u))
+#define DMA1_CNDTR(ch)  REG32(DMA1_BASE + 0x0Cu + 20u * ((ch) - 1u))
+#define DMA1_CPAR(ch)   REG32(DMA1_BASE + 0x10u + 20u * ((ch) - 1u))
+#define DMA1_CMAR(ch)   REG32(DMA1_BASE + 0x14u + 20u * ((ch) - 1u))
+#define DMA_CCR_EN      (1u << 0)
+#define DMA_CCR_DIR     (1u << 4)          /* memory -> peripheral */
+#define DMA_CCR_MINC    (1u << 7)
 
 #endif

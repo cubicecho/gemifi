@@ -23,6 +23,10 @@ tm1628:
     stb_pin: PC12
     ram_bytes: 6
 
+# RGB LEDs behind a serial link (the Code 61 pad board): 4 LEDs = 2 RAM bytes.
+rgb_serial:
+  - { id: pads, tx_pin: PA2, count: 4 }
+
 buttons:
   - { id: btn, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: btn_led }
 
@@ -34,6 +38,10 @@ leds:
     pin: { tm1628: leds_a, number: 104 }
     pin2: { tm1628: leds_a, number: 105 }
     pin3: { tm1628: leds_a, number: 106 }
+  - id: pad_led                # LED 2 of the serial board
+    pin: { rgb_serial: pads, number: 6 }
+    pin2: { rgb_serial: pads, number: 7 }
+    pin3: { rgb_serial: pads, number: 8 }
 
 # An analog input only because a device with host feedback and no analog
 # inputs doesn't link yet (gm_analog_host is under GM_N_ANALOGS > 0).

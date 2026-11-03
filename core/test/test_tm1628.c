@@ -3,7 +3,8 @@
  * device core/test/tm1628-test.yaml: two chips sharing CLK and DIO, each
  * with its own STB. The simulated HAL decodes the bit stream on the pins
  * (LSB first, DIO taken on the CLK rising edge, STB low = one command) into
- * each chip's display RAM, and checks the timing rules it can see.
+ * each chip's display RAM, and checks the timing rules it can see. The
+ * rgb_serial hub's messages are caught at hal_serial_write.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -15,7 +16,7 @@
 #include "gm_device_config.h"
 #include "gm_feedback.h"
 
-#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 20
+#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 22
 #error "test_tm1628.c needs the tm1628-test.yaml config"
 #endif
 
@@ -121,6 +122,63 @@ void hal_midi_flush(uint32_t t) { (void)t; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
+
+/* rgb_serial: what reached the "UART" */
+static uint16_t ser_pin = 0xFFFF;
+static uint32_t ser_baud;
+static int ser_busy;                /* refuse writes, as if one were still going */
+typedef struct { uint32_t t; uint8_t b[6]; uint32_t n; } ser_msg_t;
+static ser_msg_t ser_log[256];
+static int ser_n;
+
+int hal_serial_open(uint16_t tx_pin, uint32_t baud)
+{
+    ser_pin = tx_pin;
+    ser_baud = baud;
+    return 1;
+}
+
+int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
+{
+    if (tx_pin != ser_pin || ser_busy || n > 6)
+        return 0;
+    if (ser_n < 256) {
+        ser_log[ser_n].t = now_ms;
+        ser_log[ser_n].n = n;
+        memcpy(ser_log[ser_n].b, b, n);
+        ser_n++;
+    }
+    return 1;
+}
+
+/* Messages (not keepalives) since index from, and the smallest gap between
+ * any two of them. */
+static int ser_msgs(int from, uint32_t *min_gap)
+{
+    int k = 0;
+    uint32_t last = 0, gap = 0xFFFFFFFFu;
+    for (int i = from; i < ser_n; i++) {
+        if (ser_log[i].n != 6)
+            continue;
+        if (k && ser_log[i].t - last < gap)
+            gap = ser_log[i].t - last;
+        last = ser_log[i].t;
+        k++;
+    }
+    if (min_gap)
+        *min_gap = gap;
+    return k;
+}
+
+static int ser_last_is(uint8_t led, uint8_t r, uint8_t g, uint8_t b)
+{
+    for (int i = ser_n - 1; i >= 0; i--)
+        if (ser_log[i].n == 6) {
+            const uint8_t *m = ser_log[i].b;
+            return m[0] == 0x02 && m[1] == 0x80 + led && m[2] == r && m[3] == g && m[4] == b && m[5] == 0x03;
+        }
+    return 0;
+}
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -229,6 +287,42 @@ int main(void)
     gm_led_script(3, 0);
     run_ms(20);
     CHECK(chip[0].ram[13] == 0x00, "FB_LED off");
+
+    /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
+     * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */
+    CHECK(ser_pin == 2 && ser_baud == 115200u, "serial opened on PA2 at 115200 (%u, %u)", ser_pin, ser_baud);
+    uint32_t gap;
+    int n0 = ser_msgs(0, &gap);
+    CHECK(n0 >= 4, "every LED sent at start (%d messages)", n0);
+    CHECK(gap >= 5u, "messages at least 5 ms apart (%u)", gap);
+    int ka = 0;
+    uint32_t ka_last = 0, ka_gap = 0;
+    for (int i = 0; i < ser_n; i++)
+        if (ser_log[i].n == 1 && ser_log[i].b[0] == 0xA5) {
+            if (ka && ser_log[i].t - ka_last > ka_gap)
+                ka_gap = ser_log[i].t - ka_last;
+            ka_last = ser_log[i].t;
+            ka++;
+        }
+    CHECK(ka >= 10 && ka_gap <= 55u, "A5 keepalive every 50 ms (%d, max gap %u)", ka, ka_gap);
+    int from = ser_n;
+    run_ms(100);
+    CHECK(ser_msgs(from, 0) == 0, "nothing sent while nothing changes");
+    /* LED 4 = serial LED 2: red, then white, then off */
+    gm_led_script_rgb(4, 127, 0, 0, 0);
+    run_ms(20);
+    CHECK(ser_last_is(2, 0xFF, 0, 0), "serial LED 2 red");
+    gm_led_script(4, 127);
+    run_ms(20);
+    CHECK(ser_last_is(2, 0xFF, 0xFF, 0xFF), "serial LED 2 on: white");
+    /* busy UART: held back, then sent */
+    ser_busy = 1;
+    gm_led_script(4, 0);
+    run_ms(20);
+    CHECK(ser_last_is(2, 0xFF, 0xFF, 0xFF), "nothing new while the UART is busy");
+    ser_busy = 0;
+    run_ms(20);
+    CHECK(ser_last_is(2, 0, 0, 0), "serial LED 2 off once the UART is free");
 
     CHECK(tick_writes == 0, "the scan tick never touches the TM1628 pins (%d)", tick_writes);
     CHECK(dio_while_high == 0, "DIO only changes while CLK is low (%d)", dio_while_high);

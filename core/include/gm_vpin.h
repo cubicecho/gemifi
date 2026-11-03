@@ -55,6 +55,9 @@ int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word);
 const volatile uint32_t *vpin_in_reg(gm_pin_t p, uint32_t *mask);
 void vpin_scan_matrices(void);     /* scan them (from the scan tick)         */
 void vpin_flush_tm1628(void);      /* TM1628 RAM (if changed)                */
+/* RGB_SERIAL hubs: send one changed LED (at most every 5 ms) and the
+ * keepalive (every 50 ms). Call it on every main-loop pass. */
+void vpin_poll_rgb_serial(uint32_t now_ms);
 
 #ifdef __cplusplus
 }

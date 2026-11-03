@@ -13,7 +13,7 @@ name: m-audio-code61
 friendly_name: Code 61 LED map
 description: "M-Audio Code 61: every TM1628 RAM bit as a host-driven LED, for mapping the LEDs"
 project:
-  version: 0.1.0
+  version: 0.2.15
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB

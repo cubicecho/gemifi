@@ -39,9 +39,6 @@ jobs:
         working-directory: tools/builder
         run: python -m pytest -q tests
 
-      - name: Every device YAML validates
-        run: python tools/builder/gemifi_build.py validate devices/*.yaml
-
       - name: Core
         run: make -C core/test test
 

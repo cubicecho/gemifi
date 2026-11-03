@@ -315,6 +315,24 @@ Not done: fader touch notes (needs touch-sensing faders), extender chaining beyo
 
 **Cost** (NUC120, Keystation config): plain feedback (the default) adds about 0.5 KB of flash and 24 B of RAM; `feedback: { enabled: false }` leaves 60 B (the packet dispatcher); `mcu:` adds about 0.5 KB more. Each LED with a host state uses 5 B of RAM; per-LED settings, pick-up and MCU tables are only generated when the YAML uses them.
 
+### DAW scripts (F3)
+
+A script inside the DAW (`hosts/`, e.g. the Ableton Live Remote Script) can drive the device directly, by component index rather than by note or CC: it asks the device for its components (GET_COMPONENT), hears presses through EVENT messages, and sets LEDs, values, rings and text with fire-and-forget messages (`protocol/sysex.md` §4.6). It's on by default and costs about 1.2 KB of flash on the Keystation (most of it the component names).
+
+```yaml
+feedback:
+  script: true                  # default; false leaves GET_COMPONENT and FB_* out
+
+buttons:
+  - { id: rec, pin: PB0, action: cc_momentary, cc: 20, led: rec_led, daw: record }
+analog:
+  - { id: vol, pin: PA0, cc: 7, takeover: pickup, daw: track_volume }
+encoders:
+  - { id: p1, pin_a: PB2, pin_b: PB3, cc: 30, daw: device_param_1, ring: [r0, r1, r2, r3, r4] }
+```
+
+`daw:` tells a script what to connect the component to; the names are in `hosts/README.md` (or `x_<name>` for your own). Without `daw:`, a component's `mcu:` name is its role. With scripts on, `ring:` and `ring_center:` work without `mcu:`. A script's LED states don't time out (`led_timeout` doesn't apply) and `owner: local` LEDs ignore them; the script hands them back when it stops.
+
 ## Generated code (tools/builder output)
 
 `gm_device_config.h`:

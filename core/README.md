@@ -80,7 +80,7 @@ friendly_name: Keystation Mini 32   # display name: USB product string, HELLO, w
 project:
   version: 0.1.3               # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
 board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DIY/private
-platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | esp32 | esp32s2 | esp32s3 | esp8266
+platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3 | esp8266
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
 usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
 midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)

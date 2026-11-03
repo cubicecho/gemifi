@@ -2,13 +2,13 @@
 
 Started 2026-10-30. Goal: understand the stock firmware well enough to patch it or replace it with custom firmware, starting with the "mushy" feel of the pads, faders and encoders.
 
-The Code 25, 49 and 61 all ship the same firmware version on the same dates. We analysed the **Code 49 v1.2.1** updater (`~/windows/Install M-Audio CODE49 FirmwareUpdater 1.2.1.zip`). The Code 61 build is very likely the same code with a different key count, but that's unconfirmed.
+The Code 25, 49 and 61 all ship the same firmware version on the same dates. We first analysed the **Code 49 v1.2.1** updater (`Install M-Audio CODE49 FirmwareUpdater 1.2.1.zip`). On 2026-11-02 we got the **Code 61 v1.2.2** updater (`Install M-Audio CODE61 FirmwareUpdater 1.2.2.zip`; v1.2.2 is the latest, released 2016-08-22). It uses the same update format, the same record signature `6A 04 DA 3B` and the same app area (0x08002400-0x08018800). Its image checksum (0xD4C1) checks out, and `tools/host/maudio_update.py` rebuilds it byte for byte from its app. The two apps are only ~43% byte-identical, because code moved, so the hardware findings are being re-checked on the Code 61 image (analysis/hw-map.md).
 
 ## Summary
 
 | | |
 |---|---|
-| MCU | **STM32F103, high-density** (Cortex-M3, 72 MHz). Evidence: 60-IRQ vector table, UART5 in use, USB FS device at 0x40005C00, F1 GPIO map |
+| MCU | **STM32F103RB-class, medium density** (Cortex-M3, 72 MHz, 8 MHz HSE, 128 KB flash in 1 KB pages, 20 KB RAM), or a GD32F103RB clone. The earlier "high-density" call (UART5, DMA2) was wrong: see [analysis/hw-map.md](analysis/hw-map.md). Needs the chip marking |
 | Toolchain | Keil / ARMCC |
 | Encryption | **None.** The firmware ships as plain hex text |
 | Bootloader | 0x08000000-0x080023FF (9 KB). Not in the updater; stays in place on update |
@@ -54,7 +54,7 @@ Full report with disassembly: [analysis/mushy-feel.md](analysis/mushy-feel.md). 
 4. **Encoders.** Acceleration is on by default (±3/5/7 jumps). The first step after a reversal within 80 ms is thrown away.
 5. **Wheels and aftertouch.** ±10-count hysteresis gives ~2-step jumps. Aftertouch is muted for 60 ms after the first key goes down.
 
-Each fix is a change of a byte or two. Candidate patches are listed in the analysis. **Nothing has been patched or flashed yet.**
+Each fix is a change of a byte or two. Candidate patches are listed in the analysis. **Nothing has been patched or flashed yet.** The pin map, settings pages and recovery combo are in [analysis/hw-map.md](analysis/hw-map.md); gemifi's port is `platform/stm32f1/`.
 
 ## Velocity tables
 
@@ -86,7 +86,7 @@ scripts/   extract_firmware.py (installer → app image), fwdis.py, xref.py, cab
 
 Setup: `python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt`
 
-- `python scripts/extract_firmware.py <updater.exe> <outdir>` rebuilds the files in `firmware/`.
+- `python scripts/extract_firmware.py <updater.exe> <outdir>` rebuilds the files in `firmware/` (works for both the Code 49 v1.2.1 and Code 61 v1.2.2 updaters; the Code 61 files are named `*code61_v1.2.2*`).
 - `python scripts/fwdis.py firmware/app_v1.2.1_0x08002400.bin <start> <end>` disassembles a range (hex addresses).
 
 Treat vendor binaries as untrusted. Analyse them statically and never run them.

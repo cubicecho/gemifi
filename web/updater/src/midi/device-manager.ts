@@ -11,6 +11,7 @@ import { SysexClient, type Transport } from '../protocol/client.ts';
 import { REBOOT_DEFAULTS } from '../protocol/defaults.ts';
 import type { DeviceLink } from '../protocol/flash.ts';
 import { classifyPortName, PortRole } from '../protocol/ports.ts';
+import type { ProbePort } from '../vendor/maudio.ts';
 
 /** An input and an output with the same name: one device's MIDI port. */
 export interface PortPair {
@@ -127,6 +128,8 @@ export class DeviceManager implements DeviceLink {
   #snapshot: ConnectionSnapshot = { pairs: [], selected: null, client: null };
   /** Set once the user picks a port by hand, so a manual choice of a non-gemifi port is kept. */
   #isManual = false;
+  /** Raw transports handed to the vendor uploader, one per input port. */
+  readonly #rawTransports = new WeakMap<MIDIInput, { output: MIDIOutput; transport: Transport }>();
 
   /**
    * @param access - From {@link requestSysexAccess}.
@@ -214,6 +217,24 @@ export class DeviceManager implements DeviceLink {
       check();
     });
   }
+
+  /**
+   * Every connected port as a raw transport, for the M-Audio updater's probe
+   * (`src/vendor/maudio.ts`): its bootloader is not a gemifi port and has a name of its own.
+   *
+   * @returns The ports, with the selected one marked.
+   */
+  probePorts = (): ProbePort[] => {
+    const { pairs, selected } = this.#snapshot;
+    return pairs.map((pair) => {
+      let raw = this.#rawTransports.get(pair.input);
+      if (raw?.output !== pair.output) {
+        raw = { output: pair.output, transport: pairTransport(pair) };
+        this.#rawTransports.set(pair.input, raw);
+      }
+      return { id: pair.id, name: pair.name, selected: pair.id === selected?.id, transport: raw.transport };
+    });
+  };
 
   /** Stops following ports and closes the client. */
   close(): void {

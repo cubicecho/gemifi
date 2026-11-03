@@ -29,6 +29,11 @@ import gemifi_device as gd  # noqa: E402
 PRESET_DIR = os.path.join(REPO, "devices")
 USER_DIR = os.path.expanduser("~/gemifi-devices")
 NUC_PROJECT = os.path.join(REPO, "firmware", "nuvoton-nuc1xx", "midi-controller")
+# Bare-metal platforms built with make + arm-none-eabi-gcc: platform name -> project dir.
+MAKE_PROJECTS = {
+    "nuvoton-nuc1xx": NUC_PROJECT,
+    "stm32f1": os.path.join(REPO, "firmware", "stm32f1", "midi-controller"),
+}
 ESP_PROJECT = os.path.join(REPO, "firmware", "esp", "midi-controller")
 
 
@@ -112,13 +117,14 @@ def platform_build(dev, config_dir, out_dir, out=None):
     """Run the platform's build. Returns the list of image files copied into out_dir, or None."""
     out = out or sys.stdout
     stem = image_stem(dev)
-    if dev.platform.name == "nuvoton-nuc1xx":
-        if not os.path.exists(os.path.join(NUC_PROJECT, "Makefile")):
-            print(f"error: {rel(NUC_PROJECT)}/Makefile doesn't exist yet: can't build the firmware "
+    if dev.platform.name in MAKE_PROJECTS:
+        project = MAKE_PROJECTS[dev.platform.name]
+        if not os.path.exists(os.path.join(project, "Makefile")):
+            print(f"error: {rel(project)}/Makefile doesn't exist yet: can't build the firmware "
                   f"(the generated config is in {rel(config_dir)})", file=out)
             return None
         bdir = os.path.join(out_dir, "fw")
-        rc = run(["make", "-C", NUC_PROJECT, f"DEVICE_DIR={config_dir}", f"BUILD={bdir}"], out=out)
+        rc = run(["make", "-C", project, f"DEVICE_DIR={config_dir}", f"BUILD={bdir}"], out=out)
         if rc:
             print(f"error: make failed ({rc})", file=out)
             return None
@@ -236,6 +242,9 @@ def do_build(path, out_dir=None, out=None):
     if dev.platform.name == "nuvoton-nuc1xx":
         print("Flash the .gfw with the web updater (web/updater, `npm run dev`) or "
               "tools/host/gemifi.py flash.", file=out)
+    elif dev.platform.name == "stm32f1":
+        print("Flash the .gfw with the web updater or tools/host/gemifi.py flash: it goes through "
+              "the keyboard's own (M-Audio) bootloader and needs a power cycle on the way.", file=out)
     return 0
 
 

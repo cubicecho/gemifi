@@ -5,7 +5,7 @@ This is the order to do things in when you first put your own code on the **M-Au
 | Folder | What's in it |
 |---|---|
 | `swd/nuvoton-nuc1xx/` | SWD scripts (OpenOCD): check the chip, back it up, flash APROM/LDROM, restore stock |
-| `host/` | `mkimage.py` (makes `.gfw` images), `gemifi.py` (USB MIDI or serial: hello, log, reboot, flash, config), tests |
+| `host/` | `mkimage.py` (makes `.gfw` images), `gemifi.py` (USB MIDI or serial: hello, log, reboot, flash, config), `maudio_update.py` (Code 61: M-Audio's update protocol), tests |
 | `usb/probe-midi-device.sh` | read-only USB/MIDI probe of the stock keyboard (lsusb, identity request, capture) |
 
 All scripts work from any directory. Every script that writes to flash prints what it will do and waits for you to type `yes`, unless you pass `--yes`. **No script writes CONFIG by default.** Only `restore-stock.sh --write-config` does, and it asks you to type `write config` first.
@@ -261,6 +261,7 @@ Safety built in:
 ```sh
 python3 tools/host/mkimage.py in.bin out.gfw --board 1 --version 0.1.0   # used by the firmware Makefiles
 python3 tools/host/mkimage.py --check out.gfw [--board 1]
+python3 tools/host/gemifi.py flash app.gfw | restore-stock FirmwareFile.hex.txt    # Code 61, see below
 python3 tools/host/gemifi.py ports | hello | log | reboot app|boot [--wait 5]
 python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-port NAME]
 python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
@@ -318,6 +319,32 @@ gemifi.py flash firmware.bin --board 0x3F00 --version 1.2.3 --dry-run --max-chun
 3. FW_DATA in plain order from offset 0, each chunk the largest multiple of 4 up to FW_BEGIN's `max_chunk`; no page rule. The old slot stays bootable throughout.
 4. FW_END (the device checks the CRC and marks the new slot), then REBOOT(0), never REBOOT(1).
 5. Waits for HELLO again (default 15 s; `--wait`) and checks that `fw_version` is the new one. If it isn't, the version given was wrong, or the new slot didn't boot and the device fell back to the old one.
+
+### M-Audio Code 61 (STM32F1, board 0x0002)
+
+The Code 61 keeps M-Audio's bootloader (0x08000000–0x080023FF). gemifi replaces only the app, through M-Audio's own SysEx update protocol, so the case stays closed. **None of this has run on hardware yet.** Background: `research/devices/m-audio-code61/analysis/update-protocol.md` and `custom-firmware-path.md`.
+
+```sh
+python3 tools/host/mkimage.py app.bin app.gfw --board 0x0002 --version 0.1.0 \
+    --hdr-offset 0x130 --base 0x08002400 --max-size 102398        # what the platform Makefile runs
+python3 tools/host/gemifi.py flash app.gfw [--dry-run]
+python3 tools/host/gemifi.py restore-stock FirmwareFile_v1.2.1.hex.txt [--dry-run]
+python3 tools/host/maudio_update.py info|build|syx|send|request ...   # the vendor protocol on its own
+```
+
+How `gemifi.py flash` does it:
+1. Checks the `.gfw` (header at 0x130, linked at 0x08002400, at most 102,398 bytes). A raw `.bin` works too, with `--board 0x0002`.
+2. Builds the update stream the way the stock file is laid out: one record per 1 KB page that holds the image (erase, load, program), an erase-only record for each page after it up to 0x0801AFFF, then page 0x0801B000 with the image checksum at 0x0801B3FE, written last. Built from the stock app, this gives the stock file byte for byte.
+3. Asks the running app for update mode. A gemifi app gets HELLO, then REBOOT(1). The stock app gets the vendor start message and answers `F0 15 F7`.
+4. Tells you to **power-cycle the keyboard**, and waits for the port to go away and come back (`--wait`, 120 s).
+5. Probes the bootloader with the start message until it answers `F0 45 F7` (or `1A`). Then sends the start message again, and every record as ASCII-hex SysEx chunks, 3 ms apart, waiting up to 10 s for the ack after each record.
+6. Waits for HELLO from the new gemifi app (`--after-wait`, 20 s) and checks the version.
+
+If anything fails, the update request stays set. Power-cycle and run the same command again, or go back to stock with `restore-stock` and M-Audio's update file (never commit that file).
+
+Options for the vendor protocol: `--boot-port NAME` (the bootloader's port name isn't known yet; the default looks for "Code" or "M-Audio"), `--ack-timeout`, `--probe-timeout`, `--gap` (ms), `--record-retries N` (default 0: the stock updater doesn't resend), `--no-restart` (no second start message after the probe).
+
+Unknowns that a first hardware run has to settle: whether the bootloader takes a stream from our tool at all, what `45` and `1A` each mean, whether `0D`/`0E` reboot the keyboard by themselves, and whether a soft reset with the request flag set is enough (otherwise it's always a power cycle). Do the safe steps in `custom-firmware-path.md` §8 first: send the stock stream with `restore-stock` before any gemifi image.
 
 ### Config from the command line (`gemifi.py`, app firmware)
 

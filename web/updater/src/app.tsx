@@ -105,6 +105,7 @@ export function App() {
           image={flashImage}
           onImageChange={setFlashImage}
           device={info}
+          probePorts={isMidi && manager !== null ? manager.probePorts : null}
           onRunningChange={setIsFlashing}
           onFinished={refresh}
         />

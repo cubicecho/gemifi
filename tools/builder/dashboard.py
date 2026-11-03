@@ -119,7 +119,8 @@ def preset_info(dev):
 
 
 def toolchains():
-    return {"nuvoton-nuc1xx": bool(shutil.which("arm-none-eabi-gcc") and shutil.which("make")),
+    arm = bool(shutil.which("arm-none-eabi-gcc") and shutil.which("make"))
+    return {"nuvoton-nuc1xx": arm, "stm32f1": arm,
             "esp": gb.find_pio() is not None}
 
 

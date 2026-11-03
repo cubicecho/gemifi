@@ -27,7 +27,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.58
+  version: 0.2.60
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)

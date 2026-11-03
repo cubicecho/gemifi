@@ -46,8 +46,42 @@ jobs:
         working-directory: tools/host
         run: python -m unittest discover -s tests -t .
 
+      # The protocol test vectors are generated from the host codec: a codec change without a
+      # regenerated protocol/test-vectors.json fails here.
+      - name: Test vectors up to date
+        working-directory: tools/host
+        run: python make_test_vectors.py --check
+
+      - name: Ableton Live script
+        working-directory: hosts/ableton-live
+        run: python -m pytest -q
+
+      - name: STM32F1 config store (simulated flash)
+        run: make -C platform/stm32f1/test/cs-test test
+
       - name: NUC host-sim (bootloader, app, end to end)
         run: make -C platform/nuvoton-nuc1xx/test/host-sim test
+
+  bitwig:
+    name: Bitwig extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: hosts/bitwig
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: hosts/bitwig/pom.xml
+
+      # Its protocol tests read protocol/test-vectors.json, so a protocol change that breaks the
+      # extension fails here.
+      - run: mvn -B -ntp package
 
   web:
     name: Web updater

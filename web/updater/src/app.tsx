@@ -1,8 +1,11 @@
 import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
+import { CardLayout } from '@/components/card-layout';
+import { EmptyState } from '@/components/empty-state';
 import { PageLayout } from '@/components/page-layout';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Plug, Settings } from '@/components/ui/icons';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { type DeviceListing, fetchBuilderInfo, listDevices } from './builder/api.ts';
 import { BuilderView, type OpenRequest } from './builder/builder-view.tsx';
@@ -43,16 +46,20 @@ const disclaimer = (
   </p>
 );
 
-/** The page's two views, when a builder serves it. */
-const AppView = { Devices: 'devices', Update: 'update' } as const;
+/** The page's views: Devices only when a builder serves it; Update and Config always. */
+const AppView = { Devices: 'devices', Update: 'update', Config: 'config' } as const;
 type AppView = (typeof AppView)[keyof typeof AppView];
 
 /**
  * @param param - The `view` search param.
- * @returns The view it names; the device list unless it says Update.
+ * @param hasBuilder - Whether a builder serves the page (only then is there a Devices view).
+ * @returns The view it names; with no param, Devices under a builder and Update otherwise.
  */
-function viewOf(param: string | null): AppView {
-  return param === AppView.Update ? AppView.Update : AppView.Devices;
+function viewOf(param: string | null, hasBuilder: boolean): AppView {
+  if (param === AppView.Update || param === AppView.Config) {
+    return param;
+  }
+  return hasBuilder ? AppView.Devices : AppView.Update;
 }
 
 /** Shown when the page is not a secure context, where the browser hides MIDI and serial ports. */
@@ -65,9 +72,10 @@ const insecureAlert = (
 );
 
 /**
- * The page: connection (USB MIDI or serial), device facts, firmware upload, the first install on
- * ESP chips, config, host feedback tests and the log. Served by a gemifi builder, it also has the Devices view, where
- * device files are edited and built and their images handed to the Update view.
+ * The page. Update: connection (USB MIDI or serial), device facts, firmware upload, the first install
+ * on ESP chips and the log. Config: the connected device's settings and host feedback tests. Served by
+ * a gemifi builder, it also has the Devices view, where device files are edited and built and their
+ * images handed to the Update view.
  *
  * @returns The page.
  */
@@ -78,7 +86,7 @@ export function App() {
   const devices = useRequest(hasBuilder ? listDevices : noDevices, hasBuilder ? 'devices' : 'none');
   const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
   const [viewParam, setViewParam] = useSearchParam('view');
-  const view = viewOf(viewParam);
+  const view = viewOf(viewParam, hasBuilder);
   const [flashImage, setFlashImage] = useState<PickedImage | null>(null);
   const [installFiles, setInstallFiles] = useState<PickedBytes[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
@@ -103,7 +111,8 @@ export function App() {
   const isBusy = isFlashing || isInstalling;
   const canInstall = serial.access.kind !== 'unavailable';
   const isSecure = window.isSecureContext;
-  const showView = (next: AppView) => setViewParam(next === AppView.Devices ? null : next);
+  const defaultView = hasBuilder ? AppView.Devices : AppView.Update;
+  const showView = (next: AppView) => setViewParam(next === defaultView ? null : next);
   const nodeName = info?.nodeName ?? null;
   const deviceFiles: DeviceFiles | null = hasBuilder
     ? {
@@ -142,10 +151,6 @@ export function App() {
           onFinished={refresh}
         />
       </div>
-      {client !== null && info !== null && offersConfig(info) && isBusy === false ? (
-        <ConfigCard client={client} device={info} />
-      ) : null}
-      {client !== null && offersFeedback(info) && isBusy === false ? <FeedbackCard client={client} /> : null}
       <LogCard lines={log.lines} rawLines={log.rawLines} onClear={log.clear} />
       {canInstall ? (
         <Suspense fallback={null}>
@@ -161,11 +166,69 @@ export function App() {
     </>
   );
 
+  const hasConfig = client !== null && info !== null && offersConfig(info);
+  const hasFeedback = client !== null && offersFeedback(info);
+  let configEmpty: { title: string; description: string } | null = null;
+  if (client === null || info === null) {
+    configEmpty = {
+      title: 'No device connected',
+      description: 'Connect a device on the Update tab. Its settings and the host feedback tests show up here.',
+    };
+  } else if (isBusy) {
+    configEmpty = {
+      title: 'Firmware upload in progress',
+      description: 'The settings come back once the upload has finished and the device has restarted.',
+    };
+  } else if (hasConfig === false && hasFeedback === false) {
+    configEmpty = {
+      title: 'Nothing to configure',
+      description: 'This firmware has no settings and no host feedback (a bootloader or a test app).',
+    };
+  }
+  const configCards =
+    configEmpty === null ? (
+      <>
+        {hasConfig && client !== null && info !== null ? <ConfigCard client={client} device={info} /> : null}
+        {hasFeedback && client !== null ? <FeedbackCard client={client} /> : null}
+      </>
+    ) : (
+      <CardLayout
+        contentSlot={
+          <EmptyState
+            iconSlot={client === null ? <Plug /> : <Settings />}
+            title={configEmpty.title}
+            description={configEmpty.description}
+          />
+        }
+      />
+    );
+
+  const viewSwitch = (
+    <SegmentedGroup aria-label="View" value={view} onValueChange={showView}>
+      {hasBuilder ? <SegmentedButton value={AppView.Devices}>Devices</SegmentedButton> : null}
+      <SegmentedButton value={AppView.Update}>Update</SegmentedButton>
+      <SegmentedButton value={AppView.Config}>Config</SegmentedButton>
+    </SegmentedGroup>
+  );
+  // Update and Config stay mounted, so an upload keeps running and the log keeps filling across a switch.
+  const deviceViews = (
+    <>
+      <div hidden={view !== AppView.Update} className="flex min-w-0 flex-col gap-4">
+        {updateCards}
+      </div>
+      <div hidden={view !== AppView.Config} className="flex min-w-0 flex-col gap-4">
+        {configCards}
+      </div>
+    </>
+  );
+
   if (builderInfo === null) {
     return (
       <PageLayout
         title="gemifi updater"
+        contentRef={body}
         description="Device info, config, debug log and firmware upload, over Web MIDI or Web Serial."
+        headerContentSlot={viewSwitch}
         actionSlot={
           <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
             {isConnected ? 'Connected' : 'Not connected'}
@@ -174,7 +237,7 @@ export function App() {
         contentSlot={
           <>
             {isSecure ? null : insecureAlert}
-            {updateCards}
+            {deviceViews}
             {disclaimer}
           </>
         }
@@ -188,12 +251,7 @@ export function App() {
       title="gemifi builder"
       contentRef={body}
       description="Define a device, build its firmware, and flash it over Web MIDI or Web Serial."
-      headerContentSlot={
-        <SegmentedGroup aria-label="View" value={view} onValueChange={showView}>
-          <SegmentedButton value={AppView.Devices}>Devices</SegmentedButton>
-          <SegmentedButton value={AppView.Update}>Update</SegmentedButton>
-        </SegmentedGroup>
-      }
+      headerContentSlot={viewSwitch}
       actionSlot={
         <>
           {builderInfo.version === '' ? null : (
@@ -231,9 +289,7 @@ export function App() {
               }}
             />
           </div>
-          <div hidden={view !== AppView.Update} className="flex min-w-0 flex-col gap-4">
-            {updateCards}
-          </div>
+          {deviceViews}
           {disclaimer}
         </>
       }

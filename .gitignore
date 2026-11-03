@@ -23,6 +23,7 @@ __pycache__/
 
 # Builds
 build/
+build-*/
 .pio/
 dist/
 node_modules/

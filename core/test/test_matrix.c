@@ -26,9 +26,17 @@ static uint8_t closed[24][4];        /* [decoder output][column] */
 static int selects;                  /* address/enable writes, to see the cache work */
 
 uint32_t hal_millis(void) { return now_ms; }
-void hal_delay_us(uint32_t us) { (void)us; }
-void hal_pin_mode(uint16_t pin, uint8_t m) { (void)pin; (void)m; }
+static void apply_bsrr(void);
 static void update_port_b(void);
+/* The scan waits here between selecting a row and reading it: the simulated
+ * pins catch up with a set/reset store, as the real port does at once. */
+void hal_delay_us(uint32_t us)
+{
+    (void)us;
+    apply_bsrr();
+    update_port_b();
+}
+void hal_pin_mode(uint16_t pin, uint8_t m) { (void)pin; (void)m; }
 void hal_pin_write(uint16_t pin, int l)
 {
     if (pin >= 2 && pin <= 6)
@@ -44,8 +52,38 @@ static int selected_row(void)
     return g < 0 ? -1 : g * 8 + addr;
 }
 
+/* Port A set/reset register for the one-store decoder select (hal_pin_bsrr),
+ * applied to the pin levels before the next read. GM_TEST_BSRR=1 turns it on. */
+static int use_bsrr;
+static volatile uint32_t bsrr_a;
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    if (!use_bsrr || pin >= 16) {
+        *bit = 0;
+        return 0;
+    }
+    *bit = pin;
+    return &bsrr_a;
+}
+
+static void apply_bsrr(void)
+{
+    uint32_t w = bsrr_a;
+    if (!w)
+        return;
+    bsrr_a = 0;
+    selects++;
+    for (int b = 0; b < 16; b++) {
+        if ((w >> (b + 16)) & 1u)
+            level[b] = 0;
+        if ((w >> b) & 1u)
+            level[b] = 1;
+    }
+}
+
 int hal_pin_read(uint16_t pin)
 {
+    apply_bsrr();
     if (pin >= 16 && pin < 20) {
         int r = selected_row();
         return r >= 0 && closed[r][pin - 16] ? 0 : 1;
@@ -154,6 +192,8 @@ static void release(int p, int c)
 int main(void)
 {
     fast_cols = getenv("GM_TEST_FAST_COLS") != NULL;
+    use_bsrr = getenv("GM_TEST_BSRR") != NULL;
+    printf("decoder select: %s\n", use_bsrr ? "one set/reset store" : "pin by pin");
     printf("column reads: %s\n", fast_cols ? "one load per row" : "per pin");
     gm_init(0x00010000u, 0);
     run_ms(2000);

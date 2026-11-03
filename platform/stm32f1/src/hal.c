@@ -73,6 +73,14 @@ void hal_delay_us(uint32_t us)
 #define PIN_PORT(pin) ((uint32_t)(pin) >> 4)
 #define PIN_BIT(pin)  ((uint32_t)(pin) & 15u)
 
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    if (PIN_PORT(pin) >= GPIO_PORTS)
+        return 0;
+    *bit = PIN_BIT(pin);
+    return &GPIO_BSRR(PIN_PORT(pin));
+}
+
 static void pin_cfg(uint16_t pin, uint32_t cfg)
 {
     uint32_t port = PIN_PORT(pin), bit = PIN_BIT(pin);

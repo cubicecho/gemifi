@@ -120,6 +120,7 @@ static uint8_t cols_fast;
 static volatile uint32_t *row_reg[FAST_ROWS];
 static uint32_t row_on;             /* level that drives row r: bit r */
 static uint8_t rows_fast;
+static uint8_t rows_dec;            /* every row is a decoder output */
 static uint8_t knote[NK], kchan[NK];
 #endif
 
@@ -242,8 +243,8 @@ static void matrix_scan(void)
         }
         if (rows_fast)
             *row_reg[r] = ((row_on >> r) & 1u) ^ 1u;
-        else
-            vpin_write(m->rows[r], 0);
+        else if (!rows_dec)
+            vpin_write(m->rows[r], 0);  /* a decoder row: the next select replaces it */
         if (by_rows) {
             /* Contacts on rows 2p and 2p+1, same column: handle the pair once
              * both rows of this pass have been read. */
@@ -301,6 +302,9 @@ static int8_t enc_acc[NE];
 static volatile int16_t enc_delta[NE];
 static uint8_t enc_i2c[NE];
 static int16_t enc_value[NE];
+/* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
+static const volatile uint32_t *enc_ra[NE], *enc_rb[NE];
+static uint32_t enc_ma[NE], enc_mb[NE];
 #endif
 
 void gm_encoder_host(uint32_t i, uint32_t value)
@@ -320,7 +324,14 @@ static void encoder_step(uint32_t i)
 {
     static const int8_t tab[16] = { 0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0 };
     const gm_encoder_t *e = &gm_device.encoders[i];
-    uint32_t ab = (uint32_t)(vpin_read(e->a) << 1) | (uint32_t)vpin_read(e->b);
+    uint32_t ab;
+    if (enc_ra[i] && enc_rb[i]) {
+        uint32_t a = ((*enc_ra[i] & enc_ma[i]) != 0) ^ ((e->a.flags & GM_PIN_INVERT) != 0);
+        uint32_t b = ((*enc_rb[i] & enc_mb[i]) != 0) ^ ((e->b.flags & GM_PIN_INVERT) != 0);
+        ab = a << 1 | b;
+    } else {
+        ab = (uint32_t)(vpin_read(e->a) << 1) | (uint32_t)vpin_read(e->b);
+    }
     enc_acc[i] = (int8_t)(enc_acc[i] + tab[(enc_ab[i] << 2) | ab]);
     enc_ab[i] = (uint8_t)ab;
     int32_t spd = e->steps_per_detent ? e->steps_per_detent : 4;
@@ -1473,14 +1484,19 @@ void gm_init(uint32_t fw_version, int safe_mode)
         vpin_input(e->a);
         vpin_input(e->b);
         enc_i2c[i] = (uint8_t)(vpin_on_i2c(e->a) || vpin_on_i2c(e->b));
+        enc_ra[i] = vpin_in_reg(e->a, &enc_ma[i]);
+        enc_rb[i] = vpin_in_reg(e->b, &enc_mb[i]);
     }
 #endif
 #if GM_HAS_MATRIX
     if (gm_device.matrix) {
         const gm_matrix_t *m = gm_device.matrix;
         rows_fast = m->n_rows <= FAST_ROWS;
+        rows_dec = m->n_rows > 0;
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
+            if (!vpin_is_decoder(m->rows[r]))
+                rows_dec = 0;
             if (on_sr_hub(m->rows[r]))
                 m_hubs = 1;
             if (r < FAST_ROWS) {

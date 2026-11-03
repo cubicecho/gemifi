@@ -32,6 +32,56 @@ typedef struct {
 
 static hub_state_t hs[N_HUBS];
 
+/* Decoders whose address and enable lines are all on one port with a set/reset
+ * register (hal_pin_bsrr): each output is one precomputed store. */
+#define DEC_FAST 2u                 /* decoders with a table */
+#define DEC_OUT 32u                 /* outputs per table */
+static int8_t dec_slot[N_HUBS];     /* table index, -1 = write pin by pin */
+static volatile uint32_t *dec_reg[DEC_FAST];
+static uint32_t dec_word[DEC_FAST][DEC_OUT];
+static uint8_t dec_used;
+
+__attribute__((weak)) volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    (void)pin;
+    *bit = 0;
+    return 0;
+}
+
+static void dec_fast_init(uint32_t i, const gm_hub_t *h)
+{
+    dec_slot[i] = -1;
+    if (dec_used >= DEC_FAST)
+        return;
+    volatile uint32_t *reg = 0;
+    uint32_t abit[4], ebit[3];
+    for (uint32_t k = 0; k < h->n_sel + h->n_en && k < 7u; k++) {
+        gm_pin_t p = k < h->n_sel ? h->sel[k] : h->en[k - h->n_sel];
+        uint32_t b = 0;
+        volatile uint32_t *r = p.hub ? 0 : hal_pin_bsrr(p.num, &b);
+        if (!r || (reg && r != reg))
+            return;
+        reg = r;
+        if (k < h->n_sel)
+            abit[k] = b;
+        else
+            ebit[k - h->n_sel] = b;
+    }
+    if (!reg)
+        return;
+    uint32_t slot = dec_used++, per = 1u << h->n_sel;
+    for (uint32_t n = 0; n < DEC_OUT; n++) {
+        uint32_t w = 0, g = n / per, lv = g < 4u ? h->group_lv[g] : 0;
+        for (uint32_t k = 0; k < h->n_sel; k++)
+            w |= ((n >> k) & 1u) ? 1u << abit[k] : 1u << (abit[k] + 16u);
+        for (uint32_t k = 0; k < h->n_en; k++)
+            w |= ((lv >> k) & 1u) ? 1u << ebit[k] : 1u << (ebit[k] + 16u);
+        dec_word[slot][n] = w;
+    }
+    dec_reg[slot] = reg;
+    dec_slot[i] = (int8_t)slot;
+}
+
 /* Switch matrices whose columns are adjacent bits of one input register, in
  * order (the Code 61's PB8-PB15): one load per row instead of a read per pin.
  * sm_reg 0 = read pin by pin. */
@@ -113,6 +163,7 @@ void vpin_init(void)
         s->channel = -1;
         s->tm_dirty = 0;
         s->tm_off = 0;
+        dec_slot[i] = -1;
         switch (h->type) {
         case GM_HUB_HC595:
             mcu_out(h->data, 0);
@@ -131,6 +182,7 @@ void vpin_init(void)
                 mcu_out(h->sel[k], 0);
             for (uint32_t k = 0; k < h->n_en && k < 3; k++)
                 mcu_out(h->en[k], 0);
+            dec_fast_init(i, h);
             break;
         case GM_HUB_SWMATRIX:
             for (uint32_t c = 0; c < h->n_cols; c++)
@@ -244,6 +296,12 @@ static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n)
 {
     if (s->channel == (int8_t)n)
         return;
+    int8_t slot = dec_slot[s - hs];
+    if (slot >= 0 && n < DEC_OUT) {
+        *dec_reg[slot] = dec_word[slot][n];
+        s->channel = (int8_t)n;
+        return;
+    }
     uint32_t g = n >> h->n_sel;
     for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
         if (h->sel[k].hub == 0)
@@ -399,6 +457,23 @@ void vpin_flush(void)
 
 /* ---- switch matrices --------------------------------------------------- */
 
+int vpin_is_decoder(gm_pin_t p)
+{
+    const gm_hub_t *h = hub_of(p);
+    return h && h->type == GM_HUB_DECODER;
+}
+
+const volatile uint32_t *vpin_in_reg(gm_pin_t p, uint32_t *mask)
+{
+    if (p.hub == 0)
+        return hal_pin_in_reg(p.num, mask);
+    const gm_hub_t *h = hub_of(p);
+    if (!h || h->type == GM_HUB_MUX || h->type == GM_HUB_DECODER || h->type == GM_HUB_TM1628)
+        return 0;
+    *mask = 1u << p.num;
+    return &hs[p.hub - 1].in;
+}
+
 int vpin_has_matrices(void)
 {
     for (uint32_t i = 0; i < gm_device.n_hubs; i++)
@@ -429,7 +504,8 @@ void vpin_scan_matrices(void)
                     if (vpin_read(h->cols[c]))
                         v |= 1u << bit;
             }
-            vpin_write(h->rows[r], 0);
+            if (!vpin_is_decoder(h->rows[r]))
+                vpin_write(h->rows[r], 0);
         }
         hs[i].in = v;
     }

@@ -94,6 +94,12 @@ uint16_t hal_extra_caps(void);
  * A weak default returning 0 is in core/src/controller.c. */
 uint32_t hal_cycles(void);
 
+/* A set/reset register for pin's port, where writing 1 << *bit sets the pin
+ * and 1 << (*bit + 16) clears it (the STM32 BSRR), so several pins of one
+ * port change in one store. NULL if the platform has none. A weak default
+ * returning NULL is in core/src/vpin.c. */
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit);
+
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
  * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */
 

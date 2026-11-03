@@ -45,6 +45,11 @@ void vpin_flush(void);             /* shift-register outputs (if changed)    */
 void vpin_refresh_i2c(void);
 void vpin_flush_i2c(void);
 int vpin_has_matrices(void);       /* any switch-matrix hub                  */
+int vpin_is_decoder(gm_pin_t p);   /* a decoder output: "off" does nothing  */
+/* Where p's level can be read with one load: *mask's bit of the returned
+ * word, electrical (apply GM_PIN_INVERT). MCU pins (hal_pin_in_reg) and
+ * cached hub inputs; NULL for a mux channel or without a register. */
+const volatile uint32_t *vpin_in_reg(gm_pin_t p, uint32_t *mask);
 void vpin_scan_matrices(void);     /* scan them (from the scan tick)         */
 void vpin_flush_tm1628(void);      /* TM1628 RAM (if changed)                */
 

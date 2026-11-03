@@ -72,6 +72,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	$(BUILD)/test_feedback
 	$(BUILD)/test_matrix
 	GM_TEST_FAST_COLS=1 $(BUILD)/test_matrix
+	GM_TEST_FAST_COLS=1 GM_TEST_BSRR=1 $(BUILD)/test_matrix
 	$(BUILD)/test_tm1628
 	$(BUILD)/test_pads
 

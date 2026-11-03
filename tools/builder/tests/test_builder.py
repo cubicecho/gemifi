@@ -704,7 +704,7 @@ class TestFeedback(unittest.TestCase):
         self.assertIn("#define GM_MCU_CABLE 1", h)
         self.assertIn("#define GM_MCU_ID 0x14", h)
         self.assertIn('#define GM_DAW_PORT_NAME "test DAW"', h)
-        self.assertIn("gm_encoder_ring[1] = { { 0, 0 } };", c)
+        self.assertIn("gm_encoder_ring[1] = { { 0, 0, GM_RING_NO_CENTER } };", c)
         h, _ = self.header(MINIMAL_NUC + "mcu: { extender: true }\n")
         self.assertIn("#define GM_MCU_ID 0x15", h)
         h, _ = self.header(MINIMAL_NUC.replace("pid: 0x0002 }", "pid: 0x0002, daw_port: false }") + "mcu: {}\n")
@@ -733,8 +733,12 @@ class TestFeedback(unittest.TestCase):
         self.assertIn("gm_analog_pickup[GM_N_ANALOGS] = { 1 };", c)                 # MCU fader default
         self.assertIn("gm_encoder_mcu[GM_N_ENCODERS] = { 2 };", c)
         self.assertIn("static const uint8_t ring_0[1] = { 1 };", c)
-        self.assertIn("{ ring_0, 1 }", c)
+        self.assertIn("{ ring_0, 1, GM_RING_NO_CENTER }", c)
         self.assertIn("#define GM_LED_FB 1", h)
+        _, c = self.header(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_1, ring_center: l1 }]\n")
+        self.assertIn("{ 0, 0, 0 }", c)                                            # centre LED only
+        self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring_center: l1 }]\n",
+                         r"ring_center: belongs to an MCU V-Pot")
         btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
         self.assertError(btn % "mcu: play", r"needs an `mcu:` section")
         self.assertError(btn % "action: mcu" + "mcu: {}\n", r"action mcu needs mcu:")
@@ -1246,7 +1250,7 @@ class TestDashboard(unittest.TestCase):
         st, body = self.req("/api/info")
         self.assertEqual(st, 200)
         j = json.loads(body)
-        self.assertEqual((j["name"], j["version"], j["user_dir"]), ("gemifi builder", "0.1.0", self.mine))
+        self.assertEqual((j["name"], j["version"], j["user_dir"]), ("gemifi builder", self.dashboard.VERSION, self.mine))
         self.assertEqual(set(j["toolchains"]), {"nuvoton-nuc1xx", "stm32f1", "esp"})
         self.assertTrue(all(isinstance(v, bool) for v in j["toolchains"].values()))
         st, body = self.req("/api/presets")

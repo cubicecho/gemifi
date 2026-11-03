@@ -126,6 +126,27 @@ void vpin_output(gm_pin_t p)
     vpin_write(p, 0);
 }
 
+/* Muxes may share select lines (allow_other_uses): switching one switches
+ * the others. One with the same lines is now on the same channel; one that
+ * shares only some must switch again. */
+static void mux_shared(const gm_hub_t *h, uint32_t ch)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *o = &gm_device.hubs[i];
+        if (o == h || o->type != GM_HUB_MUX)
+            continue;
+        uint32_t same = 0, any = 0;
+        for (uint32_t k = 0; k < o->n_sel && k < 4; k++)
+            for (uint32_t j = 0; j < h->n_sel && j < 4; j++)
+                if (o->sel[k].hub == 0 && h->sel[j].hub == 0 && o->sel[k].num == h->sel[j].num) {
+                    any = 1;
+                    same += j == k;
+                }
+        if (any)
+            hs[i].channel = (int8_t)(same == o->n_sel && o->n_sel == h->n_sel ? (int32_t)ch : -1);
+    }
+}
+
 static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 {
     if (s->channel == (int8_t)ch)
@@ -134,6 +155,7 @@ static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
         if (h->sel[k].hub == 0)
             hal_pin_write(h->sel[k].num, (ch >> k) & 1u);
     s->channel = (int8_t)ch;
+    mux_shared(h, ch);
     hal_delay_us(h->settle_us ? h->settle_us : 2);
 }
 

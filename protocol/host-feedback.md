@@ -97,7 +97,7 @@ Note velocity and CC value map to a level, as in Mackie Control:
 | 1 | blinking (about 1 Hz: 500 ms on, 500 ms off) |
 | 2..127 | on |
 
-On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level; only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
+On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level (or its YAML `active:` look; 0 shows its `idle:` look, core/README.md "LED looks"); only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
 
 ### 2.5 Pick-up (`takeover: pickup`)
 

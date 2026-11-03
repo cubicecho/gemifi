@@ -454,6 +454,57 @@ class TestValidation(unittest.TestCase):
                              ", pin3: { tm1628: ta, number: 2 }"), r"an RGB LED needs pin2 too")
         self.assertError(dev(leds=rgb % ", pin3: { tm1628: ta, number: 1 }"), r"ta\.1 is already used")
 
+    def test_led_looks(self):
+        leds = ("leds:\n"
+                "  - { id: s, pin: PB0%s }\n"
+                "  - { id: bi, pin: PB1, pin2: PB2%s }\n"
+                "  - { id: rgb, pin: PB3, pin2: PB4, pin3: PB5%s }\n")
+
+        def looks(s="", bi="", rgb="", top=""):
+            dev, diags = load(MINIMAL_NUC + top + leds % (s, bi, rgb))
+            self.assertEqual(gd.errors(diags), [], [str(d) for d in diags])
+            return [x.looks for x in dev.leds]
+
+        self.assertEqual(looks(), [None, None, None])        # defaults: generated as 0
+        # idle: on (unquoted YAML reads it as a boolean) with no active: dark when active
+        self.assertEqual(looks(s=", idle: on"), [(1, 0), None, None])
+        self.assertEqual(looks(s=", idle: 'on', active: off"), [(1, 0), None, None])
+        self.assertEqual(looks(bi=", idle: colour2"), [None, (2, 1), None])
+        self.assertEqual(looks(bi=", idle: colour1"), [None, (1, 0), None])
+        self.assertEqual(looks(bi=", idle: both, active: colour2"), [None, (3, 2), None])
+        self.assertEqual(looks(rgb=", idle: blue, active: white"), [None, None, (4, 7)])
+        self.assertEqual(looks(rgb=", idle: cyan"), [None, None, (6, 7)])
+        self.assertEqual(looks(rgb=", idle: magenta, active: on"), [None, None, (5, 7)])
+        # led_defaults: every LED, nearest look it can show; the LED's own fields win
+        self.assertEqual(looks(top="led_defaults: { idle: blue, active: white }\n"),
+                         [(1, 0), (1, 3), (4, 7)])   # single: on / off; bicolour: colour1 / both
+        self.assertEqual(looks(top="led_defaults: { idle: yellow }\n"), [(1, 0), (3, 1), (3, 7)])
+        self.assertEqual(looks(top="led_defaults: { idle: green }\n", rgb=", idle: off"),
+                         [(1, 0), (2, 1), (0, 7)])
+        # errors: a look the LED can't show, an unknown name
+        self.assertError(MINIMAL_NUC + leds % (", idle: blue", "", ""),
+                         r"'blue' is a look for an RGB LED; a single-colour LED \(pin only\) takes off, on",
+                         path="leds[0].idle")
+        self.assertError(MINIMAL_NUC + leds % ("", "", ", active: colour1"),
+                         r"'colour1' is a look for a bicolour LED; an RGB LED.*takes off, on, red")
+        self.assertError(MINIMAL_NUC + leds % ("", ", idle: colour3", ""),
+                         r"unknown look 'colour3' \(did you mean 'colour\d'\?\)", path="leds[1].idle")
+        self.assertError(MINIMAL_NUC + "led_defaults: { idle: purple }\n" + leds % ("", "", ""),
+                         r"unknown look 'purple'.*valid: on, off", path="led_defaults.idle")
+        self.assertError(MINIMAL_NUC + "led_defaults: { idle: blue, dim: true }\n" + leds % ("", "", ""),
+                         r"unknown key \(known: idle, active\)", path="led_defaults.dim")
+        # the same look twice, given: a warning
+        warns = [str(d) for d in self.errs(MINIMAL_NUC + leds % (", idle: on, active: on", "", ""), level="warning")]
+        self.assertTrue(any("never shows its state" in w for w in warns), warns)
+        # generated: GM_LED_LOOKS(idle, active), 0 for the defaults
+        dev, _ = load(MINIMAL_NUC + leds % (", idle: on", "", ", idle: blue, active: white"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(gen_dir(dev, tmp), "gm_device_config.c")) as f:
+                c = f.read()
+        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0) }, /* s: PB0 */", c)
+        self.assertRegex(c, r"GM_NO_PIN, 0 \}, /\* bi: PB1 \*/")
+        self.assertIn("GM_LED_LOOKS(4, 7) }, /* rgb: PB3 */", c)
+
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
         an = "analog:\n  - { id: k, pin: { cd74hc4051: m, number: %d }, cc: 1 }\n"

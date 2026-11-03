@@ -15,6 +15,8 @@
 # test_pads_hw:    test_pads.c with the hardware analog scan's sweeps
 #                  (pads-hw-test.yaml)
 # test_display:    core/src/display.c alone (display-cfg/, fake pins)
+# test_leds:       LED looks, idle: / active: (leds-test.yaml), and
+# test_leds_local: the same with feedback off (leds-local-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
@@ -31,6 +33,10 @@ HW_DEVICE := matrix-hw-test.yaml
 HW_DEV    := $(BUILD)/device-matrix-hw
 TM_DEVICE := tm1628-test.yaml
 TM_DEV    := $(BUILD)/device-tm1628
+LED_DEVICE := leds-test.yaml
+LED_DEV    := $(BUILD)/device-leds
+LEDL_DEVICE := leds-local-test.yaml
+LEDL_DEV    := $(BUILD)/device-leds-local
 PAD_DEVICE := pads-test.yaml
 PAD_DEV    := $(BUILD)/device-pads
 PADHW_DEVICE := pads-hw-test.yaml
@@ -64,6 +70,14 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(PADH
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(PADHW_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(LED_DEVICE) -o $(LED_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(LED_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(LEDL_DEVICE) -o $(LEDL_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(LEDL_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
@@ -82,9 +96,11 @@ HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c
 TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
 PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
 PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c
+LED_SRCS := test_leds.c $(CORE_SRCS) $(LED_DEV)/gm_device_config.c
+LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display
+test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_leds $(BUILD)/test_leds_local
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
@@ -97,6 +113,8 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
 	$(BUILD)/test_display
+	$(BUILD)/test_leds
+	$(BUILD)/test_leds_local
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -129,6 +147,14 @@ $(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PADH
 $(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -Idisplay-cfg test_display.c $(ROOT)/core/src/display.c -o $@
+
+$(BUILD)/test_leds: $(LED_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(LED_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(LED_DEV) $(LED_SRCS) -o $@
+
+$(BUILD)/test_leds_local: $(LEDL_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(LEDL_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(LEDL_DEV) $(LEDL_SRCS) -o $@
 
 clean:
 	rm -rf $(BUILD)

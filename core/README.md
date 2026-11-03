@@ -121,6 +121,10 @@ pads:
 
 Colours are on or off for now: an RGB LED shows white from its pad or button, or the colour a DAW script picks (FB_LED_RGB).
 
+### LED walk (finding LEDs)
+
+To find which output drives which LED on new hardware, list every candidate output under `leds:` and build with `GM_LED_WALK_MS` set (stm32f1: `make LED_WALK=100`). Each LED then lights on its own for that many milliseconds, in `leds:` order, and the device log shows `walk LED <n>`. Holding any button pauses the walk. Normal LED behaviour is off in such a build; without the define the code isn't built at all.
+
 ## Components
 
 Every component has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.

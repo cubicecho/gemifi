@@ -1,0 +1,25 @@
+# cs-test: the STM32F1 config_store (platform/stm32f1/src/config_store.c) on
+# simulated flash, with host gcc: reads, page swaps, tombstones, and a power
+# cut at every halfword of a write.
+#
+#   make test
+#   make clean
+
+ROOT   := ../../../..
+PLAT   := ../..
+BUILD  ?= build
+HOSTCC ?= gcc
+CFLAGS := -O1 -g -Wall -Wextra -Werror -Istub -I$(PLAT)/include -I$(ROOT)/core/include
+
+.PHONY: test clean
+test: $(BUILD)/cs_test
+	$(BUILD)/cs_test
+
+$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c stub/flash.h stub/board.h | $(BUILD)
+	$(HOSTCC) $(CFLAGS) -o $@ cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c
+
+$(BUILD):
+	mkdir -p $@
+
+clean:
+	rm -rf $(BUILD)

@@ -256,6 +256,12 @@ def build():
                      caps=gp.CAP_FW, uid=bytes([0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67]))
     fr("HELLO reply from bootloader: board 1, v0.1.0, max_chunk 256, caps=FW, uid 1032547698BADCFE01234567",
        gp.HELLO | gp.REPLY, 0, gp.build_hello_reply(hello))
+    app = gp.Hello(role=gp.ROLE_APP, board_id=1, fw_version=0x00010005, proto_version=1, max_chunk=0,
+                   caps=gp.CAP_CONFIG | gp.CAP_LOG | gp.CAP_EVENT | gp.CAP_PRESETS,
+                   uid=bytes([0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67]),
+                   node="keystation-mini32")
+    fr("HELLO reply from an app: board 1, v0.1.5, caps=CONFIG|LOG|EVENT|PRESETS, node 'keystation-mini32'",
+       gp.HELLO | gp.REPLY, 1, gp.build_hello_reply(app))
     fr("LOG info t=1234 'oct- down'", gp.LOG, 3, gp.build_log(2, 1234, "oct- down"))
     fr("EVENT key index=12 value=100 t=70000", gp.EVENT, 4, gp.build_event(2, 12, 100, 70000))
     v["frames"] = frames

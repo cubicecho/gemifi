@@ -23,6 +23,8 @@ export interface HelloInfo {
   caps: number;
   /** Chip UID, 12 bytes. */
   uid: number[];
+  /** The YAML's node name (§4.1.1), e.g. `keystation-mini32`; null from a bootloader or older firmware. */
+  nodeName: string | null;
 }
 
 /** A LOG message (0x60). */
@@ -260,7 +262,27 @@ export function parseHello(body: ArrayLike<number>): HelloInfo {
     maxChunk: reader.u14(),
     caps: reader.u14(),
     uid: reader.packed(UID_BYTES),
+    nodeName: parseNodeName(reader.rest()),
   };
+}
+
+/** A node name (§4.1.1): what the builder takes for `name:`. */
+export const NODE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?$/;
+
+/**
+ * Reads HELLO's optional `node` field: `u8 len`, then the name. Bytes after it are later fields,
+ * which this page ignores.
+ *
+ * @param rest - The reply's bytes after `uid`.
+ * @returns The node name, or null when there is none or it breaks the rule.
+ */
+export function parseNodeName(rest: readonly number[]): string | null {
+  const length = rest[0] ?? 0;
+  if (length === 0 || 1 + length > rest.length) {
+    return null;
+  }
+  const name = String.fromCharCode(...rest.slice(1, 1 + length));
+  return NODE_NAME_PATTERN.test(name) ? name : null;
 }
 
 /**

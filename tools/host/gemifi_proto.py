@@ -3,6 +3,7 @@
 Frame:  F0 7D 67 6D  ver cmd seq len_lo len_hi  payload...  chk  F7
 chk = (sum of ver..last payload byte) & 0x7F; len = payload length in SysEx bytes (u14).
 """
+import re
 import struct
 import zlib
 from dataclasses import dataclass, field
@@ -331,6 +332,7 @@ class Hello:
     max_chunk: int
     caps: int
     uid: bytes = field(default=b"")
+    node: str | None = None          # node name (sysex.md 4.1.1); None = the device didn't send one
 
     @property
     def role_name(self):
@@ -341,25 +343,36 @@ class Hello:
         return self.uid.hex().upper()
 
 
-HELLO_REPLY_LEN = 1 + 1 + 2 + 5 + 1 + 2 + 2 + 14   # status + fields
+HELLO_REPLY_LEN = 1 + 1 + 2 + 5 + 1 + 2 + 2 + 14   # status + fields, without the optional node name
+NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")   # sysex.md 4.1.1, as in the builder
 
 
 def fmt_version(v):
     return f"{v >> 24}.{(v >> 16) & 0xFF}.{v & 0xFFFF}"
 
 
+def parse_node_name(rest):
+    """The optional HELLO `node` field (sysex.md 4.1.1) from the bytes after `uid`; None if absent or bad."""
+    if not rest or rest[0] == 0 or 1 + rest[0] > len(rest):
+        return None
+    name = bytes(rest[1:1 + rest[0]]).decode("ascii", "replace")
+    return name if NODE_NAME_RE.fullmatch(name) else None
+
+
 def parse_hello(payload):
-    if len(payload) != HELLO_REPLY_LEN:
-        raise ProtocolError(f"HELLO reply payload is {len(payload)} bytes, expected {HELLO_REPLY_LEN}")
+    if len(payload) < HELLO_REPLY_LEN:
+        raise ProtocolError(f"HELLO reply payload is {len(payload)} bytes, expected at least {HELLO_REPLY_LEN}")
     p = payload[1:]
     return Hello(role=p[0], board_id=dec_u14(p[1:3]), fw_version=dec_u32(p[3:8]), proto_version=p[8],
-                 max_chunk=dec_u14(p[9:11]), caps=dec_u14(p[11:13]), uid=unpack7(p[13:27]))
+                 max_chunk=dec_u14(p[9:11]), caps=dec_u14(p[11:13]), uid=unpack7(p[13:27]),
+                 node=parse_node_name(payload[HELLO_REPLY_LEN:]))
 
 
 def build_hello_reply(h, status=OK):
     """Device side; used by tests and the simulator."""
     return (bytes([status, h.role]) + u14(h.board_id) + u32(h.fw_version) + bytes([h.proto_version]) +
-            u14(h.max_chunk) + u14(h.caps) + pack7(h.uid))
+            u14(h.max_chunk) + u14(h.caps) + pack7(h.uid) +
+            (bytes([len(h.node)]) + h.node.encode("ascii") if h.node else b""))
 
 
 @dataclass

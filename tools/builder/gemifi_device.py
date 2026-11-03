@@ -2249,6 +2249,7 @@ def generate(dev, source="device.yaml"):
     combo = " | ".join(f"(1u << {i})" for i in sorted(dev.boot_combo)) or "0"
     c += ["const gm_device_t gm_device = {",
           "    .name = GM_DEVICE_NAME,",
+          "    .node_name = GM_NODE_NAME,",
           "    .board_id = GM_BOARD_ID,",
           "    .usb_vid = GM_USB_VID,",
           "    .usb_pid = GM_USB_PID,",

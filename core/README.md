@@ -328,7 +328,7 @@ Not done yet (TODO in `src/mcu.c`): the host-connection challenge/response (`00`
 #define GM_MATRIX_VELOCITY 1
 #define GM_BOARD_ID 0x0001
 #define GM_DEVICE_NAME "Keystation Mini 32"   /* friendly_name */
-#define GM_NODE_NAME "keystation-mini32"       /* name (the firmware doesn't use it yet; see #12, #13) */
+#define GM_NODE_NAME "keystation-mini32"       /* name: sent at the end of HELLO (sysex.md 4.1.1) */
 #define GM_USB_VID 0x1209
 #define GM_USB_PID 0x0002
 #define GM_HAS_I2C 0

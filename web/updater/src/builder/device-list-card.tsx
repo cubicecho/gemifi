@@ -24,6 +24,8 @@ export interface DeviceListCardProps {
   onDelete: (device: BuilderDevice) => void;
   /** What went wrong with the last delete, or null. */
   deleteFailure: string | null;
+  /** The node name the connected device reports in HELLO, or null: its files get a Connected badge. */
+  connectedNodeName: string | null;
 }
 
 /**
@@ -45,8 +47,14 @@ function buildLook(device: BuilderDevice) {
  * @param props - The device, whether it is open, and the handlers.
  * @returns The row.
  */
-function DeviceRow(props: { device: BuilderDevice; isSelected: boolean; onSelect: () => void; onDelete: () => void }) {
-  const { device, isSelected, onSelect, onDelete } = props;
+function DeviceRow(props: {
+  device: BuilderDevice;
+  isSelected: boolean;
+  isConnected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  const { device, isSelected, isConnected, onSelect, onDelete } = props;
   const title = deviceTitle(device);
   const build = buildLook(device);
   const canDelete = device.root === ROOT_MINE && device.writable;
@@ -58,6 +66,7 @@ function DeviceRow(props: { device: BuilderDevice; isSelected: boolean; onSelect
           <span className="font-mono text-foreground/60 text-xs">{device.file}</span>
           <Badge variant="outline">{platformLabel(device.platform)}</Badge>
           <Badge variant={build.variant}>{build.label}</Badge>
+          {isConnected ? <Badge variant="info-soft">Connected</Badge> : null}
         </span>
       }
       selected={isSelected}
@@ -81,7 +90,8 @@ function DeviceRow(props: { device: BuilderDevice; isSelected: boolean; onSelect
 }
 
 /** The device files, the user's own first, with New device in the header. */
-export function DeviceListCard({ devices, selectedId, onSelect, onNew, onDelete, deleteFailure }: DeviceListCardProps) {
+export function DeviceListCard(props: DeviceListCardProps) {
+  const { devices, selectedId, onSelect, onNew, onDelete, deleteFailure, connectedNodeName } = props;
   const all = devices.data?.devices ?? [];
   const mine = all.filter((device) => device.root === ROOT_MINE);
   const presets = all.filter((device) => device.root === ROOT_PRESETS);
@@ -91,6 +101,7 @@ export function DeviceListCard({ devices, selectedId, onSelect, onNew, onDelete,
         key={device.id}
         device={device}
         isSelected={device.id === selectedId}
+        isConnected={connectedNodeName !== null && device.nodeName === connectedNodeName}
         onSelect={() => onSelect(device)}
         onDelete={() => onDelete(device)}
       />

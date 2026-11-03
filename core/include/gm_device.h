@@ -149,6 +149,7 @@ typedef struct {
 
 typedef struct {
     const char *name;            /* "Keystation Mini 32"                */
+    const char *node_name;       /* "keystation-mini32" (HELLO node, sysex.md 4.1.1); NULL = none */
     uint16_t board_id;           /* sysex.md 7                          */
     uint16_t usb_vid, usb_pid;   /* platforms with native USB           */
     const gm_hub_t *hubs;

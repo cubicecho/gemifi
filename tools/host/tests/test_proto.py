@@ -138,6 +138,19 @@ class TestMessages(unittest.TestCase):
         p = gp.build_hello_reply(h)
         self.assertEqual(len(p), gp.HELLO_REPLY_LEN)
         self.assertEqual(gp.parse_hello(p), h)
+        self.assertIsNone(gp.parse_hello(p).node)
+
+    def test_hello_node_name(self):
+        h = gp.Hello(0, 1, 0x01020003, 1, 0, 0x2E, bytes(range(12)), "keystation-mini32")
+        p = gp.build_hello_reply(h)
+        self.assertEqual(len(p), gp.HELLO_REPLY_LEN + 1 + 17)
+        self.assertEqual(gp.parse_hello(p), h)
+        self.assertEqual(gp.parse_hello(p + b"\x05\x06").node, "keystation-mini32", "later fields are ignored")
+        base = p[:gp.HELLO_REPLY_LEN]
+        for bad in (b"\x00", b"\x05abc", b"\x03A-b", b"\x04-ab-"):
+            self.assertIsNone(gp.parse_hello(base + bad).node, bad)
+        with self.assertRaises(gp.ProtocolError):
+            gp.parse_hello(base[:-1])
 
     def test_fw_begin(self):
         p = gp.req_fw_begin(0x100, 0x89ABCDEF, 1, 0x01020003)

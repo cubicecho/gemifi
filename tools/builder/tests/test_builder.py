@@ -334,6 +334,49 @@ class TestValidation(unittest.TestCase):
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
+    def test_din_midi(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(body="tx_pin: PA9, rx_pin: PA10", more=""):
+            return stm + f"din_midi: {{ {body} }}\n" + more
+
+        def warns(text):
+            return [str(d) for d in self.errs(text, level="warning")]
+
+        self.assertClean(dev())
+        self.assertClean(dev("tx_pin: PA9"))                                   # MIDI Out only
+        for m in ("separate_port", "usb_merge", "din_only"):
+            self.assertClean(dev(f"tx_pin: PA9, rx_pin: PA10, mode: {m}"))
+        self.assertError(dev("tx_pin: PA9, mode: thru"), r"separate_port")
+        self.assertError(dev("rx_pin: PA10"), r"is required", path="din_midi.tx_pin")
+        self.assertError(dev("tx_pin: PA2"), r"USART1: tx_pin PA9, rx_pin PA10")
+        self.assertError(dev("tx_pin: PA9, rx_pin: PA3"), r"USART1: tx_pin PA9, rx_pin PA10")
+        self.assertError(MINIMAL_NUC + "din_midi: { tx_pin: PA2 }\n", r"din_midi isn't supported on nuvoton")
+        self.assertError(dev().replace("pin: PA1", "pin: PA9"), r"PA9")              # pin used twice
+        self.assertTrue(any("ignored: only usb_merge" in w for w in warns(dev("tx_pin: PA9, usb_to_din: true"))))
+        self.assertTrue(any("no rx_pin" in w for w in warns(dev("tx_pin: PA9, thru: true"))))
+        self.assertTrue(any("only separate_port has its own port" in w
+                            for w in warns(dev("tx_pin: PA9, mode: din_only, port_name: X"))))
+        # separate_port needs cable 1, which a DAW port (mcu:) has
+        self.assertError(dev(more="mcu: {}\n"), r"separate_port needs the second USB port")
+        self.assertClean(dev("tx_pin: PA9, rx_pin: PA10, mode: usb_merge", more="mcu: {}\n"))
+        # the defines and params
+        d, diags = load(dev("tx_pin: PA9, rx_pin: PA10, thru: true"))
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        h = gd.generate(d, "t.yaml")["gm_device_config.h"]
+        for line in ("#define GM_DIN 1 ", "#define GM_DIN_MODE 1 /* separate_port */", "#define GM_DIN_TX_PIN 9 ",
+                     "#define GM_DIN_RX_PIN 10 ", "#define GM_DIN_THRU_DEFAULT 1", "#define GM_DIN_OUT_DEFAULT 1",
+                     "#define GM_DIN_CABLE 1", '#define GM_DIN_PORT_NAME "test MIDI"'):
+            self.assertIn(line, h)
+        self.assertEqual(gd.stored_counts(d)[1] - gd.stored_counts(load(stm)[0])[1], 2)   # thru, din_out
+        d, _ = load(dev("tx_pin: PA9, mode: usb_merge, usb_to_din: true"))
+        h = gd.generate(d, "t.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_DIN_RX_PIN 65535 /* no MIDI In */", h)
+        self.assertIn("#define GM_DIN_USB_DEFAULT 1", h)
+        self.assertNotIn("GM_DIN_CABLE", h)
+        self.assertEqual(gd.stored_counts(d)[1] - gd.stored_counts(load(stm)[0])[1], 3)   # + usb_to_din
+        self.assertIn("#define GM_DIN 0 ", gd.generate(load(stm)[0], "t.yaml")["gm_device_config.h"])
+
     def test_xy_pad(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 
@@ -1405,22 +1448,22 @@ list:
             text = f.read()
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 10))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 12))
         # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
         # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 16)))
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (400, 1024, 1024))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 18)))   # globals + midi.thru, midi.din_out (din_midi:)
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (408, 1024, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (3, 2))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
-        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 67), 708))  # + program
+        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 67), 716))  # + program
         self.assertFalse([d for d in self.errs(with_slots(2), level="warning") if "config page" in d.msg])
         w = [str(d) for d in self.errs(with_slots(3), level="warning") if "config page" in d.msg]
-        self.assertTrue(w and "presets use 98% of the stm32f1 config page" in w[0], w)
+        self.assertTrue(w and "presets use 99% of the stm32f1 config page" in w[0], w)
         e = self.assertError(with_slots(4), r"presets don't fit the stm32f1 config page", path="presets.slots")
-        self.assertIn("1316 of 1024 B", e.msg)
+        self.assertIn("1324 of 1024 B", e.msg)
         self.assertIn("At most 3 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)

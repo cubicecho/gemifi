@@ -67,6 +67,20 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *msg, uint32_t n);
 void hal_midi_poll(void);
 /* Send queued data now (waits up to timeout_ms): for protocol replies. */
 void hal_midi_flush(uint32_t timeout_ms);
+/* One raw USB-MIDI 1.0 event packet (cable << 4 | CIN, 3 bytes), queued
+ * like hal_midi_send. Only needed for din_midi: (core/src/din.c, which has
+ * a weak no-op). */
+void hal_midi_send_usb(const uint8_t ev[4]);
+
+/* 5-pin DIN MIDI (din_midi:, core/src/din.c; weak defaults there say "none").
+ * hal_din_open: the UART on tx_pin / rx_pin (rx_pin 0xFFFF = no MIDI In) at
+ * baud, 8N1; 0 if the platform can't. hal_din_write: queue all n bytes, or
+ * none (0) if they don't fit; never waits. hal_din_read: the next received
+ * byte, or -1. Interrupt- or DMA-driven: the main loop only queues and
+ * takes. */
+int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud);
+int hal_din_write(const uint8_t *b, uint32_t n);
+int hal_din_read(void);
 
 /* identity */
 void hal_uid(uint8_t uid[12]);

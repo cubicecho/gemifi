@@ -253,6 +253,37 @@ displays:
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
+## DIN MIDI
+
+The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). `din_midi.mode` sets how they reach USB:
+
+| `mode` | The computer sees | DIN In goes to | DIN Out gets |
+|---|---|---|---|
+| `separate_port` (default) | a second USB-MIDI port, `port_name` (default "<friendly_name> MIDI") | that port | everything the computer sends to that port |
+| `usb_merge` | only the device's own port | the device's port, mixed with the keys | the host's channel and realtime messages on the device's port, when `midi.usb_to_din` is on. Never its SysEx: that is the gemifi protocol's |
+| `din_only` | only the device's own port | nowhere (only the thru) | nothing from USB |
+
+In every mode, two settings (MIDI group, stored with the globals) decide the rest:
+
+- `midi.din_out`: the device's own messages (keys, pads, CCs, program changes) also go to DIN Out. On by default.
+- `midi.thru`: DIN In is copied to DIN Out. Off by default.
+
+```yaml
+din_midi:
+  tx_pin: PA9
+  rx_pin: PA10                 # optional: without it, MIDI Out only
+  mode: separate_port          # separate_port | usb_merge | din_only
+  port_name: Code 61 MIDI      # separate_port only
+  thru: false                  # start values of the settings
+  controller_out: true
+  usb_to_din: false            # usb_merge only
+```
+
+- **Whole messages.** DIN Out mixes three sources: the device, the thru, and USB. Each message goes out whole and with its status byte (no running status). While one source's SysEx is going out, the others' messages wait (up to 16) and follow its F7. Realtime bytes such as clock go straight through, which MIDI allows. A SysEx from a second source meanwhile is dropped, and one that stalls for 500 ms is ended with F7.
+- **DIN In.** It's parsed with running status, realtime inside SysEx, and system common. A status byte inside a SysEx ends it. On `separate_port`, SysEx streams to USB as it arrives. On `usb_merge`, a SysEx goes to USB whole after its F7, so it can't split the device's own messages. One over 256 bytes is dropped there.
+- **Limits.** DIN Out is about 3 bytes a millisecond. When the platform's 512-byte queue is full, a message is dropped whole and counted (`din out drops` in the stm32f1 timing log, with UART `in overruns`). `separate_port` uses the second USB cable, so it can't be combined with the DAW port (`mcu:`); use `usb_merge` there.
+- **Platform:** `hal_din_open` / `hal_din_write` / `hal_din_read` and `hal_midi_send_usb` (gm_hal.h). Only stm32f1 has them so far.
+
 ## Device YAML
 
 Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: the pin schema, ids, `name`/`friendly_name`, hub components and time periods.
@@ -271,6 +302,7 @@ midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub is used
 scan_interval: 125us           # matrix/encoder scan period
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
+din_midi: { tx_pin: PA9, rx_pin: PA10, mode: separate_port }  # stm32f1: 5-pin MIDI ("DIN MIDI")
 boot_combo: [pitch_down, pitch_up]  # button ids
 
 cd74hc4051:

@@ -16,8 +16,6 @@
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
 #   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
-#   - 5-pin MIDI out (USART1 TX, PA9) and MIDI in (USART1 RX, PA10; the rear
-#     panel has both jacks), 31250 baud: no serial MIDI transport on stm32f1.
 #   - USB D+ pull-up switch on PA8 (high = connected): driven by the platform.
 #   - Settings storage: pages 0x0801EC00 / 0x0801F000 (platform side).
 #   - No boot_combo here: up + down at power-on is the bootloader's update
@@ -27,7 +25,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.58
+  version: 0.2.60
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -113,6 +111,15 @@ rgb_serial:
   - id: pad_leds
     tx_pin: PA2
     count: 16
+
+# The rear 5-pin MIDI jacks [sure pins, hw-map.md: USART1 at 31250 baud, TX
+# PA9, RX PA10]. The stock firmware only sends to MIDI Out; here the jacks
+# are also a USB-MIDI interface of their own ("Code 61 MIDI"), with an
+# optional thru (midi.thru, off at first).
+din_midi:
+  tx_pin: PA9
+  rx_pin: PA10
+  mode: separate_port
 
 # The XY pad, a 4-wire resistive panel [sure, tested 2026-11-03; drive
 # pattern from the stock app, 0x0800277C]: X (left to right) is PC4 high and

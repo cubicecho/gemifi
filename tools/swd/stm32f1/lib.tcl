@@ -1,17 +1,18 @@
 # gemifi helpers for OpenOCD (M-Audio Code 61, STM32F103RBT6). Loaded after the probe config with
 # `-f lib.tcl`. Defines procs only; does nothing by itself. code61.sh calls them.
 #
-# Flash map: 0x08000000-0x080023FF vendor bootloader (never written here), 0x08002400-0x0801B3FF app +
-# image checksum (what a vendor update writes), 0x0801B400-0x0801FFFF vendor settings + update flag.
+# Flash map: 0x08000000-0x080023FF bootloader (M-Audio's, or gemifi's from bootloader/stm32f1),
+# 0x08002400-0x0801AFFF app, 0x0801B000-0x0801B3FF M-Audio's image checksum page, 0x0801B400-0x0801FFFF
+# settings + update flag.
 
-# The board switches itself off a moment after power-on unless PC15 is driven low (the stock app does
-# this first thing; boards/m-audio-code61.h). Halt the core and do it by hand.
+# Soft power (boards/m-audio-code61.h): the power button (PC13) powers the board only while held; PC15
+# HIGH keeps it on. Halt the core and latch it by hand, so a halted or crashed chip stays powered.
 proc code61_hold_power {} {
     halt
     mmw 0x40021018 0x10 0                ;# RCC_APB2ENR |= IOPCEN
-    mww 0x40011014 0x8000                ;# GPIOC_BRR: PC15 = 0
+    mww 0x40011010 0x8000                ;# GPIOC_BSRR: PC15 = 1
     mmw 0x40011004 0x10000000 0xE0000000 ;# GPIOC_CRH: PC15 = output push-pull, 10 MHz
-    echo "GEMIFI POWER PC15 driven low"
+    echo "GEMIFI POWER PC15 latched high"
 }
 
 # One 32-bit word, or "fail" (a read can fail with readout protection on, or on a flaky link).

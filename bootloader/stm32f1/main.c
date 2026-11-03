@@ -51,7 +51,12 @@
 
 #define TARGET_BASE  GEMIFI_IMG_BASE
 #define TARGET_SIZE  (GEMIFI_IMG_LIMIT - GEMIFI_IMG_BASE)
-#define PAGE         BOARD_FLASH_PAGE
+#define PAGE         BOARD_FLASH_PAGE   /* flash erase page: 1 KB */
+/* The upload order is protocol, not flash (sysex.md 4.2 rule 2): chunks from
+ * 0x200 upward, then 0x000-0x1FF last, none crossing a 512-byte boundary.
+ * FW_BEGIN erases flash page 0 (0x000-0x3FF), so 0x200-0x3FF is blank when
+ * the first chunks arrive; later flash pages are erased at their start. */
+#define PROTO_PAGE   512u
 #define SRAM_BASE    0x20000000u
 #define SRAM_SIZE    (20u * 1024u)
 
@@ -217,9 +222,9 @@ static uint32_t cmd_fw_begin(const gsx_frame_t *f, gsx_tx_t *t)
     fw_size = size;
     fw_crc = crc;
     fw_ver = gsx_get_u(p + 12, 5);
-    if (size > PAGE) {
+    if (size > PROTO_PAGE) {
         fw_state = FW_UPPER;
-        fw_next = PAGE;
+        fw_next = PROTO_PAGE;
     } else {
         fw_state = FW_PAGE0;
         fw_next = 0;
@@ -240,7 +245,7 @@ static uint32_t cmd_fw_data(const gsx_frame_t *f, gsx_tx_t *t)
         return GSX_BAD_LEN;
     /* sysex.md 4.2 rules 2-3: in order, inside [0, size), within a page. */
     if (off != fw_next || off + (uint32_t)n > fw_size ||
-        (off & (PAGE - 1u)) + (uint32_t)n > PAGE)
+        (off & (PROTO_PAGE - 1u)) + (uint32_t)n > PROTO_PAGE)
         return GSX_BAD_ADDR;
     if ((off & (PAGE - 1u)) == 0 && off != 0 && target_erase(off))
         return GSX_FLASH_ERR;
@@ -251,7 +256,7 @@ static uint32_t cmd_fw_data(const gsx_frame_t *f, gsx_tx_t *t)
     if (fw_state == FW_UPPER && fw_next == fw_size) {
         fw_state = FW_PAGE0;             /* page 0 goes last */
         fw_next = 0;
-    } else if (fw_state == FW_PAGE0 && fw_next == (fw_size < PAGE ? fw_size : PAGE)) {
+    } else if (fw_state == FW_PAGE0 && fw_next == (fw_size < PROTO_PAGE ? fw_size : PROTO_PAGE)) {
         fw_state = FW_DONE;
     }
     gsx_put_u(t, off, 4);

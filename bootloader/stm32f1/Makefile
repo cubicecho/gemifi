@@ -5,7 +5,7 @@
 #   make CROSS=...       -> toolchain not on PATH
 
 TARGET  := gemifi-boot
-BOOT_VERSION ?= 0.1.0
+BOOT_VERSION ?= 0.1.1
 PLAT    := ../../platform/stm32f1
 CORE    := ../../core
 

@@ -33,6 +33,7 @@ void hal_delay_us(uint32_t us);
 #define HAL_IN_PULLUP   1
 #define HAL_IN_PULLDOWN 2
 #define HAL_OUT         3
+#define HAL_OUT_OD      4            /* open-drain: 1 = released */
 void hal_pin_mode(uint16_t pin, uint8_t mode);
 int hal_pin_read(uint16_t pin);              /* electrical level 0/1 */
 void hal_pin_write(uint16_t pin, int level);

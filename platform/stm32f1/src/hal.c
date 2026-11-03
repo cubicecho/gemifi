@@ -3,7 +3,7 @@
  *
  * Pin numbers: port * 16 + bit (PA0 = 0, PB8 = 24, PC0 = 32), ports A..G.
  * Inputs with pull-up/down use CNF = 10 with the pull direction in ODR.
- * Outputs are push-pull, 10 MHz. Writes go through BSRR (or the ODR
+ * Outputs are push-pull (HAL_OUT_OD: open-drain), 10 MHz. Writes go through BSRR (or the ODR
  * bit-band alias), so the scan interrupt and the main loop can't clobber
  * each other's pins.
  * ADC1: PA0..PA7 = ch0..7, PB0/PB1 = ch8/9, PC0..PC5 = ch10..15.
@@ -88,6 +88,9 @@ void hal_pin_mode(uint16_t pin, uint8_t mode)
     switch (mode) {
     case HAL_OUT:
         pin_cfg(pin, GPIO_CFG_OUT_PP);
+        break;
+    case HAL_OUT_OD:
+        pin_cfg(pin, GPIO_CFG_OUT_OD);
         break;
     case HAL_IN_PULLUP:
         GPIO_BSRR(port) = m;        /* ODR = 1: pull-up */

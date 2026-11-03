@@ -316,7 +316,7 @@ Select = SET_PARAM `preset.active`. A bad slot → BAD_PARAM; a name too long or
 | nuvoton-nuc1xx | data-flash journal | 7 pages × 512 B, 2 kept free (5 usable); a named record ≤ 59 entries (508 B) |
 | esp32 | NVS, one blob per slot | 12 KB total (default NVS partition is 20 KB; leave room); a blob ≤ 1984 B (243 entries) |
 | esp8266 | EEPROM sector, one image | 4096 B for all slots together (a power cut during a write can lose the whole sector, as before presets) |
-| stm32f1 (Code 61, other branch) | journal in the taken-over stock pages | ~19 × 1 KB pages, one spare |
+| stm32f1 | two 1 KB pages that swap (Code 61: 0x0801EC00, 0x0801F000) | 1024 B for every slot together, in packed v3 records (platform/stm32f1/src/config_store.c): one group per param, int8/int16 values and an index bitmap. Code 61: a preset ≤ 276 B, so 3 slots + the globals |
 
 - **Error** when worst case doesn't fit.
 - **Warning** when worst case uses more than 85% (more erase cycles). The message gives the numbers and the largest `slots` that fits.

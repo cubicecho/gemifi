@@ -76,6 +76,11 @@ PARAMS = [  # (name, id, scope, count(dev))
         ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
         ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
 ]
+# Params whose stored values can need 16 bits (settings.c min/max outside -128..127); every other
+# value fits a byte. The packed stm32f1 record (platform/stm32f1/src/config_store.c) sizes its groups
+# from this, so keep it in step with settings.c (test_builder checks it).
+WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
+               "pad.threshold", "pad.release", "pad.full", "pad.retrigger"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
 PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
 
@@ -132,15 +137,16 @@ PRESET_REVISION_MAX = 0x3FFF
 
 # ---- storage budget (§10.5) ----
 # Worst-case record, in 32-bit words: header (magic, seq, slot|flags|revision, count) + a name + 2 per
-# value ({id | index << 16, value}) + crc (config_store.h "Record v2").
+# value ({id | index << 16, value}) + crc (config_store.h "Record v2"). A "packed" store (stm32f1,
+# record v3) holds each param's values in one group instead: see packed_record_bytes().
 REC_HEADER_WORDS, REC_NAME_WORDS, REC_CRC_WORDS = 4, 4, 1
 STORE_BUDGETS = {
     # journal: `pages` pages of `page` bytes, `spare` of them kept free (one erase spare, one for a
     # slot's old and new copy while it is rewritten); a record never spans a page
     "nuvoton-nuc1xx": {"kind": "journal", "page": 512, "pages": 7, "spare": 2, "what": "data-flash journal"},
     # two 1 KB pages swapped on a rewrite: the newest record of every slot must fit one page together
-    # (platform/stm32f1/src/config_store.c), the same rule as one image
-    "stm32f1": {"kind": "image", "total": 1024, "what": "config page"},
+    # (platform/stm32f1/src/config_store.c), the same rule as one image; records are packed (v3)
+    "stm32f1": {"kind": "image", "total": 1024, "format": "packed", "what": "config page"},
     # nvs: one blob per slot (each <= record bytes), all of them <= total bytes
     **{p: {"kind": "nvs", "record": 1984, "total": 12 * 1024, "what": "NVS"}
        for p in ("esp32", "esp32s2", "esp32s3")},
@@ -2850,6 +2856,21 @@ def record_bytes(n_values):
     return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + 2 * n_values + REC_CRC_WORDS)
 
 
+def packed_record_bytes(dev, scope):
+    """Worst-case bytes of one packed (v3) record of scope's params, with a name: one group per param
+    (platform/stm32f1/src/config_store.c), every value stored. A group of one int8 value is 1 word, of
+    one int16 value 2; of count > 1 values a header, ceil(count / 32) bitmap words and the values, 4
+    (int8) or 2 (int16) to a word."""
+    words = 0
+    for name, _i, s, count in PARAMS:
+        c = count(dev)
+        if s != scope or not c:
+            continue
+        per = 2 if name in WIDE_PARAMS else 4
+        words += (1 if per == 4 else 2) if c == 1 else 1 + -(-c // 32) + -(-c // per)
+    return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + words + REC_CRC_WORDS)
+
+
 def storage_need(plat_name, preset_rec, global_rec, slots):
     """-> (record_ok, used, capacity, unit) for slots presets + the globals at worst case.
     unit is "pages" for a journal, "B" otherwise."""
@@ -2876,8 +2897,11 @@ def storage_budget(dev):
     """The worst case of what the device stores, against its platform's store. -> dict (also shown by
     gemifi_build.py and the dashboard)."""
     n_preset, n_global = stored_counts(dev)
-    prec, grec = record_bytes(n_preset), record_bytes(n_global)
     b = STORE_BUDGETS.get(dev.platform.name)
+    if b and b.get("format") == "packed":
+        prec, grec = packed_record_bytes(dev, PRESET), packed_record_bytes(dev, GLOBAL)
+    else:
+        prec, grec = record_bytes(n_preset), record_bytes(n_global)
     ok, used, cap, unit = storage_need(dev.platform.name, prec, grec, dev.n_presets)
     fits = [s for s in range(1, MAX_PRESETS + 1)
             if (lambda r: r[0] and r[1] <= r[2])(storage_need(dev.platform.name, prec, grec, s))]

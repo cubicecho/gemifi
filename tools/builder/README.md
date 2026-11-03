@@ -53,8 +53,9 @@ It checks: the format version (`gemifi: 2`; a format 1 file gets one error per o
 | nuvoton-nuc1xx | data-flash journal | 6 usable 512 B pages (7, one kept spare); a record ≤ 512 B and never spans a page |
 | esp32 / esp32s2 / esp32s3 | NVS, a blob per slot | 12 KB in all, a blob ≤ 1984 B |
 | esp8266 | EEPROM sector | 4096 B for every slot together |
+| stm32f1 | two 1 KB config pages, swapped | 1024 B for every slot together. Records are packed (v3, one group per param: int8 or int16 values with a bitmap of the stored indices, `packed_record_bytes()`; `WIDE_PARAMS` lists the int16 ones). Code 61: a preset ≤ 276 B, the globals ≤ 100 B, so up to 3 slots (2 under 85%) |
 
-Not fitting is an error that says the largest `slots` that fits; using more than half is a warning (a fuller store means more erase cycles) that also says how many slots stay under half. Without `presets:`, a record that doesn't fit is only a warning (it was so with the old record format). The summary line shows the numbers:
+Not fitting is an error that says the largest `slots` that fits; using more than 85% is a warning (a fuller store means more erase cycles) that also says how many slots stay under 85%. Without `presets:`, a record that doesn't fit is only a warning (it was so with the old record format). The summary line shows the numbers:
 
 ```
 devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1836 B in 5 of 6 pages (3072 B)

@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.17.0](https://github.com/cubicecho/gemifi/compare/v0.16.0...v0.17.0) (2026-11-03)
+
+
+### Features
+
+* hold modes and mode button bindings; Code 61 presets on Up/Down, channel with Channel held ([887cb1c](https://github.com/cubicecho/gemifi/commit/887cb1c11c084da7ac3f758874525e0c5b1667fa))
+
 # [0.16.0](https://github.com/cubicecho/gemifi/compare/v0.15.0...v0.16.0) (2026-11-03)
 
 

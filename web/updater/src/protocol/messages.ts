@@ -62,8 +62,15 @@ export interface ParamChangedMessage {
   value: number;
 }
 
+/** A BOOTED message (0x64, §4.6.3): the device has just started, so its feedback state is gone. */
+export interface BootedMessage {
+  kind: 'booted';
+  /** HELLO's facts, as the device sends them after boot. */
+  hello: HelloInfo;
+}
+
 /** Any unsolicited message this module understands. */
-export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage;
+export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage | BootedMessage;
 
 /**
  * The REBOOT request payload.
@@ -322,6 +329,9 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
   }
   if (frame.cmd === Unsolicited.ParamChanged) {
     return { kind: 'param', ...parseParamValue(frame.payload) };
+  }
+  if (frame.cmd === Unsolicited.Booted) {
+    return { kind: 'booted', hello: parseHello(frame.payload) };
   }
   return null;
 }

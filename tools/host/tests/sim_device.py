@@ -13,8 +13,9 @@ update that changes the YAML presets); stored edits survive it.
 With `components` (a list of gemifi_proto.Component, or True for FEEDBACK_COMPONENTS) it is an app with host
 feedback (sysex.md 4.6): HELLO caps bit 6, GET_COMPONENT per kind (BAD_PARAM past the end, `count` filled in),
 and FB_* notifications (0x20-0x3F) are never answered: each one goes into `notifications` as
-(gemifi_proto.Notification, seq), a malformed one into `dropped`. Without `components` it behaves like older
-firmware: BAD_CMD as cmd | 0x40, which lands in the unsolicited range."""
+(gemifi_proto.Notification, seq), a malformed one into `dropped`; `send_booted()` queues the BOOTED a rebooted
+device sends (sysex.md 4.6.3). Without `components` it behaves like older firmware: BAD_CMD as cmd | 0x40, which
+lands in the unsolicited range."""
 import dataclasses
 import os
 import zlib
@@ -33,11 +34,11 @@ FEEDBACK_COMPONENTS = [
     C(gp.KIND_BUTTON, 0, 0, "play", "Play", "play", led=0),
     C(gp.KIND_BUTTON, 0, 0, "rec", "Record", "record", led=1),
     C(gp.KIND_KEYS, 0, 0, "keys", "Keys", "", keys=32, first_note=48),
-    C(gp.KIND_ANALOG, 0, 0, "fader1", "Fader 1", "track_volume"),
-    C(gp.KIND_ENCODER, 0, 0, "enc1", "Encoder 1", "device_param_1", ring=5, center=2),
-    C(gp.KIND_LED, 0, 0, "play_led", "Play LED", "", colours=1),
-    C(gp.KIND_LED, 0, 0, "rec_led", "Record LED", "", colours=2),
-    C(gp.KIND_LED, 0, 0, "enc1_centre", "Encoder 1 centre", "", colours=1),
+    C(gp.KIND_ANALOG, 0, 0, "fader1", "Fader 1", "track_volume", takeover=gp.TAKEOVER_PICKUP),
+    C(gp.KIND_ENCODER, 0, 0, "enc1", "Encoder 1", "device_param_1", ring=5, center=2, mode=gp.ENC_ABSOLUTE),
+    C(gp.KIND_LED, 0, 0, "play_led", "Play LED", "", colours=1, owner=gp.OWNER_HOST_THEN_LOCAL),
+    C(gp.KIND_LED, 0, 0, "rec_led", "Record LED", "", colours=2, owner=gp.OWNER_LOCAL),
+    C(gp.KIND_LED, 0, 0, "enc1_centre", "Encoder 1 centre", "", colours=1, owner=gp.OWNER_HOST),
 ]
 
 
@@ -68,7 +69,7 @@ class SimDevice:
         self.drop_replies, self.drop_requests, self.busy_on = set(drop_replies), set(drop_requests), set(busy_on)
         self.log = []
         self.reboot_to = None
-        self.outbox = []          # unsolicited frames (PRESET_CHANGED) the port delivers after the next reply
+        self.outbox = []          # unsolicited frames (PRESET_CHANGED, BOOTED) the port delivers after the next reply
         self.useq = 0
         self.presets = None
         if presets is not None:
@@ -114,19 +115,31 @@ class SimDevice:
             return None
         return reply
 
+    def hello(self):
+        app_caps = (gp.CAP_LOG | gp.CAP_EVENT | (gp.CAP_CONFIG if self.schema else 0) | (gp.CAP_FW if self.ab else 0)
+                    | (gp.CAP_PRESETS if self.presets is not None else 0)
+                    | (gp.CAP_FEEDBACK if self.components is not None else 0))
+        return gp.Hello(self.role, self.board_id, self.fw_version, 1,
+                        self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
+                        gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
+                        None if self.role == gp.ROLE_BOOT else "sim-device")
+
+    def send_booted(self):
+        """A reboot or replug as a DAW script sees it: an app with caps bit 6 queues BOOTED (sysex.md 4.6.3) for
+        the port to deliver. Returns whether it did (older firmware and the bootloader don't)."""
+        h = self.hello()
+        if self.role != gp.ROLE_APP or (h.caps & gp.CAP_FEEDBACK) == 0:
+            return False
+        self.useq = (self.useq + 1) & 0x7F
+        self.outbox.append(gp.build_frame(gp.BOOTED, self.useq, gp.build_booted(h)))
+        return True
+
     # -- protocol --
     def dispatch(self, f):
         self.log.append(gp.CMD_NAMES.get(f.cmd, hex(f.cmd)))
         p = f.payload
         if f.cmd == gp.HELLO:
-            app_caps = (gp.CAP_LOG | gp.CAP_EVENT | (gp.CAP_CONFIG if self.schema else 0) | (gp.CAP_FW if self.ab else 0)
-                        | (gp.CAP_PRESETS if self.presets is not None else 0)
-                        | (gp.CAP_FEEDBACK if self.components is not None else 0))
-            h = gp.Hello(self.role, self.board_id, self.fw_version, 1,
-                         self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
-                         gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
-                         None if self.role == gp.ROLE_BOOT else "sim-device")
-            return gp.build_hello_reply(h)
+            return gp.build_hello_reply(self.hello())
         if f.cmd in (gp.GET_SCHEMA, gp.GET_PARAM, gp.SET_PARAM, gp.GET_PARAMS, gp.SET_PARAMS, gp.COMMIT,
                      gp.FACTORY_RESET):
             if self.role != gp.ROLE_APP or not self.schema:

@@ -708,6 +708,10 @@ int main(int argc, char **argv)
         level[i] = 1;                /* buttons released */
     adc[0] = 2048;
 
+    gm_init(0x00010000u, 0);
+    run_ms(2000);
+    CHECK((find_sysex(GSX_MSG_BOOTED, 0) >= 0) == GM_HOST_FB,
+          "BOOTED at boot exactly when the device has host feedback (sysex.md 4.6.3)");
     boot();
     CHECK(gm_cfg.channel == 1 && gm_cfg.octave == 0 && gm_cfg.btn_action[0] == ACT_CC_MOMENTARY,
           "defaults");

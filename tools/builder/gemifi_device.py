@@ -1381,9 +1381,10 @@ def validate_components(v, dev, data):
         timeout = validate_timeout(v, d, "timeout", p, None)
         if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
+        led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
         dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN, source=src,
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
-                            daw=daw_role(v, dev, d, p)))
+                            daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
     buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
     for i, d in enumerate(buttons):
@@ -1592,6 +1593,9 @@ def check_mcu_unique(v, dev, data):
                 v.err(f"{kind}[{i}].mcu", data.line_of(kind), f"'{names[c.mcu]}' is already used by {seen[key]}")
             seen.setdefault(key, f"{kind}[{i}]")
     for b in dev.leds:
+        if getattr(b, "local_line", None) is not None and not any(k == "button" for k, _ in b.used_by):
+            v.warn(f"{b.path}.owner", b.local_line, "owner: local on an LED no button uses: it never lights "
+                                                    "(it has no local state)")
         if any(k == "ring" for k, _ in b.used_by) and (len(b.used_by) > 1 or b.source):
             v.warn(b.path, b.line, f"LED '{b.id}' is in a V-Pot ring and also used elsewhere: the ring "
                                    "will overwrite it")

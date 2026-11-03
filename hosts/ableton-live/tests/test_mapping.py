@@ -358,3 +358,40 @@ def test_release_forgets_so_everything_is_resent(rig):
     rig.m.release()
     rig.m.refresh()
     assert len(rig.leds()) == 8
+
+
+def test_added_fields_limit_what_is_sent():
+    """sysex.md 4.6.1: no FB_VALUE to an analog input without pick-up or a relative encoder, and no
+    FB_LED to an owner: local LED (its button still works)."""
+    comps = [
+        C(B, 0, "play", led=0),
+        C(B, 1, "stop", led=1),
+        C(A, 0, "volume_1", takeover=P.TAKEOVER_NONE),
+        C(A, 1, "volume_2", takeover=P.TAKEOVER_PICKUP),
+        C(E, 0, "device_param_1", ring=5, mode=P.ENC_REL_TWOS),
+        C(E, 1, "pan_1", ring=0, mode=P.ENC_ABSOLUTE),
+        C(L, 0, "", colours=1, owner=P.OWNER_LOCAL),
+        C(L, 1, "", colours=1, owner=P.OWNER_HOST_THEN_LOCAL),
+        C(L, 2, "metronome", colours=1, owner=P.OWNER_LOCAL),
+    ]
+    r = Rig(comps)
+    r.m.refresh()
+    first = r.take()
+    vals = r.values((P.FB_VALUE, P.FB_RING), src=first)
+    assert (A, 0) not in vals and (A, 1) in vals
+    assert (E, 0) not in vals and ("ring", 0) in vals        # the ring still follows
+    assert (E, 1) in vals
+    leds = {}
+    for cmd, p in first:
+        if cmd == P.FB_LED:
+            leds[P.dec_u14(p[0:2])] = p[2]
+        elif cmd == P.FB_LEDS:
+            for i in range(p[2]):
+                leds[P.dec_u14(p[0:2]) + i] = p[3 + i]
+    assert sorted(leds) == [1]                                # LEDs 0 and 2 are local
+    r.press(0)                                               # play still works
+    assert r.song.flags["playing"]
+    # host-side pick-up still applies to the analog input without device pick-up
+    t1 = r.song.tracks[0]
+    r.analog(0, 1000)
+    assert t1.params["volume"].value == pytest.approx(0.85)

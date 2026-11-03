@@ -42,29 +42,40 @@ static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), sizeof(strings) / sizeof(strings[0]), strings,
 };
 
-/* TIM2 counts microseconds (prescaled to 1 MHz). Longest scan seen, in us,
- * and whether the period had to be raised because a scan ran into the next
- * tick (which would starve the main loop, and with it USB). */
+/* TIM2 counts microseconds (prescaled to 1 MHz). Scan time is measured from
+ * the handler's entry, so a late start (the main loop stalled, e.g. by a
+ * flash erase) isn't counted as scan time: those count as "late". The period
+ * is raised only when a scan itself is longer than it (which would starve the
+ * main loop, and with it USB). */
 #define SCAN_TIM TIM2_BASE
-static volatile uint32_t scan_max;
+static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
 static volatile uint8_t scan_slowed;
 #define SCAN_MAX_US 4000u
 
 void TIM2_IRQHandler(void)
 {
     TIM_SR(SCAN_TIM) = ~TIM_SR_UIF;     /* rc_w0 */
+    uint32_t p = TIM_ARR(SCAN_TIM) + 1u;
+    uint32_t t0 = TIM_CNT(SCAN_TIM);    /* counts up from 0 at each tick */
     gm_scan_tick();
-    uint32_t used = TIM_CNT(SCAN_TIM);  /* counts up from 0 at each tick */
+    uint32_t t1 = TIM_CNT(SCAN_TIM);
+    int wrapped = (TIM_SR(SCAN_TIM) & TIM_SR_UIF) != 0;   /* the next tick came */
+    uint32_t used = wrapped ? t1 + p - t0 : t1 - t0;
     if (used > scan_max)
         scan_max = used;
-    if (TIM_SR(SCAN_TIM) & TIM_SR_UIF) {   /* the next tick came during this scan */
-        uint32_t p = TIM_ARR(SCAN_TIM) + 1u;
-        if (p < SCAN_MAX_US) {
-            p += p / 4u;
-            TIM_ARR(SCAN_TIM) = p - 1u;
-            gm_scan_period_us = p;
-            scan_slowed = 1;
-        }
+    scan_sum += used;
+    scan_n++;
+    if (!wrapped)
+        return;
+    if (used + 10u < p) {
+        scan_late++;                    /* started late, the scan itself fits */
+        return;
+    }
+    if (p < SCAN_MAX_US) {
+        p += p / 4u;
+        TIM_ARR(SCAN_TIM) = p - 1u;
+        gm_scan_period_us = p;
+        scan_slowed = 1;
     }
 }
 
@@ -91,8 +102,9 @@ static void report_scan(void)
 {
     char a[32], b[32];
     uint32_t period = TIM_ARR(SCAN_TIM) + 1u;
-    app_log(LOG_INFO, fmt_num(a, "scan load ", scan_max * 100u / period, "%"),
-            fmt_num(b, ", period ", period, " us"));
+    uint32_t avg = scan_n ? scan_sum / scan_n : 0;
+    app_log(LOG_INFO, fmt_num(a, "scan avg ", avg, " us"), fmt_num(b, ", max ", scan_max, " us"));
+    app_log(LOG_INFO, fmt_num(a, "scan period ", period, " us"), fmt_num(b, ", late starts ", scan_late, ""));
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));
@@ -151,14 +163,16 @@ int main(void)
     /* No boot-loop guard here (the NUC's SRAM mailbox): on this board the
      * way back is the recovery combo at reset (vendor update-request flag)
      * and the IWDG, which turns a hang into a reset. */
+    /* Scan timing at 2.5 s (boot) and 10 s (steady state). */
     int reported = 0;
     for (;;) {
         sys_iwdg_kick();
         usbd_poll();
         midi_rx_drain(gm_midi_rx_usb);
         gm_poll();
-        if (!reported && sys_tick_ms() >= 2500u) {
-            reported = 1;
+        uint32_t now = sys_tick_ms();
+        if ((reported == 0 && now >= 2500u) || (reported == 1 && now >= 10000u)) {
+            reported++;
             report_scan();
         }
     }

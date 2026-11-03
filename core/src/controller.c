@@ -130,6 +130,20 @@ static void mode_key(uint32_t k);
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
+volatile uint32_t gm_scan_part_max[3];
+
+__attribute__((weak)) uint32_t hal_cycles(void)
+{
+    return 0;
+}
+
+static void part_done(uint32_t i, uint32_t *t)
+{
+    uint32_t now = hal_cycles(), d = now - *t;
+    if (d > gm_scan_part_max[i])
+        gm_scan_part_max[i] = d;
+    *t = now;
+}
 
 #if GM_HAS_MATRIX
 static void kq_push(uint32_t key, int on, uint32_t dt)
@@ -313,19 +327,23 @@ static void encoder_step(uint32_t i)
 void gm_scan_tick(void)
 {
     ticks++;
+    uint32_t t = hal_cycles();
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
     if (gm_device.matrix)
         matrix_scan();
 #endif
+    part_done(0, &t);
     if (has_matrices)
         vpin_scan_matrices();       /* before the encoders read them */
+    part_done(1, &t);
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
         if (!enc_i2c[i])
             encoder_step(i);
 #endif
+    part_done(2, &t);
     if (has_sr_hubs)
         vpin_flush();
 }

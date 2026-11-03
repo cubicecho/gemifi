@@ -109,6 +109,11 @@ static void report_scan(void)
     uint32_t avg = scan_n ? scan_sum / scan_n : 0;
     app_log(LOG_INFO, fmt_num(a, "scan avg ", avg, " us"), fmt_num(b, ", max ", scan_max, " us"));
     app_log(LOG_INFO, fmt_num(a, "scan period ", period, " us"), fmt_num(b, ", late starts ", scan_late, ""));
+    uint32_t mhz = sys_hclk_hz / 1000000u;
+    app_log(LOG_INFO, fmt_num(a, "scan keys ", gm_scan_part_max[0] / mhz, " us"),
+            fmt_num(b, ", panel ", gm_scan_part_max[1] / mhz, " us"));
+    app_log(LOG_INFO, fmt_num(a, "scan encoders ", gm_scan_part_max[2] / mhz, " us"),
+            fmt_num(b, ", clock ", mhz, " MHz"));
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));

@@ -90,6 +90,10 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
+/* A free-running CPU cycle counter, for timing the scan (gm_scan_part_max).
+ * A weak default returning 0 is in core/src/controller.c. */
+uint32_t hal_cycles(void);
+
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
  * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */
 

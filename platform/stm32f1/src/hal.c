@@ -20,6 +20,11 @@
 #include "usb_midi.h"
 #include "gemifi_image.h"
 
+uint32_t hal_cycles(void)
+{
+    return DWT_CYCCNT;
+}
+
 uint32_t hal_millis(void)
 {
     return sys_tick_ms();

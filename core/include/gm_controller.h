@@ -30,6 +30,9 @@ void gm_scan_tick(void);
  * platform that has to slow the scan down (the scan overran its period)
  * sets it, so key velocities stay right. */
 extern volatile uint32_t gm_scan_period_us;
+/* Longest time, in hal_cycles() units, of each part of a scan: key matrix,
+ * switch matrices, encoders. All 0 where hal_cycles() isn't implemented. */
+extern volatile uint32_t gm_scan_part_max[3];
 
 /* Platform -> core: received MIDI (core/src/midi_in.c). A platform calls
  * one of the two for everything it receives:

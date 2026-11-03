@@ -205,7 +205,14 @@ def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=Non
                         self.tls_failed = True
                 else:
                     self.plain = True
+            if self.tls_failed:
+                return                  # the socket is gone: no rfile/wfile, nothing to answer
             super().setup()
+
+        def finish(self):
+            if self.tls_failed:
+                return
+            super().finish()
 
         def handle(self):
             if self.tls_failed:

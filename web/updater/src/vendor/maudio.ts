@@ -330,6 +330,11 @@ export interface ProbePort {
   /** The port the user has selected: probed even when it was there before the wait. */
   selected: boolean;
   transport: Transport;
+  /**
+   * Closes the port, so it isn't open when the keyboard is switched off and it vanishes (Chrome's
+   * Web MIDI on Windows can hang on an open port that disappears). Optional: tests leave it out.
+   */
+  release?: () => void;
 }
 
 /** Tunable timings. */
@@ -583,6 +588,8 @@ async function findBootloader(
         if (code === VendorReply.Nak) {
           onLog?.(`${port.name}: F0 15 F7, the app set the update request; the keyboard needs a power cycle`);
           requested.add(port.id);
+          queue.close();
+          port.release?.(); // closed before the user switches the keyboard off
           report(VendorPhase.PowerCycle, port.name);
         } else if (code !== null) {
           onLog?.(`${port.name}: unexpected reply ${formatReply(code)} to the probe`);
@@ -633,6 +640,13 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<string
         throw error;
       }
       onLog?.(`Update request: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    // The app restarts into the bootloader: close its port before it vanishes. The bootloader
+    // comes back as a new port, which the probe finds without a selection.
+    for (const port of options.ports()) {
+      if (port.selected) {
+        port.release?.();
+      }
     }
   }
 

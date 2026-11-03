@@ -2,6 +2,40 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.10.0](https://github.com/cubicecho/gemifi/compare/v0.9.0...v0.10.0) (2026-11-03)
+
+
+### Bug Fixes
+
+* **code61:** pad rows run top to bottom on the muxes ([cedeffb](https://github.com/cubicecho/gemifi/commit/cedeffb4c1a814691c42d08482be6c10b41b73ae))
+* **code61:** scan every 400 us, 4 us mux settle ([5d3bd66](https://github.com/cubicecho/gemifi/commit/5d3bd664e79523313cd1a56dc0f892288af75353))
+* **stm32f1:** scan guard times the scan with the cycle counter ([0991e79](https://github.com/cubicecho/gemifi/commit/0991e7937d095e900c80e74a91904fdc4c0f2b89))
+* **stm32f1:** scan timing counts the scan, not a late start ([31d8709](https://github.com/cubicecho/gemifi/commit/31d8709abe4434c62d439c0fac9acbae7d3cbe3a))
+* **vpin:** muxes that share select lines keep their channel cache right ([d78f827](https://github.com/cubicecho/gemifi/commit/d78f827144f1ec8f15302565bfc03107cc38a204))
+
+
+### Features
+
+* **code61:** declare the two TM1628 LED drivers, add an LED-map build ([f70d47f](https://github.com/cubicecho/gemifi/commit/f70d47f1bc386f7ad118faa434ae78a0fcab790a))
+* **code61:** keys, panel buttons and encoders in the device file ([c7a3a38](https://github.com/cubicecho/gemifi/commit/c7a3a38a5256c3aa9a7bca734c3f2b27bf4f40bf))
+* **code61:** name b1-b9 (panel slots 20-28) ([8388919](https://github.com/cubicecho/gemifi/commit/83889190612d796af7b7b474025a490e60a318b1))
+* **code61:** name the mode, bank and x/y buttons (slots 30-37) ([09afbc4](https://github.com/cubicecho/gemifi/commit/09afbc49b7cad5ca0b949cf3ad3c11bf8394c482))
+* **core:** decoder rows, switch matrices, row-pair key contacts and key maps ([2f4be00](https://github.com/cubicecho/gemifi/commit/2f4be0048d47fb80321f546118190b4a7f2d73d5))
+* **core:** time each part of the scan; presets buffer counts pads ([6d65565](https://github.com/cubicecho/gemifi/commit/6d65565c228d89fc66580d66b1bd0ea906c24a10))
+* **leds:** TM1628-class LED driver hub and RGB LEDs ([02b0481](https://github.com/cubicecho/gemifi/commit/02b04818326afd91e88b1c4e8f8906eadd22a51c))
+* **pads:** velocity pads from pressure (FSR) inputs ([b969d34](https://github.com/cubicecho/gemifi/commit/b969d34b35d1a96a6f4f1c422ea05ad1e01d1fd4))
+* **platform:** open-drain output pin mode (HAL_OUT_OD) ([834a8d4](https://github.com/cubicecho/gemifi/commit/834a8d4cb82c2a0141796c101c8c43ffb871cc17))
+* **stm32f1:** log the slowest main-loop pass ([04daf37](https://github.com/cubicecho/gemifi/commit/04daf3795801c0002ac72b3197202a743c71b41e))
+* **stm32f1:** serve USB from its interrupt; SysTick-counted milliseconds ([5db89d1](https://github.com/cubicecho/gemifi/commit/5db89d1bb1629b189f14878453a6c73bf4a3ddcf))
+
+
+### Performance Improvements
+
+* cheaper mux switches and analog reads ([2fbc80b](https://github.com/cubicecho/gemifi/commit/2fbc80bc12ab1a70b7d914f56dba85fc951ea951))
+* **core:** cut the Code 61 scan cost ([67b2389](https://github.com/cubicecho/gemifi/commit/67b23897a51089d21b31c7c2a050216337d9cc25))
+* **core:** one-store decoder select, direct encoder reads ([da76c6e](https://github.com/cubicecho/gemifi/commit/da76c6e56d1057b7fe6dbebd5658056833df3990))
+* **core:** spread switch-matrix rows over scans; direct key-row select ([92697b2](https://github.com/cubicecho/gemifi/commit/92697b274bd9f2921af9d552a22deaed484d8f78))
+
 # [0.9.0](https://github.com/cubicecho/gemifi/compare/v0.8.0...v0.9.0) (2026-11-03)
 
 

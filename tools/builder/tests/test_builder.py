@@ -756,6 +756,13 @@ class TestFeedback(unittest.TestCase):
         self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_1, ring: [nope] }]\n",
                          r"no LED with id 'nope'")
 
+    def test_local_led_without_button(self):
+        w = self.warns(FB_NUC.replace("{ id: l2, pin: PC1 }", "{ id: l2, pin: PC1, owner: local }"))
+        self.assertTrue(any("never lights" in x for x in w), w)
+        w = self.warns(FB_NUC.replace("{ id: l1, pin: PC0 }", "{ id: l1, pin: PC0, owner: local }")
+                       .replace("action: cc_momentary, cc: 1", "action: cc_momentary, cc: 1, led: l1"))
+        self.assertFalse(any("never lights" in x for x in w), w)
+
     def test_daw_roles_and_components(self):
         base = FB_NUC
         h, c = self.header(base.replace("action: cc_momentary, cc: 1", "action: cc_momentary, cc: 1, daw: play"))

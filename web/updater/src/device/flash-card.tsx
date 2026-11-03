@@ -272,6 +272,10 @@ export function FlashCard({
       mismatch.push(`This is an M-Audio Code update file, but the device is ${boardLabel(device.boardId)}.`);
     }
   }
+  // A warning, not a block: the board id already guards the upload, and a renamed device is fine.
+  const deviceNode = device?.nodeName ?? null;
+  const imageNode = picked?.nodeName ?? null;
+  const isOtherNode = deviceNode !== null && imageNode !== null && deviceNode !== imageNode;
   if (isVendor && probePorts === null) {
     mismatch.push('The M-Audio bootloader is reached over USB MIDI. Switch the transport to USB MIDI.');
   }
@@ -413,6 +417,13 @@ export function FlashCard({
               {...pickOptions}
             />
           )}
+          {isOtherNode ? (
+            <Alert
+              variant="warning"
+              title="Built for another device"
+              description={`This image was built for ${imageNode}, but the connected device is ${deviceNode}. Flashing it gives the device the other file's controls and name. Check that it is the right image.`}
+            />
+          ) : null}
           {picked !== null && gfwResult !== null ? (
             <GfwFacts name={picked.name} source={picked.source} result={gfwResult} extra={mismatch} />
           ) : null}

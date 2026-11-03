@@ -1128,6 +1128,7 @@ class TestCli(unittest.TestCase):
         dev, _ = gd.load_device(os.path.join(self.tmp, "My.Keys.yaml"))
         self.assertEqual(dev.node_name, "keystation-mini32")      # not a node name: the preset's is kept
         self.assertEqual(gb.peek(p)[2], "Keystation Mini 32")     # the list shows friendly_name
+        self.assertEqual(gb.peek_info(p)[3], "mine")              # and HELLO's node name
         rc, _, err = self.run_cli("new", "mine", "--preset", "keystation-mini32-mk3", "--dir", self.tmp)
         self.assertEqual(rc, 1)
         self.assertIn("already exists", err)
@@ -1212,8 +1213,9 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertIn(b"gemifi dashboard", body)
         st, body = self.req("/api/devices")
-        ids = [d["id"] for d in json.loads(body)["devices"]]
-        self.assertIn("presets/keystation-mini32-mk3.yaml", ids)
+        devices = {d["id"]: d for d in json.loads(body)["devices"]}
+        self.assertIn("presets/keystation-mini32-mk3.yaml", devices)
+        self.assertEqual(devices["presets/keystation-mini32-mk3.yaml"]["node_name"], "keystation-mini32")
         st, body = self.req("/api/file?id=presets%2F..%2F..%2FREADME.md")
         self.assertEqual(st, 400)
         st, _ = self.req("/api/devices", host="evil.example:80")

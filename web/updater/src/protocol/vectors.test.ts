@@ -25,6 +25,7 @@ import {
   getParamsPayload,
   getSchemaPayload,
   parseDeviceMessage,
+  parseHello,
   parseParamRun,
   parseParamRunEcho,
   parseParamValue,
@@ -161,6 +162,12 @@ describe('protocol/test-vectors.json', () => {
     for (const { desc, frame, error } of vectors.bad_frames) {
       expect(decodeFrame(bytesOf(frame)), desc).toEqual({ ok: false, problem: PROBLEMS[error] });
     }
+  });
+
+  it('HELLO replies', () => {
+    const replies = vectors.frames.filter(({ cmd }) => cmd === (Command.Hello | REPLY_FLAG));
+    const nodes = replies.map(({ payload }) => parseHello(bytesOf(payload).slice(1)).nodeName);
+    expect(nodes).toEqual([null, 'keystation-mini32']);
   });
 
   it('chunk plans', () => {

@@ -259,6 +259,7 @@ describe('A/B images', () => {
       maxChunk: 256,
       caps: Capability.FirmwareUpload,
       uid: [],
+      nodeName: null,
     };
     expect(isAbDevice(base)).toBe(true);
     expect(isAbDevice({ ...base, maxChunk: 0 })).toBe(false);

@@ -57,7 +57,7 @@ export function ImagesCard({ device, isBusy, canInstall, onFlash, onInstall }: I
     fetchImage(device.id, file)
       .then((bytes) => {
         if (handOff === 'flash') {
-          onFlash(pickedImageOf(file, bytes, `Built from ${title}`));
+          onFlash(pickedImageOf(file, bytes, `Built from ${title}`, device.nodeName));
         } else {
           onInstall([{ name: file, bytes }]);
         }

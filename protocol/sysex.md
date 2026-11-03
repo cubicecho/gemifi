@@ -73,7 +73,7 @@ Specific cases:
 
 | cmd | Name | App | Boot | Request payload | Reply payload (after status) |
 |---|---|---|---|---|---|
-| 0x01 | HELLO | ✓ | ✓ | – | `role` (0 app, 1 boot), `board_id` u14, `fw_version` u32, `proto_version` (1 byte), `max_chunk` u14 (bytes of unpacked data per `FW_DATA`; 0 in an app that doesn't take uploads, non-zero in an A/B app), `caps` u14 (bit flags, §4.1), `uid` (12 bytes packed = 14 bytes) |
+| 0x01 | HELLO | ✓ | ✓ | – | `role` (0 app, 1 boot), `board_id` u14, `fw_version` u32, `proto_version` (1 byte), `max_chunk` u14 (bytes of unpacked data per `FW_DATA`; 0 in an app that doesn't take uploads, non-zero in an A/B app), `caps` u14 (bit flags, §4.1), `uid` (12 bytes packed = 14 bytes), then in an app built from a device YAML: `node` (§4.1.1) |
 | 0x10 | REBOOT | ✓ | ✓ | `mode` (0 = app, 1 = bootloader) | – (the reply is sent, then the device reboots after about 50 ms) |
 | 0x18 | FW_BEGIN | A/B only | ✓ | `size` u32, `crc32` u32, `board_id` u14, `fw_version` u32 | `max_chunk` u14 (same rule as HELLO) |
 | 0x19 | FW_DATA | A/B only | ✓ | `offset` u28, data (packed, 1..`max_chunk` bytes, multiple of 4) | `offset` u28 (echo) |
@@ -111,6 +111,12 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 2: LOG messages
 - bit 3: EVENT messages
 - bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
+
+### 4.1.1 HELLO `node` (node name)
+
+An app built from a device YAML ends its HELLO reply with `node`: `u8 len` (1..31), then `len` bytes of the YAML's `name:` (the node name: lowercase `a-z`, digits and `-`, not starting or ending with `-`), unpacked. Hosts use it to find the device's YAML and to check that an image was built for this device. The bootloader and test apps without a YAML (probe, usb-log) leave it out: their reply ends after `uid`.
+
+Hosts accept a HELLO reply of the base length (no `node`) or longer, and ignore any bytes after the fields they know, so later fields can be added the same way. A `len` of 0, a `len` that runs past the payload, or a name that breaks the rule above counts as "no node name"; the rest of the reply still stands.
 
 **Who takes uploads.** On chips with a separate bootloader (NUC1xx: LDROM) the app answers `FW_*` with BAD_STATE, and the host sends REBOOT(1) first. On chips with A/B app slots (ESP32 OTA partitions, ESP8266 OTA) **the app itself** takes the upload into the inactive slot and switches to it after a good FW_END plus REBOOT(0); there is no gemifi bootloader, and the chip's ROM bootloader (esptool / Web Serial) is only for the first flash and recovery. The host tells them apart by the HELLO `caps` bit 0 (firmware upload) together with `role`: role 0 with bit 0 set means "upload here, no reboot to the bootloader needed". `max_chunk` in HELLO is then non-zero in the app too.
 

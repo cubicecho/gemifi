@@ -87,7 +87,13 @@ describe('builder requests', () => {
     mockFetch(json({ devices: [DEVICE], user_dir: '/data' }));
     const listing = await listDevices();
     expect(listing.userDir).toBe('/data');
-    expect(listing.devices).toEqual([{ ...DEVICE, isStale: false }]);
+    expect(listing.devices).toEqual([{ ...DEVICE, nodeName: '', isStale: false }]);
+  });
+
+  it('reads the node name a device reports in HELLO', async () => {
+    mockFetch(json({ devices: [{ ...DEVICE, node_name: 'keys' }] }));
+    const listing = await listDevices();
+    expect(listing.devices[0]?.nodeName).toBe('keys');
   });
 
   it('marks a device whose file changed since its build', async () => {

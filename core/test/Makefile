@@ -10,6 +10,7 @@
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
 # test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml)
 # test_pads:       velocity pads on shared-select muxes (pads-test.yaml)
+# test_display:    core/src/display.c alone (display-cfg/, fake pins)
 
 ROOT  := ../..
 BUILD ?= build
@@ -52,7 +53,7 @@ CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
 
 CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/app_proto.c \
-             $(ROOT)/core/src/settings.c $(ROOT)/core/src/vpin.c $(ROOT)/core/src/controller.c \
+             $(ROOT)/core/src/settings.c $(ROOT)/core/src/vpin.c $(ROOT)/core/src/display.c $(ROOT)/core/src/controller.c \
              $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c \
              fake_config_store.c
 
@@ -65,7 +66,7 @@ TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
 PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_tm1628 $(BUILD)/test_pads
+test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_display
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
@@ -75,6 +76,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	GM_TEST_FAST_COLS=1 GM_TEST_BSRR=1 $(BUILD)/test_matrix
 	$(BUILD)/test_tm1628
 	$(BUILD)/test_pads
+	$(BUILD)/test_display
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -95,6 +97,10 @@ $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/
 $(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(PAD_DEV) $(PAD_SRCS) -o $@
+
+$(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Idisplay-cfg test_display.c $(ROOT)/core/src/display.c -o $@
 
 clean:
 	rm -rf $(BUILD)

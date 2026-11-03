@@ -15,13 +15,6 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
-#     2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
-#     segments a b c d e f g1 g2 h i j k l m (a top, b/c right, d bottom,
-#     e/f left, g1/g2 middle halves, h i j upper diagonals/centre, k l m
-#     lower), bit 14 its dot, bit 15 unused. Characters left to right are at
-#     bits 48, 64, 80, 0, 16, 32 (bytes 6, 8, 10, 0, 2, 4). No display
-#     component yet. a_96-a_111 (bytes 12-13) and chip B: LEDs, still to map.
 #   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5); the panel has PB then
 #     MOD, left to right. Which pin is which is unknown, and the core has no
 #     analog pitch bend.
@@ -40,7 +33,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.27
+  version: 0.2.31
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -104,6 +97,22 @@ rgb_serial:
   - id: pad_leds
     tx_pin: PA2
     count: 16
+
+# The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
+# 2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
+# segments a b c d e f g1 g2 h i j k l m (core/include/gm_display.h), bit 14
+# its dot, bit 15 unused. Left to right the characters start at bits 48, 64,
+# 80, 0, 16, 32 (bytes 6, 8, 10, 0, 2, 4).
+displays:
+  - id: display
+    type: segment14
+    chars:
+      - { tm1628: leds_a, number: 48 }
+      - { tm1628: leds_a, number: 64 }
+      - { tm1628: leds_a, number: 80 }
+      - { tm1628: leds_a, number: 0 }
+      - { tm1628: leds_a, number: 16 }
+      - { tm1628: leds_a, number: 32 }
 
 # LEDs, mapped on hardware (2026-11-03) with the LED-map build
 # (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display

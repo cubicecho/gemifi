@@ -181,6 +181,26 @@ pad_settings:                  # all optional; these are the param defaults
 - **Presets** may set `pads: { <id>: { note: N } }` and `pad_settings: { channel, curve, aftertouch }`; the sensing (`threshold`, `release`, `full`, `window`, `retrigger`) is the pads' calibration and the same in every preset.
 - **Generated code** (`gm_device.h` `gm_pad_t`, only with `pads:`): `GM_N_PADS` and the `GM_PAD_*_DEFAULT`s in `gm_device_config.h`, `gm_pads[GM_N_PADS]` (pin, name) and `gm_pad_note_defaults[]` in `gm_device_config.c`. A device without pads has no pad params, no "Pads" group and no pad code. RAM: about 16 bytes and one param value per pad, plus 8 values.
 
+## Displays
+
+A 14-segment character display (like the Code 61's 6-character one) is a row of characters on output pins of a hub, usually a TM1628. Each character is 15 pins in a row from its first one: segments a b c d e f g1 g2 h i j k l m, then the dot (the layout is drawn in `core/include/gm_display.h`). `chars:` lists each character's first pin, left to right, so characters can sit anywhere on the hub.
+
+```yaml
+displays:
+  - id: display
+    type: segment14            # the only type so far (the default)
+    chars:                     # left to right: each character's segment a
+      - { tm1628: leds_a, number: 48 }
+      - { tm1628: leds_a, number: 64 }
+      - { tm1628: leds_a, number: 0 }
+```
+
+- **What it shows.** "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`. Note Offs, pitch bend and pressure leave it as it is. When the two parts would touch, a dot separates them.
+- **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
+- **Timing.** Messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
+- **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
+- **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
+
 ## Device YAML
 
 Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: the pin schema, ids, `name`/`friendly_name`, hub components and time periods.

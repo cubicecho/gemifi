@@ -8,6 +8,8 @@ custom-firmware-path.md). This module builds that update stream from a gemifi im
   maudio_update.py info  FILE                  summary of an update file, a .gfw or a .bin; checks every checksum
   maudio_update.py build IN.gfw|IN.bin OUT.hex.txt   update file in the vendor format
   maudio_update.py syx   IN OUT.syx            the exact SysEx messages the updater sends
+  maudio_update.py flashbin IN OUT.bin         what the update leaves in flash, 0x08002400..0x0801B3FF, as a raw
+                                               image for SWD (tools/swd/stm32f1: code61_write_app)
   maudio_update.py send  IN [--port NAME] [--dry-run]   send to the keyboard's bootloader
   maudio_update.py request [--port NAME]       ask the running stock app for update mode, then power-cycle
 
@@ -574,6 +576,9 @@ def main(argv=None):
     p = sub.add_parser("syx")
     p.add_argument("file")
     p.add_argument("out")
+    p = sub.add_parser("flashbin")
+    p.add_argument("file")
+    p.add_argument("out")
     p = sub.add_parser("send")
     p.add_argument("file")
     p.add_argument("--dry-run", action="store_true", help="check and print the plan; no MIDI")
@@ -601,6 +606,17 @@ def main(argv=None):
             with open(a.out, "w") as f:
                 f.write(pack_stream(recs).hex().upper())
             print(f"wrote {a.out}")
+            return 0
+        if a.cmd == "flashbin":
+            flash = apply(recs)
+            img = read(flash, APP_BASE, CK_PAGE + PAGE - APP_BASE)
+            computed, stored = flash_checksum(flash)
+            if computed != stored:
+                raise UpdateError(f"image checksum 0x{stored:04x} != computed 0x{computed:04x}")
+            with open(a.out, "wb") as f:
+                f.write(img)
+            print(f"wrote {a.out}: {len(img)} bytes for 0x{APP_BASE:08x}..0x{CK_PAGE + PAGE - 1:08x}, "
+                  f"checksum 0x{stored:04x}")
             return 0
         if a.cmd == "syx":
             msgs = syx_messages(recs)

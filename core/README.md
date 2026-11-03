@@ -214,7 +214,9 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 ## DAW feedback
 
-What the host (a DAW) sends back reaches the controller: LEDs follow the DAW's state, toggles and encoders stay in sync with it, knobs don't jump, and a second USB port can speak Mackie Control. Plan and decisions: issue #22.
+What the host (a DAW) sends back reaches the controller: LEDs follow the DAW's state, toggles and encoders stay in sync with it, knobs don't jump, and a second USB port can speak Mackie Control. Plan and decisions: issue #6.
+
+The MIDI a device accepts and sends for all of this, as implemented: [`protocol/host-feedback.md`](../protocol/host-feedback.md). Per-DAW setup: the site's "DAW setup" page (`site/src/daw-setup.md`).
 
 **Incoming MIDI** (`src/midi_in.c`). The platform hands over USB-MIDI event packets (`gm_midi_rx_usb`, NUC and ESP32-S2/S3 USB: the cable is kept) or a byte stream (`gm_midi_rx_byte`, serial and BLE: one port, running status handled). SysEx on the main port (cable 0) goes to the gemifi protocol exactly as before; Note On/Off, CC, pitch bend, channel pressure and realtime (clock `F8`, start `FA`, continue `FB`, stop `FC`) go to the feedback code, and on the DAW port (cable 1) to Mackie Control. `feedback: { enabled: false }` without `mcu:` compiles all of that out (SysEx only, as before).
 
@@ -234,7 +236,7 @@ Messages count on the device's MIDI channel (`midi.channel`) unless an LED names
 
 ```yaml
 feedback:                     # optional; these are the defaults
-  enabled: true               # false: ignore everything but SysEx (and MCU, if mcu: is given)
+  enabled: true               # false: ignore everything but the gemifi SysEx protocol (and MCU, if mcu: is given); also turns off DAW scripts (F3)
   led_owner: host_then_local  # default for every LED: host_then_local | host | local
   led_timeout: 2s             # host_then_local: how long the host's last word lasts (a period, or never)
 
@@ -260,7 +262,7 @@ analog:
   - { id: volume, pin: PA0, cc: 7, takeover: pickup }   # none (default) | pickup
 ```
 
-LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). Other palettes (bicolour, RGB) are still open (#22).
+LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour; RGB is still open (#6).
 
 ### LED ownership
 
@@ -272,7 +274,7 @@ An LED can have a local state (its button: held, toggled, the octave, ...) and a
 | `host` | only the host's state (off until the host sends something) |
 | `local` | only the local state; the host's messages are ignored |
 
-An LED with no local state (no button uses it) always shows the host's state, whatever the owner. LEDs driven by Mackie Control (an `action: mcu` button's LED, `feedback: { mcu: ... }`, ring LEDs) default to `host`, since MCU hosts only send LED changes. The default timeout is a question in #22.
+An LED with no local state (no button uses it) shows the host's state with `host_then_local` or `host`; with `owner: local` it never lights, so the builder warns about that. LEDs driven by Mackie Control (an `action: mcu` button's LED, `feedback: { mcu: ... }`, ring LEDs) default to `host`, since MCU hosts only send LED changes. The default timeout is a question in #6.
 
 ### Second USB port and Mackie Control
 
@@ -309,7 +311,7 @@ encoders:
 | encoder `ring_center:` (an LED id) | bit 6 of the same CC: the LED under the V-Pot |
 | (to hooks) | CC 0x40–0x4B: the 12 timecode / assignment characters (`gm_mcu_char()`, `gm_mcu_on_char`); SysEx `12`: LCD text (`gm_mcu_on_lcd`, streamed in pieces); channel pressure: meter levels (`gm_mcu_on_meter`); SysEx `20`: meter modes (`gm_mcu_meter_mode()`). A device with a display or meter LEDs shows them; nothing does yet |
 | (automatic) | SysEx `00` device query → `01` serial + challenge; the host's `02` answer → `03` (accepted without checking it, so no response algorithm is needed); `61` faders to minimum (pick-up targets), `62` all MCU LEDs off, `63` reset |
-| (automatic) | the version request `F0 00 00 66 14 13 00 F7` gets `… 14 14 "V1.02" F7` (from the firmware version), which is all Live asks |
+| (automatic) | the version request `F0 00 00 66 14 13 00 F7` gets `… 14 14 "V0.01" F7` (`V<major>.<minor, 2 digits>` from the firmware version, so 0.1.x → `V0.01`), which is all Live asks |
 
 Not done: fader touch notes (needs touch-sensing faders), extender chaining beyond one device id, and showing the display and meter hooks on real hardware (needs a display component). See #18.
 

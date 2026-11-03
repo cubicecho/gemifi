@@ -59,6 +59,11 @@ Once gemifi is running, the same page shows the device's log and its settings:
 MIDI channel, octave, velocity curve, and what each button, knob and encoder
 sends. **Save to device** keeps them across power cycles.
 
+## 6. Connect it to a DAW
+
+LED feedback, Mackie Control and the gemifi Live script each need a port
+picked in the DAW: see [DAW setup]({{ '/daw-setup/' | url }}).
+
 </div>
 
 <p class="readme-link">

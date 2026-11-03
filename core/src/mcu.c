@@ -15,7 +15,7 @@
  *     00             device query -> 01 <serial 7> <challenge 4>
  *     02 <serial> <response 4>  -> 03 <serial> (connected; any response)
  *     12 <pos> <text...>        LCD text
- *     13 00          version request -> 14 <5 ASCII> ("V1.02")
+ *     13 00          version request -> 14 <5 ASCII> ("V0.01" for 0.1.x)
  *     20 <strip> <mode>         meter mode of a strip; 21 <0/1> LCD meters
  *     61 / 62 / 63   faders to minimum / all LEDs off / reset
  *

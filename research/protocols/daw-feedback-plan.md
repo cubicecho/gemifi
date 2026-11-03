@@ -8,8 +8,8 @@ Status 2026-11-03. Draft for review. Background research: [`host-feedback.md`](h
 |---|---|---|
 | Dispatcher | Incoming channel messages and realtime reach the core (USB packets with their cable, or a byte stream) | **Merged.** Host-tested, not run on hardware |
 | **F1** plain feedback | LEDs follow notes, CCs, the beat or transport; `cc_toggle` and absolute encoders sync from the host; analog pick-up (`takeover: pickup`); LED ownership (`owner:`, `led_timeout`) | **Merged.** Host-tested, not run on hardware |
-| **F2** Mackie Control | Second USB port "`<name>` DAW"; buttons and LEDs, faders as pitch bend, V-Pots and rings, the version reply Live asks for | **Merged, partly.** Missing: LCD text, timecode/assignment display, meters, ring centre LED, fader touch, the connection challenge/response, extender chaining (TODOs in `core/src/mcu.c`) |
-| **F3** gemifi feedback SysEx + DAW scripts | Our own host → device messages, plus a Live Remote Script and a Bitwig extension | Not started |
+| **F2** Mackie Control | Second USB port "`<name>` DAW"; buttons and LEDs, faders as pitch bend, V-Pots and rings (with the centre LED), the version reply Live asks for, the handshake (unchecked), LCD text / characters / meters to hooks | **Merged** (protocol work finished in #19). Left in #18: a display component to show the hooks on, meters on hardware, fader touch, extender chaining, the settings messages |
+| **F3** gemifi feedback SysEx + DAW scripts | Our own host → device messages, plus a Live Remote Script and a Bitwig extension | **Merged** (#22): `protocol/sysex.md` §4.6, firmware, `hosts/ableton-live`. Host-tested, not run in Live. Bitwig extension in progress; follow-ups in #21 |
 | **F4** MIDI-CI | Discovery and `DeviceInfo` (and maybe controller lists) under the free 0x7C ID | Not started |
 
 The hardware checks for everything merged so far (#7) are parked. **None of this has run in a DAW yet**, and the plan below is written with that in mind.
@@ -39,8 +39,8 @@ The issue's "Still open" list predates the implementation. These are settled unl
 ## 4. Plan
 
 ### Phase A: spec and docs (no hardware needed)
-1. `protocol/host-feedback.md`: the incoming message routing (main port vs DAW port, channel rules), F1 behaviour per component, LED levels, pick-up, LED ownership, and the MCU subset implemented (messages, note numbers, the version reply), with what's not implemented listed.
-2. DAW setup notes per target host: Live (Remote / Sync on the output, MackieControl on the DAW port), Bitwig, REAPER (its MCU surface, and ReaLearn for F1), Zynthian after D7. Put these on the site's get-started page, with each step marked as untested until #7 checks it.
+1. **Done:** [`protocol/host-feedback.md`](../../protocol/host-feedback.md): the incoming message routing (main port vs DAW port, channel rules), F1 behaviour per component, LED levels, pick-up, LED ownership, and the MCU subset implemented (messages, note numbers, the version reply), with what's not implemented listed. F3 points to `protocol/sysex.md` §4.6.
+2. **Done:** DAW setup notes per target host: Live, Bitwig, REAPER, Logic and Zynthian, on the site's [DAW setup page](../../site/src/daw-setup.md) (linked from get-started), marked untested until #26 checks them. Zynthian has a Mackie Control ctrldev driver; whether it works with the DAW port is still to check (D7).
 3. Close the stale items in #6, and move the remaining open ones into this note.
 
 ### Phase B: run what's merged (needs you, #7)

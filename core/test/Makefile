@@ -3,7 +3,10 @@
 #   make test    build and run; also checks the firmware's schema blob with
 #                the Python parser (tools/host/gemifi_proto.py)
 #
-# test_controller: the Keystation config (devices/keystation-mini32-mk3.yaml)
+# test_controller: the Keystation config (devices/keystation-mini32-mk3.yaml),
+#                  with its presets
+# Both use a RAM config store (fake_config_store.c); the flash journals are
+# tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
 
 ROOT  := ../..
@@ -29,12 +32,10 @@ CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
 
 CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/app_proto.c \
              $(ROOT)/core/src/settings.c $(ROOT)/core/src/vpin.c $(ROOT)/core/src/controller.c \
-             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c
+             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c \
+             fake_config_store.c
 
-SRCS := test_controller.c $(CORE_SRCS) \
-        $(ROOT)/platform/nuvoton-nuc1xx/src/config_store.c \
-        $(ROOT)/platform/nuvoton-nuc1xx/src/crc32.c \
-        $(DEV)/gm_device_config.c
+SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
 
 FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 
@@ -45,7 +46,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
 
-$(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) $(DEV)/gm_device_config.h
+$(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(DEV) $(SRCS) -o $@
 

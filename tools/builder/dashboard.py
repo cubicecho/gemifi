@@ -110,6 +110,14 @@ class Roots:
         return out
 
 
+def preset_info(dev):
+    """The device's preset slots and the worst-case storage (research/core/presets-design.md §7, §10.5)."""
+    return {"slots": [{"slot": n, "name": p.name, "program": None if p.program < 0 else p.program,
+                       "changes": len(p.vals), "listed": p.listed}
+                      for n, p in enumerate(dev.presets, 1)],
+            "revision": dev.presets_revision, "given": dev.presets_given, "storage": dev.budget}
+
+
 def toolchains():
     arm = bool(shutil.which("arm-none-eabi-gcc") and shutil.which("make"))
     return {"nuvoton-nuc1xx": arm, "stm32f1": arm,
@@ -372,7 +380,8 @@ def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=Non
                 ident = b.get("id")
                 dev, diags = gd.load_device(ident if isinstance(ident, str) and ident else "device.yaml", text)
                 return self.send(200, {"ok": dev is not None, "summary": gb.summary(dev) if dev else "",
-                                       "diags": [d.as_dict() for d in diags]})
+                                       "diags": [d.as_dict() for d in diags],
+                                       "presets": preset_info(dev) if dev else None})
             if u.path == "/api/save":
                 p = self.path_arg(b.get("id"))
                 if p is None:
@@ -553,7 +562,7 @@ async function openDev(id){if(cur&&$('dirty').textContent&&!confirm('Discard uns
 function showImages(){const d=devices.find(x=>x.id===cur);$('imgs').innerHTML=d?d.images.map(f=>`<a href="/api/image?id=${encodeURIComponent(cur)}&file=${encodeURIComponent(f)}">${esc(f)}</a>`).join(' '):''}
 function gotoLine(n){const t=$('ed'),lines=t.value.split('\n');let p=0;for(let i=0;i<n-1&&i<lines.length;i++)p+=lines[i].length+1;t.focus();t.setSelectionRange(p,p+(lines[n-1]||'').length)}
 async function validate(){const j=await api('/api/validate',{id:cur,text:$('ed').value});
- $('diags').innerHTML=(j.ok?`<div class="okmsg">OK: ${esc(j.summary)}</div>`:'')+j.diags.map(d=>`<div class="diag ${d.level}" data-line="${d.line}">line ${d.line||'?'}: ${d.level}: ${esc(d.path?d.path+': ':'')}${esc(d.msg)}</div>`).join('');
+ $('diags').innerHTML=(j.ok?`<div class="okmsg">OK: ${esc(j.summary)}</div>`:'')+(j.presets&&j.presets.given?`<div class="small">Presets: ${j.presets.slots.map(p=>`${p.slot} ${esc(p.name)}${p.changes?` (${p.changes} change${p.changes>1?'s':''})`:''}`).join(' &middot; ')}</div>`:'')+j.diags.map(d=>`<div class="diag ${d.level}" data-line="${d.line}">line ${d.line||'?'}: ${d.level}: ${esc(d.path?d.path+': ':'')}${esc(d.msg)}</div>`).join('');
  document.querySelectorAll('.diag').forEach(e=>e.onclick=()=>gotoLine(+e.dataset.line));return j.ok}
 async function save(){await api('/api/save',{id:cur,text:$('ed').value});$('dirty').textContent=''}
 async function build(){await save();if(!await validate())return;const log=$('log');log.hidden=false;log.textContent='';$('build').disabled=true;

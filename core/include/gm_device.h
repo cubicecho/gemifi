@@ -183,6 +183,28 @@ extern const uint8_t gm_analog_mcu[];        /* GM_MCU: fader 0..7, master 8, or
 extern const uint8_t gm_encoder_mcu[];       /* GM_MCU: V-Pot 0..7, or GM_MCU_NONE */
 extern const gm_ring_t gm_encoder_ring[];    /* GM_MCU: ring LEDs per encoder */
 
+/* Presets (research/core/presets-design.md §2, §10.1). Always generated:
+ * GM_N_PRESETS (>= 1) slots and GM_PRESETS_REVISION in gm_device_config.h.
+ * Slot n is gm_presets[n - 1]. Slot 1 is the component defaults (no
+ * overrides); each other YAML preset lists only the values that differ from
+ * slot 1; empty slots are named "Preset N" with no overrides. */
+typedef struct {
+    uint16_t id;                 /* param id (gm_settings.h P_*)         */
+    uint16_t index;              /* component index (0 for plain params) */
+    int32_t value;
+} gm_preset_val_t;
+
+#define GM_PROGRAM_NONE (-1)
+
+typedef struct {
+    const char *name;            /* <= 16 ASCII characters               */
+    int16_t program;             /* 0..127, or GM_PROGRAM_NONE           */
+    uint16_t n_vals;
+    const gm_preset_val_t *vals; /* NULL when n_vals is 0                */
+} gm_preset_def_t;
+
+extern const gm_preset_def_t gm_presets[];   /* GM_N_PRESETS entries */
+
 #ifdef __cplusplus
 }
 #endif

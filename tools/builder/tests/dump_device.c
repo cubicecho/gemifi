@@ -71,6 +71,15 @@ int main(void)
     } else {
         printf("matrix=null\n");
     }
+    printf("presets=%d revision=%d\n", GM_N_PRESETS, GM_PRESETS_REVISION);
+    for (i = 0; i < GM_N_PRESETS; i++) {
+        const gm_preset_def_t *p = &gm_presets[i];
+        printf(" preset %u name=%s program=%d n=%u vals=%s\n", i + 1, p->name, p->program, p->n_vals,
+               p->vals ? "ptr" : "null");
+        for (j = 0; j < p->n_vals; j++)
+            printf("  val id=%u index=%u value=%ld\n", p->vals[j].id, p->vals[j].index,
+                   (long)p->vals[j].value);
+    }
 #ifdef GM_I2C_SDA
     printf("i2c sda=%d scl=%d\n", GM_I2C_SDA, GM_I2C_SCL);
 #endif

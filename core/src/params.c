@@ -10,7 +10,7 @@
 #include "params.h"
 #include "gsx.h"
 
-static int32_t def_at(const param_def_t *p, uint32_t i)
+int32_t params_default_at(const param_def_t *p, uint32_t i)
 {
     return p->defs ? p->defs[i] : p->def;
 }
@@ -20,7 +20,7 @@ void params_defaults(void)
     for (uint32_t k = 0; k < app_params.param_count; k++) {
         const param_def_t *p = &app_params.params[k];
         for (uint32_t i = 0; i < p->count; i++)
-            p->values[i] = def_at(p, i);
+            p->values[i] = params_default_at(p, i);
     }
 }
 
@@ -97,7 +97,7 @@ static void schema_walk(sw_t *w)
         sw_str(w, t->groups[g]);
     for (uint32_t k = 0; k < t->param_count; k++) {
         const param_def_t *p = &t->params[k];
-        uint32_t flags = p->flags & (PF_READ_ONLY | PF_VOLATILE);
+        uint32_t flags = p->flags & (PF_READ_ONLY | PF_VOLATILE | PF_PRESET);
         if (p->defs)
             flags |= PF_PER_INDEX_DEFAULT;
         if (p->index_labels)
@@ -113,7 +113,7 @@ static void schema_walk(sw_t *w)
         sw_le(w, (uint32_t)p->max, 4);
         uint32_t ndef = p->defs ? p->count : 1u;
         for (uint32_t i = 0; i < ndef; i++)
-            sw_le(w, (uint32_t)def_at(p, i), 4);
+            sw_le(w, (uint32_t)params_default_at(p, i), 4);
         sw_str(w, p->name);
         sw_str(w, p->label);
         if (p->unit)

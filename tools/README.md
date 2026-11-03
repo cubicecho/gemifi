@@ -267,6 +267,7 @@ python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-por
 python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
+python3 tools/host/gemifi.py presets | preset select|save|reset|rename     # presets, below
 cd tools/host && python3 -m unittest            # codec, mkimage, upload against a simulated bootloader, vectors
 python3 tools/host/make_test_vectors.py         # regenerate protocol/test-vectors.json (--check to compare)
 ```
@@ -281,6 +282,8 @@ How `gemifi.py flash` uploads (`protocol/sysex.md` §4.2):
 3. Sends `FW_BEGIN`.
 4. Sends chunks from 0x200 upward, then page 0 last, never crossing a 512-byte page. Each request is stop-and-wait with a 200 ms timeout (2000 ms for `FW_BEGIN` and `FW_END`); a timeout, BAD_CHECKSUM or BUSY means the same seq is resent, up to 5 resends (6 sends in all).
 5. Sends `FW_END`, then `REBOOT(app)`, and prints HELLO from the app.
+
+On a device with presets it also backs up before step 2 and checks the presets after step 5 ("Presets and firmware updates" below).
 
 It picks the path from HELLO: a device whose **app** answers with role 0, caps bit 0 (firmware upload) and a non-zero `max_chunk` takes the upload itself (A/B slots, below), and is never rebooted into a bootloader.
 
@@ -366,3 +369,31 @@ gemifi.py log --names                 # LOG/EVENT/PARAM_CHANGED, with param name
 - `get`, `backup` and `restore` use GET_PARAMS/SET_PARAMS (runs of 16) for array params and fall back to single GET/SET_PARAM if the device replies BAD_CMD. If a run fails in `restore`, it retries that run one value at a time, so each bad entry is reported on its own.
 - `backup` stores raw values by param name. `restore` matches by name: names the firmware doesn't know are skipped with a warning, read-only params are skipped, BAD_VALUE/BAD_PARAM is reported per entry and the rest still goes in (exit code 1 if any entry failed). A backup from another board gives a warning, not an error.
 - COMMIT and FACTORY_RESET use the 2000 ms timeout.
+
+### Presets (`gemifi.py`, app firmware with HELLO caps bit 5)
+
+`protocol/sysex.md` §4.5. GET/SET always address the **active** preset, so `get`, `set` and `commit` above work on it.
+
+```sh
+gemifi.py presets                          # every slot: number, name, * = active, program, state
+gemifi.py preset select 2                  # or by name: preset select drums
+gemifi.py preset save                      # store the live values into the active preset (= commit)
+gemifi.py preset save 5 --name "Live set"  # save as: into slot 5, which becomes the active one
+gemifi.py preset reset 3 [--yes]           # slot 3 back to the firmware's preset (edits and name dropped)
+gemifi.py preset reset all [--yes]
+gemifi.py preset rename 2 "Kit"            # "" = back to the firmware's name
+```
+
+- `presets` shows per slot: "unsaved edits" (the active one only), "stored edits" (with the revision they were made on, when it isn't the firmware's), "empty slot" (not in the YAML).
+- `preset select` asks first when the active preset has unsaved edits, because switching drops them; `--discard` doesn't ask.
+- A preset is a number (1..count) or a name (any case).
+- Names are 0..16 printable ASCII characters.
+
+**Backup and restore with presets.**
+- `backup` switches to every slot in turn and reads its per-preset values, then switches back to the slot that was active and puts its unsaved edits back, so the device ends as it started. The file (format 2) holds the globals in `values`, the active slot in `active`, and one entry per slot in `presets` (`slot`, `name`, `stored`, `stored_revision`, `values`). The active slot is saved as it is live, unsaved edits included.
+- `restore` of such a file sets the globals, then for each slot: PRESET_RESET; if the backup has stored edits for it, select it, set its values, PRESET_SAVE and set its name. Then it selects the slot that was active and commits. So everything is stored; `--commit` isn't needed. Slots the device doesn't have are skipped with a warning.
+- An old backup (no presets) restores into the active preset, live, as before. A preset backup onto firmware without presets restores the globals and the active slot only.
+
+**Presets and firmware updates (`flash`).**
+- Before the upload, on a device with presets, `flash` saves a backup to `gemifi-backup-<board>-<version>-<time>.json` in the current directory. `--backup FILE` picks the name (and also works on a device without presets); `--no-backup` skips it. If the device is already in the bootloader, there is nothing to read, and it says so.
+- After the upload, it reads PRESET_INFO for every slot. If a slot's stored edits were made on another presets revision (the firmware's YAML presets changed), it lists them and asks: keep your edits on top of the new presets (Enter, the default), or use the firmware's presets (PRESET_RESET on every slot; names too; the globals stay). `--keep-presets` and `--use-firmware-presets` answer in advance. Either way, `gemifi.py restore <backup>` undoes it.

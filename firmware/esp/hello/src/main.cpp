@@ -33,7 +33,7 @@ static const hal_fw_ops_t *fw;
 
 static void send_log(uint8_t level, const char *s)
 {
-    uint8_t buf[GSX_OVERHEAD + 1 + 4 + 64];
+    uint8_t buf[GSX_OVERHEAD + 2 + 1 + 4 + 64];   /* + 2: F0 and F7 */
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_LOG, unsol_seq++ & 0x7F);
     gsx_put(&t, level);
@@ -45,7 +45,7 @@ static void send_log(uint8_t level, const char *s)
 
 static void send_event(uint8_t type, uint32_t index, uint32_t value)
 {
-    uint8_t buf[GSX_OVERHEAD + 1 + 2 + 2 + 4];
+    uint8_t buf[GSX_OVERHEAD + 2 + 1 + 2 + 2 + 4];   /* + 2: F0 and F7 */
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_EVENT, unsol_seq++ & 0x7F);
     gsx_put(&t, type);

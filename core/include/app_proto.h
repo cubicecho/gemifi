@@ -3,11 +3,11 @@
  *
  * Handles HELLO, REBOOT (via the SRAM mailbox), the Universal Identity
  * Request, the config commands (GET_SCHEMA, GET/SET_PARAM(S), COMMIT,
- * FACTORY_RESET; see params.h and config_store.h) and answers FW_* with
- * BAD_STATE. Sends LOG, EVENT and PARAM_CHANGED messages.
+ * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h) and answers FW_*
+ * with BAD_STATE. Sends LOG, EVENT, PARAM_CHANGED and PRESET_CHANGED.
  *
- * Platform independent: it talks to the chip only through gm_hal.h and
- * config_store.h. FW_* go to hal_fw_ops() when the platform has one (A/B
+ * Platform independent: it talks to the chip only through gm_hal.h (and
+ * the store through gm_presets.h). FW_* go to hal_fw_ops() when the platform has one (A/B
  * chips, sysex.md 4 "Who takes uploads"), else get BAD_STATE.
  *
  * SPDX-License-Identifier: MIT
@@ -16,6 +16,7 @@
 #define GEMIFI_APP_PROTO_H
 
 #include <stdint.h>
+#include "gsx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,8 @@ void app_log(uint8_t level, const char *a, const char *b);
 void app_log_hex(uint8_t level, const char *a, uint32_t v);
 void app_event(uint8_t type, uint32_t index, uint32_t value);
 void app_param_changed(uint16_t id, uint16_t index);
+/* Unsolicited PRESET_CHANGED (slot u14, dirty byte). */
+void app_preset_changed(uint32_t slot, uint32_t dirty);
 
 /* Optional hook (weak, default does nothing): a param changed through
  * SET_PARAM(S) or FACTORY_RESET. id 0 = everything changed. */

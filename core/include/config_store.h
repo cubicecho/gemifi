@@ -3,6 +3,9 @@
  * §4 and §10.3). Implemented per platform:
  *   - NUC1xx data-flash journal (platform/nuvoton-nuc1xx/src/config_store.c)
  *   - ESP32 NVS / ESP8266 EEPROM sector (platform/esp/config_store_esp.cpp)
+ *   - STM32F1 two swapped main-flash pages (platform/stm32f1/src/config_store.c),
+ *     in a packed record v3 of its own (one group per param id, int8/int16
+ *     values and an index bitmap; it still reads v2)
  *
  * The store is dumb: it keeps tagged records and never interprets values.
  * The core (src/presets.c) decides what goes in a record: for slot 0 the
@@ -38,6 +41,9 @@
  * slots). NUC journal: 7 pages; the worst-case records of all slots,
  * packed whole into pages, must fit in 5 (one page is the erase spare,
  * one is room for a slot's old and new copy while it is rewritten).
+ * STM32F1: 82 as a lower bound (the real number depends on the ids and
+ * values; the Code 61's 134 per-preset values take 276 B); every slot's
+ * newest record must fit one 1 KB page together.
  *
  * NUC1xx: needs fmc_open() first. Erases stall the CPU (about 20-40 ms per page).
  *
@@ -75,7 +81,8 @@ typedef struct {
 
 /* Write a new record for `slot` (replaces the previous one). name may be
  * NULL (no name stored). Returns GSX_OK or GSX_FLASH_ERR (GSX_BAD_LEN if
- * n entries can't fit one record on this platform). */
+ * n entries can't fit one record on this platform, or, on the STM32F1,
+ * next to the other slots' records). */
 int config_store_write(uint8_t slot, uint16_t revision, const char *name,
                        const cs_entry_t *e, uint32_t n);
 

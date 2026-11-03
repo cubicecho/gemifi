@@ -38,7 +38,13 @@
  * 0x0801EC00 and 0x0801F000: the pages the research draft (devices/
  * m-audio-code61.yaml, hw-map.md) found the stock app never touches, so
  * its per-unit calibration survives and a return to stock finds its own
- * pages intact. Not yet confirmed on hardware. */
+ * pages intact. Not yet confirmed on hardware.
+ * Capacity: one page of live records (the other is the swap target), in
+ * packed v3 records: a worst-case preset (every value changed, a name) is
+ * 276 B, the globals 84 B, so 3 presets + the globals fit (912 B). The third
+ * free page, 0x0801F400, is left alone: with whole-page swaps it adds no
+ * room. Under gemifi's own bootloader the vendor pages are free too, so a
+ * larger layout could use them, but stock-bootloader units can't. */
 #define BOARD_CONFIG_BASE  0x0801EC00u
 #define BOARD_CONFIG_PAGES 2u
 /* (0x0801F800 is the vendor's preset-names page: never use it.) These two

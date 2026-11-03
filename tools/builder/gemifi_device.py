@@ -110,7 +110,7 @@ PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refu
     "analog": ("analog input", "analog inputs", ["cc"],
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
-                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring"]),
+                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center"]),
 }
 PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]
@@ -1414,7 +1414,7 @@ def validate_components(v, dev, data):
     for i, d in enumerate(encs):
         p = f"encoders[{i}]"
         d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
-                                              "ring"], renamed=RENAMED_ENCODER)
+                                              "ring", "ring_center"], renamed=RENAMED_ENCODER)
         if d is None:
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
@@ -1436,8 +1436,9 @@ def validate_components(v, dev, data):
         cc = v.integer(d, "cc", p, 0, 127, default=0, required=vpot is None)
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
         ring = encoder_ring(v, dev, d, p, vpot)
+        center = ring_center(v, dev, d, p, vpot)
         dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
-                                cc=cc, steps=spd, mcu=vpot, ring=ring))
+                                cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center))
     check_mcu_unique(v, dev, data)
 
 
@@ -1520,6 +1521,21 @@ def encoder_ring(v, dev, d, p, vpot):
             out.append(idx)
             dev.leds[idx].used_by.append(("ring", None))
     return out
+
+
+def ring_center(v, dev, d, p, vpot):
+    """ring_center: the LED under an MCU V-Pot (lit by bit 6 of its ring value). -> LED index or None."""
+    if d.get("ring_center") is None:
+        return None
+    line = d.line_of("ring_center")
+    if vpot is None:
+        if dev.mcu is not None or "mcu" not in d:
+            v.err(f"{p}.ring_center", line, "ring_center: belongs to an MCU V-Pot: give the encoder `mcu: vpot_N`")
+        return None
+    idx = v.ref(d, "ring_center", f"{p}.ring_center", line, "LED", "LEDs")
+    if idx is not None:
+        dev.leds[idx].used_by.append(("ring", None))
+    return idx
 
 
 def check_mcu_unique(v, dev, data):
@@ -2354,14 +2370,15 @@ def feedback_tables(dev):
                  f"{{ {mcu_arr(dev.encoders)} }};")
         rings = []
         for i, e in enumerate(dev.encoders):
+            center = "GM_RING_NO_CENTER" if getattr(e, "ring_center", None) is None else str(e.ring_center)
             if e.ring:
                 c.append(f"static const uint8_t ring_{i}[{len(e.ring)}] = {{ {', '.join(map(str, e.ring))} }}; "
                          f"/* {_comment(e.id)} */")
-                rings.append(f"{{ ring_{i}, {len(e.ring)} }}")
+                rings.append(f"{{ ring_{i}, {len(e.ring)}, {center} }}")
             else:
-                rings.append("{ 0, 0 }")
+                rings.append(f"{{ 0, 0, {center} }}")
         c.append(f"const gm_ring_t gm_encoder_ring[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
-                 f"{{ {', '.join(rings) or '{ 0, 0 }'} }};")
+                 f"{{ {', '.join(rings) or '{ 0, 0, GM_RING_NO_CENTER }'} }};")
         c.append("")
     return c
 

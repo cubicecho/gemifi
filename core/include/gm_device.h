@@ -62,14 +62,19 @@ enum {
     GM_HUB_SWMATRIX = 8,  /* switch matrix scanned from the scan interrupt:
                              inputs only. Pin n = row n / n_cols, column
                              n % n_cols; reads 1 = closed                   */
+    GM_HUB_RGB_SERIAL = 9, /* RGB LEDs behind a serial link (the M-Audio Code
+                             pad LED board, 115200 baud on `data`): outputs
+                             only, pin n = LED n / 3, colour n % 3 (0 red,
+                             1 green, 2 blue); sent from the main loop     */
 };
 
 typedef struct {
     uint8_t type;
-    uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each) */
+    uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
+                             RGB_SERIAL: LEDs                              */
     uint8_t n_sel;        /* MUX: select lines (3 = 4051, 4 = 4067)        */
     uint8_t i2c_addr;     /* MCP23017 / PCF8574                            */
-    gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO               */
+    gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO, RGB_SERIAL TX */
     gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK, TM1628 CLK            */
     gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low),
                              TM1628 STB                                    */
@@ -89,7 +94,8 @@ typedef struct {
     const gm_pin_t *cols;
     uint8_t n_rows;
     uint8_t n_cols;
-    uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16)     */
+    uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16);
+                             RGB_SERIAL: bytes of LED bits (3 per LED)     */
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
     uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
@@ -316,6 +322,7 @@ extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
 typedef struct {
     gm_pin_t pin;                /* MCU ADC pin, or a MUX hub channel; INVERT = 4095 - reading */
     const char *name;
+    int8_t led;                  /* index into leds, lit while the pad is held, or -1 */
 } gm_pad_t;
 
 extern const gm_pad_t gm_pads[];             /* GM_N_PADS entries */

@@ -295,6 +295,46 @@ const hal_fw_ops_t *hal_fw_ops(void)
     return 0;                       /* the bootloader takes uploads */
 }
 
+/* rgb_serial (core/README.md): USART2 TX on PA2, sent by DMA1 channel 7 so
+ * the main loop never waits on it. */
+#define SERIAL_TX_PIN 2u                    /* PA2 */
+static uint8_t serial_buf[16];
+static uint8_t serial_open;
+
+int hal_serial_open(uint16_t tx_pin, uint32_t baud)
+{
+    if (tx_pin != SERIAL_TX_PIN || baud == 0)
+        return 0;
+    RCC_APB2ENR |= RCC_APB2_IOP(0);
+    RCC_APB1ENR |= RCC_APB1_USART2;
+    RCC_AHBENR |= RCC_AHBENR_DMA1EN;
+    GPIO_CRL(0) = (GPIO_CRL(0) & ~(0xFu << 8)) | (0xBu << 8);   /* AF push-pull, 50 MHz */
+    uint32_t pclk1 = sys_hclk_hz / 2u;                          /* APB1 = HCLK / 2 */
+    USART2_BRR = (pclk1 + baud / 2u) / baud;
+    USART2_CR3 = USART_CR3_DMAT;
+    USART2_CR1 = USART_CR1_UE | USART_CR1_TE;
+    DMA1_CCR(7) = 0;
+    DMA1_CPAR(7) = (uint32_t)&USART2_DR;
+    serial_open = 1;
+    return 1;
+}
+
+int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
+{
+    if (!serial_open || tx_pin != SERIAL_TX_PIN || n == 0 || n > sizeof serial_buf)
+        return 0;
+    if ((DMA1_CCR(7) & DMA_CCR_EN) && DMA1_CNDTR(7) != 0)
+        return 0;                           /* the last write is still going */
+    DMA1_CCR(7) = 0;
+    DMA1_IFCR = 0xFu << 24;                 /* clear channel 7's flags */
+    for (uint32_t i = 0; i < n; i++)
+        serial_buf[i] = b[i];
+    DMA1_CMAR(7) = (uint32_t)serial_buf;
+    DMA1_CNDTR(7) = n;
+    DMA1_CCR(7) = DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_EN;
+    return 1;
+}
+
 /* Which bootloader sits below us: gemifi's marks itself at 0x08000130
  * (gemifi_image.h); anything else is taken to be M-Audio's. */
 uint16_t hal_extra_caps(void)

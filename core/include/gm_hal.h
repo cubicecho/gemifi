@@ -90,6 +90,14 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
+/* A transmit-only serial port on tx_pin (8N1), for rgb_serial hubs.
+ * hal_serial_open sets it up (0 if tx_pin can't be one); hal_serial_write
+ * starts sending n <= 16 bytes in the background, copied, and returns 0
+ * without sending if the last write is still going. Weak defaults that do
+ * nothing are in core/src/vpin.c. */
+int hal_serial_open(uint16_t tx_pin, uint32_t baud);
+int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
+
 /* A free-running CPU cycle counter, for timing the scan (gm_scan_part_max).
  * A weak default returning 0 is in core/src/controller.c. */
 uint32_t hal_cycles(void);

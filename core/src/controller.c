@@ -25,7 +25,12 @@
 #include "gm_feedback.h"
 #include "gm_mcu.h"
 
-#define BTN_SAMPLE_MS   5u
+#define BTN_SAMPLE_MS   1u
+/* A press counts as soon as it is read, so a quick tap is never lost; a
+ * release counts once the button has read released for BTN_STABLE samples in
+ * a row (10 ms), which rides out contact bounce (4 ms was too short on the
+ * Code 61: taps sometimes counted twice). */
+#define BTN_STABLE      10u
 #define ANALOG_MS       2u          /* one analog input per period */
 #define LED_MS          10u
 #define I2C_MS          1u
@@ -50,6 +55,7 @@ static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick 
 static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
 static uint8_t has_i2c_hubs;
 static uint8_t has_tm_hubs;         /* TM1628: written after each LED update */
+static uint8_t has_rgb_hubs;        /* RGB_SERIAL: polled on every pass */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
@@ -481,7 +487,8 @@ static void keys_off(void)
 /* ---- buttons ----------------------------------------------------------- */
 
 #if GM_N_BUTTONS > 0
-static uint64_t btn_stable, btn_last, btn_toggled;   /* bit = button (at most 64) */
+static uint64_t btn_stable, btn_toggled;   /* bit = button (at most 64) */
+static uint64_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
@@ -720,9 +727,17 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 static void buttons_sample(void)
 {
     uint64_t s = read_buttons();
-    if (s == btn_last && s != btn_stable) {
-        uint64_t diff = s ^ btn_stable;
-        btn_stable = s;
+    uint64_t recent = s;            /* pressed in any of the last BTN_STABLE samples */
+    for (uint32_t k = 0; k < BTN_STABLE - 1u; k++)
+        recent |= btn_hist[k];
+    for (uint32_t k = BTN_STABLE - 1u; k > 1u; k--)
+        btn_hist[k - 1u] = btn_hist[k - 2u];
+    btn_hist[0] = s;
+    uint64_t st = s | (btn_stable & recent);
+    if (st != btn_stable) {
+        uint64_t diff = st ^ btn_stable;
+        btn_stable = st;
+        s = st;
         for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             if (!((diff >> i) & 1u))
                 continue;
@@ -737,7 +752,6 @@ static void buttons_sample(void)
             button_changed(i, (s >> i) & 1u);
         }
     }
-    btn_last = s;
 }
 
 /* Called once per elapsed millisecond. */
@@ -1250,6 +1264,20 @@ static void leds_update(uint32_t now)
         led_show(&gm_device.leds[li], MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
     }
+#if GM_N_PADS > 0
+    for (uint32_t i = 0; i < NP; i++) {
+        int8_t li = gm_pads[i].led;
+        if (li < 0 || li >= (int8_t)gm_device.n_leds)
+            continue;
+        uint32_t level = pad_state[i] == PAD_ON;
+#if GM_HOST_LEDS
+        local[li] = (uint8_t)level;
+        has_local[li] = 1;
+#else
+        led_show(&gm_device.leds[li], MODE_LED((uint32_t)li, level, now), blink_on);
+#endif
+    }
+#endif
 #if GM_N_MODES > 0 && !GM_HOST_LEDS
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         uint32_t lv = mode_led(i, 0xFFu, now);    /* also LEDs no button drives */
@@ -1483,6 +1511,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
             has_matrices = 1;
         if (t == GM_HUB_TM1628)
             has_tm_hubs = 1;
+        if (t == GM_HUB_RGB_SERIAL)
+            has_rgb_hubs = 1;
     }
     vpin_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
@@ -1670,6 +1700,8 @@ void gm_poll(void)
         if (has_tm_hubs)
             vpin_flush_tm1628();
     }
+    if (has_rgb_hubs)
+        vpin_poll_rgb_serial(now);
     poll_part_done(5, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;

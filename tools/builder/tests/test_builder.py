@@ -292,6 +292,33 @@ class TestValidation(unittest.TestCase):
                          r"sn74hc595, which can't be an input")
         self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
+    def test_rgb_serial(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(hub="tx_pin: PA2, count: 4", leds=""):
+            return (stm + f"rgb_serial:\n  - {{ id: p, {hub} }}\n"
+                    "leds:\n  - { id: l0, pin: { rgb_serial: p, number: 0 }, pin2: { rgb_serial: p, number: 1 }, "
+                    "pin3: { rgb_serial: p, number: 2 } }\n" + leds)
+
+        self.assertClean(dev())
+        # pin = LED * 3 + colour, up to count * 3 - 1
+        self.assertClean(dev(leds="  - { id: l1, pin: { rgb_serial: p, number: 11 } }\n"))
+        self.assertError(dev(leds="  - { id: l1, pin: { rgb_serial: p, number: 12 } }\n"),
+                         r"pin 12 is out of range for hub 'p' \(rgb_serial \(4 LEDs x 3; pin = LED \* 3 \+ colour")
+        self.assertError(dev(hub="tx_pin: PA2, count: 33"), r"33 is out of range \(1\.\.32\)")
+        self.assertError(dev(hub="tx_pin: PA3"), r"only PA2 \(USART2 TX\) is supported")
+        self.assertError(dev(hub="count: 4"), r"is required", path="rgb_serial[0].tx_pin")
+        self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
+                         r"rgb_serial, which can't be an input")
+        self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
+        # its RAM goes in with the TM1628s'; 16 LEDs default = 6 bytes
+        dev_, diags = load(dev(hub="tx_pin: PA2"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        files = gd.generate(dev_, "t.yaml")
+        self.assertIn("#define GM_TM1628_RAM 6 ", files["gm_device_config.h"])
+        self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
+
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         share = "{ number: %s, allow_other_uses: true }"
@@ -1504,8 +1531,8 @@ class TestPads(unittest.TestCase):
         for d in ("CHANNEL_DEFAULT 0", "CURVE_DEFAULT 0 /* normal */", "THRESHOLD_DEFAULT 200",
                   "RELEASE_DEFAULT 100", "FULL_DEFAULT 3000", "WINDOW_DEFAULT 3 /* ms */", "RETRIGGER_DEFAULT 20"):
             self.assertIn(f"#define GM_PAD_{d}", h)
-        self.assertIn('{ { 1, 0, 0 }, "Kick" }, /* kick: m.0 */', c)
-        self.assertIn('{ { 0, 0, 1 }, "Snare" }, /* snare: PA1 */', c)
+        self.assertIn('{ { 1, 0, 0 }, "Kick", -1 }, /* kick: m.0 */', c)
+        self.assertIn('{ { 0, 0, 1 }, "Snare", -1 }, /* snare: PA1 */', c)
         self.assertIn("gm_pad_note_defaults[GM_N_PADS] = { 36, 38 };", c)
         # stored values: 2 notes + channel, curve, aftertouch per preset; 5 sensing globals
         n_preset, n_global = gd.stored_counts(dev)
@@ -1516,6 +1543,13 @@ class TestPads(unittest.TestCase):
         self.assertIn("#define GM_N_PADS 0", files["gm_device_config.h"])
         self.assertNotIn("GM_PAD_", files["gm_device_config.h"])
         self.assertNotIn("gm_pads", files["gm_device_config.c"])
+
+    def test_pad_led(self):
+        text = PADS_STM.replace("note: 36 }", "note: 36, led: kl }") + \
+            "leds:\n  - { id: kl, pin: PB5 }\n"
+        _, files = self.gen(text)
+        self.assertIn('{ { 1, 0, 0 }, "Kick", 0 }, /* kick: m.0 */', files["gm_device_config.c"])
+        self.assertError(PADS_STM.replace("note: 36 }", "note: 36, led: nope }"), r"nope")
 
     def test_settings(self):
         _, files = self.gen(PADS_STM + "pad_settings: { channel: 10, curve: hard, aftertouch: true, threshold: 400, "

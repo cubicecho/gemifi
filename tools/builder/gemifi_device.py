@@ -204,7 +204,7 @@ COMP_STR_MAX = 31               # sysex.md lstring
 HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc4051": "GM_HUB_MUX",
             "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574",
             "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX",
-            "tm1628": "GM_HUB_TM1628"}
+            "tm1628": "GM_HUB_TM1628", "rgb_serial": "GM_HUB_RGB_SERIAL"}
 HUB_TYPES = list(HUB_ENUM)
 HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
@@ -215,7 +215,11 @@ MUX_SELECT = {"cd74hc4051": 3, "cd74hc4067": 4}
 # TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
 TM_HUBS = {"tm1628"}
 TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
-OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574", "tm1628"}
+# RGB LEDs behind a serial link (the M-Audio Code pad LED board): pin = LED * 3 + colour
+# (0 red, 1 green, 2 blue). Kept in the same RAM as the TM1628s, sent from the main loop.
+RGB_SERIAL_MAX = 32
+RAM_HUBS = TM_HUBS | {"rgb_serial"}
+OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574", "tm1628", "rgb_serial"}
 IN_HUBS = {"sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "switch_matrix"}
 # A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
 ROW_HUBS = {"decoder"}
@@ -229,13 +233,14 @@ HUB_KEYS = {
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
+    "rgb_serial": ["id", "tx_pin", "count"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
 CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data",
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3",
              # TM1628 lines only pair with each other: they're bit-banged from the main loop
-             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
+             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
@@ -467,6 +472,10 @@ class Platform:
         """-> list of (level, message) for using pin num as role ('in' | 'out' | 'analog')."""
         return []
 
+    def serial_tx(self, num):
+        """-> None if num can be an rgb_serial tx_pin, else why not."""
+        return f"rgb_serial isn't supported on {self.name} yet"
+
     def adc(self, num):
         """-> (ok, warning or None)"""
         return False, None
@@ -536,6 +545,10 @@ class Stm32F1Platform(Platform):
 
     def adc(self, num):
         return num in self.ADC, None
+
+    def serial_tx(self, num):
+        """-> None if num can be an rgb_serial tx_pin, else why not."""
+        return None if num == 2 else "only PA2 (USART2 TX) is supported as an rgb_serial tx_pin on stm32f1"
 
 
 class EspPlatform(Platform):
@@ -1025,7 +1038,9 @@ class _V:
         if not 0 <= n < hub.n_pins:
             what = "channel" if hub.type in MUX_HUBS else "pin"
             extra = f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)" if hub.type in SHIFT_HUBS else \
-                f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)" if hub.type in TM_HUBS else ""
+                f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)" if hub.type in TM_HUBS else \
+                f" ({hub.chain} LEDs x 3; pin = LED * 3 + colour, 0 red 1 green 2 blue)" \
+                if hub.type == "rgb_serial" else ""
             self.err(path, line, f"{what} {n} is out of range for hub '{hub.id}' ({hub.type}{extra}: "
                                  f"0..{hub.n_pins - 1})")
             return None
@@ -1823,6 +1838,15 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.clock = ctl("clk_pin", "out")
         hub.data = ctl("dio_pin", "out", open_drain=True)
         hub.latch = ctl("stb_pin", "out")
+    elif typ == "rgb_serial":
+        hub.chain = v.integer(h, "count", p, 1, RGB_SERIAL_MAX, default=16)
+        hub.n_pins = 3 * hub.chain
+        hub.ram_bytes = (hub.n_pins + 7) // 8
+        hub.data = ctl("tx_pin", "out")
+        if hub.data.hub == 0 and h.get("tx_pin") is not None:
+            why = v.plat.serial_tx(hub.data.num)
+            if why:
+                v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
     elif typ in MUX_HUBS:
         hub.n_sel = MUX_SELECT[typ]
         hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
@@ -2157,7 +2181,7 @@ def validate_velocity(v, d, path, kind):
 # after inverted:; window and retrigger in ms.
 PAD_DEFAULTS = {"channel": 0, "curve": 0, "aftertouch": 0, "threshold": 200, "release": 100, "full": 3000,
                 "window": 3, "retrigger": 20}
-PAD_KEYS = ["id", "name", "pin", "note"]
+PAD_KEYS = ["id", "name", "pin", "note", "led"]
 PAD_SETTINGS_KEYS = list(PAD_DEFAULTS)
 MAX_PADS = 128
 
@@ -2177,7 +2201,15 @@ def validate_pads(v, dev, data):
         unique_name(v, names, "pad", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", why="a pad is read with the ADC")
         note = v.integer(d, "note", p, 0, 127, default=0, required=True)
-        dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, path=p,
+        led = -1
+        if d.get("led") is not None:           # lit while the pad is held
+            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
+            if idx is not None and idx > 127:
+                v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
+            elif idx is not None:
+                led = idx
+                dev.leds[led].used_by.append(("pad", None))
+        dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, led=led, path=p,
                             line=d.line_of("note") if "note" in d else d.line))
     if len(dev.pads) > MAX_PADS:
         v.err("pads", data.line_of("pads"), f"{len(dev.pads)} pads: at most {MAX_PADS}")
@@ -2963,9 +2995,9 @@ def generate(dev, source="device.yaml"):
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
          f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}"]
-    tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in TM_HUBS)
+    tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
-        h.append(f"#define GM_TM1628_RAM {tm_ram} /* display RAM bytes of all tm1628 hubs */")
+        h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
     if m and getattr(m, "vel_fast", None) is not None:
         h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
     if m and getattr(m, "vel_slow", None) is not None:
@@ -3023,6 +3055,7 @@ def generate(dev, source="device.yaml"):
                   *extra,
                   *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
                      f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
+                  *([f"        .ram_bytes = {hb.ram_bytes},"] if hb.type == "rgb_serial" else []),
                   "    },"]
         c += ["};", ""]
     if dev.buttons:
@@ -3123,7 +3156,7 @@ def pad_tables(dev):
     if not dev.pads:
         return []
     return ["const gm_pad_t gm_pads[GM_N_PADS] = {",
-            *[f"    {{ {x.pin.c()}, {c_str(x.name)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
+            *[f"    {{ {x.pin.c()}, {c_str(x.name)}, {x.led} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
               for x in dev.pads],
             "};",
             "const int32_t gm_pad_note_defaults[GM_N_PADS] = { " + ", ".join(str(x.note) for x in dev.pads) + " };",

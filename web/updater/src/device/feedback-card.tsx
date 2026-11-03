@@ -17,15 +17,20 @@ import {
   type Component,
   DISPLAY_TYPE_NAMES,
   type DisplayComponent,
+  ENCODER_MODE_NAMES,
   type EncoderComponent,
   FEEDBACK_VALUE_MAX,
   fbLedPayload,
   fbRingPayload,
   fbTextPayload,
   fbValuePayload,
+  hostDrives,
   LED_COLOURS_NAMES,
+  LED_OWNER_NAMES,
   type LedComponent,
   RING_MODE_NAMES,
+  TAKEOVER_NAMES,
+  takesValue,
   type ValueKind,
 } from '../protocol/feedback.ts';
 import { noteName } from '../protocol/schema.ts';
@@ -219,6 +224,24 @@ function DisplayControl({ display, feedback }: { display: DisplayComponent; feed
 }
 
 /**
+ * @param names - A field's names by value.
+ * @param value - The value.
+ * @param field - The field's name, for a value with no name.
+ * @returns The value's name.
+ */
+function nameOf(names: Readonly<Record<number, string>>, value: number, field: string): string {
+  return names[value] ?? `${field} ${value}`;
+}
+
+/**
+ * @param text - Some words.
+ * @returns They, with the first letter in capitals.
+ */
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
  * @param component - A component.
  * @returns Its kind's extra facts, in a reader's words.
  */
@@ -229,13 +252,16 @@ function details(component: Component): string {
     case ComponentKind.KeyMatrix:
       return `${component.keys} keys from ${noteName(component.firstNote) || component.firstNote}`;
     case ComponentKind.Analog:
-      return '';
+      return component.takeover === null ? '' : capitalise(nameOf(TAKEOVER_NAMES, component.takeover, 'takeover'));
     case ComponentKind.Encoder: {
       const centre = component.center === null ? '' : `, centre LED ${component.center}`;
-      return component.ring === 0 ? 'No ring' : `Ring of ${component.ring}${centre}`;
+      const ring = component.ring === 0 ? 'No ring' : `Ring of ${component.ring}${centre}`;
+      return component.mode === null ? ring : `${ring}, ${nameOf(ENCODER_MODE_NAMES, component.mode, 'mode')}`;
     }
-    case ComponentKind.Led:
-      return LED_COLOURS_NAMES[component.colours] ?? `Colours ${component.colours}`;
+    case ComponentKind.Led: {
+      const colours = LED_COLOURS_NAMES[component.colours] ?? `Colours ${component.colours}`;
+      return component.owner === null ? colours : `${colours}, ${nameOf(LED_OWNER_NAMES, component.owner, 'owner')}`;
+    }
     case ComponentKind.Display: {
       const type = DISPLAY_TYPE_NAMES[component.type] ?? `type ${component.type}`;
       return `${component.cols} × ${component.rows}, ${type}`;
@@ -250,18 +276,20 @@ function details(component: Component): string {
  * @returns The controls.
  */
 function ComponentControls({ component, feedback }: { component: Component; feedback: FeedbackController }) {
+  // FB_VALUE does nothing to a relative encoder or an analog input without pick-up, and FB_LED
+  // nothing to an owner: local LED (§4.6.1), so those get no control.
   switch (component.kind) {
     case ComponentKind.Analog:
-      return <ValueControl component={component} feedback={feedback} />;
+      return takesValue(component) ? <ValueControl component={component} feedback={feedback} /> : null;
     case ComponentKind.Encoder:
       return (
         <div className="flex flex-col gap-2">
-          <ValueControl component={component} feedback={feedback} />
+          {takesValue(component) ? <ValueControl component={component} feedback={feedback} /> : null}
           {component.ring === 0 ? null : <RingControl encoder={component} feedback={feedback} />}
         </div>
       );
     case ComponentKind.Led:
-      return <LedControl led={component} feedback={feedback} />;
+      return hostDrives(component) ? <LedControl led={component} feedback={feedback} /> : null;
     case ComponentKind.Display:
       return <DisplayControl display={component} feedback={feedback} />;
     default:

@@ -241,11 +241,28 @@ def feedback_vectors():
        kind=gp.KIND_KEYS, index=0)
     comp("GET_COMPONENT reply: key matrix 0 of 1, 61 keys from note 36", 82,
          C(gp.KIND_KEYS, 0, 1, "keys", "Keys", "", keys=61, first_note=36))
-    comp("GET_COMPONENT reply: analog 8 of 9, role 'track_volume'", 83,
+    comp("GET_COMPONENT reply: analog 8 of 9, role 'track_volume', takeover 1 (pick-up)", 83,
+         C(gp.KIND_ANALOG, 8, 9, "fader9", "Master", "track_volume", takeover=gp.TAKEOVER_PICKUP))
+    comp("GET_COMPONENT reply: encoder 0 of 8, ring of 11 LEDs, centre LED 200, role 'device_param_1', "
+         "mode 0 (absolute)", 84,
+         C(gp.KIND_ENCODER, 0, 8, "enc1", "Encoder 1", "device_param_1", ring=11, center=200, mode=gp.ENC_ABSOLUTE))
+    comp("GET_COMPONENT reply: LED 4 of 5, bicolour, owner 2 (local)", 85,
+         C(gp.KIND_LED, 4, 5, "rec_led", "Record LED", "", colours=2, owner=gp.OWNER_LOCAL))
+    comp("GET_COMPONENT reply: analog 1 of 9, takeover 0 (none)", 89,
+         C(gp.KIND_ANALOG, 1, 9, "knob", "Knob", "", takeover=gp.TAKEOVER_NONE))
+    comp("GET_COMPONENT reply: encoder 3 of 8, no ring, mode 3 (Mackie V-Pot)", 90,
+         C(gp.KIND_ENCODER, 3, 8, "pan", "Pan", "vpot_1", ring=0, center=gp.NONE_INDEX, mode=gp.ENC_MCU))
+    comp("GET_COMPONENT reply: encoder 4 of 8, no ring, mode 2 (relative offset 64)", 91,
+         C(gp.KIND_ENCODER, 4, 8, "dial", "Dial", "", ring=0, center=gp.NONE_INDEX, mode=gp.ENC_REL_OFFSET))
+    comp("GET_COMPONENT reply: LED 0 of 5, single, owner 1 (host)", 92,
+         C(gp.KIND_LED, 0, 5, "play_led", "Play LED", "play", colours=1, owner=gp.OWNER_HOST))
+    # Older F3 firmware: no takeover / mode / owner (fields null = not reported, sysex.md 4.6.1 "Added fields")
+    comp("GET_COMPONENT reply from older firmware: analog 8 of 9, no takeover byte", 93,
          C(gp.KIND_ANALOG, 8, 9, "fader9", "Master", "track_volume"))
-    comp("GET_COMPONENT reply: encoder 0 of 8, ring of 11 LEDs, centre LED 200, role 'device_param_1'", 84,
+    comp("GET_COMPONENT reply from older firmware: encoder 0 of 8, ring of 11, centre 200, no mode byte", 94,
          C(gp.KIND_ENCODER, 0, 8, "enc1", "Encoder 1", "device_param_1", ring=11, center=200))
-    comp("GET_COMPONENT reply: LED 4 of 5, bicolour", 85, C(gp.KIND_LED, 4, 5, "rec_led", "Record LED", "", colours=2))
+    comp("GET_COMPONENT reply from older firmware: LED 4 of 5, bicolour, no owner byte", 95,
+         C(gp.KIND_LED, 4, 5, "rec_led", "Record LED", "", colours=2))
     comp("GET_COMPONENT reply: display 0 of 1, 16x2 characters", 86,
          C(gp.KIND_DISPLAY, 0, 1, "lcd", "LCD", "track_name", cols=16, rows=2, display_type=1))
     comp("GET_COMPONENT reply: analog with 31-character id, name and role (the lstring maximum)", 87,
@@ -272,6 +289,13 @@ def feedback_vectors():
        col=4, text="Track 1")
     fr("FB_RELEASE what 0 (everything)", gp.FB_RELEASE, 0, gp.fb_release(gp.REL_ALL), what=gp.REL_ALL)
     fr("FB_RELEASE what 1 (LEDs)", gp.FB_RELEASE, 0, gp.fb_release(gp.REL_LEDS), what=gp.REL_LEDS)
+    booted = gp.Hello(role=gp.ROLE_APP, board_id=0x3F10, fw_version=0x01020000, proto_version=1, max_chunk=0,
+                      caps=gp.CAP_CONFIG | gp.CAP_LOG | gp.CAP_EVENT | gp.CAP_PRESETS | gp.CAP_FEEDBACK,
+                      uid=bytes(range(0x10, 0x1C)), node="feedback-test")
+    fr("BOOTED (unsolicited): app, board 0x3F10, v1.2.0, caps CONFIG|LOG|EVENT|PRESETS|FEEDBACK, uid "
+       "101112131415161718191A1B, node 'feedback-test'", gp.BOOTED, 9, gp.build_booted(booted),
+       role=booted.role, board_id=booted.board_id, fw_version=booted.fw_version, proto_version=1, max_chunk=0,
+       caps=booted.caps, uid=booted.uid.hex().upper(), node=booted.node)
     return {
         "_comment": [
             "Host feedback (sysex.md 4.6): GET_COMPONENT 0x11 (HELLO caps bit 6 = 64); notifications 0x20-0x3F",
@@ -280,6 +304,10 @@ def feedback_vectors():
             "GET_COMPONENT reply: status, kind, index u14, count u14, id, name, role (lstring: u8 len 0..31 + ASCII),",
             "then by kind: 1 button led u14 | 2 keys keys u14, first_note | 3 analog - | 4 encoder ring, center u14 |",
             "5 LED colours | 6 display cols, rows, type. 0x3FFF = no LED (fields show it as null).",
+            "Added fields, one byte each after those: analog takeover (0 none, 1 pick-up), encoder mode (0 absolute,",
+            "1 relative two's complement, 2 relative offset, 3 Mackie V-Pot), LED owner (0 host_then_local, 1 host,",
+            "2 local). Older firmware leaves them out: the fields show null (not reported).",
+            "BOOTED 0x64 (sysex.md 4.6.3): unsolicited, a HELLO reply's fields without the status byte.",
         ],
         "cap_feedback": gp.CAP_FEEDBACK,
         "none_index": gp.NONE_INDEX,

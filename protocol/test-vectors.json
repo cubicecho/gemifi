@@ -1401,7 +1401,11 @@
    "are never answered; seq is ignored (the host tool sends 0).",
    "GET_COMPONENT reply: status, kind, index u14, count u14, id, name, role (lstring: u8 len 0..31 + ASCII),",
    "then by kind: 1 button led u14 | 2 keys keys u14, first_note | 3 analog - | 4 encoder ring, center u14 |",
-   "5 LED colours | 6 display cols, rows, type. 0x3FFF = no LED (fields show it as null)."
+   "5 LED colours | 6 display cols, rows, type. 0x3FFF = no LED (fields show it as null).",
+   "Added fields, one byte each after those: analog takeover (0 none, 1 pick-up), encoder mode (0 absolute,",
+   "1 relative two's complement, 2 relative offset, 3 Mackie V-Pot), LED owner (0 host_then_local, 1 host,",
+   "2 local). Older firmware leaves them out: the fields show null (not reported).",
+   "BOOTED 0x64 (sysex.md 4.6.3): unsolicited, a HELLO reply's fields without the status byte."
   ],
   "cap_feedback": 64,
   "none_index": 16383,
@@ -1489,11 +1493,11 @@
     }
    },
    {
-    "desc": "GET_COMPONENT reply: analog 8 of 9, role 'track_volume'",
+    "desc": "GET_COMPONENT reply: analog 8 of 9, role 'track_volume', takeover 1 (pick-up)",
     "cmd": 81,
     "seq": 83,
-    "payload": "00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65",
-    "frame": "F0 7D 67 6D 01 51 53 21 00 00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65 25 F7",
+    "payload": "00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65 01",
+    "frame": "F0 7D 67 6D 01 51 53 22 00 00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65 01 27 F7",
     "fields": {
      "status": 0,
      "kind": 3,
@@ -1501,15 +1505,16 @@
      "count": 9,
      "id": "fader9",
      "name": "Master",
-     "role": "track_volume"
+     "role": "track_volume",
+     "takeover": 1
     }
    },
    {
-    "desc": "GET_COMPONENT reply: encoder 0 of 8, ring of 11 LEDs, centre LED 200, role 'device_param_1'",
+    "desc": "GET_COMPONENT reply: encoder 0 of 8, ring of 11 LEDs, centre LED 200, role 'device_param_1', mode 0 (absolute)",
     "cmd": 81,
     "seq": 84,
-    "payload": "00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01",
-    "frame": "F0 7D 67 6D 01 51 54 27 00 00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01 30 F7",
+    "payload": "00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01 00",
+    "frame": "F0 7D 67 6D 01 51 54 28 00 00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01 00 31 F7",
     "fields": {
      "status": 0,
      "kind": 4,
@@ -1519,15 +1524,16 @@
      "name": "Encoder 1",
      "role": "device_param_1",
      "ring": 11,
-     "center": 200
+     "center": 200,
+     "mode": 0
     }
    },
    {
-    "desc": "GET_COMPONENT reply: LED 4 of 5, bicolour",
+    "desc": "GET_COMPONENT reply: LED 4 of 5, bicolour, owner 2 (local)",
     "cmd": 81,
     "seq": 85,
-    "payload": "00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02",
-    "frame": "F0 7D 67 6D 01 51 55 1B 00 00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02 05 F7",
+    "payload": "00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02 02",
+    "frame": "F0 7D 67 6D 01 51 55 1C 00 00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02 02 08 F7",
     "fields": {
      "status": 0,
      "kind": 5,
@@ -1536,7 +1542,135 @@
      "id": "rec_led",
      "name": "Record LED",
      "role": "",
-     "colours": 2
+     "colours": 2,
+     "owner": 2
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply: analog 1 of 9, takeover 0 (none)",
+    "cmd": 81,
+    "seq": 89,
+    "payload": "00 03 01 00 09 00 04 6B 6E 6F 62 04 4B 6E 6F 62 00 00",
+    "frame": "F0 7D 67 6D 01 51 59 12 00 00 03 01 00 09 00 04 6B 6E 6F 62 04 4B 6E 6F 62 00 00 06 F7",
+    "fields": {
+     "status": 0,
+     "kind": 3,
+     "index": 1,
+     "count": 9,
+     "id": "knob",
+     "name": "Knob",
+     "role": "",
+     "takeover": 0
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply: encoder 3 of 8, no ring, mode 3 (Mackie V-Pot)",
+    "cmd": 81,
+    "seq": 90,
+    "payload": "00 04 03 00 08 00 03 70 61 6E 03 50 61 6E 06 76 70 6F 74 5F 31 00 7F 7F 03",
+    "frame": "F0 7D 67 6D 01 51 5A 19 00 00 04 03 00 08 00 03 70 61 6E 03 50 61 6E 06 76 70 6F 74 5F 31 00 7F 7F 03 18 F7",
+    "fields": {
+     "status": 0,
+     "kind": 4,
+     "index": 3,
+     "count": 8,
+     "id": "pan",
+     "name": "Pan",
+     "role": "vpot_1",
+     "ring": 0,
+     "center": null,
+     "mode": 3
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply: encoder 4 of 8, no ring, mode 2 (relative offset 64)",
+    "cmd": 81,
+    "seq": 91,
+    "payload": "00 04 04 00 08 00 04 64 69 61 6C 04 44 69 61 6C 00 00 7F 7F 02",
+    "frame": "F0 7D 67 6D 01 51 5B 15 00 00 04 04 00 08 00 04 64 69 61 6C 04 44 69 61 6C 00 00 7F 7F 02 6E F7",
+    "fields": {
+     "status": 0,
+     "kind": 4,
+     "index": 4,
+     "count": 8,
+     "id": "dial",
+     "name": "Dial",
+     "role": "",
+     "ring": 0,
+     "center": null,
+     "mode": 2
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply: LED 0 of 5, single, owner 1 (host)",
+    "cmd": 81,
+    "seq": 92,
+    "payload": "00 05 00 00 05 00 08 70 6C 61 79 5F 6C 65 64 08 50 6C 61 79 20 4C 45 44 04 70 6C 61 79 01 01",
+    "frame": "F0 7D 67 6D 01 51 5C 1F 00 00 05 00 00 05 00 08 70 6C 61 79 5F 6C 65 64 08 50 6C 61 79 20 4C 45 44 04 70 6C 61 79 01 01 78 F7",
+    "fields": {
+     "status": 0,
+     "kind": 5,
+     "index": 0,
+     "count": 5,
+     "id": "play_led",
+     "name": "Play LED",
+     "role": "play",
+     "colours": 1,
+     "owner": 1
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply from older firmware: analog 8 of 9, no takeover byte",
+    "cmd": 81,
+    "seq": 93,
+    "payload": "00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65",
+    "frame": "F0 7D 67 6D 01 51 5D 21 00 00 03 08 00 09 00 06 66 61 64 65 72 39 06 4D 61 73 74 65 72 0C 74 72 61 63 6B 5F 76 6F 6C 75 6D 65 2F F7",
+    "fields": {
+     "status": 0,
+     "kind": 3,
+     "index": 8,
+     "count": 9,
+     "id": "fader9",
+     "name": "Master",
+     "role": "track_volume",
+     "takeover": null
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply from older firmware: encoder 0 of 8, ring of 11, centre 200, no mode byte",
+    "cmd": 81,
+    "seq": 94,
+    "payload": "00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01",
+    "frame": "F0 7D 67 6D 01 51 5E 27 00 00 04 00 00 08 00 04 65 6E 63 31 09 45 6E 63 6F 64 65 72 20 31 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 0B 48 01 3A F7",
+    "fields": {
+     "status": 0,
+     "kind": 4,
+     "index": 0,
+     "count": 8,
+     "id": "enc1",
+     "name": "Encoder 1",
+     "role": "device_param_1",
+     "ring": 11,
+     "center": 200,
+     "mode": null
+    }
+   },
+   {
+    "desc": "GET_COMPONENT reply from older firmware: LED 4 of 5, bicolour, no owner byte",
+    "cmd": 81,
+    "seq": 95,
+    "payload": "00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02",
+    "frame": "F0 7D 67 6D 01 51 5F 1B 00 00 05 04 00 05 00 07 72 65 63 5F 6C 65 64 0A 52 65 63 6F 72 64 20 4C 45 44 00 02 0F F7",
+    "fields": {
+     "status": 0,
+     "kind": 5,
+     "index": 4,
+     "count": 5,
+     "id": "rec_led",
+     "name": "Record LED",
+     "role": "",
+     "colours": 2,
+     "owner": null
     }
    },
    {
@@ -1571,7 +1705,8 @@
      "count": 1,
      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
      "name": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-     "role": "ccccccccccccccccccccccccccccccc"
+     "role": "ccccccccccccccccccccccccccccccc",
+     "takeover": null
     }
    },
    {
@@ -1729,6 +1864,23 @@
     "frame": "F0 7D 67 6D 01 26 00 01 00 01 29 F7",
     "fields": {
      "what": 1
+    }
+   },
+   {
+    "desc": "BOOTED (unsolicited): app, board 0x3F10, v1.2.0, caps CONFIG|LOG|EVENT|PRESETS|FEEDBACK, uid 101112131415161718191A1B, node 'feedback-test'",
+    "cmd": 100,
+    "seq": 9,
+    "payload": "00 10 7E 00 00 08 08 00 01 00 00 6E 00 00 10 11 12 13 14 15 16 00 17 18 19 1A 1B 0D 66 65 65 64 62 61 63 6B 2D 74 65 73 74",
+    "frame": "F0 7D 67 6D 01 64 09 29 00 00 10 7E 00 00 08 08 00 01 00 00 6E 00 00 10 11 12 13 14 15 16 00 17 18 19 1A 1B 0D 66 65 65 64 62 61 63 6B 2D 74 65 73 74 45 F7",
+    "fields": {
+     "role": 0,
+     "board_id": 16144,
+     "fw_version": 16908288,
+     "proto_version": 1,
+     "max_chunk": 0,
+     "caps": 110,
+     "uid": "101112131415161718191A1B",
+     "node": "feedback-test"
     }
    }
   ]

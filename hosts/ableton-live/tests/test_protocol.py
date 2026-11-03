@@ -164,3 +164,46 @@ def test_fb_frames_are_notifications():
     assert frame == hx("F0 7D 67 6D 01 26 00 01 00 00 28 F7")
     f = P.parse_frame(frame)
     assert not f.is_reply and not f.is_unsolicited
+
+
+def test_added_component_fields():
+    """takeover, mode, owner (sysex.md 4.6.1): one byte each after the kind's fields, optional."""
+    a = P.Component(P.KIND_ANALOG, 0, 1, "", "", "", takeover=P.TAKEOVER_PICKUP)
+    assert P.build_component_reply(a) == hx("00 03 00 00 01 00 00 00 00 01")
+    e = P.Component(P.KIND_ENCODER, 0, 1, "", "", "", ring=5, center=200, mode=P.ENC_REL_OFFSET)
+    assert P.build_component_reply(e)[-4:] == hx("05 48 01 02")
+    x = P.Component(P.KIND_LED, 0, 1, "", "", "", colours=2, owner=P.OWNER_LOCAL)
+    assert P.build_component_reply(x)[-2:] == hx("02 02")
+    for c in (a, e, x):
+        got = P.parse_component_reply(P.build_component_reply(c))
+        assert (got.takeover, got.mode, got.owner) == (c.takeover, c.mode, c.owner)
+        assert got.reports_added_fields
+    old = P.parse_component_reply(P.build_component_reply(P.Component(P.KIND_ENCODER, 0, 1, ring=3)))
+    assert old.mode is None and old.takes_value and not old.reports_added_fields
+    assert not P.Component(P.KIND_ANALOG, 0, 1, takeover=P.TAKEOVER_NONE).takes_value
+    assert not P.Component(P.KIND_ENCODER, 0, 1, mode=P.ENC_MCU).takes_value
+    assert P.Component(P.KIND_LED, 0, 1, owner=P.OWNER_LOCAL).local_only
+    assert not P.Component(P.KIND_LED, 0, 1).local_only
+
+
+def test_feedback_vectors(vectors):
+    """The GET_COMPONENT replies and BOOTED in protocol/test-vectors.json's feedback section."""
+    seen = set()
+    for v in vectors["feedback"]["frames"]:
+        f = P.parse_frame(hx(v["frame"]))
+        if f.cmd == P.GET_COMPONENT | P.REPLY and f.payload[0] == P.OK:
+            c = P.parse_component_reply(f.payload)
+            fields = v["fields"]
+            for attr in ("takeover", "mode", "owner"):
+                if attr in fields:
+                    assert getattr(c, attr) == fields[attr], v["desc"]
+                    seen.add((attr, fields[attr] is None))
+            assert P.build_component_reply(c) == f.payload, v["desc"]
+        elif f.cmd == P.BOOTED:
+            h = P.parse_booted(f.payload)
+            assert (h.board_id, h.fw_version, h.caps, h.node) == (
+                v["fields"]["board_id"], v["fields"]["fw_version"], v["fields"]["caps"], v["fields"]["node"])
+            assert h.has_feedback
+            seen.add("booted")
+    assert {"booted", ("takeover", False), ("takeover", True), ("mode", False), ("mode", True),
+            ("owner", False), ("owner", True)} <= seen

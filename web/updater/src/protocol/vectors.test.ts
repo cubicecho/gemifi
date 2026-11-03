@@ -81,6 +81,19 @@ interface ConfigVectors {
   bad_schemas: { desc: string; raw: string; error: string }[];
   frames: { desc: string; cmd: number; seq: number; payload: string; frame: string; fields?: ConfigFields }[];
 }
+/** The decoded fields of a feedback frame that the checks below compare (the rest are checked by tools/host). */
+interface FeedbackFields {
+  status?: number;
+  kind?: number;
+  takeover?: number | null;
+  mode?: number | null;
+  owner?: number | null;
+  board_id?: number;
+  fw_version?: number;
+  caps?: number;
+  uid?: string;
+  node?: string | null;
+}
 /** One frame as the vectors write it. */
 interface VectorFrame {
   desc: string;
@@ -88,6 +101,7 @@ interface VectorFrame {
   seq: number;
   payload: string;
   frame: string;
+  fields?: FeedbackFields;
 }
 interface Vectors {
   config?: ConfigVectors;
@@ -348,16 +362,38 @@ describe.runIf(vectors.feedback !== undefined)('protocol/test-vectors.json feedb
   const frames = Array.isArray(section) ? section : (section?.frames ?? []);
 
   it('frames', () => {
-    for (const { desc, cmd, seq, payload, frame } of frames) {
+    for (const { desc, cmd, seq, payload, frame, fields } of frames) {
       const body = bytesOf(payload);
       expect(Array.from(encodeFrame(cmd, seq, body)), desc).toEqual(bytesOf(frame));
       expect(decodeFrame(bytesOf(frame)), desc).toEqual({ ok: true, frame: { version: 1, cmd, seq, payload: body } });
       const isOkComponentReply = cmd === (Command.GetComponent | REPLY_FLAG) && body[0] === Status.Ok;
       if (isOkComponentReply) {
-        expect(() => parseComponent(body.slice(1)), desc).not.toThrow();
+        const component = parseComponent(body.slice(1));
+        // The added fields (§4.6.1): null when older firmware leaves them out.
+        if (component.kind === 3) {
+          expect(component.takeover, desc).toBe(fields?.takeover);
+        } else if (component.kind === 4) {
+          expect(component.mode, desc).toBe(fields?.mode);
+        } else if (component.kind === 5) {
+          expect(component.owner, desc).toBe(fields?.owner);
+        }
+      }
+      if (cmd === Unsolicited.Booted) {
+        const message = parseDeviceMessage({ version: 1, cmd, seq, payload: body });
+        expect(message?.kind, desc).toBe('booted');
+        const hello = message?.kind === 'booted' ? message.hello : null;
+        expect(hello?.boardId, desc).toBe(fields?.board_id);
+        expect(hello?.fwVersion, desc).toBe(fields?.fw_version);
+        expect(hello?.caps, desc).toBe(fields?.caps);
+        expect(hello?.nodeName, desc).toBe(fields?.node);
+        expect(hello?.uid, desc).toEqual(Array.from(fields?.uid?.match(/../g) ?? [], (h) => Number.parseInt(h, 16)));
       }
       const isNotification = cmd >= NOTIFICATION_FIRST && cmd <= NOTIFICATION_LAST;
-      const isKnown = isNotification || cmd === Command.GetComponent || cmd === (Command.GetComponent | REPLY_FLAG);
+      const isKnown =
+        isNotification ||
+        cmd === Command.GetComponent ||
+        cmd === (Command.GetComponent | REPLY_FLAG) ||
+        cmd === Unsolicited.Booted;
       expect(isKnown, desc).toBe(true);
     }
   });

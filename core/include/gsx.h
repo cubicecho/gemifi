@@ -68,6 +68,8 @@ extern "C" {
 #define GSX_KIND_ENCODER 4
 #define GSX_KIND_LED     5
 #define GSX_KIND_DISPLAY 6
+/* GET_COMPONENT encoder `mode`: encoder.mode 0..2, or 3 for a Mackie V-Pot */
+#define GSX_ENC_MODE_MCU 3
 #define GSX_NONE_INDEX   0x3FFFu
 #define GSX_LSTRING_MAX  31u
 #define GSX_CMD_FACTORY_RESET 0x08
@@ -81,6 +83,7 @@ extern "C" {
 #define GSX_MSG_EVENT      0x61
 #define GSX_MSG_PARAM_CHANGED 0x62
 #define GSX_MSG_PRESET_CHANGED 0x63
+#define GSX_MSG_BOOTED     0x64   /* section 4.6.3 */
 
 /* status codes (section 3) */
 #define GSX_OK           0

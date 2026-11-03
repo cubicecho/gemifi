@@ -45,6 +45,7 @@ leds:
 analog:
   - { id: knob,  pin: PA0, cc: 7, takeover: pickup }
   - { id: fader, pin: PA1, mcu: fader_1 }          # pitch bend ch 1; pick-up by default
+  - { id: level, pin: PA2, cc: 8 }                 # takeover: none (GET_COMPONENT test)
 
 encoders:
   - { id: enc, pin_a: PB4, pin_b: PB5, cc: 30 }    # absolute (encoder.mode 0)

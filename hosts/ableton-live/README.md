@@ -23,8 +23,8 @@ The script talks to whatever ports are assigned to the "gemifi" slot; with two d
 1. On the first `update_display` (Live calls it about every 100 ms), it sends HELLO. No answer: it tries again about every 3 s. A device without caps bit 6 (older firmware, or the bootloader) gets no further messages.
 2. GET_COMPONENT for each kind (button, keys, analog, encoder, LED, display) from index 0 up to `count`; BAD_PARAM at index 0 = none of that kind.
 3. Reads `debug.events` (param 13), then sets it to 1.
-4. Ready: every tick it compares the song's state with what it last sent and sends only the differences (FB_LED, or FB_LEDS for runs of neighbouring LEDs; FB_VALUE; FB_RING).
-5. Every ~5 s it reads `debug.events` back. A timeout or a 0 means the device was unplugged or restarted (its FB_* states are gone), so it starts again from HELLO.
+4. Ready: every tick it compares the song's state with what it last sent and sends only the differences (FB_LED, or FB_LEDS for runs of neighbouring LEDs; FB_VALUE; FB_RING). FB_VALUE goes only to analog inputs with `takeover` pick-up and to absolute encoders, and LEDs with `owner` local get nothing (GET_COMPONENT's added fields; firmware without them gets everything, as before).
+5. When the device sends BOOTED (§4.6.3: it restarted, so its FB_* states are gone), it starts again from HELLO and re-sends everything. As a fallback it reads `debug.events` back: every ~5 s from firmware without BOOTED, every ~30 s from firmware with it (BOOTED can be missed if the port opens late). A timeout or a 0 means the device was unplugged or restarted, so it starts again from HELLO.
 6. On exit (`disconnect`) it sends FB_RELEASE 0 and puts `debug.events` back to what it was.
 
 Requests follow §1's stop-and-wait (one outstanding, same `seq` on a resend, up to 6 sends). The timeout is 3 ticks (≥ 200 ms). Notifications go out at any time, only to a device with caps bit 6.
@@ -107,8 +107,9 @@ Less sure (every call is wrapped so a missing one does nothing):
 - Polling at 10 Hz instead of LOM listeners: simple and safe, but a change in Live reaches the LEDs up to 100 ms late. Listeners for song-level state could be added later.
 - Spec points in `protocol/sysex.md` §4.6 the script had to guess at:
   - A button's `led` is taken to be an index in the kind-5 (LED) list, and every LED, a button's own included, is assumed to appear there.
-  - Whether EVENTs for an analog input with `takeover: pickup` are held back until it picks up. The script does its own pick-up either way. GET_COMPONENT doesn't report `takeover`, an encoder's mode (relative / absolute), or an LED's `owner`.
+  - Whether EVENTs for an analog input with `takeover: pickup` are held back until it picks up. The script does its own pick-up either way.
+  - An encoder's `mode` can change while the script runs (SET_PARAM `encoder.mode`, a preset change); the script reads it once, at connect.
   - Encoder delta units (per detent? accelerated?) aren't specified; the script assumes one unit per detent.
   - There's no "ring off". The script sends wrap mode with value 0 and assumes it lights nothing.
   - `debug.events` is a stored param, so an editor's COMMIT while the script runs stores 1. The script restores the old value on exit, but a crash leaves it on.
-  - A device restart drops the FB_* states silently; the script notices by polling `debug.events`.
+  - A device restart drops the FB_* states; the script hears BOOTED, or (older firmware, or a BOOTED sent before the port was open) notices by polling `debug.events`.

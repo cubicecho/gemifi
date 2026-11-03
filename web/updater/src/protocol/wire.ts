@@ -78,6 +78,8 @@ export const Unsolicited = {
   Log: 0x60,
   Event: 0x61,
   ParamChanged: 0x62,
+  /** HELLO's fields without the status, sent once after boot by a device with caps bit 6 (§4.6.3). */
+  Booted: 0x64,
 } as const;
 export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
 
@@ -168,6 +170,18 @@ export const LSTRING_MAX = 31;
 /** An LED's `colours` (§4.6.1). */
 export const LedColours = { Single: 1, Bicolour: 2, Rgb: 3 } as const;
 export type LedColours = (typeof LedColours)[keyof typeof LedColours];
+
+/** An analog input's `takeover` (§4.6.1). */
+export const Takeover = { None: 0, Pickup: 1 } as const;
+export type Takeover = (typeof Takeover)[keyof typeof Takeover];
+
+/** An encoder's `mode` (§4.6.1): `encoder.mode`, or 3 for a Mackie Control V-Pot. */
+export const EncoderMode = { Absolute: 0, RelativeTwos: 1, RelativeOffset: 2, McuVpot: 3 } as const;
+export type EncoderMode = (typeof EncoderMode)[keyof typeof EncoderMode];
+
+/** An LED's `owner` (§4.6.1): who drives it. */
+export const LedOwner = { HostThenLocal: 0, Host: 1, Local: 2 } as const;
+export type LedOwner = (typeof LedOwner)[keyof typeof LedOwner];
 
 /** A display's `type` (§4.6.1). */
 export const DisplayType = { Characters: 1, Segments: 2 } as const;

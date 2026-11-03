@@ -12,8 +12,10 @@ import {
   fbValuePayload,
   getComponent,
   getComponentPayload,
+  hostDrives,
   listComponents,
   parseComponent,
+  takesValue,
 } from './feedback.ts';
 import { decodeFrame, encodeFrame, type Frame } from './frame.ts';
 import { capabilityNames } from './messages.ts';
@@ -39,12 +41,13 @@ function encodeComponent(c: Component): number[] {
       out.push(...encodeU14(c.keys), c.firstNote);
       break;
     case ComponentKind.Analog:
+      out.push(...optional(c.takeover));
       break;
     case ComponentKind.Encoder:
-      out.push(c.ring, ...encodeU14(c.center ?? NONE_INDEX));
+      out.push(c.ring, ...encodeU14(c.center ?? NONE_INDEX), ...optional(c.mode));
       break;
     case ComponentKind.Led:
-      out.push(c.colours);
+      out.push(c.colours, ...optional(c.owner));
       break;
     case ComponentKind.Display:
       out.push(c.cols, c.rows, c.type);
@@ -53,15 +56,27 @@ function encodeComponent(c: Component): number[] {
   return out;
 }
 
+/**
+ * @param value - An added field (§4.6.1), or null for older firmware.
+ * @returns Its byte, or nothing.
+ */
+function optional(value: number | null): number[] {
+  return value === null ? [] : [value];
+}
+
 const base = { count: 1, id: 'x', name: 'X', role: '' };
 const EXAMPLES: Component[] = [
   { kind: ComponentKind.Button, ...base, index: 0, count: 2, id: 'play', name: 'Play', role: 'play', led: 4 },
   { kind: ComponentKind.Button, ...base, index: 1, count: 2, id: 'stop', name: 'Stop', role: 'stop', led: null },
   { kind: ComponentKind.KeyMatrix, ...base, index: 0, id: 'keys', name: 'Keys', keys: 61, firstNote: 36 },
-  { kind: ComponentKind.Analog, ...base, index: 0, id: 'fader_1', name: 'Fader 1', role: 'track_volume' },
-  { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_1', name: 'Encoder 1', ring: 11, center: 300 },
-  { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_2', name: 'Encoder 2', ring: 0, center: null },
-  { kind: ComponentKind.Led, ...base, index: 0, id: 'play_led', name: 'Play LED', colours: 2 },
+  { kind: ComponentKind.Analog, ...base, index: 0, id: 'fader_1', name: 'Fader 1', role: 'track_volume', takeover: 1 },
+  { kind: ComponentKind.Analog, ...base, index: 1, id: 'knob', name: 'Knob', takeover: 0 },
+  { kind: ComponentKind.Analog, ...base, index: 2, id: 'old', name: 'Older firmware', takeover: null },
+  { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_1', name: 'Encoder 1', ring: 11, center: 300, mode: 0 },
+  { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_2', name: 'Encoder 2', ring: 0, center: null, mode: 3 },
+  { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_3', name: 'Older', ring: 0, center: null, mode: null },
+  { kind: ComponentKind.Led, ...base, index: 0, count: 2, id: 'play_led', name: 'Play LED', colours: 2, owner: 2 },
+  { kind: ComponentKind.Led, ...base, index: 1, count: 2, id: 'old_led', name: 'Older', colours: 1, owner: null },
   { kind: ComponentKind.Display, ...base, index: 0, id: 'lcd', name: 'LCD', cols: 16, rows: 2, type: 1 },
 ];
 
@@ -88,6 +103,27 @@ describe('GET_COMPONENT (§4.6.1)', () => {
     for (const component of EXAMPLES) {
       expect(parseComponent(encodeComponent(component)), component.id).toEqual(component);
     }
+  });
+
+  it('reads takeover, mode and owner as the last byte of their kind', () => {
+    const strings = [0, 0, 0];
+    expect(parseComponent([3, 0, 0, 1, 0, ...strings, 1])).toMatchObject({ takeover: 1 });
+    expect(parseComponent([4, 0, 0, 1, 0, ...strings, 5, 0x7f, 0x7f, 2])).toMatchObject({ ring: 5, mode: 2 });
+    expect(parseComponent([5, 0, 0, 1, 0, ...strings, 2, 1])).toMatchObject({ colours: 2, owner: 1 });
+    expect(parseComponent([5, 0, 0, 1, 0, ...strings, 2])).toMatchObject({ colours: 2, owner: null });
+  });
+
+  it('says what FB_VALUE and FB_LED reach', () => {
+    const analog = { kind: ComponentKind.Analog, ...base, index: 0 } as const;
+    expect(takesValue({ ...analog, takeover: 1 })).toBe(true);
+    expect(takesValue({ ...analog, takeover: 0 })).toBe(false);
+    expect(takesValue({ ...analog, takeover: null })).toBe(true);
+    const encoder = { kind: ComponentKind.Encoder, ...base, index: 0, ring: 0, center: null } as const;
+    expect(takesValue({ ...encoder, mode: 0 })).toBe(true);
+    expect([1, 2, 3, 9].map((mode) => takesValue({ ...encoder, mode }))).toEqual([false, false, false, false]);
+    expect(takesValue({ ...encoder, mode: null })).toBe(true);
+    const led = { kind: ComponentKind.Led, ...base, index: 0, colours: 1 } as const;
+    expect([0, 1, 2, null].map((owner) => hostDrives({ ...led, owner }))).toEqual([true, true, false, true]);
   });
 
   it('ignores bytes after the fields it knows', () => {
@@ -224,7 +260,7 @@ describe('the client side', () => {
     const client = new SysexClient(device.transport(), { replyTimeoutMs: 20 });
     const list = await listComponents(client);
     expect(list).toEqual([...buttons, ...leds]);
-    // One request at index 0 per kind, then index 1 of the buttons.
+    // One request at index 0 per kind, then index 1 of the buttons and the LEDs.
     expect(device.received.map((f) => [f.payload[0], f.payload[1]])).toEqual([
       [1, 0],
       [1, 1],
@@ -232,6 +268,7 @@ describe('the client side', () => {
       [3, 0],
       [4, 0],
       [5, 0],
+      [5, 1],
       [6, 0],
     ]);
   });

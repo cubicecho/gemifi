@@ -104,6 +104,7 @@ Unsolicited device → host messages (no reply expected):
 | 0x61 | EVENT | `type`, `index` u14, `value` u14, `t_ms` u28. Types: 1 button (value 1 down, 0 up), 2 key (value = velocity, 0 = release), 3 analog: pot, slider, fader, expression input (value = raw reading scaled to 0..16383), 4 encoder (value = signed delta, 14-bit two's complement). Other types are reserved; hosts show them as numbers. |
 | 0x62 | PARAM_CHANGED | `id` u14, `index` u14, `value` s32. Sent when the device changes a param by itself (e.g. the octave buttons change `midi.octave`), so an open editor can follow. Not sent for changes the host made itself (SET_PARAM, SET_PARAMS, FACTORY_RESET); after FACTORY_RESET the host reloads. |
 | 0x63 | PRESET_CHANGED | `slot` u14 (the active preset), `dirty` (1 byte: 1 = unsaved edits, 0 = none). Sent each time the active preset or its dirty flag changes, whoever caused it (§4.5). |
+| 0x64 | BOOTED | The fields of a HELLO reply without its status byte: `role`, `board_id` u14, `fw_version` u32, `proto_version`, `max_chunk` u14, `caps` u14, `uid` (packed, 14 bytes), then `node` when the app has one (§4.1.1). Sent once, about 1.5 s after the app starts (once USB is normally up), and only by an app with caps bit 6 (§4.6.3). A host can treat it exactly like a HELLO reply. |
 
 The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a standard Identity Reply, so generic tools can find it.
 
@@ -113,7 +114,7 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 2: LOG messages
 - bit 3: EVENT messages
 - bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
-- bit 6: host feedback (§4.6: GET_COMPONENT and the FB_* notifications)
+- bit 6: host feedback (§4.6: GET_COMPONENT, the FB_* notifications and BOOTED)
 
 ### 4.1.1 HELLO `node` (node name)
 
@@ -297,6 +298,7 @@ The script's side of the loop:
 3. **Hear presses and moves by index:** SET_PARAM `debug.events` (id 13) = 1 turns on EVENT messages (0x61). Those carry the button, key, analog or encoder index; the control's normal MIDI goes out as well.
 4. **Drive feedback:** the FB_* notifications below.
 5. **Hand back on exit:** FB_RELEASE when the script stops (Live closing, the device unselected).
+6. **Start again after a reboot:** when BOOTED arrives (§4.6.3), the device has lost every FB_* state and `debug.events` is back at 0, so the script re-sends its state.
 
 #### 4.6.1 GET_COMPONENT (0x11)
 
@@ -308,12 +310,20 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 |---|---|
 | 1 button | `led` u14 (its LED's index, or 0x3FFF for none) |
 | 2 key matrix | `keys` u14, `first_note` (1 byte) |
-| 3 analog | – |
-| 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF) |
-| 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB) |
+| 3 analog | `takeover` (1 byte: 0 none, 1 pick-up) |
+| 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF), `mode` (1 byte, below) |
+| 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB), `owner` (1 byte: 0 host_then_local, 1 host, 2 local) |
 | 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
 
 An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 7 and up), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields. A request that isn't 3 bytes replies BAD_LEN. The reply echoes the request's `kind` and `index`. A host ignores bytes after the fields it knows for a kind, so fields can be added later. The LEDs of an encoder's ring (and its centre LED) are ordinary LEDs: they're in the kind-5 list, and FB_LED can set them too.
+
+**Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind. Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything).
+
+**`takeover`** is the analog input's YAML `takeover:` (MCU faders default to pick-up). FB_VALUE only does something with 1.
+
+**`mode`** is how the encoder sends: 0 absolute (`encoder.mode` 0), 1 relative two's complement (`encoder.mode` 1), 2 relative offset 64 (`encoder.mode` 2), 3 Mackie Control V-Pot (an encoder with `mcu:`: relative, on the MCU port, whatever `encoder.mode` says). It's the value in effect when the host asks, so it follows SET_PARAM and preset changes; a host that cares re-reads it after a PRESET_CHANGED (a change made by another host, e.g. an editor's SET_PARAM, sends nothing). FB_VALUE only does something with 0, and hosts treat every other value, including ones added later, as relative.
+
+**`owner`** is who drives the LED (`owner:` in `core/README.md` "LED ownership"): the LED's own `owner:`, else `feedback.led_owner`, except that LEDs driven by Mackie Control (a `feedback: { mcu: … }` source, a V-Pot ring or centre) default to 1. FB_LED, FB_LED_RGB, FB_LEDS and FB_RING have no effect on an LED with 2. An LED with 0 that no button uses has no local state, so it behaves like 1.
 
 **`role`** is the YAML `daw:` value of the component (the names gemifi's scripts understand are listed in `hosts/README.md`) (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
 
@@ -350,6 +360,16 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 **FB_RELEASE:** 1 (LEDs) covers every LED state a host set, rings included. 2 (values) drops the pick-up targets, so analog inputs send at once again; encoder values stay where they are. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
 
 **Buffer:** a device with caps bit 6 accepts notification payloads of at least 72 bytes (FB_LEDS with 64 LEDs, FB_TEXT with 64 characters). A longer one is dropped, silently like any other bad notification, so hosts keep within these limits.
+
+#### 4.6.3 BOOTED (0x64, device → host)
+
+A device that reboots or is replugged loses every FB_* state and turns `debug.events` off, without the script hearing about it. So an app with caps bit 6 sends one BOOTED message (unsolicited, §4) about 1.5 s after it starts. Its payload is the HELLO reply's, without the status byte, so a host decodes it with the same code and learns the new `fw_version`, `caps` and `node` (an upload may have changed them).
+
+A script that sees BOOTED from its device (same `uid`, or the only device on the port) starts again from step 2: it reads the components again, sets `debug.events` and re-sends every LED, value, ring and text. An editor (`web/updater`) reloads what it shows.
+
+The message isn't guaranteed to arrive: the host may open the port after it was sent (a replug while the DAW is busy), and MIDI drivers drop SysEx on a closed port. A host that must not miss a reboot keeps a cheap fallback, e.g. reading `debug.events` every few seconds: it reads 0 after a reboot.
+
+**Who sends it.** Only an app with caps bit 6, so it reaches only hosts written for §4.6; the bootloader and apps without host feedback never send it. An older host that doesn't know 0x64 ignores it or shows it as an unknown message; it never answers it. A host never asks for BOOTED: to find a device, it still sends HELLO.
 
 ## 5. Image format (`.gfw`)
 

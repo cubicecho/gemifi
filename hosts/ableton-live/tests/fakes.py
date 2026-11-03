@@ -93,6 +93,13 @@ class FakeDevice(object):
             return P.build_param_reply(pid, index, self.params[pid])
         return bytes([P.BAD_CMD])
 
+    def boot(self):
+        """A restart, as the firmware does it: debug.events back to 0, then BOOTED (sysex.md 4.6.3)."""
+        self.params[P.PARAM_DEBUG_EVENTS] = 0
+        self.notifications = []
+        payload = P.build_hello_reply(self.hello)[1:]
+        self.out(P.build_frame(P.BOOTED, 5, payload))
+
     def event(self, etype, index, value):
         self.out(P.build_frame(P.EVENT, 0, P.build_event(etype, index, value, 1234)))
 

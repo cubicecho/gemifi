@@ -50,14 +50,15 @@
 #define BOARD_SWJ_NOJTAG     1          /* free PB3/PB4/PA15, keep SWD */
 
 /* ---- recovery combo (src/recovery.c, custom-firmware-path.md 5) ------- */
-/* Held at reset: write the vendor update-request flag (0x0801FC00) and
- * reset into the vendor bootloader, before any other gemifi code runs.
+/* Held at reset: write the update-request flag (0x0801FC00) and reset into
+ * the bootloader (gemifi's or M-Audio's), before any other gemifi code runs.
+ * The gemifi bootloader checks the same two buttons itself.
  *
  * No panel button is on a plain GPIO; they sit in key-matrix row 16:
  * drive PB3..PB7 low (decoder address 0, both group selects low = row 16),
  * pull up the columns PB8..PB15, and read PB8 and PB9: both low = held.
- * The labels of those two buttons are UNVERIFIED (most likely Octave - and
- * Octave +); confirm on hardware. */
+ * They are the UP and DOWN buttons (panel slots 0 and 1, the two leftmost
+ * top-row buttons; confirmed on hardware 2026-11-03). */
 #define BOARD_RECOVERY_SWJ_NOJTAG  1                /* PB3/PB4 are JTAG at reset */
 #define BOARD_RECOVERY_DRIVE_PORT  PORTB
 #define BOARD_RECOVERY_DRIVE_MASK  (0x1Fu << 3)     /* PB3..PB7 */

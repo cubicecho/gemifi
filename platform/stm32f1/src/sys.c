@@ -84,7 +84,25 @@ int sys_hse_ok(void)
 
 /* ---- polled SysTick millisecond counter (see sys.h) ------------------- */
 
-static uint32_t tick_ms;
+static volatile uint32_t tick_ms;
+static uint8_t tick_irq;
+
+void SysTick_Handler(void)
+{
+    tick_ms++;
+}
+
+void sys_tick_irq_enable(void)
+{
+    tick_irq = 1;
+    SYST_CSR |= SYST_CSR_TICKINT;
+}
+
+void sys_tick_irq_disable(void)
+{
+    SYST_CSR &= ~SYST_CSR_TICKINT;
+    tick_irq = 0;
+}
 
 void sys_tick_init(void)
 {
@@ -96,7 +114,7 @@ void sys_tick_init(void)
 
 __attribute__((noinline)) uint32_t sys_tick_ms(void)
 {
-    if (SYST_CSR & SYST_CSR_COUNTFLAG)
+    if (!tick_irq && (SYST_CSR & SYST_CSR_COUNTFLAG))
         tick_ms++;
     return tick_ms;
 }

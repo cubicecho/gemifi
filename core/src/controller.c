@@ -7,7 +7,7 @@
  *     shift-register hub refresh/flush. Key changes go to the main loop
  *     through a small queue.
  *   gm_poll() (main loop): everything that sends MIDI, buttons, analog
- *     inputs, ramps, LEDs, I2C hubs, the protocol.
+ *     inputs and pads, ramps, LEDs, I2C and TM1628 hubs, the protocol.
  * Host feedback (gm_fb_msg, from midi_in.c) also runs in the main loop: the
  * platform feeds received MIDI from its main loop.
  *
@@ -47,7 +47,9 @@
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
+static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
 static uint8_t has_i2c_hubs;
+static uint8_t has_tm_hubs;         /* TM1628: written after each LED update */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
@@ -98,7 +100,7 @@ static volatile uint8_t kq_head, kq_tail;
 static uint8_t kstate[NK];
 static uint32_t kt0[NK];
 static uint32_t mprev[32];
-static uint8_t m_hubs;              /* rows or cols on a hub */
+static uint8_t m_hubs;              /* rows or cols on a shift-register hub */
 /* Fast paths (the scan runs every scan_us from an interrupt):
  * - columns all on MCU pins with an input register: a row is read as a few
  *   runs of adjacent port bits (Keystation: PB0-5, PB8, PB12 = 3 runs from
@@ -118,6 +120,12 @@ static uint8_t cols_fast;
 static volatile uint32_t *row_reg[FAST_ROWS];
 static uint32_t row_on;             /* level that drives row r: bit r */
 static uint8_t rows_fast;
+static uint8_t rows_dec;            /* every row is a decoder output */
+/* Rows selected by one store each (vpin_select_word): decoder rows on a port
+ * with a set/reset register. */
+static volatile uint32_t *row_sel_reg[FAST_ROWS];
+static uint32_t row_sel_word[FAST_ROWS];
+static uint8_t rows_sel;
 static uint8_t knote[NK], kchan[NK];
 #endif
 
@@ -128,6 +136,29 @@ static void mode_key(uint32_t k);
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
+volatile uint32_t gm_scan_part_max[3];
+uint32_t gm_poll_part_max[GM_POLL_PARTS];
+
+__attribute__((weak)) uint32_t hal_cycles(void)
+{
+    return 0;
+}
+
+static void part_done(uint32_t i, uint32_t *t)
+{
+    uint32_t now = hal_cycles(), d = now - *t;
+    if (d > gm_scan_part_max[i])
+        gm_scan_part_max[i] = d;
+    *t = now;
+}
+
+static void poll_part_done(uint32_t i, uint32_t *t)
+{
+    uint32_t now = hal_cycles(), d = now - *t;
+    if (d > gm_poll_part_max[i])
+        gm_poll_part_max[i] = d;
+    *t = now;
+}
 
 #if GM_HAS_MATRIX
 static void kq_push(uint32_t key, int on, uint32_t dt)
@@ -172,12 +203,33 @@ static void key_update(uint32_t k, uint32_t c)
     }
 }
 
+/* A pin on a 74HC595/165 hub: the matrix scan must flush/refresh those
+ * around each row. (A decoder row is written at once; nothing to flush.) */
+static int on_sr_hub(gm_pin_t p)
+{
+    if (p.hub == 0 || p.hub > gm_device.n_hubs)
+        return 0;
+    uint8_t t = gm_device.hubs[p.hub - 1].type;
+    return t == GM_HUB_HC595 || t == GM_HUB_HC165;
+}
+
+/* Key number at matrix position pos (gm_matrix_t.key_map), or dflt without a
+ * map. GM_KEY_NONE (and anything >= n_keys) is no key. */
+static uint32_t key_at(const gm_matrix_t *m, uint32_t pos, uint32_t dflt)
+{
+    return m->key_map ? m->key_map[pos] : dflt;
+}
+
 static void matrix_scan(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
     uint32_t rows = m->n_rows > 32 ? 32 : m->n_rows;
+    int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+    uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
     for (uint32_t r = 0; r < rows; r++) {
-        if (rows_fast)
+        if (rows_sel)
+            *row_sel_reg[r] = row_sel_word[r];
+        else if (rows_fast)
             *row_reg[r] = (row_on >> r) & 1u;
         else
             vpin_write(m->rows[r], 1);
@@ -207,8 +259,30 @@ static void matrix_scan(void)
         }
         if (rows_fast)
             *row_reg[r] = ((row_on >> r) & 1u) ^ 1u;
-        else
-            vpin_write(m->rows[r], 0);
+        else if (!rows_dec)
+            vpin_write(m->rows[r], 0);  /* a decoder row: the next select replaces it */
+        if (by_rows) {
+            /* Contacts on rows 2p and 2p+1, same column: handle the pair once
+             * both rows of this pass have been read. */
+            if (!(r & 1u)) {
+                even = s;
+                continue;
+            }
+            uint32_t diff = (even ^ mprev[r - 1u]) | (s ^ mprev[r]);
+            if (!diff)
+                continue;
+            mprev[r - 1u] = even;
+            mprev[r] = s;
+            uint32_t pair = r / 2u;
+            for (uint32_t c = 0; c < m->n_cols; c++) {
+                if (!((diff >> c) & 1u))
+                    continue;
+                uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
+                if (k < m->n_keys)
+                    key_update(k, ((even >> c) & 1u) | (((s >> c) & 1u) << 1));
+            }
+            continue;
+        }
         uint32_t diff = s ^ mprev[r];
         if (!diff)
             continue;
@@ -217,7 +291,7 @@ static void matrix_scan(void)
             for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
                 if (!((diff >> (2u * p)) & 3u))
                     continue;
-                uint32_t k = r + rows * p;
+                uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
                 if (k < m->n_keys)
                     key_update(k, (s >> (2u * p)) & 3u);
             }
@@ -225,7 +299,7 @@ static void matrix_scan(void)
             for (uint32_t c = 0; c < m->n_cols; c++) {
                 if (!((diff >> c) & 1u))
                     continue;
-                uint32_t k = r + rows * c;
+                uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
                 if (k < m->n_keys)
                     kq_push(k, (s >> c) & 1u, 0);
             }
@@ -244,6 +318,9 @@ static int8_t enc_acc[NE];
 static volatile int16_t enc_delta[NE];
 static uint8_t enc_i2c[NE];
 static int16_t enc_value[NE];
+/* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
+static const volatile uint32_t *enc_ra[NE], *enc_rb[NE];
+static uint32_t enc_ma[NE], enc_mb[NE];
 #endif
 
 void gm_encoder_host(uint32_t i, uint32_t value)
@@ -263,7 +340,14 @@ static void encoder_step(uint32_t i)
 {
     static const int8_t tab[16] = { 0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0 };
     const gm_encoder_t *e = &gm_device.encoders[i];
-    uint32_t ab = (uint32_t)(vpin_read(e->a) << 1) | (uint32_t)vpin_read(e->b);
+    uint32_t ab;
+    if (enc_ra[i] && enc_rb[i]) {
+        uint32_t a = ((*enc_ra[i] & enc_ma[i]) != 0) ^ ((e->a.flags & GM_PIN_INVERT) != 0);
+        uint32_t b = ((*enc_rb[i] & enc_mb[i]) != 0) ^ ((e->b.flags & GM_PIN_INVERT) != 0);
+        ab = a << 1 | b;
+    } else {
+        ab = (uint32_t)(vpin_read(e->a) << 1) | (uint32_t)vpin_read(e->b);
+    }
     enc_acc[i] = (int8_t)(enc_acc[i] + tab[(enc_ab[i] << 2) | ab]);
     enc_ab[i] = (uint8_t)ab;
     int32_t spd = e->steps_per_detent ? e->steps_per_detent : 4;
@@ -280,17 +364,25 @@ static void encoder_step(uint32_t i)
 void gm_scan_tick(void)
 {
     ticks++;
+    uint32_t t = hal_cycles();
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
     if (gm_device.matrix)
         matrix_scan();
 #endif
+    part_done(0, &t);
+    /* Switch matrices (panel buttons, encoders) every other tick: plenty for
+     * both, and it halves their share of the scan. */
+    if (has_matrices && (ticks & 1u))
+        vpin_scan_matrices();       /* before the encoders read them */
+    part_done(1, &t);
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
         if (!enc_i2c[i])
             encoder_step(i);
 #endif
+    part_done(2, &t);
     if (has_sr_hubs)
         vpin_flush();
 }
@@ -389,20 +481,20 @@ static void keys_off(void)
 /* ---- buttons ----------------------------------------------------------- */
 
 #if GM_N_BUTTONS > 0
-static uint32_t btn_stable, btn_last, btn_toggled;
-static uint32_t btn_ignore;         /* held through a preset switch: release is silent */
+static uint64_t btn_stable, btn_last, btn_toggled;   /* bit = button (at most 64) */
+static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
 static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
-static uint32_t read_buttons(void)
+static uint64_t read_buttons(void)
 {
-    uint32_t s = 0;
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++)
+    uint64_t s = 0;
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
         if (vpin_read(gm_device.buttons[i].pin))
-            s |= 1u << i;
+            s |= 1ull << i;
     return s;
 }
 
@@ -446,7 +538,7 @@ static void button_changed(uint32_t i, int down)
         break;
     case ACT_CC_TOGGLE:
         if (down) {
-            btn_toggled ^= 1u << i;
+            btn_toggled ^= 1ull << i;
             cc(num, ((btn_toggled >> i) & 1u) ? 127 : 0);
         }
         break;
@@ -627,15 +719,15 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 static void buttons_sample(void)
 {
-    uint32_t s = read_buttons();
+    uint64_t s = read_buttons();
     if (s == btn_last && s != btn_stable) {
-        uint32_t diff = s ^ btn_stable;
+        uint64_t diff = s ^ btn_stable;
         btn_stable = s;
-        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             if (!((diff >> i) & 1u))
                 continue;
             if ((btn_ignore >> i) & 1u) {
-                btn_ignore &= ~(1u << i);   /* released after a preset switch */
+                btn_ignore &= ~(1ull << i);   /* released after a preset switch */
                 continue;
             }
 #if GM_N_MODES > 0
@@ -686,6 +778,15 @@ static void ramps_ms(uint32_t now)
 #endif
 
 /* ---- analog inputs ---------------------------------------------------- */
+
+#if GM_N_ANALOGS == 0
+/* Host feedback (app_proto.c) calls it whatever the device has. */
+void gm_analog_host(uint32_t i, uint32_t value)
+{
+    (void)i;
+    (void)value;
+}
+#endif
 
 #if GM_N_ANALOGS > 0
 static int32_t a_filt[NA];          /* 0..4095 << 2 */
@@ -763,6 +864,167 @@ static void analog_poll(void)
 }
 #endif
 
+/* ---- pads (velocity from strike force) --------------------------------- */
+
+/* Every pad is read once per ms from the main loop, like the analog inputs:
+ * they share the mux select lines and the one ADC, so reading them from the
+ * scan interrupt would race with the main loop's reads. A hit: the reading
+ * crosses pad.threshold, the peak over the next pad.window ms gives the
+ * velocity (pad.threshold..pad.full -> 1..127, then pad.curve), and the pad
+ * is let go below pad.release. pad.retrigger ms after a release must pass
+ * before the next hit. A pad that reads high at start-up stays silent until
+ * it first reads below pad.release (wrong polarity, or held). */
+#if GM_N_PADS > 0
+#define NP GM_N_PADS
+#define PAD_MS 1u
+#define PAD_AT_MS 10u               /* poly aftertouch: at most once per 10 ms per pad */
+enum { PAD_BLOCKED, PAD_IDLE, PAD_PEAK, PAD_ON };
+
+static uint8_t pad_state[NP], pad_note[NP], pad_ch[NP], pad_at[NP];
+static uint16_t pad_peak[NP];
+static uint32_t pad_t[NP];          /* ms: strike start, last aftertouch, or release */
+static uint8_t pad_order[NP];       /* read order: same mux channel together */
+
+/* Mux pads by channel, so pads behind shared select lines switch them once. */
+static void pads_init(void)
+{
+    for (uint32_t i = 0; i < NP; i++) {
+        uint32_t k = i;
+        uint32_t ch = gm_pads[i].pin.hub ? gm_pads[i].pin.num : 0;
+        while (k > 0) {
+            const gm_pin_t *p = &gm_pads[pad_order[k - 1]].pin;
+            if ((p->hub ? p->num : 0u) <= ch)
+                break;
+            pad_order[k] = pad_order[k - 1];
+            k--;
+        }
+        pad_order[k] = (uint8_t)i;
+        pad_state[i] = PAD_BLOCKED;
+    }
+}
+
+static uint32_t pad_velocity(uint32_t peak)
+{
+    if (gm_cfg.pad_curve == CURVE_FIXED)
+        return (uint32_t)gm_cfg.vel_fixed;
+    int32_t lo = gm_cfg.pad_threshold, hi = gm_cfg.pad_full;
+    if (hi <= lo)
+        hi = lo + 1;
+    int32_t v = 1 + 126 * ((int32_t)peak - lo) / (hi - lo);
+    v = v < 1 ? 1 : v > 127 ? 127 : v;
+    if (gm_cfg.pad_curve == CURVE_SOFT)       /* as the keys' curves */
+        v = 127 - (127 - v) * (127 - v) / 127;
+    else if (gm_cfg.pad_curve == CURVE_HARD)
+        v = v * v / 127;
+    return (uint32_t)(v < 1 ? 1 : v);
+}
+
+static void pad_hit(uint32_t i, uint32_t now)
+{
+    int32_t n = gm_cfg.pad_note[i];
+    uint32_t v = pad_velocity(pad_peak[i]);
+    pad_state[i] = PAD_ON;
+    pad_t[i] = now;
+    pad_at[i] = 0;
+    pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : chan();
+    pad_note[i] = (uint8_t)n;
+    midi3(0x90 | pad_ch[i], (uint32_t)n, v);
+    event(EV_PAD, i, (uint32_t)pad_peak[i] << 2);
+}
+
+static void pad_off(uint32_t i, uint32_t now)
+{
+    if (pad_at[i])
+        midi3(0xA0 | pad_ch[i], pad_note[i], 0);
+    midi3(0x80 | pad_ch[i], pad_note[i], 0);
+    pad_state[i] = PAD_IDLE;
+    pad_t[i] = now;
+    event(EV_PAD, i, 0);
+}
+
+/* Poly pressure from the reading while held: release..full -> 0..127. */
+static void pad_pressure(uint32_t i, int32_t r, uint32_t now)
+{
+    if (now - pad_t[i] < PAD_AT_MS)
+        return;
+    int32_t lo = gm_cfg.pad_release, hi = gm_cfg.pad_full;
+    if (hi <= lo)
+        hi = lo + 1;
+    int32_t v = (r - lo) * 127 / (hi - lo);
+    v = v < 0 ? 0 : v > 127 ? 127 : v;
+    int32_t d = v - pad_at[i];
+    if (d < 2 && d > -2 && !(v == 0 && pad_at[i]))
+        return;
+    pad_at[i] = (uint8_t)v;
+    pad_t[i] = now;
+    midi3(0xA0 | pad_ch[i], pad_note[i], (uint32_t)v);
+}
+
+static void pads_scan(uint32_t now)
+{
+    int32_t on = gm_cfg.pad_threshold, off = gm_cfg.pad_release;
+    if (off >= on)
+        off = on - 1;
+    for (uint32_t k = 0; k < NP; k++) {
+        uint32_t i = pad_order[k];
+        int32_t r = vpin_analog(gm_pads[i].pin);
+        if (r < 0)
+            continue;
+        switch (pad_state[i]) {
+        case PAD_IDLE:
+            if (r < on || now - pad_t[i] < (uint32_t)gm_cfg.pad_retrigger)
+                break;
+            pad_state[i] = PAD_PEAK;
+            pad_t[i] = now;
+            pad_peak[i] = (uint16_t)r;
+            break;
+        case PAD_PEAK:
+            if (r > pad_peak[i])
+                pad_peak[i] = (uint16_t)r;
+            if (r >= off && now - pad_t[i] < (uint32_t)gm_cfg.pad_window)
+                break;
+            pad_hit(i, now);            /* window over, or already let go */
+            /* fall through */
+        case PAD_ON:
+            if (r < off)
+                pad_off(i, now);
+            else if (gm_cfg.pad_aftertouch)
+                pad_pressure(i, r, now);
+            break;
+        default:                        /* PAD_BLOCKED */
+            if (r < off) {
+                pad_state[i] = PAD_IDLE;
+                pad_t[i] = now;
+            }
+            break;
+        }
+    }
+}
+
+/* Note Off for every sounding pad; held pads stay silent until let go. */
+static void pads_off(void)
+{
+    for (uint32_t i = 0; i < NP; i++) {
+        if (pad_state[i] == PAD_ON || pad_state[i] == PAD_PEAK) {
+            if (pad_state[i] == PAD_ON) {
+                if (pad_at[i])
+                    midi3(0xA0 | pad_ch[i], pad_note[i], 0);
+                midi3(0x80 | pad_ch[i], pad_note[i], 0);
+            }
+            pad_state[i] = PAD_BLOCKED;
+        }
+    }
+}
+
+/* At boot-log time: say which pads never read below pad.release. */
+static void pads_report(void)
+{
+    for (uint32_t i = 0; i < NP; i++)
+        if (pad_state[i] == PAD_BLOCKED)
+            app_log(LOG_WARN, gm_pads[i].name, ": reads above pad.release at rest (inverted? held?)");
+}
+#endif
+
 /* ---- encoders (main side) --------------------------------------------- */
 
 #if GM_N_ENCODERS > 0
@@ -811,8 +1073,11 @@ static void encoders_poll(void)
 #endif
 
 /* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
- * (bicolour). LV_BLINK | level: that level, blinking (host feedback). */
+ * (bicolour). LV_BLINK | level: that level, blinking (host feedback).
+ * RGB LEDs: LV_RGB | colour (bit 0 red, 1 green, 2 blue), from FB_LED_RGB;
+ * any other level > 0 is white. */
 #define LV_BLINK 0x80u
+#define LV_RGB 0x40u
 
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
@@ -822,6 +1087,13 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 #endif
     if (vpin_is_none(l->pin2)) {
         vpin_write(l->pin, level > 0);
+        return;
+    }
+    if (!vpin_is_none(l->pin3)) {
+        uint32_t c = level == 0 ? 0 : (level & LV_RGB) ? level & 7u : 7u;
+        vpin_write(l->pin, c & 1u);
+        vpin_write(l->pin2, (c >> 1) & 1u);
+        vpin_write(l->pin3, (c >> 2) & 1u);
         return;
     }
     vpin_write(l->pin, level == 1 || level == 2);
@@ -851,7 +1123,7 @@ void gm_led_host(uint32_t led, uint32_t value)
 #if GM_HOST_FB
 static int bicolour(uint32_t led)
 {
-    return !vpin_is_none(gm_device.leds[led].pin2);
+    return !vpin_is_none(gm_device.leds[led].pin2) && vpin_is_none(gm_device.leds[led].pin3);
 }
 
 static void led_script_set(uint32_t led, uint32_t level)
@@ -875,9 +1147,16 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
 {
     if (led >= gm_device.n_leds)
         return;
-    uint32_t lv = 0;
-    if (r || g || b)
+    uint32_t lv = 0, m = r > g ? r : g;
+    if (b > m)
+        m = b;
+    if (!vpin_is_none(gm_device.leds[led].pin3)) {
+        /* on/off per channel: lit if at least half the brightest one */
+        if (m)
+            lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
+    } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
+    }
     led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
 }
 #endif
@@ -1098,9 +1377,9 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
         if (type == 0xB0 && act == ACT_CC_TOGGLE) {
             /* the host's echo is the toggle's state (and so its LED's) */
             if (v >= 64)
-                btn_toggled |= 1u << i;
+                btn_toggled |= 1ull << i;
             else
-                btn_toggled &= ~(1u << i);
+                btn_toggled &= ~(1ull << i);
         } else if (li >= 0 && (type == 0xB0 ? act == ACT_CC_MOMENTARY || act == ACT_CC_RAMP
                                             : act == ACT_NOTE)) {
             gm_led_host((uint32_t)li, v);
@@ -1135,7 +1414,7 @@ void gm_release_all(void)
     keys_off();
 #endif
 #if GM_N_BUTTONS > 0
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
         int held = (btn_stable >> i) & 1u;
         int32_t act = gm_cfg.btn_action[i];
         if (btn_note[i] != NOTE_NONE) {
@@ -1164,6 +1443,9 @@ void gm_release_all(void)
     for (uint32_t i = 0; i < NA; i++)
         a_pick[i] = -1;
 #endif
+#if GM_N_PADS > 0
+    pads_off();
+#endif
 }
 
 /* ---- init and main loop ----------------------------------------------- */
@@ -1176,6 +1458,7 @@ uint32_t gm_buttons_now(void)
     hal_delay_us(50);
     vpin_refresh();
     vpin_refresh_i2c();
+    vpin_scan_matrices();
     uint32_t s = 0;
     for (uint32_t i = 0; i < gm_device.n_buttons && i < 32; i++)
         if (vpin_read(gm_device.buttons[i].pin))
@@ -1196,6 +1479,10 @@ void gm_init(uint32_t fw_version, int safe_mode)
             has_sr_hubs = 1;
         if (t == GM_HUB_MCP23017 || t == GM_HUB_PCF8574)
             has_i2c_hubs = 1;
+        if (t == GM_HUB_SWMATRIX)
+            has_matrices = 1;
+        if (t == GM_HUB_TM1628)
+            has_tm_hubs = 1;
     }
     vpin_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
@@ -1204,6 +1491,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
         vpin_output(gm_device.leds[i].pin);
         if (!vpin_is_none(gm_device.leds[i].pin2))
             vpin_output(gm_device.leds[i].pin2);
+        if (!vpin_is_none(gm_device.leds[i].pin3))
+            vpin_output(gm_device.leds[i].pin3);
     }
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
@@ -1211,15 +1500,23 @@ void gm_init(uint32_t fw_version, int safe_mode)
         vpin_input(e->a);
         vpin_input(e->b);
         enc_i2c[i] = (uint8_t)(vpin_on_i2c(e->a) || vpin_on_i2c(e->b));
+        enc_ra[i] = vpin_in_reg(e->a, &enc_ma[i]);
+        enc_rb[i] = vpin_in_reg(e->b, &enc_mb[i]);
     }
 #endif
 #if GM_HAS_MATRIX
     if (gm_device.matrix) {
         const gm_matrix_t *m = gm_device.matrix;
         rows_fast = m->n_rows <= FAST_ROWS;
+        rows_dec = m->n_rows > 0;
+        rows_sel = m->n_rows > 0 && m->n_rows <= FAST_ROWS;
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
-            if (m->rows[r].hub)
+            if (!vpin_is_decoder(m->rows[r]))
+                rows_dec = 0;
+            if (r >= FAST_ROWS || !vpin_select_word(m->rows[r], &row_sel_reg[r], &row_sel_word[r]))
+                rows_sel = 0;
+            if (on_sr_hub(m->rows[r]))
                 m_hubs = 1;
             if (r < FAST_ROWS) {
                 row_reg[r] = m->rows[r].hub ? 0 : hal_pin_out_reg(m->rows[r].num);
@@ -1233,7 +1530,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
         n_runs = 0;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             vpin_input(m->cols[c]);
-            if (m->cols[c].hub)
+            if (on_sr_hub(m->cols[c]))
                 m_hubs = 1;
             if (c >= FAST_COLS)
                 continue;
@@ -1276,6 +1573,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #endif
     }
 #endif
+#if GM_N_PADS > 0
+    pads_init();
+#endif
 
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
@@ -1295,11 +1595,13 @@ void gm_init(uint32_t fw_version, int safe_mode)
         led_show(&gm_device.leds[i], 2, 1);
     vpin_flush();
     vpin_flush_i2c();
+    vpin_flush_tm1628();
     hal_delay_us(200000);
     for (uint32_t i = 0; i < gm_device.n_leds; i++)
         led_show(&gm_device.leds[i], 0, 0);
     vpin_flush();
     vpin_flush_i2c();
+    vpin_flush_tm1628();
 }
 
 void gm_poll(void)
@@ -1311,12 +1613,17 @@ void gm_poll(void)
 #if GM_N_ANALOGS > 0
     static uint32_t t_analog;
 #endif
+#if GM_N_PADS > 0
+    static uint32_t t_pad;
+#endif
     static uint8_t booted;
     uint32_t now = hal_millis();
+    uint32_t tc = hal_cycles();
 
     app_proto_poll();
     presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;
+    poll_part_done(0, &tc);
 
     if (has_i2c_hubs && now - t_i2c >= I2C_MS) {
         t_i2c = now;
@@ -1338,23 +1645,39 @@ void gm_poll(void)
         ramps_ms(now);
     }
 #endif
+    poll_part_done(1, &tc);
 #if GM_N_ANALOGS > 0
     if (now - t_analog >= ANALOG_MS) {
         t_analog = now;
         analog_poll();
     }
 #endif
+    poll_part_done(2, &tc);
+#if GM_N_PADS > 0
+    if (now - t_pad >= PAD_MS) {
+        t_pad = now;
+        pads_scan(now);
+    }
+#endif
+    poll_part_done(3, &tc);
 #if GM_N_ENCODERS > 0
     encoders_poll();
 #endif
+    poll_part_done(4, &tc);
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);
+        if (has_tm_hubs)
+            vpin_flush_tm1628();
     }
+    poll_part_done(5, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;
         app_log(LOG_INFO, gm_device.name, safe ? " up (safe mode: defaults)" : " up");
         app_log_hex(LOG_INFO, "fw ", fw_ver);
+#if GM_N_PADS > 0
+        pads_report();
+#endif
     }
     hal_midi_poll();
 }

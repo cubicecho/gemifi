@@ -33,6 +33,7 @@ void hal_delay_us(uint32_t us);
 #define HAL_IN_PULLUP   1
 #define HAL_IN_PULLDOWN 2
 #define HAL_OUT         3
+#define HAL_OUT_OD      4            /* open-drain: 1 = released */
 void hal_pin_mode(uint16_t pin, uint8_t mode);
 int hal_pin_read(uint16_t pin);              /* electrical level 0/1 */
 void hal_pin_write(uint16_t pin, int level);
@@ -88,6 +89,16 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * boards where the bootloader may be the vendor's or gemifi's). A weak
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
+
+/* A free-running CPU cycle counter, for timing the scan (gm_scan_part_max).
+ * A weak default returning 0 is in core/src/controller.c. */
+uint32_t hal_cycles(void);
+
+/* A set/reset register for pin's port, where writing 1 << *bit sets the pin
+ * and 1 << (*bit + 16) clears it (the STM32 BSRR), so several pins of one
+ * port change in one store. NULL if the platform has none. A weak default
+ * returning NULL is in core/src/vpin.c. */
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit);
 
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
  * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */

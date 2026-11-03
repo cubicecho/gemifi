@@ -70,6 +70,11 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("preset.active", 17, GLOBAL, lambda d: 1),
     ("preset.program", 18, PRESET, lambda d: 1 if d.n_presets > 1 else 0),
     ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.n_presets > 1 else 0),
+    ("pad.note", 20, PRESET, lambda d: len(d.pads)),
+    *((n, i, s, (lambda d: 1 if d.pads else 0)) for n, i, s in (
+        ("pad.channel", 21, PRESET), ("pad.curve", 22, PRESET), ("pad.aftertouch", 23, PRESET),
+        ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
+        ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
 ]
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
 PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
@@ -96,6 +101,10 @@ PRESET_GLOBALS = {
                  "fixed": ("velocity.fixed", 100, "int", 1, 127)},
     "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
     "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
+    # default: the device's own pad_settings: (a function of the device)
+    "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
+                     "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
+                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1)},
 }
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
@@ -103,6 +112,8 @@ PRESET_NOT_HERE = {
                           "top-level midi:"},
     "velocity": {k: "global (the keybed's calibration, the same in every preset): set it in "
                     "key_matrix.velocity" for k in ("fast", "slow")},
+    "pad_settings": {k: "global (the pads' calibration, the same in every preset): set it in the "
+                        "top-level pad_settings:" for k in ("threshold", "release", "full", "window", "retrigger")},
 }
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
@@ -111,6 +122,7 @@ PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refu
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
                  ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw"]),
+    "pads": ("pad", "pads", ["note"], ["id", "name", "pin"]),
 }
 PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]
@@ -190,7 +202,9 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # ESPHome component where there is one. A pin on a hub names the hub by its chip key:
 # { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
 HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc4051": "GM_HUB_MUX",
-            "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574"}
+            "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574",
+            "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX",
+            "tm1628": "GM_HUB_TM1628"}
 HUB_TYPES = list(HUB_ENUM)
 HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
@@ -198,8 +212,13 @@ I2C_HUBS = {"mcp23017", "pcf8574"}
 SHIFT_HUBS = {"sn74hc595", "sn74hc165"}
 MUX_HUBS = {"cd74hc4051", "cd74hc4067"}
 MUX_SELECT = {"cd74hc4051": 3, "cd74hc4067": 4}
-OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574"}
-IN_HUBS = {"sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574"}
+# TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
+TM_HUBS = {"tm1628"}
+TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
+OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574", "tm1628"}
+IN_HUBS = {"sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "switch_matrix"}
+# A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
+ROW_HUBS = {"decoder"}
 HUB_KEYS = {
     "sn74hc595": ["id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count"],
     "sn74hc165": ["id", "data_pin", "clock_pin", "load_pin", "sr_count"],
@@ -207,15 +226,20 @@ HUB_KEYS = {
     "cd74hc4067": ["id", "pin_s0", "pin_s1", "pin_s2", "pin_s3", "common_pin", "enable_pin", "delay"],
     "mcp23017": ["id", "address"],
     "pcf8574": ["id", "address"],
+    "decoder": ["id", "address", "groups"],
+    "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
+    "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
 CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data",
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
-             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
+             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3",
+             # TM1628 lines only pair with each other: they're bit-banged from the main loop
+             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix", "presets", "modes"]
+            "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -281,7 +305,7 @@ typename union unsigned using virtual void volatile wchar_t while xor xor_eq""".
 # read y/n as booleans. An id must read the same everywhere, so these are refused even when quoted.
 YAML_WORDS = {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
 
-INVERT, PULLUP, PULLDOWN = 1, 2, 4
+INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
 MIDI_TRANSPORT_MACRO = {"usb": "GM_MIDI_USB", "serial": "GM_MIDI_SERIAL", "ble": "GM_MIDI_BLE"}
 DEFAULT_USB = (0x1209, 0x0002)   # pid.codes test PID (protocol/sysex.md section 7)
 
@@ -498,9 +522,11 @@ class Stm32F1Platform(Platform):
         out, nm = [], self.pin_name(num)
         if num in (11, 12):
             out.append(("error", f"{nm} is a USB data line (D-/D+)"))
-        if num in (13, 14, 15, 19, 20):
-            out.append(("warning", f"{nm} is a JTAG/SWD pin: using it needs the debug port remapped "
-                                   "off, and SWD (PA13/PA14) then stops working"))
+        if num in (13, 14):
+            out.append(("warning", f"{nm} is an SWD pin (SWDIO/SWCLK): using it switches the debug port "
+                                   "off, so SWD stops working"))
+        # PA15, PB3, PB4 are JTAG-only: the platform switches JTAG off and keeps SWD
+        # (sys_clock_init, BOARD_SWJ_NOJTAG in the board header), so no warning.
         if num == 18:
             out.append(("warning", "PB2 is BOOT1 on STM32F1: a pull at reset can change the boot mode"))
         if num in (45, 46, 47) and role == "out":
@@ -616,7 +642,7 @@ class Pin:
         if self.hub == 0xFF:
             return "GM_NO_PIN"
         fl = [n for b, n in ((INVERT, "GM_PIN_INVERT"), (PULLUP, "GM_PIN_PULLUP"),
-                             (PULLDOWN, "GM_PIN_PULLDOWN")) if self.flags & b]
+                             (PULLDOWN, "GM_PIN_PULLDOWN"), (OPEN_DRAIN, "GM_PIN_OPEN_DRAIN")) if self.flags & b]
         return f"{{ {self.hub}, {' | '.join(fl) or '0'}, {self.num} }}"
 
 
@@ -646,6 +672,8 @@ class Device:
         self.presets_revision = 0
         self.presets = []
         self.modes = []              # Hub per mode (validate_modes), in YAML order
+        self.pads = []               # Hub per pad (validate_pads), in YAML order
+        self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.budget = None           # storage_budget(self), after validation
 
 
@@ -839,9 +867,9 @@ class _V:
 
     # -- pins --
 
-    def mode(self, v, path, role):
+    def mode(self, v, path, role, open_drain=False):
         """ESPHome pin mode (string or mapping) -> set of flags, checked against the role.
-        Returns None after an error."""
+        open_drain: the pin may be an open-drain output. Returns None after an error."""
         if "mode" not in v or v["mode"] is None:
             return set()
         m, line = v["mode"], v.line_of("mode")
@@ -861,12 +889,13 @@ class _V:
                                            f"{{ input: true, pullup: true }} (got {type_name(m)})")
             return None
         bad = None
-        if "open_drain" in flags:
-            bad = "open_drain isn't supported by gemifi's pin drivers"
+        if "open_drain" in flags and not (open_drain and role == "out"):
+            bad = "open_drain is only supported on a tm1628 dio_pin"
         elif "pullup" in flags and "pulldown" in flags:
             bad = "pullup and pulldown are both set"
-        elif role == "out" and flags - {"output"}:
-            bad = f"this pin is {ROLE_TEXT[role]}: use mode: OUTPUT (or leave mode out)"
+        elif role == "out" and flags - {"output", "open_drain"}:
+            bad = f"this pin is {ROLE_TEXT[role]}: use mode: OUTPUT" + \
+                  (" or OUTPUT_OPEN_DRAIN" if open_drain else "") + " (or leave mode out)"
         elif role in ("in", "common") and "output" in flags:
             bad = f"this pin is {ROLE_TEXT[role]}: mode can't include output"
         elif role == "in" and "analog" in flags:
@@ -878,7 +907,8 @@ class _V:
             return None
         return flags
 
-    def pin(self, v, path, line, role, allow_hub=True, line_kind=None, owner=None, hubs=None, why=None):
+    def pin(self, v, path, line, role, allow_hub=True, line_kind=None, owner=None, hubs=None, why=None,
+            open_drain=False):
         """Resolve a pin (ESPHome pin schema: `PA1` or { number, inverted, mode, allow_other_uses },
         on a hub { <chip>: <hub id>, number }). role: 'in' | 'out' | 'analog' | 'common'.
         line_kind: the hub control line this is (for allow_other_uses). Returns Pin or None."""
@@ -895,10 +925,11 @@ class _V:
                 return None        # format 1 pin: already reported
             if self.boolean(v, "inverted", path):
                 flags |= INVERT
-            mode = self.mode(v, path, role)
+            mode = self.mode(v, path, role, open_drain)
             if mode is None:
                 return None
             flags |= (PULLUP if "pullup" in mode else 0) | (PULLDOWN if "pulldown" in mode else 0)
+            flags |= OPEN_DRAIN if "open_drain" in mode else 0
             share = self.boolean(v, "allow_other_uses", path)
             if share and line_kind is None:
                 self.err(f"{path}.allow_other_uses", v.line_of("allow_other_uses"),
@@ -993,7 +1024,8 @@ class _V:
             return None
         if not 0 <= n < hub.n_pins:
             what = "channel" if hub.type in MUX_HUBS else "pin"
-            extra = f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)" if hub.type in SHIFT_HUBS else ""
+            extra = f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)" if hub.type in SHIFT_HUBS else \
+                f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)" if hub.type in TM_HUBS else ""
             self.err(path, line, f"{what} {n} is out of range for hub '{hub.id}' ({hub.type}{extra}: "
                                  f"0..{hub.n_pins - 1})")
             return None
@@ -1096,7 +1128,7 @@ def suggest_id(text, kind="item"):
 
 def example_id(kind):
     return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
-            "hub": "faders"}.get(kind, "item")
+            "hub": "faders", "pad": "pad_1"}.get(kind, "item")
 
 
 def a_(kind):
@@ -1193,6 +1225,7 @@ def validate(data, file=None):
                 validate_hub(v, dev, h, key, f"{key}[{i}]", lst.line_of(i))
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
+    resolve_switch_matrices(v, dev)
 
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
@@ -1216,9 +1249,18 @@ def validate(data, file=None):
                 v.err(f"{h.path}.address", h.line, f"I2C address 0x{h.addr:02X} is already used by hub "
                                                    f"'{addrs[h.addr]}'")
             addrs[h.addr] = h.id
+    stbs = {}
+    for h in dev.hubs:
+        if h.type in TM_HUBS and h.latch.hub == 0:
+            if h.latch.num in stbs:
+                v.err(f"{h.path}.stb_pin", h.line, f"{h.latch.desc} is already the stb_pin of hub "
+                                                   f"'{stbs[h.latch.num]}': chips can share clk_pin and "
+                                                   "dio_pin, but each needs its own stb_pin")
+            stbs.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
     validate_components(v, dev, data)
+    validate_pads(v, dev, data)
 
     if data.get("key_matrix") is not None:
         validate_matrix(v, dev, data["key_matrix"], data.line_of("key_matrix"))
@@ -1242,11 +1284,11 @@ def validate(data, file=None):
     validate_presets(v, dev, data)
     check_budget(v, dev, data)
 
-    if len(dev.buttons) > 32:
-        v.err("buttons", data.line_of("buttons"), f"{len(dev.buttons)} buttons: at most 32 (the runtime "
-                                                  "keeps button state in a 32-bit mask)")
+    if len(dev.buttons) > 64:
+        v.err("buttons", data.line_of("buttons"), f"{len(dev.buttons)} buttons: at most 64 (the runtime "
+                                                  "keeps button state in a 64-bit mask)")
     for kind, lst in (("buttons", dev.buttons), ("leds", dev.leds), ("analog", dev.analogs),
-                      ("encoders", dev.encoders)):
+                      ("encoders", dev.encoders), ("pads", dev.pads)):
         if len(lst) > 255:
             v.err(kind, data.line_of(kind), f"{len(lst)} items: at most 255")
 
@@ -1258,8 +1300,8 @@ def validate(data, file=None):
         if not h.used:
             v.warn(h.path, h.line, f"hub '{h.id}' is not used by any component")
     v.check_uses()
-    if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix):
-        v.warn("", data.line, "the device has no inputs (buttons, analog, encoders or key_matrix)")
+    if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix or dev.pads):
+        v.warn("", data.line, "the device has no inputs (buttons, analog, encoders, pads or key_matrix)")
     return (None if errors(v.diags) else dev), v.diags
 
 
@@ -1368,7 +1410,8 @@ def validate_components(v, dev, data):
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "feedback", "owner", "timeout", "daw"],
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "pin3", "feedback", "owner", "timeout",
+                                                     "daw"],
                       renamed=RENAMED_ID)
         if d is None:
             continue
@@ -1376,13 +1419,17 @@ def validate_components(v, dev, data):
         name = v.display_name(d, p, ident)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
         pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
+        pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
+        if d.get("pin3") is not None and d.get("pin2") is None:
+            v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
         src = validate_led_source(v, dev, d, p)
         owner = validate_owner(v, d, p)
         timeout = validate_timeout(v, d, "timeout", p, None)
         if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
         led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
-        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN, source=src,
+        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
+                            pin3=pin3 or NO_PIN, source=src,
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
                             daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
@@ -1744,18 +1791,19 @@ def validate_hub(v, dev, h, typ, p, line):
     hid = v.ident(h, p, "hub", index, allow_name=False)
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
-              common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0)
+              common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
+              ram_bytes=0, intensity=0, grids=0, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
 
-    def ctl(key, role, required=True):
+    def ctl(key, role, required=True, open_drain=False):
         if h.get(key) is None:
             if required:
                 v.err(f"{p}.{key}", h.line, "is required")
             return NO_PIN
         return v.pin(h[key], f"{p}.{key}", h.line_of(key), role, allow_hub=False, line_kind=CTRL_LINE[key],
-                     owner=index) or NO_PIN
+                     owner=index, open_drain=open_drain) or NO_PIN
 
     if typ in SHIFT_HUBS:
         hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
@@ -1767,6 +1815,14 @@ def validate_hub(v, dev, h, typ, p, line):
             hub.enable = ctl("oe_pin", "out", required=False)
         else:
             hub.latch = ctl("load_pin", "out")
+    elif typ in TM_HUBS:
+        hub.ram_bytes = v.integer(h, "ram_bytes", p, 1, TM_RAM_MAX, default=14)
+        hub.n_pins = 8 * hub.ram_bytes
+        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
+        hub.grids = v.integer(h, "grids", p, 4, 7, default=0)   # 0: no display-mode command
+        hub.clock = ctl("clk_pin", "out")
+        hub.data = ctl("dio_pin", "out", open_drain=True)
+        hub.latch = ctl("stb_pin", "out")
     elif typ in MUX_HUBS:
         hub.n_sel = MUX_SELECT[typ]
         hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
@@ -1780,6 +1836,24 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.settle_us = v.period(h, "delay", p, 0, 0xFFFF, default=0, example="5us")   # 0: vpin.c waits 2us
         if "delay" in h and hub.settle_us == 0:
             v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
+    elif typ == "decoder":
+        validate_decoder(v, hub, h, p, index)
+    elif typ == "switch_matrix":
+        # Rows may name a decoder declared further down: pins are resolved after all hubs
+        # (resolve_switch_matrices). The size is known now, for pin numbers on this hub.
+        rows, cols = h.get("rows"), h.get("columns")
+        nr = rows.get("count", 0) if isinstance(rows, dict) else len(rows) if isinstance(rows, list) else 0
+        nc = len(cols) if isinstance(cols, list) else 0
+        hub.n_pins = max(nr if isinstance(nr, int) else 0, 0) * nc
+        if hub.n_pins > 32:
+            v.err(p, line, f"{nr} rows x {nc} columns = {hub.n_pins} switches: at most 32 per switch_matrix "
+                           "(split it into two)")
+        hub.settle_us = v.period(h, "settle", p, 0, 255, default=1, example="2us")
+        # rows read per scan, in turn (0 = all): spreads a big panel over several scans
+        hub.rows_per_scan = v.integer(h, "rows_per_scan", p, 1, 32, default=0)
+        if hub.rows_per_scan and isinstance(nr, int) and nr and hub.rows_per_scan >= nr:
+            v.warn(f"{p}.rows_per_scan", h.line_of("rows_per_scan"), f"{hub.rows_per_scan} >= its {nr} rows: "
+                                                                      "every row is read on every scan anyway")
     else:
         hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
         hub.n_pins = 16 if typ == "mcp23017" else 8
@@ -1787,6 +1861,132 @@ def validate_hub(v, dev, h, typ, p, line):
         if hub.addr not in ok:
             v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {typ} "
                                                          f"(usually 0x20-0x27{'' if typ == 'mcp23017' else ', PCF8574A 0x38-0x3F'})")
+
+
+def validate_decoder(v, hub, h, p, index):
+    """decoder: { address: [A0, A1, A2], groups: [{ PB6: 1, PB7: 0 }, ...] }. Output n = address
+    n % 2^len(address) in group n // 2^len(address); a group is the levels of the enable pins."""
+    addr = h.get("address")
+    if not isinstance(addr, list) or not 1 <= len(addr) <= 4:
+        v.err(f"{p}.address", h.line_of("address") if "address" in h else h.line,
+              "needs a list of 1-4 address pins, A0 first")
+        addr = LList()
+    hub.sel = [v.pin(x, f"{p}.address[{i}]", addr.line_of(i), "out", allow_hub=False, line_kind="address",
+                     owner=index) or NO_PIN for i, x in enumerate(addr)]
+    hub.n_sel = len(hub.sel)
+    groups = h.get("groups")
+    if groups is None:
+        hub.group_lv = [0]
+    else:
+        groups = v.seq(groups, f"{p}.groups", h.line_of("groups"))
+        if not 1 <= len(groups) <= 4:
+            v.err(f"{p}.groups", h.line_of("groups"), f"{len(groups)} groups: 1-4 (each a mapping of "
+                                                      "enable pin to level, e.g. { PB6: 1, PB7: 0 })")
+        names = None
+        seen = {}
+        for g, grp in enumerate(groups[:4]):
+            gp = f"{p}.groups[{g}]"
+            if not isinstance(grp, dict) or not grp:
+                v.err(gp, groups.line_of(g), "must be a mapping of enable pin to level, e.g. { PB6: 1, PB7: 0 }")
+                continue
+            nums = {}
+            for k in grp:
+                try:
+                    nums[v.plat.parse_pin(k)] = k
+                except ValueError as e:
+                    v.err(f"{gp}.{k}", grp.line_of(k), str(e))
+            if names is None:
+                if len(nums) > 3:
+                    v.err(gp, groups.line_of(g), f"{len(nums)} enable pins: at most 3")
+                names = list(nums)[:3]
+                hub.en = [v.pin(nums[n], f"{gp}.{nums[n]}", grp.line_of(nums[n]), "out", allow_hub=False,
+                                line_kind="enable", owner=index) or NO_PIN for n in names]
+            elif set(nums) != set(names):
+                v.err(gp, groups.line_of(g), "every group must give a level for the same enable pins "
+                                             f"({', '.join(v.plat.pin_name(n) for n in names)})")
+                continue
+            lv = 0
+            for e, n in enumerate(names):
+                x = grp[nums[n]]
+                if isinstance(x, bool):
+                    x = int(x)
+                if x not in (0, 1):
+                    v.err(f"{gp}.{nums[n]}", grp.line_of(nums[n]), f"level must be 0 or 1 (got {x!r})")
+                    x = 0
+                lv |= x << e
+            if lv in seen:
+                v.err(gp, groups.line_of(g), f"same enable levels as groups[{seen[lv]}]: the two can't be told apart")
+            seen.setdefault(lv, g)
+            hub.group_lv.append(lv)
+        if not hub.group_lv:
+            hub.group_lv = [0]
+    hub.n_pins = len(hub.group_lv) << hub.n_sel
+
+
+def matrix_rows(v, d, path, hubs, why, role="out"):
+    """Rows of a key_matrix / switch_matrix: a list of pins, or { decoder: <id>, first: n, count: n }
+    for consecutive outputs of a decoder hub."""
+    rows = d.get("rows")
+    line = d.line_of("rows") if "rows" in d else d.line
+    p = f"{path}.rows"
+    if isinstance(rows, dict) and "decoder" in rows and "number" not in rows:
+        m = v.mapping(rows, p, line, ["decoder", "first", "count"])
+        if m is None:
+            return []
+        hub = v.hub_by_id.get(m.get("decoder")) if isinstance(m.get("decoder"), str) else None
+        if hub is None:
+            if v.ref(m, "decoder", p, line, "hub", "hubs") is not None:
+                hub = v.hub_by_id.get(m.get("decoder"))
+            if hub is None:
+                return []
+        if hub.type != "decoder":
+            v.err(f"{p}.decoder", line, f"hub '{hub.id}' is a {hub.type}, not a decoder")
+            return []
+        first = v.integer(m, "first", p, 0, 255, default=0)
+        count = v.integer(m, "count", p, 1, 255, required=True)
+        if count is None:
+            return []
+        if first + count > hub.n_pins:
+            v.err(p, line, f"outputs {first}..{first + count - 1} are out of range for decoder '{hub.id}' "
+                           f"(0..{hub.n_pins - 1})")
+            return []
+        hub.used = True
+        pins = []
+        for n in range(first, first + count):
+            desc = f"{hub.id}.{n}"
+            v.use(("hub", hub.index, n), desc, Use(p, line))
+            pins.append(Pin(hub.index + 1, 0, n, desc))
+        return pins
+    if not isinstance(rows, list) or not rows:
+        v.err(p, line, "needs a list of pins, or { decoder: <id>, first: n, count: n }")
+        return []
+    if len(rows) > 255:
+        v.err(p, line, f"{len(rows)} rows: at most 255")
+    return [v.pin(x, f"{p}[{i}]", rows.line_of(i), role, hubs=hubs, why=why) or NO_PIN
+            for i, x in enumerate(rows)]
+
+
+def matrix_columns(v, d, path, owner):
+    """Columns: MCU input pins (read from the scan interrupt). They may be shared between a
+    key_matrix and switch matrices on the same lines, with allow_other_uses on each use."""
+    cols = d.get("columns")
+    p = f"{path}.columns"
+    if not isinstance(cols, list) or not cols:
+        v.err(p, d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
+        return []
+    if len(cols) > 32:
+        v.err(p, d.line_of("columns"), f"{len(cols)} columns: at most 32")
+    return [v.pin(x, f"{p}[{i}]", cols.line_of(i), "in", allow_hub=False, line_kind="column", owner=owner)
+            or NO_PIN for i, x in enumerate(cols)]
+
+
+def resolve_switch_matrices(v, dev):
+    for hub in dev.hubs:
+        if hub.type != "switch_matrix" or not isinstance(hub.raw, dict):
+            continue
+        why = "switch_matrix rows are MCU pins or decoder outputs"
+        hub.rows = matrix_rows(v, hub.raw, hub.path, ROW_HUBS, why)
+        hub.cols = matrix_columns(v, hub.raw, hub.path, owner=f"hub{hub.index}")
 
 
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -1816,8 +2016,8 @@ def validate_version(v, data):
 
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
-    d = v.mapping(d, p, line, ["type", "rows", "columns", "keys", "first_note", "settle", "velocity", "daw"],
-                  renamed=RENAMED_MATRIX)
+    d = v.mapping(d, p, line, ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle",
+                               "velocity", "daw"], renamed=RENAMED_MATRIX)
     if d is None:
         return
     kind = d.get("type")
@@ -1826,35 +2026,101 @@ def validate_matrix(v, dev, d, line):
             v.err(f"{p}.type", d.line_of("type"), f"{'is required' if kind is None else repr(kind) + ' is unknown'} "
                                                    "(switch: one contact per key, velocity: two contacts per key)")
         kind = "switch"
-    pins = {}
-    for key, role, mh in (("rows", "out", {"sn74hc595"}), ("columns", "in", {"sn74hc165"})):
-        lst = d.get(key)
-        if not isinstance(lst, list) or not lst:
-            if not (key == "columns" and "cols" in d):
-                v.err(f"{p}.{key}", d.line_of(key), "needs a list of pins")
-            lst = LList()
-        if len(lst) > 255:
-            v.err(f"{p}.{key}", d.line_of(key), f"{len(lst)} {key}: at most 255")
-        why = "the matrix is scanned from the timer interrupt, so only MCU pins, sn74hc595 rows and sn74hc165 columns"
-        pins[key] = [v.pin(x, f"{p}.{key}[{i}]", lst.line_of(i), role, hubs=mh, why=why) or NO_PIN
-                     for i, x in enumerate(lst)]
+    why = ("the matrix is scanned from the timer interrupt, so only MCU pins, sn74hc595 or decoder rows and "
+           "sn74hc165 columns")
+    pins = {"rows": matrix_rows(v, d, p, {"sn74hc595"} | ROW_HUBS, why)}
+    lst = d.get("columns")
+    if not isinstance(lst, list) or not lst:
+        if "cols" not in d:
+            v.err(f"{p}.columns", d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
+        lst = LList()
+    if len(lst) > 255:
+        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most 255")
+    # MCU columns are a "column" line, so a switch_matrix can share them (allow_other_uses)
+    pins["columns"] = [v.pin(x, f"{p}.columns[{i}]", lst.line_of(i), "in", hubs={"sn74hc165"}, why=why,
+                             line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_KEY_HUB)
+                             else "column", owner="key_matrix") or NO_PIN
+                       for i, x in enumerate(lst)]
     nr, nc = len(pins["rows"]), len(pins["columns"])
-    cap = nr * nc if kind == "switch" else nr * (nc // 2)
-    if kind == "velocity" and nc % 2:
-        v.err(f"{p}.columns", d.line_of("columns"), f"type velocity needs an even number of columns "
-                                                    f"(two contacts per key), got {nc}")
+    contacts = d.get("contacts", "columns")
+    if contacts not in ("columns", "rows"):
+        v.err(f"{p}.contacts", d.line_of("contacts"), f"{contacts!r} is unknown (columns: a key's two contacts "
+                                                      "are columns 2p, 2p+1; rows: rows 2p, 2p+1)")
+        contacts = "columns"
+    if "contacts" in d and kind != "velocity":
+        v.err(f"{p}.contacts", d.line_of("contacts"), "only for type: velocity (two contacts per key)")
+        contacts = "columns"
+    by_rows = kind == "velocity" and contacts == "rows"
+    if kind == "switch":
+        lrows, lcols = nr, nc
+    elif by_rows:
+        lrows, lcols = nr // 2, nc
+        if nr % 2:
+            v.err(f"{p}.rows", d.line_of("rows"), f"contacts: rows needs an even number of rows "
+                                                  f"(two contacts per key), got {nr}")
+        if nr > 32:
+            v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: contacts: rows takes at most 32")
+    else:
+        lrows, lcols = nr, nc // 2
+        if nc % 2:
+            v.err(f"{p}.columns", d.line_of("columns"), f"type velocity needs an even number of columns "
+                                                        f"(two contacts per key), got {nc}")
+    cap = lrows * lcols
     keys = v.integer(d, "keys", p, 1, 128, default=min(cap, 128) or 1)
     first = v.integer(d, "first_note", p, 0, 127, default=48)
-    if keys is not None and nr and nc and keys > cap:
+    if keys is not None and nr and nc and keys > cap and d.get("key_map") is None:
         v.err(f"{p}.keys", d.line_of("keys"), f"{keys} keys don't fit a {nr} x {nc} {kind} matrix "
                                               f"(at most {cap})")
     if keys is not None and first is not None and first + keys > 128:
         v.err(f"{p}.keys", d.line_of("keys"), f"first_note {first} + {keys} keys goes past note 127")
     settle = v.period(d, "settle", p, 0, 255, default=1, example="1us")
     vel_fast, vel_slow = validate_velocity(v, d, p, kind)
+    key_map = validate_key_map(v, d, p, lrows, lcols, keys or 0, by_rows, kind)
     dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["columns"], keys=keys or 0,
                      first_note=first or 0, settle_us=settle, vel_fast=vel_fast, vel_slow=vel_slow,
-                     daw=daw_role(v, dev, d, p))
+                     daw=daw_role(v, dev, d, p), contacts=contacts, key_map=key_map)
+
+
+def validate_key_map(v, d, p, lrows, lcols, keys, by_rows, kind):
+    """key_map: one list per matrix row (per row pair with contacts: rows), one key number per column
+    (per column pair with contacts: columns), or null where there is no key. -> flat list, row-major,
+    255 = none; or None when not given."""
+    if d.get("key_map") is None:
+        return None
+    p = f"{p}.key_map"
+    km = v.seq(d["key_map"], p, d.line_of("key_map"))
+    what_r = "row pair" if by_rows else "row"
+    what_c = "column pair" if kind == "velocity" and not by_rows else "column"
+    if len(km) != lrows:
+        v.err(p, d.line_of("key_map"), f"needs one list per {what_r}: {lrows}, got {len(km)}")
+    flat, where = [], {}
+    for r in range(lrows):
+        row = km[r] if r < len(km) else LList()
+        rp = f"{p}[{r}]"
+        if not isinstance(row, list):
+            v.err(rp, km.line_of(r), f"must be a list of {lcols} key numbers (null = no key)")
+            row = LList()
+        elif len(row) != lcols:
+            v.err(rp, km.line_of(r), f"needs {lcols} entries, one per {what_c} (null = no key), got {len(row)}")
+        for c in range(lcols):
+            x = row[c] if c < len(row) else None
+            if x is None:
+                flat.append(255)
+                continue
+            if isinstance(x, bool) or not isinstance(x, int) or not 0 <= x < keys:
+                v.err(f"{rp}[{c}]", row.line_of(c) if isinstance(row, LList) else km.line_of(r),
+                      f"must be a key number 0..{keys - 1} or null (got {x!r})")
+                flat.append(255)
+                continue
+            if x in where:
+                v.err(f"{rp}[{c}]", row.line_of(c), f"key {x} is already at key_map{where[x]}")
+            where.setdefault(x, f"[{r}][{c}]")
+            flat.append(x)
+    missing = [k for k in range(keys) if k not in where]
+    if missing and len(km) == lrows:
+        v.warn(p, d.line_of("key_map"), f"keys not in the map never play: {', '.join(map(str, missing[:8]))}"
+                                        f"{' ...' if len(missing) > 8 else ''}")
+    return flat
 
 
 # Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
@@ -1882,6 +2148,75 @@ def validate_velocity(v, d, path, kind):
                                         f"({(slow or 1200) / 10:g}ms)")
         return None, None
     return fast, slow
+
+
+# ---------------------------------------------------------------------------------------------
+# pads (core/README.md "Pads")
+
+# pad_settings: the pad.* param defaults (core/src/settings.c GM_PAD_*_DEFAULT). Readings are 0..4095,
+# after inverted:; window and retrigger in ms.
+PAD_DEFAULTS = {"channel": 0, "curve": 0, "aftertouch": 0, "threshold": 200, "release": 100, "full": 3000,
+                "window": 3, "retrigger": 20}
+PAD_KEYS = ["id", "name", "pin", "note"]
+PAD_SETTINGS_KEYS = list(PAD_DEFAULTS)
+MAX_PADS = 128
+
+
+def validate_pads(v, dev, data):
+    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note.
+    pad_settings: what all pads share: the sensing (global) and channel / curve / aftertouch (per preset)."""
+    names = {}
+    pads = v.seq(data.get("pads"), "pads", data.line_of("pads"))
+    for i, d in enumerate(pads):
+        p = f"pads[{i}]"
+        d = v.mapping(d, p, pads.line_of(i), PAD_KEYS, renamed=RENAMED_ID)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "pad", len(dev.pads))
+        name = v.display_name(d, p, ident)
+        unique_name(v, names, "pad", name, p, d)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", why="a pad is read with the ADC")
+        note = v.integer(d, "note", p, 0, 127, default=0, required=True)
+        dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, path=p,
+                            line=d.line_of("note") if "note" in d else d.line))
+    if len(dev.pads) > MAX_PADS:
+        v.err("pads", data.line_of("pads"), f"{len(dev.pads)} pads: at most {MAX_PADS}")
+    seen = {}
+    for x in dev.pads:
+        if x.note in seen:
+            v.warn(f"{x.path}.note", x.line, f"note {x.note} is also the note of {seen[x.note]}: both pads "
+                                              "play the same note")
+        seen.setdefault(x.note, x.path)
+
+    if data.get("pad_settings") is None:
+        return
+    p, line = "pad_settings", data.line_of("pad_settings")
+    s = v.mapping(data["pad_settings"], p, line, PAD_SETTINGS_KEYS)
+    if s is None:
+        return
+    if not dev.pads:
+        v.warn(p, line, "there are no pads: ignored")
+    ps = dev.pad_set
+
+    def put(key, val):
+        if val is not None:
+            ps[key] = val
+
+    put("channel", v.integer(s, "channel", p, 0, 16))
+    if "curve" in s:
+        put("curve", enum_value(v, s, "curve", f"{p}.curve", CURVES))
+    if "aftertouch" in s:
+        put("aftertouch", int(v.boolean(s, "aftertouch", p)))
+    put("threshold", v.integer(s, "threshold", p, 1, 4095))
+    put("release", v.integer(s, "release", p, 0, 4094))
+    put("full", v.integer(s, "full", p, 2, 4095))
+    put("window", v.period(s, "window", p, 1000, 50_000, step_us=1000, example="3ms"))
+    put("retrigger", v.period(s, "retrigger", p, 0, 500_000, step_us=1000, example="20ms"))
+    if not ps["release"] < ps["threshold"] < ps["full"]:
+        v.err(p, line, f"needs release < threshold < full (got release {ps['release']}, threshold "
+                       f"{ps['threshold']}, full {ps['full']}; readings 0..4095, with the defaults "
+                       f"{PAD_DEFAULTS['release']}, {PAD_DEFAULTS['threshold']}, {PAD_DEFAULTS['full']} "
+                       "for those not given)")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2005,11 +2340,17 @@ def preset_values(v, dev, d, p):
             kp, kl = f"{sp}.{k}", g.line_of(k)
             if not any(n == param and c(dev) for n, _i, _s, c in PARAMS):
                 why = ("it needs a velocity key matrix (key_matrix: { type: velocity })"
-                       if param == "velocity.curve" else "the device has no buttons")
+                       if param == "velocity.curve" else "the device has no pads"
+                       if param.startswith("pad.") else "the device has no buttons")
                 v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
                 continue
+            if callable(default):
+                default = default(dev)
             if kind == "int":
                 val, shown = v.integer(g, k, sp, lo, hi), None
+            elif kind == "bool":
+                val = v.boolean(g, k, sp, default=None)
+                val, shown = (None, None) if val is None else (int(val), str(val).lower())
             elif kind == "ms":
                 val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
                 shown = f"{val} ms"
@@ -2056,6 +2397,9 @@ def preset_values(v, dev, d, p):
             elif sec == "analog":
                 put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
                     line("cc"), f"analog.cc[{cid}]")
+            elif sec == "pads":
+                put("pad.note", idx, v.integer(o, "note", cp, 0, 127), dev.pads[idx].note, f"{cp}.note",
+                    line("note"), f"pad.note[{cid}]")
             else:
                 e = dev.encoders[idx]
                 if "cc" in o:
@@ -2619,6 +2963,9 @@ def generate(dev, source="device.yaml"):
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
          f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}"]
+    tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in TM_HUBS)
+    if tm_ram:
+        h.append(f"#define GM_TM1628_RAM {tm_ram} /* display RAM bytes of all tm1628 hubs */")
     if m and getattr(m, "vel_fast", None) is not None:
         h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
     if m and getattr(m, "vel_slow", None) is not None:
@@ -2633,6 +2980,7 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
+    h += pad_defines(dev)
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -2645,9 +2993,26 @@ def generate(dev, source="device.yaml"):
         return pn.c()
 
     if dev.hubs:
+        for hb in dev.hubs:
+            if hb.type != "switch_matrix" or not hb.rows or not hb.cols:
+                continue
+            for nm, lst in (("rows", hb.rows), ("cols", hb.cols)):
+                c.append(f"static const gm_pin_t hub{hb.index + 1}_{nm}[{len(lst)}] = {{")
+                c += [f"    {x.c()}, /* {_comment(x.desc)} */" for x in lst]
+                c += ["};"]
         c.append("static const gm_hub_t hubs[GM_N_HUBS] = {")
         for hb in dev.hubs:
             sel = [s.c() for s in hb.sel] + ["GM_NO_PIN"] * (4 - len(hb.sel))
+            extra = []
+            if hb.type == "decoder":
+                en = [x.c() for x in hb.en] + ["GM_NO_PIN"] * (3 - len(hb.en))
+                lv = [str(x) for x in hb.group_lv] + ["0"] * (4 - len(hb.group_lv))
+                extra = [f"        .en = {{ {', '.join(en)} }}, .n_en = {len(hb.en)},",
+                         f"        .n_groups = {len(hb.group_lv)}, .group_lv = {{ {', '.join(lv)} }},"]
+            elif hb.type == "switch_matrix" and hb.rows and hb.cols:
+                n = hb.index + 1
+                extra = [f"        .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hb.rows)}, "
+                         f".n_cols = {len(hb.cols)}, .rows_per_scan = {hb.rows_per_scan or 0},"]
             c += [f"    {{ /* {hb.index + 1}: {_comment(hb.id)} ({hb.type}) */",
                   f"        .type = {HUB_ENUM[hb.type]}, .chain = {hb.chain}, .n_sel = {hb.n_sel}, "
                   f".i2c_addr = 0x{hb.addr:02X},",
@@ -2655,6 +3020,9 @@ def generate(dev, source="device.yaml"):
                   f"        .sel = {{ {', '.join(sel)} }},",
                   f"        .common = {(hb.common or NO_PIN).c()}, .enable = {hb.enable.c()},",
                   f"        .settle_us = {hb.settle_us},",
+                  *extra,
+                  *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
+                     f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
                   "    },"]
         c += ["};", ""]
     if dev.buttons:
@@ -2664,7 +3032,7 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
               for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:
@@ -2684,11 +3052,19 @@ def generate(dev, source="device.yaml"):
             c += [f"    {x.c()}, /* {_comment(x.desc)} */" for x in lst]
             c += ["};"]
         kind = "GM_MATRIX_KIND_VELOCITY" if m.kind == "velocity" else "GM_MATRIX_KIND_SWITCH"
+        if m.key_map:
+            c.append(f"static const uint8_t matrix_key_map[{len(m.key_map)}] = {{")
+            per = max(1, len(m.cols) if m.contacts == "rows" or m.kind == "switch" else len(m.cols) // 2)
+            for i in range(0, len(m.key_map), per):
+                c.append("    " + ", ".join(str(x) for x in m.key_map[i:i + per]) + ",")
+            c += ["};"]
+        contacts = "GM_MATRIX_CONTACTS_ROWS" if m.contacts == "rows" else "GM_MATRIX_CONTACTS_COLS"
         c += ["static const gm_matrix_t matrix = {",
               f"    .rows = matrix_rows, .n_rows = {len(m.rows)},",
               f"    .cols = matrix_cols, .n_cols = {len(m.cols)},",
               f"    .kind = {kind}, .n_keys = {m.keys}, .first_note = {m.first_note}, "
               f".settle_us = {m.settle_us},",
+              f"    .contacts = {contacts}, .key_map = {'matrix_key_map' if m.key_map else '0'},",
               "};", ""]
     combo = " | ".join(f"(1u << {i})" for i in sorted(dev.boot_combo)) or "0"
     c += ["const gm_device_t gm_device = {",
@@ -2722,7 +3098,36 @@ def generate(dev, source="device.yaml"):
     c += feedback_tables(dev)
     c += preset_tables(dev)
     c += mode_tables(dev)
+    c += pad_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+
+
+def pad_defines(dev):
+    """GM_N_PADS, and with pads the pad.* param defaults from pad_settings: (core/src/settings.c)."""
+    h = ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (core/README.md \"Pads\") */"]
+    if dev.pads:
+        ps = dev.pad_set
+        h += [f"#define GM_PAD_CHANNEL_DEFAULT {ps['channel']} /* 0 = midi.channel */",
+              f"#define GM_PAD_CURVE_DEFAULT {ps['curve']} /* {CURVES[ps['curve']]} */",
+              f"#define GM_PAD_AFTERTOUCH_DEFAULT {ps['aftertouch']}",
+              f"#define GM_PAD_THRESHOLD_DEFAULT {ps['threshold']}",
+              f"#define GM_PAD_RELEASE_DEFAULT {ps['release']}",
+              f"#define GM_PAD_FULL_DEFAULT {ps['full']}",
+              f"#define GM_PAD_WINDOW_DEFAULT {ps['window']} /* ms */",
+              f"#define GM_PAD_RETRIGGER_DEFAULT {ps['retrigger']} /* ms */"]
+    return h
+
+
+def pad_tables(dev):
+    """gm_pads[] (gm_device.h gm_pad_t) and the pad.note defaults; nothing without pads."""
+    if not dev.pads:
+        return []
+    return ["const gm_pad_t gm_pads[GM_N_PADS] = {",
+            *[f"    {{ {x.pin.c()}, {c_str(x.name)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
+              for x in dev.pads],
+            "};",
+            "const int32_t gm_pad_note_defaults[GM_N_PADS] = { " + ", ".join(str(x.note) for x in dev.pads) + " };",
+            ""]
 
 
 OWNER_NAMES = {n: k for k, n in LED_OWNERS.items()}

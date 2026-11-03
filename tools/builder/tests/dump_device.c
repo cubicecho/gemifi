@@ -31,8 +31,8 @@ int main(void)
     printf("hubs=%u (%s)\n", d->n_hubs, d->hubs ? "ptr" : "null");
     for (i = 0; i < d->n_hubs; i++) {
         const gm_hub_t *h = &d->hubs[i];
-        printf(" hub %u type=%u chain=%u n_sel=%u addr=0x%02x settle=%u\n", i, h->type, h->chain,
-               h->n_sel, h->i2c_addr, h->settle_us);
+        printf(" hub %u type=%u chain=%u n_sel=%u addr=0x%02x settle=%u ram=%u bright=%u grids=%u\n", i,
+               h->type, h->chain, h->n_sel, h->i2c_addr, h->settle_us, h->ram_bytes, h->brightness, h->grids);
         pin("data", h->data); pin("clock", h->clock); pin("latch", h->latch);
         for (j = 0; j < 4; j++) pin("sel", h->sel[j]);
         pin("common", h->common); pin("enable", h->enable);
@@ -45,7 +45,7 @@ int main(void)
     }
     printf("leds=%u (%s)\n", d->n_leds, d->leds ? "ptr" : "null");
     for (i = 0; i < d->n_leds; i++) {
-        pin("pin", d->leds[i].pin); pin("pin2", d->leds[i].pin2);
+        pin("pin", d->leds[i].pin); pin("pin2", d->leds[i].pin2); pin("pin3", d->leds[i].pin3);
     }
     printf("analogs=%u (%s)\n", d->n_analogs, d->analogs ? "ptr" : "null");
     for (i = 0; i < d->n_analogs; i++) {
@@ -80,6 +80,18 @@ int main(void)
             printf("  val id=%u index=%u value=%ld\n", p->vals[j].id, p->vals[j].index,
                    (long)p->vals[j].value);
     }
+#if GM_N_PADS > 0
+    printf("pads=%d channel=%d curve=%d aftertouch=%d threshold=%d release=%d full=%d window=%d "
+           "retrigger=%d\n", GM_N_PADS, GM_PAD_CHANNEL_DEFAULT, GM_PAD_CURVE_DEFAULT,
+           GM_PAD_AFTERTOUCH_DEFAULT, GM_PAD_THRESHOLD_DEFAULT, GM_PAD_RELEASE_DEFAULT,
+           GM_PAD_FULL_DEFAULT, GM_PAD_WINDOW_DEFAULT, GM_PAD_RETRIGGER_DEFAULT);
+    for (i = 0; i < GM_N_PADS; i++) {
+        pin("pad", gm_pads[i].pin); str("name", gm_pads[i].name);
+        printf("  note=%ld\n", (long)gm_pad_note_defaults[i]);
+    }
+#else
+    printf("pads=0\n");
+#endif
 #ifdef GM_I2C_SDA
     printf("i2c sda=%d scl=%d\n", GM_I2C_SDA, GM_I2C_SCL);
 #endif

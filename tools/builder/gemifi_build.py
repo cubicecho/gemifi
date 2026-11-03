@@ -72,7 +72,7 @@ def check(path, quiet=False, out=None):
 def summary(dev):
     parts = [f"{dev.name} ({dev.platform.name}, board 0x{dev.board_id:04X})"]
     for n, lst in (("hub", dev.hubs), ("button", dev.buttons), ("LED", dev.leds),
-                   ("analog", dev.analogs), ("encoder", dev.encoders)):
+                   ("analog", dev.analogs), ("encoder", dev.encoders), ("pad", dev.pads)):
         if lst:
             parts.append(f"{len(lst)} {n}{'s' if len(lst) != 1 and n != 'analog' else ''}")
     if dev.matrix:

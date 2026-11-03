@@ -1,0 +1,211 @@
+# M-Audio Code 61: LED bit-mapping firmware. Temporary: for finding which
+# TM1628 RAM bit lights which LED or display segment (core/README.md
+# "TM1628 LED drivers"). Every RAM bit is an LED that only the host drives:
+#   chip A (leds_a) bit n = a_<n> = Note n on channel 1 (n = 0..111),
+#   chip B (leds_b) bit n = b_<n> = Note n on channel 2 (n = 0..47),
+# bit n = RAM byte n / 8, bit n % 8. Light them from the web app's
+# host-feedback card (Off / Blink / On per LED) or with Note On from any
+# MIDI tool. The tm1628: section is a copy of devices/m-audio-code61.yaml's;
+# the leds: list was generated (one line per bit). Sustain and the master
+# fader are here only so the device has inputs.
+gemifi: 2
+name: m-audio-code61
+friendly_name: Code 61 LED map
+description: "M-Audio Code 61: every TM1628 RAM bit as a host-driven LED, for mapping the LEDs"
+project:
+  version: 0.1.0
+board_id: 0x0002
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 200us
+
+# LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
+# with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive
+# every LED and the 6-character display. A pin on them is a RAM bit:
+# number = byte * 8 + bit. PA15 is a JTAG pin at reset; the board config
+# turns JTAG off (BOARD_SWJ_NOJTAG, SWD stays on).
+# The stock app never sends a display-mode command (no grids:), and its
+# brightness is unknown (intensity: 7 = the default). [guess]
+tm1628:
+  - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PA15
+    ram_bytes: 14
+  - id: leds_b             # the stock app writes 6 bytes [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PC12
+    ram_bytes: 6
+
+buttons:
+  - id: sustain
+    pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
+    action: cc_momentary
+    cc: 64
+
+analog:
+  - { id: master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }
+
+leds:
+  - { id: a_0, pin: { tm1628: leds_a, number: 0 }, feedback: { note: 0 } }
+  - { id: a_1, pin: { tm1628: leds_a, number: 1 }, feedback: { note: 1 } }
+  - { id: a_2, pin: { tm1628: leds_a, number: 2 }, feedback: { note: 2 } }
+  - { id: a_3, pin: { tm1628: leds_a, number: 3 }, feedback: { note: 3 } }
+  - { id: a_4, pin: { tm1628: leds_a, number: 4 }, feedback: { note: 4 } }
+  - { id: a_5, pin: { tm1628: leds_a, number: 5 }, feedback: { note: 5 } }
+  - { id: a_6, pin: { tm1628: leds_a, number: 6 }, feedback: { note: 6 } }
+  - { id: a_7, pin: { tm1628: leds_a, number: 7 }, feedback: { note: 7 } }
+  - { id: a_8, pin: { tm1628: leds_a, number: 8 }, feedback: { note: 8 } }
+  - { id: a_9, pin: { tm1628: leds_a, number: 9 }, feedback: { note: 9 } }
+  - { id: a_10, pin: { tm1628: leds_a, number: 10 }, feedback: { note: 10 } }
+  - { id: a_11, pin: { tm1628: leds_a, number: 11 }, feedback: { note: 11 } }
+  - { id: a_12, pin: { tm1628: leds_a, number: 12 }, feedback: { note: 12 } }
+  - { id: a_13, pin: { tm1628: leds_a, number: 13 }, feedback: { note: 13 } }
+  - { id: a_14, pin: { tm1628: leds_a, number: 14 }, feedback: { note: 14 } }
+  - { id: a_15, pin: { tm1628: leds_a, number: 15 }, feedback: { note: 15 } }
+  - { id: a_16, pin: { tm1628: leds_a, number: 16 }, feedback: { note: 16 } }
+  - { id: a_17, pin: { tm1628: leds_a, number: 17 }, feedback: { note: 17 } }
+  - { id: a_18, pin: { tm1628: leds_a, number: 18 }, feedback: { note: 18 } }
+  - { id: a_19, pin: { tm1628: leds_a, number: 19 }, feedback: { note: 19 } }
+  - { id: a_20, pin: { tm1628: leds_a, number: 20 }, feedback: { note: 20 } }
+  - { id: a_21, pin: { tm1628: leds_a, number: 21 }, feedback: { note: 21 } }
+  - { id: a_22, pin: { tm1628: leds_a, number: 22 }, feedback: { note: 22 } }
+  - { id: a_23, pin: { tm1628: leds_a, number: 23 }, feedback: { note: 23 } }
+  - { id: a_24, pin: { tm1628: leds_a, number: 24 }, feedback: { note: 24 } }
+  - { id: a_25, pin: { tm1628: leds_a, number: 25 }, feedback: { note: 25 } }
+  - { id: a_26, pin: { tm1628: leds_a, number: 26 }, feedback: { note: 26 } }
+  - { id: a_27, pin: { tm1628: leds_a, number: 27 }, feedback: { note: 27 } }
+  - { id: a_28, pin: { tm1628: leds_a, number: 28 }, feedback: { note: 28 } }
+  - { id: a_29, pin: { tm1628: leds_a, number: 29 }, feedback: { note: 29 } }
+  - { id: a_30, pin: { tm1628: leds_a, number: 30 }, feedback: { note: 30 } }
+  - { id: a_31, pin: { tm1628: leds_a, number: 31 }, feedback: { note: 31 } }
+  - { id: a_32, pin: { tm1628: leds_a, number: 32 }, feedback: { note: 32 } }
+  - { id: a_33, pin: { tm1628: leds_a, number: 33 }, feedback: { note: 33 } }
+  - { id: a_34, pin: { tm1628: leds_a, number: 34 }, feedback: { note: 34 } }
+  - { id: a_35, pin: { tm1628: leds_a, number: 35 }, feedback: { note: 35 } }
+  - { id: a_36, pin: { tm1628: leds_a, number: 36 }, feedback: { note: 36 } }
+  - { id: a_37, pin: { tm1628: leds_a, number: 37 }, feedback: { note: 37 } }
+  - { id: a_38, pin: { tm1628: leds_a, number: 38 }, feedback: { note: 38 } }
+  - { id: a_39, pin: { tm1628: leds_a, number: 39 }, feedback: { note: 39 } }
+  - { id: a_40, pin: { tm1628: leds_a, number: 40 }, feedback: { note: 40 } }
+  - { id: a_41, pin: { tm1628: leds_a, number: 41 }, feedback: { note: 41 } }
+  - { id: a_42, pin: { tm1628: leds_a, number: 42 }, feedback: { note: 42 } }
+  - { id: a_43, pin: { tm1628: leds_a, number: 43 }, feedback: { note: 43 } }
+  - { id: a_44, pin: { tm1628: leds_a, number: 44 }, feedback: { note: 44 } }
+  - { id: a_45, pin: { tm1628: leds_a, number: 45 }, feedback: { note: 45 } }
+  - { id: a_46, pin: { tm1628: leds_a, number: 46 }, feedback: { note: 46 } }
+  - { id: a_47, pin: { tm1628: leds_a, number: 47 }, feedback: { note: 47 } }
+  - { id: a_48, pin: { tm1628: leds_a, number: 48 }, feedback: { note: 48 } }
+  - { id: a_49, pin: { tm1628: leds_a, number: 49 }, feedback: { note: 49 } }
+  - { id: a_50, pin: { tm1628: leds_a, number: 50 }, feedback: { note: 50 } }
+  - { id: a_51, pin: { tm1628: leds_a, number: 51 }, feedback: { note: 51 } }
+  - { id: a_52, pin: { tm1628: leds_a, number: 52 }, feedback: { note: 52 } }
+  - { id: a_53, pin: { tm1628: leds_a, number: 53 }, feedback: { note: 53 } }
+  - { id: a_54, pin: { tm1628: leds_a, number: 54 }, feedback: { note: 54 } }
+  - { id: a_55, pin: { tm1628: leds_a, number: 55 }, feedback: { note: 55 } }
+  - { id: a_56, pin: { tm1628: leds_a, number: 56 }, feedback: { note: 56 } }
+  - { id: a_57, pin: { tm1628: leds_a, number: 57 }, feedback: { note: 57 } }
+  - { id: a_58, pin: { tm1628: leds_a, number: 58 }, feedback: { note: 58 } }
+  - { id: a_59, pin: { tm1628: leds_a, number: 59 }, feedback: { note: 59 } }
+  - { id: a_60, pin: { tm1628: leds_a, number: 60 }, feedback: { note: 60 } }
+  - { id: a_61, pin: { tm1628: leds_a, number: 61 }, feedback: { note: 61 } }
+  - { id: a_62, pin: { tm1628: leds_a, number: 62 }, feedback: { note: 62 } }
+  - { id: a_63, pin: { tm1628: leds_a, number: 63 }, feedback: { note: 63 } }
+  - { id: a_64, pin: { tm1628: leds_a, number: 64 }, feedback: { note: 64 } }
+  - { id: a_65, pin: { tm1628: leds_a, number: 65 }, feedback: { note: 65 } }
+  - { id: a_66, pin: { tm1628: leds_a, number: 66 }, feedback: { note: 66 } }
+  - { id: a_67, pin: { tm1628: leds_a, number: 67 }, feedback: { note: 67 } }
+  - { id: a_68, pin: { tm1628: leds_a, number: 68 }, feedback: { note: 68 } }
+  - { id: a_69, pin: { tm1628: leds_a, number: 69 }, feedback: { note: 69 } }
+  - { id: a_70, pin: { tm1628: leds_a, number: 70 }, feedback: { note: 70 } }
+  - { id: a_71, pin: { tm1628: leds_a, number: 71 }, feedback: { note: 71 } }
+  - { id: a_72, pin: { tm1628: leds_a, number: 72 }, feedback: { note: 72 } }
+  - { id: a_73, pin: { tm1628: leds_a, number: 73 }, feedback: { note: 73 } }
+  - { id: a_74, pin: { tm1628: leds_a, number: 74 }, feedback: { note: 74 } }
+  - { id: a_75, pin: { tm1628: leds_a, number: 75 }, feedback: { note: 75 } }
+  - { id: a_76, pin: { tm1628: leds_a, number: 76 }, feedback: { note: 76 } }
+  - { id: a_77, pin: { tm1628: leds_a, number: 77 }, feedback: { note: 77 } }
+  - { id: a_78, pin: { tm1628: leds_a, number: 78 }, feedback: { note: 78 } }
+  - { id: a_79, pin: { tm1628: leds_a, number: 79 }, feedback: { note: 79 } }
+  - { id: a_80, pin: { tm1628: leds_a, number: 80 }, feedback: { note: 80 } }
+  - { id: a_81, pin: { tm1628: leds_a, number: 81 }, feedback: { note: 81 } }
+  - { id: a_82, pin: { tm1628: leds_a, number: 82 }, feedback: { note: 82 } }
+  - { id: a_83, pin: { tm1628: leds_a, number: 83 }, feedback: { note: 83 } }
+  - { id: a_84, pin: { tm1628: leds_a, number: 84 }, feedback: { note: 84 } }
+  - { id: a_85, pin: { tm1628: leds_a, number: 85 }, feedback: { note: 85 } }
+  - { id: a_86, pin: { tm1628: leds_a, number: 86 }, feedback: { note: 86 } }
+  - { id: a_87, pin: { tm1628: leds_a, number: 87 }, feedback: { note: 87 } }
+  - { id: a_88, pin: { tm1628: leds_a, number: 88 }, feedback: { note: 88 } }
+  - { id: a_89, pin: { tm1628: leds_a, number: 89 }, feedback: { note: 89 } }
+  - { id: a_90, pin: { tm1628: leds_a, number: 90 }, feedback: { note: 90 } }
+  - { id: a_91, pin: { tm1628: leds_a, number: 91 }, feedback: { note: 91 } }
+  - { id: a_92, pin: { tm1628: leds_a, number: 92 }, feedback: { note: 92 } }
+  - { id: a_93, pin: { tm1628: leds_a, number: 93 }, feedback: { note: 93 } }
+  - { id: a_94, pin: { tm1628: leds_a, number: 94 }, feedback: { note: 94 } }
+  - { id: a_95, pin: { tm1628: leds_a, number: 95 }, feedback: { note: 95 } }
+  - { id: a_96, pin: { tm1628: leds_a, number: 96 }, feedback: { note: 96 } }
+  - { id: a_97, pin: { tm1628: leds_a, number: 97 }, feedback: { note: 97 } }
+  - { id: a_98, pin: { tm1628: leds_a, number: 98 }, feedback: { note: 98 } }
+  - { id: a_99, pin: { tm1628: leds_a, number: 99 }, feedback: { note: 99 } }
+  - { id: a_100, pin: { tm1628: leds_a, number: 100 }, feedback: { note: 100 } }
+  - { id: a_101, pin: { tm1628: leds_a, number: 101 }, feedback: { note: 101 } }
+  - { id: a_102, pin: { tm1628: leds_a, number: 102 }, feedback: { note: 102 } }
+  - { id: a_103, pin: { tm1628: leds_a, number: 103 }, feedback: { note: 103 } }
+  - { id: a_104, pin: { tm1628: leds_a, number: 104 }, feedback: { note: 104 } }
+  - { id: a_105, pin: { tm1628: leds_a, number: 105 }, feedback: { note: 105 } }
+  - { id: a_106, pin: { tm1628: leds_a, number: 106 }, feedback: { note: 106 } }
+  - { id: a_107, pin: { tm1628: leds_a, number: 107 }, feedback: { note: 107 } }
+  - { id: a_108, pin: { tm1628: leds_a, number: 108 }, feedback: { note: 108 } }
+  - { id: a_109, pin: { tm1628: leds_a, number: 109 }, feedback: { note: 109 } }
+  - { id: a_110, pin: { tm1628: leds_a, number: 110 }, feedback: { note: 110 } }
+  - { id: a_111, pin: { tm1628: leds_a, number: 111 }, feedback: { note: 111 } }
+  - { id: b_0, pin: { tm1628: leds_b, number: 0 }, feedback: { note: 0, channel: 2 } }
+  - { id: b_1, pin: { tm1628: leds_b, number: 1 }, feedback: { note: 1, channel: 2 } }
+  - { id: b_2, pin: { tm1628: leds_b, number: 2 }, feedback: { note: 2, channel: 2 } }
+  - { id: b_3, pin: { tm1628: leds_b, number: 3 }, feedback: { note: 3, channel: 2 } }
+  - { id: b_4, pin: { tm1628: leds_b, number: 4 }, feedback: { note: 4, channel: 2 } }
+  - { id: b_5, pin: { tm1628: leds_b, number: 5 }, feedback: { note: 5, channel: 2 } }
+  - { id: b_6, pin: { tm1628: leds_b, number: 6 }, feedback: { note: 6, channel: 2 } }
+  - { id: b_7, pin: { tm1628: leds_b, number: 7 }, feedback: { note: 7, channel: 2 } }
+  - { id: b_8, pin: { tm1628: leds_b, number: 8 }, feedback: { note: 8, channel: 2 } }
+  - { id: b_9, pin: { tm1628: leds_b, number: 9 }, feedback: { note: 9, channel: 2 } }
+  - { id: b_10, pin: { tm1628: leds_b, number: 10 }, feedback: { note: 10, channel: 2 } }
+  - { id: b_11, pin: { tm1628: leds_b, number: 11 }, feedback: { note: 11, channel: 2 } }
+  - { id: b_12, pin: { tm1628: leds_b, number: 12 }, feedback: { note: 12, channel: 2 } }
+  - { id: b_13, pin: { tm1628: leds_b, number: 13 }, feedback: { note: 13, channel: 2 } }
+  - { id: b_14, pin: { tm1628: leds_b, number: 14 }, feedback: { note: 14, channel: 2 } }
+  - { id: b_15, pin: { tm1628: leds_b, number: 15 }, feedback: { note: 15, channel: 2 } }
+  - { id: b_16, pin: { tm1628: leds_b, number: 16 }, feedback: { note: 16, channel: 2 } }
+  - { id: b_17, pin: { tm1628: leds_b, number: 17 }, feedback: { note: 17, channel: 2 } }
+  - { id: b_18, pin: { tm1628: leds_b, number: 18 }, feedback: { note: 18, channel: 2 } }
+  - { id: b_19, pin: { tm1628: leds_b, number: 19 }, feedback: { note: 19, channel: 2 } }
+  - { id: b_20, pin: { tm1628: leds_b, number: 20 }, feedback: { note: 20, channel: 2 } }
+  - { id: b_21, pin: { tm1628: leds_b, number: 21 }, feedback: { note: 21, channel: 2 } }
+  - { id: b_22, pin: { tm1628: leds_b, number: 22 }, feedback: { note: 22, channel: 2 } }
+  - { id: b_23, pin: { tm1628: leds_b, number: 23 }, feedback: { note: 23, channel: 2 } }
+  - { id: b_24, pin: { tm1628: leds_b, number: 24 }, feedback: { note: 24, channel: 2 } }
+  - { id: b_25, pin: { tm1628: leds_b, number: 25 }, feedback: { note: 25, channel: 2 } }
+  - { id: b_26, pin: { tm1628: leds_b, number: 26 }, feedback: { note: 26, channel: 2 } }
+  - { id: b_27, pin: { tm1628: leds_b, number: 27 }, feedback: { note: 27, channel: 2 } }
+  - { id: b_28, pin: { tm1628: leds_b, number: 28 }, feedback: { note: 28, channel: 2 } }
+  - { id: b_29, pin: { tm1628: leds_b, number: 29 }, feedback: { note: 29, channel: 2 } }
+  - { id: b_30, pin: { tm1628: leds_b, number: 30 }, feedback: { note: 30, channel: 2 } }
+  - { id: b_31, pin: { tm1628: leds_b, number: 31 }, feedback: { note: 31, channel: 2 } }
+  - { id: b_32, pin: { tm1628: leds_b, number: 32 }, feedback: { note: 32, channel: 2 } }
+  - { id: b_33, pin: { tm1628: leds_b, number: 33 }, feedback: { note: 33, channel: 2 } }
+  - { id: b_34, pin: { tm1628: leds_b, number: 34 }, feedback: { note: 34, channel: 2 } }
+  - { id: b_35, pin: { tm1628: leds_b, number: 35 }, feedback: { note: 35, channel: 2 } }
+  - { id: b_36, pin: { tm1628: leds_b, number: 36 }, feedback: { note: 36, channel: 2 } }
+  - { id: b_37, pin: { tm1628: leds_b, number: 37 }, feedback: { note: 37, channel: 2 } }
+  - { id: b_38, pin: { tm1628: leds_b, number: 38 }, feedback: { note: 38, channel: 2 } }
+  - { id: b_39, pin: { tm1628: leds_b, number: 39 }, feedback: { note: 39, channel: 2 } }
+  - { id: b_40, pin: { tm1628: leds_b, number: 40 }, feedback: { note: 40, channel: 2 } }
+  - { id: b_41, pin: { tm1628: leds_b, number: 41 }, feedback: { note: 41, channel: 2 } }
+  - { id: b_42, pin: { tm1628: leds_b, number: 42 }, feedback: { note: 42, channel: 2 } }
+  - { id: b_43, pin: { tm1628: leds_b, number: 43 }, feedback: { note: 43, channel: 2 } }
+  - { id: b_44, pin: { tm1628: leds_b, number: 44 }, feedback: { note: 44, channel: 2 } }
+  - { id: b_45, pin: { tm1628: leds_b, number: 45 }, feedback: { note: 45, channel: 2 } }
+  - { id: b_46, pin: { tm1628: leds_b, number: 46 }, feedback: { note: 46, channel: 2 } }
+  - { id: b_47, pin: { tm1628: leds_b, number: 47 }, feedback: { note: 47, channel: 2 } }

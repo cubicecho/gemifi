@@ -3,7 +3,7 @@
  *
  * Pin numbers: port * 16 + bit (PA0 = 0, PB8 = 24, PC0 = 32), ports A..G.
  * Inputs with pull-up/down use CNF = 10 with the pull direction in ODR.
- * Outputs are push-pull, 10 MHz. Writes go through BSRR (or the ODR
+ * Outputs are push-pull (HAL_OUT_OD: open-drain), 10 MHz. Writes go through BSRR (or the ODR
  * bit-band alias), so the scan interrupt and the main loop can't clobber
  * each other's pins.
  * ADC1: PA0..PA7 = ch0..7, PB0/PB1 = ch8/9, PC0..PC5 = ch10..15.
@@ -19,6 +19,11 @@
 #include "usbd.h"
 #include "usb_midi.h"
 #include "gemifi_image.h"
+
+uint32_t hal_cycles(void)
+{
+    return DWT_CYCCNT;
+}
 
 uint32_t hal_millis(void)
 {
@@ -68,6 +73,14 @@ void hal_delay_us(uint32_t us)
 #define PIN_PORT(pin) ((uint32_t)(pin) >> 4)
 #define PIN_BIT(pin)  ((uint32_t)(pin) & 15u)
 
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    if (PIN_PORT(pin) >= GPIO_PORTS)
+        return 0;
+    *bit = PIN_BIT(pin);
+    return &GPIO_BSRR(PIN_PORT(pin));
+}
+
 static void pin_cfg(uint16_t pin, uint32_t cfg)
 {
     uint32_t port = PIN_PORT(pin), bit = PIN_BIT(pin);
@@ -88,6 +101,9 @@ void hal_pin_mode(uint16_t pin, uint8_t mode)
     switch (mode) {
     case HAL_OUT:
         pin_cfg(pin, GPIO_CFG_OUT_PP);
+        break;
+    case HAL_OUT_OD:
+        pin_cfg(pin, GPIO_CFG_OUT_OD);
         break;
     case HAL_IN_PULLUP:
         GPIO_BSRR(port) = m;        /* ODR = 1: pull-up */
@@ -161,12 +177,13 @@ int32_t hal_adc_read(uint16_t pin)
         RCC_APB2ENR |= RCC_APB2_ADC1;
         RCC_APB2RSTR |= RCC_APB2_ADC1;
         RCC_APB2RSTR &= ~RCC_APB2_ADC1;
-        /* 55.5 cycles sample time on every channel (field value 5). */
+        /* 41.5 cycles sample time on every channel (field value 4), as the
+         * stock Code 61 firmware uses: 4.5 us per conversion at 12 MHz. */
         uint32_t s1 = 0, s2 = 0;
         for (uint32_t i = 0; i < 10u; i++)
-            s2 |= 5u << (3u * i);
+            s2 |= 4u << (3u * i);
         for (uint32_t i = 0; i < 8u; i++)
-            s1 |= 5u << (3u * i);
+            s1 |= 4u << (3u * i);
         ADC1_SMPR1 = s1;
         ADC1_SMPR2 = s2;
         ADC1_SQR1 = 0;                       /* one conversion */
@@ -259,6 +276,7 @@ void hal_uid(uint8_t uid[12])
 void hal_reboot(int to_bootloader)
 {
     irq_disable_all();
+    sys_tick_irq_disable();         /* the delay below polls SysTick */
     NVIC_ICER(0) = 0xFFFFFFFFu;     /* the next stage starts with no IRQs */
     NVIC_ICER(1) = 0xFFFFFFFFu;
     TIM_CR1(TIM2_BASE) = 0;

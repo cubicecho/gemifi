@@ -83,7 +83,8 @@ const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
 void hal_pin_mode(uint16_t pin, uint8_t mode)
 {
     uint32_t port = pin >> 4, bit = pin & 15u;
-    uint32_t pmd = mode == HAL_OUT ? PMD_OUTPUT : mode == HAL_IN_PULLUP ? PMD_QUASI : PMD_INPUT;
+    uint32_t pmd = mode == HAL_OUT ? PMD_OUTPUT : mode == HAL_OUT_OD ? PMD_OPEN_DRAIN :
+                   mode == HAL_IN_PULLUP ? PMD_QUASI : PMD_INPUT;
     if (mode == HAL_IN_PULLUP)
         GPIO_PDIO(pin) = 1;         /* quasi mode pulls up only while DOUT = 1 */
     GPIO_PMD(port) = (GPIO_PMD(port) & ~(3u << (2u * bit))) | pmd << (2u * bit);

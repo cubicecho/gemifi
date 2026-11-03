@@ -32,6 +32,11 @@ typedef struct {
  * Needs sys_tick_init() first (it uses sys_delay_ms). */
 void usbd_init(const usbd_desc_t *d);
 void usbd_poll(void);
+/* Serve USB from its interrupt (USB_LP) at NVIC priority prio (lower =
+ * more urgent) instead of from usbd_poll(), which then does nothing. The
+ * other calls stay safe from the main loop: they mask the interrupt
+ * while they touch the endpoints. Undone by usbd_disconnect(). */
+void usbd_irq_enable(uint8_t prio);
 int usbd_configured(void);
 
 /* Detach: USB block reset and clocked off, PA11/PA12 driven low (SE0),

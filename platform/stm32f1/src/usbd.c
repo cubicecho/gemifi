@@ -33,9 +33,29 @@ static const uint8_t *ctl_ptr;      /* NULL: no IN data stage pending */
 static uint16_t ctl_left;
 static uint8_t ctl_zlp;             /* reply shorter than wLength */
 static uint8_t pending_addr;
-static uint8_t config;
-static uint8_t in_busy;
-static int16_t out_len;             /* set to -1 by bus_reset() */
+static volatile uint8_t config;     /* volatile: the USB interrupt may set these */
+static volatile uint8_t in_busy;
+static volatile int16_t out_len;    /* set to -1 by bus_reset() */
+static volatile uint8_t irq_on;     /* usbd_irq_enable(): served from the interrupt */
+
+#define USB_IRQ_BIT (1u << (IRQ_USB_LP_CAN1_RX0 % 32u))
+
+/* Main-loop calls that touch EPnR mask the USB interrupt meanwhile: EPnR
+ * writes are read-modify-write, and the interrupt writes the same registers. */
+static uint32_t usb_lock(void)
+{
+    if (!irq_on)
+        return 0;
+    NVIC_ICER(IRQ_USB_LP_CAN1_RX0 / 32u) = USB_IRQ_BIT;
+    __asm__ volatile ("dsb\n\tisb" ::: "memory");
+    return 1;
+}
+
+static void usb_unlock(uint32_t locked)
+{
+    if (locked)
+        NVIC_ISER(IRQ_USB_LP_CAN1_RX0 / 32u) = USB_IRQ_BIT;
+}
 static uint8_t out_buf[DATA_SIZE];  /* PMA is not byte-addressable: copy */
 static uint8_t ctl_buf[2 + 2 * STR_MAX];
 
@@ -188,6 +208,11 @@ void usbd_init(const usbd_desc_t *d)
 
 void usbd_disconnect(void)
 {
+    if (irq_on) {
+        irq_on = 0;
+        NVIC_ICER(IRQ_USB_LP_CAN1_RX0 / 32u) = USB_IRQ_BIT;
+        USB_CNTR &= (uint16_t)~(USB_CNTR_CTRM | USB_CNTR_RESETM);
+    }
     detach();
 }
 
@@ -296,7 +321,8 @@ static void handle_setup(void)
             goto stall;
         break;
     case 0x08:                          /* GET_CONFIGURATION */
-        data = &config;
+        ctl_buf[0] = config;
+        data = ctl_buf;
         len = 1;
         break;
     case 0x09:                          /* SET_CONFIGURATION */
@@ -344,7 +370,30 @@ stall:
            USB_TX_STAT(USB_STAT_STALL) | USB_RX_STAT(USB_STAT_STALL));
 }
 
+static void poll_core(void);
+
 void usbd_poll(void)
+{
+    if (!irq_on)
+        poll_core();
+}
+
+/* Correct transfer (CTR) and bus reset raise USB_LP; one event per call, and
+ * the interrupt stays pending while another is waiting. */
+void USB_LP_CAN1_RX0_IRQHandler(void)
+{
+    poll_core();
+}
+
+void usbd_irq_enable(uint8_t prio)
+{
+    NVIC_IPR8(IRQ_USB_LP_CAN1_RX0) = prio;
+    irq_on = 1;
+    USB_CNTR |= USB_CNTR_CTRM | USB_CNTR_RESETM;
+    NVIC_ISER(IRQ_USB_LP_CAN1_RX0 / 32u) = USB_IRQ_BIT;
+}
+
+static void poll_core(void)
 {
     uint32_t st = USB_ISTR;
 
@@ -407,19 +456,23 @@ int usbd_in_busy(void)
 
 void usbd_in_write(const uint8_t *p, uint32_t n)
 {
+    uint32_t l = usb_lock();
     pma_write(BUF_DATA_TX, p, n);
     USB_COUNT_TX(EP_DATA) = (uint16_t)n;
     in_busy = 1;
     SET_TX(EP_DATA, USB_STAT_VALID);
+    usb_unlock(l);
 }
 
 void usbd_in_cancel(void)
 {
+    uint32_t l = usb_lock();
     SET_TX(EP_DATA, USB_STAT_NAK);
     /* Drop a completion that raced the cancel so it can't mark the next
      * packet as sent. */
     ep_clear_ctr(EP_DATA, USB_EP_CTR_TX);
     in_busy = 0;
+    usb_unlock(l);
 }
 
 int usbd_out_len(void)
@@ -434,7 +487,9 @@ const volatile uint8_t *usbd_out_data(void)
 
 void usbd_out_release(void)
 {
+    uint32_t l = usb_lock();
     out_len = -1;
     if (config)
         SET_RX(EP_DATA, USB_STAT_VALID);
+    usb_unlock(l);
 }

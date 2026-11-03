@@ -12,8 +12,8 @@
  *   - the update flag is set at 0x0801FC00 (recovery.h). gemifi apps set it
  *     on REBOOT(1) and on their own reset-time combo; the stock M-Audio app
  *     sets the same flag when its updater asks. The flag is cleared here;
- *   - the entry combo is held at reset: top-row buttons 1 and 2 from the
- *     left (matrix row 16, PB8 + PB9, verified on hardware 2026-11-03);
+ *   - the entry combo is held at reset: UP + DOWN (the two leftmost top-row
+ *     buttons; matrix row 16, PB8 + PB9, verified on hardware 2026-11-03);
  *   - there is no app to start (below).
  * Otherwise it starts the app: a valid gemifi image (header, vectors, CRC),
  * or, when there is no gemifi header at all, an image whose vectors look

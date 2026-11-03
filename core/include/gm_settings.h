@@ -36,7 +36,21 @@ enum {
     P_PRESET_ACTIVE = 17,
     P_PRESET_PROGRAM = 18,
     P_PRESET_DIRTY = 19,
+    /* pads (GM_N_PADS > 0) */
+    P_PAD_NOTE = 20,
+    P_PAD_CHANNEL = 21,
+    P_PAD_CURVE = 22,
+    P_PAD_AFTERTOUCH = 23,
+    P_PAD_THRESHOLD = 24,
+    P_PAD_RELEASE = 25,
+    P_PAD_FULL = 26,
+    P_PAD_WINDOW = 27,
+    P_PAD_RETRIGGER = 28,
 };
+
+#ifndef GM_N_PADS
+#define GM_N_PADS 0                  /* a config generated before pads */
+#endif
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
 
@@ -87,6 +101,17 @@ typedef struct {
     int32_t preset_active;           /* 1..GM_N_PRESETS (global)       */
     int32_t preset_program;          /* -1 none, 0..127 (per preset)   */
     int32_t preset_dirty;            /* volatile: unsaved host edits   */
+#if GM_N_PADS > 0                    /* no RAM on devices without pads */
+    int32_t pad_note[GM_N_PADS];
+    int32_t pad_channel;           /* 1..16; 0 = midi.channel        */
+    int32_t pad_curve;               /* CURVE_*                        */
+    int32_t pad_aftertouch;          /* 1: poly pressure while held    */
+    int32_t pad_threshold;           /* reading 0..4095 that starts a hit */
+    int32_t pad_release;             /* below this the pad is let go   */
+    int32_t pad_full;                /* peak reading for velocity 127  */
+    int32_t pad_window;              /* ms: peak search after the threshold */
+    int32_t pad_retrigger;           /* ms after a release with no new hit */
+#endif
 } gm_settings_t;
 
 extern gm_settings_t gm_cfg;

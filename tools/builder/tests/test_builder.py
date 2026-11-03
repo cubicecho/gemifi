@@ -133,11 +133,26 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("#define GM_MIDI_TRANSPORT GM_MIDI_USB", h)
         self.assertIn("#define GM_HAS_I2C 1", h)
         self.assertIn('name=Everything "S3" ?? test', out)
-        self.assertIn("hubs=8 (ptr)", out)
+        self.assertIn("hubs=10 (ptr)", out)
         types = re.findall(r" hub \d+ type=(\d+) chain=(\d+) n_sel=(\d+) addr=0x(\w+)", out)
         self.assertEqual(types, [("1", "2", "0", "00"), ("1", "1", "0", "00"), ("2", "1", "0", "00"),
                                  ("2", "1", "0", "00"), ("3", "0", "3", "00"), ("3", "0", "4", "00"),
-                                 ("4", "0", "0", "21"), ("5", "0", "0", "38")])
+                                 ("4", "0", "0", "21"), ("5", "0", "0", "38"), ("7", "0", "0", "00"),
+                                 ("7", "0", "0", "00")])
+        # tm1628: RAM size, intensity, grids; CLK/DIO shared, DIO open-drain (flag 8), own STB
+        self.assertIn("#define GM_TM1628_RAM 20", h)
+        hub8 = out.split(" hub 8 ")[1].split(" hub 9 ")[0]
+        hub9 = out.split(" hub 9 ")[1].split("buttons=")[0]
+        self.assertIn("ram=14 bright=2 grids=6", hub8)
+        self.assertIn("ram=6 bright=7 grids=0", hub9)
+        for hb, stb in ((hub8, 37), (hub9, 0)):
+            self.assertIn("data hub=0 flags=8 num=36", hb)
+            self.assertIn("clock hub=0 flags=0 num=35", hb)
+            self.assertIn(f"latch hub=0 flags=0 num={stb}", hb)
+        self.assertIn("pin hub=9 flags=0 num=37", out)
+        self.assertIn("pin hub=10 flags=1 num=47", out)
+        self.assertIn("pin hub=9 flags=0 num=0\n  pin2 hub=9 flags=0 num=1\n  pin3 hub=9 flags=0 num=8", out)
+        self.assertIn("pin2 hub=7 flags=0 num=15\n  pin3 hub=255", out)   # bicolour: no pin3
         # unused hub pins are GM_NO_PIN (hub 255), never MCU pin 0
         hub0 = out.split(" hub 0 ")[1].split(" hub 1 ")[0]
         self.assertEqual(hub0.count("sel hub=255"), 4)
@@ -160,6 +175,10 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("i2c sda=8 scl=9", out)
         self.assertIn("transport=1", out)
         self.assertIn("a hub=7 flags=2 num=0", out)   # MCP pull-up kept
+        self.assertIn("pads=3 channel=10 curve=1 aftertouch=1 threshold=300 release=150 full=3500 window=2 "
+                      "retrigger=30", out)
+        self.assertIn("pad hub=6 flags=1 num=2\n  name=Snare\n  note=38", out)
+        self.assertIn("pad hub=5 flags=0 num=1\n  name=Pad 3\n  note=42", out)
 
     def test_presets_compile(self):
         for name, path, *_ in gb.list_presets():
@@ -177,6 +196,7 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("buttons=0 (null)", out)
         self.assertIn("defaults0: 0 0 1 0", out)
         self.assertIn("matrix=null", out)
+        self.assertIn("pads=0\n", out)
         self.assertIn("transport=2", out)
         self.assertIn("usb=0000:0000", out)
 
@@ -272,6 +292,52 @@ class TestValidation(unittest.TestCase):
                          r"sn74hc595, which can't be an input")
         self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
+    def test_tm1628(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        share = "{ number: %s, allow_other_uses: true }"
+        dio = "{ number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }"
+
+        def dev(extra_a="", extra_b="", stb_b="PC12", leds="", clk=share % "PC10"):
+            return (stm + "tm1628:\n"
+                    f"  - {{ id: ta, clk_pin: {clk}, dio_pin: {dio}, stb_pin: PB12{extra_a} }}\n"
+                    f"  - {{ id: tb, clk_pin: {share % 'PC10'}, dio_pin: {dio}, stb_pin: {stb_b}{extra_b} }}\n"
+                    "leds:\n  - { id: la, pin: { tm1628: ta, number: 111 } }\n"
+                    "  - { id: lb, pin: { tm1628: tb, number: 47, inverted: true } }\n" + leds)
+
+        self.assertClean(dev())
+        # pin = byte * 8 + bit, up to ram_bytes * 8 - 1
+        self.assertError(dev(leds="  - { id: lc, pin: { tm1628: ta, number: 112 } }\n"),
+                         r"pin 112 is out of range for hub 'ta' \(tm1628 \(14 RAM bytes x 8; pin = byte \* 8 "
+                         r"\+ bit\): 0\.\.111\)")
+        self.assertClean(dev(extra_b=", ram_bytes: 16", leds="  - { id: lc, pin: { tm1628: tb, number: 127 } }\n"))
+        self.assertError(dev(extra_b=", ram_bytes: 5"), r"pin 47 is out of range for hub 'tb'")
+        self.assertError(dev(extra_a=", ram_bytes: 17"), r"17 is out of range \(1\.\.16\)")
+        self.assertError(dev(extra_a=", intensity: 8"), r"8 is out of range \(0\.\.7\)")
+        self.assertError(dev(extra_a=", grids: 3"), r"3 is out of range \(4\.\.7\)")
+        self.assertClean(dev(extra_a=", intensity: 0, grids: 7"))
+        # outputs only
+        self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),
+                         r"tm1628, which can't be an input")
+        # CLK/DIO shared only with allow_other_uses; STB never
+        self.assertError(dev(clk="PC10"), r"PC10 is already used")
+        self.assertError(dev(stb_b="PB12"), r"PB12 is already used")
+        self.assertError(dev(stb_b=share % "PB12").replace("stb_pin: PB12", "stb_pin: " + share % "PB12"),
+                         r"each needs its own stb_pin", path="tm1628[1].stb_pin")
+        # a TM1628 line can't double as a shift register's clock
+        self.assertError(dev() + f"sn74hc595:\n  - {{ id: s, data_pin: PB0, clock_pin: {share % 'PC10'}, "
+                                 "latch_pin: PB1 }\n", r"PC10 is already used.*same control line")
+        # open-drain only on dio_pin
+        self.assertError(dev(clk="{ number: PC10, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }"),
+                         r"open_drain is only supported on a tm1628 dio_pin")
+        self.assertError(dev().replace("mode: OUTPUT_OPEN_DRAIN", "mode: INPUT"),
+                         r"use mode: OUTPUT or OUTPUT_OPEN_DRAIN")
+        # RGB LED: pin red, pin2 green, pin3 blue; pin3 needs pin2
+        rgb = "  - { id: rgb, pin: { tm1628: ta, number: 0 }, pin2: { tm1628: ta, number: 1 }%s }\n"
+        self.assertClean(dev(leds=rgb % ", pin3: { tm1628: ta, number: 2 }"))
+        self.assertError(dev(leds=rgb.replace(", pin2: { tm1628: ta, number: 1 }", "") %
+                             ", pin3: { tm1628: ta, number: 2 }"), r"an RGB LED needs pin2 too")
+        self.assertError(dev(leds=rgb % ", pin3: { tm1628: ta, number: 1 }"), r"ta\.1 is already used")
+
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
         an = "analog:\n  - { id: k, pin: { cd74hc4051: m, number: %d }, cc: 1 }\n"
@@ -333,11 +399,12 @@ class TestValidation(unittest.TestCase):
         self.assertError(btn % "OUTPUT", r"this pin is an input: mode can't include output")
         self.assertError(btn % "INPUT_PULUP", r"unknown mode 'INPUT_PULUP'.*did you mean INPUT_PULLUP")
         self.assertError(btn % "{ input: true, pullup: true, pulldown: true }", r"pullup and pulldown")
-        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain isn't supported")
+        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
         self.assertError(btn % "{ input: true, pulup: true }", r"unknown key \(did you mean 'pullup'")
         led = MINIMAL_NUC + "leds:\n  - { id: l, pin: { number: PA2, mode: %s } }\n"
         self.assertClean(led % "OUTPUT")
         self.assertError(led % "INPUT_PULLUP", r"this pin is an output: use mode: OUTPUT")
+        self.assertError(led % "OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
         an = MINIMAL_NUC + "analog:\n  - { id: v, pin: { number: PA0, mode: %s }, cc: 7 }\n"
         self.assertClean(an % "ANALOG")
         self.assertError(an % "INPUT_PULLUP", r"analog input takes mode ANALOG or INPUT")
@@ -441,6 +508,99 @@ class TestValidation(unittest.TestCase):
         self.assertError(vel + "  velocity: { fst: 2ms }\n", r"unknown key")
         self.assertError((m % "switch") + "  velocity: { fast: 2ms }\n", r"only for type: velocity")
 
+    DECODER = ("decoder:\n  - id: dec\n    address: [PA2, PA3, PA4]\n"
+               "    groups: [{ PA5: 1, PA6: 0 }, { PA5: 0, PA6: 1 }, { PA5: 0, PA6: 0 }]\n")
+    COLS = ("[{ number: PB0, mode: INPUT_PULLUP, inverted: true%s }, "
+            "{ number: PB1, mode: INPUT_PULLUP, inverted: true%s }]")
+
+    def test_decoder_key_matrix(self):
+        """Decoder rows (shorthand), contacts on row pairs and a key map, as on the Code 61."""
+        km = ("key_matrix:\n  type: velocity\n  rows: { decoder: dec, first: 0, count: 4 }\n"
+              "  columns: " + self.COLS % ("", "") + "\n  contacts: rows\n  keys: 4\n"
+              "  key_map: [[3, 2], [1, 0]]\n")
+        t = MINIMAL_NUC + self.DECODER + km
+        self.assertClean(t)
+        dev, _ = load(t)
+        self.assertEqual([x.num for x in dev.matrix.rows], [0, 1, 2, 3])
+        self.assertEqual(dev.matrix.key_map, [3, 2, 1, 0])
+        dec = dev.hubs[0]
+        self.assertEqual((dec.n_sel, dec.group_lv, dec.n_pins), (3, [1, 2, 0], 24))
+        c = gd.generate(dev, "x.yaml")["gm_device_config.c"]
+        self.assertIn(".type = GM_HUB_DECODER", c)
+        self.assertIn(".n_groups = 3, .group_lv = { 1, 2, 0, 0 }", c)
+        self.assertIn(".contacts = GM_MATRIX_CONTACTS_ROWS, .key_map = matrix_key_map", c)
+        self.assertIn("static const uint8_t matrix_key_map[4] = {", c)
+        # a key map with a hole, and keys beyond rows x columns are fine with a map
+        t2 = t.replace("key_map: [[3, 2], [1, 0]]", "key_map: [[3, null], [1, 0]]")
+        self.assertTrue(any("never play: 2" in w.msg for w in self.errs(t2, level="warning")))
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 2]]"), r"one list per row pair: 2, got 1")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 2], [1]]"), r"needs 2 entries, one per column")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 3], [1, 0]]"), r"key 3 is already at")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[4, 2], [1, 0]]"), r"key number 0\.\.3 or null")
+        self.assertError(t.replace("count: 4", "count: 3").replace("key_map: [[3, 2], [1, 0]]\n", ""),
+                         r"contacts: rows needs an even number of rows")
+        self.assertError(t.replace("count: 4", "count: 30"), r"outputs 0\.\.29 are out of range")
+        self.assertError(t.replace("type: velocity", "type: switch"), r"only for type: velocity")
+        self.assertError(t.replace("contacts: rows", "contacts: diagonal"), r"'diagonal' is unknown")
+        # explicit decoder pins work too
+        t3 = t.replace("{ decoder: dec, first: 0, count: 4 }",
+                       "[{ decoder: dec, number: 8 }, { decoder: dec, number: 9 }, { decoder: dec, number: 10 }, "
+                       "{ decoder: dec, number: 11 }]")
+        self.assertClean(t3)
+
+    def test_decoder_errors(self):
+        self.assertError(MINIMAL_NUC + "decoder:\n  - { id: d }\n", r"needs a list of 1-4 address pins")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 0, PA7: 1 }")
+        self.assertError(MINIMAL_NUC + bad, r"same enable pins")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 1, PA6: 0 }")
+        self.assertError(MINIMAL_NUC + bad, r"same enable levels as groups\[0\]")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 2, PA6: 1 }")
+        self.assertError(MINIMAL_NUC + bad, r"level must be 0 or 1")
+        # a decoder output is a row select, not an LED
+        self.assertError(MINIMAL_NUC + self.DECODER + "leds:\n  - { id: l, pin: { decoder: dec, number: 0 } }\n",
+                         r"hub 'dec' is a decoder, which can't be an output")
+        # no groups: one group of 2^n outputs
+        dev, _ = load(MINIMAL_NUC + "decoder:\n  - { id: d, address: [PA2, PA3] }\n")
+        self.assertEqual((dev.hubs[0].group_lv, dev.hubs[0].n_pins), ([0], 4))
+
+    def test_switch_matrix(self):
+        """Buttons and encoders on a switch matrix that shares the key matrix's columns."""
+        sw = ("switch_matrix:\n  - id: panel\n    rows: { decoder: dec, first: 16, count: 2 }\n"
+              "    columns: " + self.COLS % (", allow_other_uses: true", ", allow_other_uses: true") + "\n")
+        km = ("key_matrix:\n  type: velocity\n  rows: { decoder: dec, count: 4 }\n"
+              "  columns: " + self.COLS % (", allow_other_uses: true", ", allow_other_uses: true") +
+              "\n  contacts: rows\n  keys: 4\n")
+        btns = ("  - { id: up, pin: { switch_matrix: panel, number: 0 }, action: cc_momentary, cc: 20 }\n"
+                "  - { id: down, pin: { switch_matrix: panel, number: 1 }, action: cc_momentary, cc: 21 }\n")
+        enc = "encoders:\n  - { id: e, pin_a: { switch_matrix: panel, number: 2 }, " \
+              "pin_b: { switch_matrix: panel, number: 3 }, cc: 30 }\n"
+        t = MINIMAL_NUC + btns + sw + self.DECODER + km + enc   # the switch_matrix comes before its decoder
+        self.assertClean(t)
+        dev, _ = load(t)
+        panel = dev.hubs[0]
+        self.assertEqual(([x.num for x in panel.rows], len(panel.cols), panel.n_pins), ([16, 17], 2, 4))
+        c = gd.generate(dev, "x.yaml")["gm_device_config.c"]
+        self.assertIn("static const gm_pin_t hub1_rows[2] = {", c)
+        self.assertIn(".rows = hub1_rows, .cols = hub1_cols, .n_rows = 2, .n_cols = 2,", c)
+        self.assertIn(".type = GM_HUB_SWMATRIX", c)
+        # shared columns need allow_other_uses on each use
+        self.assertError(t.replace(", allow_other_uses: true", "", 1), r"PB0 is already used")
+        # rows: only MCU pins or decoder outputs; size limit
+        bad = t.replace("rows: { decoder: dec, first: 16, count: 2 }", "rows: [{ switch_matrix: panel, number: 0 }]")
+        self.assertError(bad, r"which can't be an output")
+        big = t.replace("first: 16, count: 2", "first: 0, count: 17")
+        self.assertError(big, r"17 rows x 2 columns = 34 switches: at most 32")
+        self.assertError(t.replace("number: 3 }, cc: 30", "number: 4 }, cc: 30"), r"pin 4 is out of range")
+        # rows_per_scan: generated, range-checked, and a warning when it covers every row
+        t2 = t.replace("    rows: { decoder: dec, first: 16, count: 2 }\n",
+                       "    rows: { decoder: dec, first: 16, count: 2 }\n    rows_per_scan: 1\n")
+        self.assertClean(t2)
+        dev2, _ = load(t2)
+        self.assertIn(".rows_per_scan = 1,", gd.generate(dev2, "x.yaml")["gm_device_config.c"])
+        self.assertError(t2.replace("rows_per_scan: 1", "rows_per_scan: 0"), r"out of range \(1\.\.32\)")
+        self.assertTrue(any("every row is read" in w.msg
+                            for w in self.errs(t2.replace("rows_per_scan: 1", "rows_per_scan: 2"), level="warning")))
+
     def test_matrix_hub_restrictions(self):
         hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
                 "mcp23017:\n  - { id: x, address: 0x20 }\ni2c: { sda: PA10, scl: PA11 }\n")
@@ -465,8 +625,8 @@ class TestValidation(unittest.TestCase):
             "sn74hc165:\n  - { id: i, data_pin: PA2, clock_pin: PA3, load_pin: PA4, sr_count: 4 }\nbuttons:\n" + \
             "".join(f"  - {{ id: b{i}, pin: {{ sn74hc165: i, number: {i} }} }}\n" for i in range(32))
         self.assertClean(t)
-        t += "  - { id: x, pin: PB0 }\n"
-        self.assertError(t, r"33 buttons: at most 32")
+        t += "".join(f"  - {{ id: x{i}, pin: P{'C' if i < 16 else 'D'}{i % 16} }}\n" for i in range(33))
+        self.assertError(t, r"65 buttons: at most 64")
 
     def test_i2c_required(self):
         t = MINIMAL_NUC + "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
@@ -1306,6 +1466,126 @@ class TestModes(unittest.TestCase):
         self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
+
+
+PADS_STM = """\
+gemifi: 2
+name: test
+board_id: 0x3F05
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+cd74hc4051:
+  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }
+pads:
+  - { id: kick, pin: { cd74hc4051: m, number: 0 }, note: 36 }
+  - { id: snare, pin: PA1, note: 38 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestPads(unittest.TestCase):
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        return dev, gd.generate(dev, "t.yaml")
+
+    def warns(self, text):
+        return [str(d) for d in self.errs(text, level="warning")]
+
+    def test_generate(self):
+        dev, files = self.gen(PADS_STM)
+        h, c = files["gm_device_config.h"], files["gm_device_config.c"]
+        self.assertIn("#define GM_N_PADS 2 ", h)
+        for d in ("CHANNEL_DEFAULT 0", "CURVE_DEFAULT 0 /* normal */", "THRESHOLD_DEFAULT 200",
+                  "RELEASE_DEFAULT 100", "FULL_DEFAULT 3000", "WINDOW_DEFAULT 3 /* ms */", "RETRIGGER_DEFAULT 20"):
+            self.assertIn(f"#define GM_PAD_{d}", h)
+        self.assertIn('{ { 1, 0, 0 }, "Kick" }, /* kick: m.0 */', c)
+        self.assertIn('{ { 0, 0, 1 }, "Snare" }, /* snare: PA1 */', c)
+        self.assertIn("gm_pad_note_defaults[GM_N_PADS] = { 36, 38 };", c)
+        # stored values: 2 notes + channel, curve, aftertouch per preset; 5 sensing globals
+        n_preset, n_global = gd.stored_counts(dev)
+        dev0, _ = load(PADS_STM.split("pads:")[0] + "analog: [{ id: k, pin: PA1, cc: 1 }]\n")
+        p0, g0 = gd.stored_counts(dev0)
+        self.assertEqual((n_preset - p0, n_global - g0), (5 - 1, 5))   # analog.cc of dev0 is 1 value
+        _, files = self.gen(MINIMAL_NUC)
+        self.assertIn("#define GM_N_PADS 0", files["gm_device_config.h"])
+        self.assertNotIn("GM_PAD_", files["gm_device_config.h"])
+        self.assertNotIn("gm_pads", files["gm_device_config.c"])
+
+    def test_settings(self):
+        _, files = self.gen(PADS_STM + "pad_settings: { channel: 10, curve: hard, aftertouch: true, threshold: 400, "
+                                       "release: 250, full: 3900, window: 5ms, retrigger: 0ms }\n")
+        h = files["gm_device_config.h"]
+        for d in ("CHANNEL_DEFAULT 10", "CURVE_DEFAULT 2 /* hard */", "AFTERTOUCH_DEFAULT 1", "THRESHOLD_DEFAULT 400",
+                  "RELEASE_DEFAULT 250", "FULL_DEFAULT 3900", "WINDOW_DEFAULT 5 ", "RETRIGGER_DEFAULT 0 "):
+            self.assertIn(f"#define GM_PAD_{d}", h)
+        bad = PADS_STM + "pad_settings: { %s }\n"
+        self.assertError(bad % "threshold: 50", r"needs release < threshold < full \(got release 100, threshold 50")
+        self.assertError(bad % "full: 150", r"release < threshold < full")
+        self.assertError(bad % "window: 3", r"needs a unit")
+        self.assertError(bad % "window: 80ms", r"out of range \(1ms\.\.50ms\)")
+        self.assertError(bad % "curve: hrad", r"did you mean 'hard'")
+        self.assertError(bad % "channel: 17", r"17 is out of range \(0\.\.16\)")
+        self.assertError(bad % "treshold: 300", r"did you mean 'threshold'")
+        self.assertTrue(any("there are no pads: ignored" in w
+                            for w in self.warns(MINIMAL_NUC + "pad_settings: { threshold: 300 }\n")))
+
+    def test_pad_errors(self):
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6 }\n", r"pads\[2\]\.note.*|is required", path="pads[2].note")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PC6, note: 40 }\n", r"PC6 has no ADC on stm32f1")
+        self.assertError(PADS_STM + "  - { id: p3, pin: { cd74hc4051: m, number: 8 }, note: 40 }\n",
+                         r"channel 8 is out of range")
+        hc =PADS_STM.replace("pads:", "sn74hc165:\n  - { id: s, data_pin: PB0, clock_pin: PB1, load_pin: PB2 }\npads:")
+        self.assertError(hc + "  - { id: p3, pin: { sn74hc165: s, number: 0 }, note: 40 }\n",
+                         r"sn74hc165, which can't be an analog input.*a pad is read with the ADC")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6, note: 128 }\n", r"128 is out of range")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6, note: 40, cc: 3 }\n", r"unknown key")
+        self.assertError(PADS_STM + "  - { id: kick, pin: PA6, note: 40 }\n", r"id 'kick' .* is already the id")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA1, note: 40 }\n", r"PA1 is already used by pads\[1\]")
+        self.assertTrue(any("note 36 is also the note of pads[0]" in w
+                            for w in self.warns(PADS_STM + "  - { id: p3, pin: PA6, note: 36 }\n")))
+        # a pad shares the select lines of another mux only with allow_other_uses on every use
+        two = PADS_STM.replace("cd74hc4051:\n  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }",
+                               "cd74hc4051:\n  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }\n"
+                               "  - { id: m2, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA2 }")
+        self.assertError(two + "  - { id: p3, pin: { cd74hc4051: m2, number: 0 }, note: 40 }\n",
+                         r"set allow_other_uses: true on each use")
+        shared = two.replace("pin_s0: PC0, pin_s1: PC1, pin_s2: PC2",
+                             "pin_s0: { number: PC0, allow_other_uses: true }, "
+                             "pin_s1: { number: PC1, allow_other_uses: true }, "
+                             "pin_s2: { number: PC2, allow_other_uses: true }")
+        self.assertClean(shared + "  - { id: p3, pin: { cd74hc4051: m2, number: 0 }, note: 40 }\n")
+
+    def test_presets(self):
+        base = PADS_STM + "pad_settings: { channel: 10 }\npresets:\n  list:\n    - name: Default\n    - name: B\n"
+        _, files = self.gen(base + "      pads: { snare: { note: 40 } }\n"
+                                   "      pad_settings: { channel: 0, curve: hard, aftertouch: true }\n")
+        c = files["gm_device_config.c"]
+        for s in ("{ 20, 1, 40 }, /* pad.note[snare] = 40 */", "{ 21, 0, 0 }, /* pad.channel = 0 */",
+                  "{ 22, 0, 2 }, /* pad.curve = hard */", "{ 23, 0, 1 }, /* pad.aftertouch = true */"):
+            self.assertIn(s, c)
+        self.assertTrue(any("the same as in preset 1 (pad.channel = 10)" in w
+                            for w in self.warns(base + "      pad_settings: { channel: 10 }\n")))
+        self.assertError(base + "      pad_settings: { threshold: 300 }\n",
+                         r"global \(the pads' calibration.*set it in the top-level pad_settings:")
+        self.assertError(base + "      pads: { snare: { pin: PA2 } }\n", r"pin: is the same in every preset")
+        self.assertError(base + "      pads: { snar: { note: 40 } }\n", r"no pad with id 'snar'.*did you mean 'snare'")
+        nopads = MINIMAL_NUC + "presets:\n  list:\n    - name: Default\n    - name: B\n"
+        self.assertError(nopads + "      pad_settings: { curve: hard }\n",
+                         r"pad.curve doesn't exist on this device: the device has no pads")
+
+    def test_code61(self):
+        dev, diags = gd.load_device(os.path.join(REPO, "devices", "m-audio-code61.yaml"))
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertEqual([p.id for p in dev.pads], [f"pad_{k}" for k in range(1, 17)])
+        self.assertEqual([p.name for p in dev.pads], [f"Pad {k}" for k in range(1, 17)])
+        hubs = {h.id: h.index + 1 for h in dev.hubs}
+        self.assertEqual({p.pin.hub for p in dev.pads}, {hubs["pad_mux_a"], hubs["pad_mux_b"]})
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")

@@ -1,5 +1,6 @@
-# M-Audio Code 61 with gemifi (STM32F103RB-class, maybe a GD32 clone).
-# DRAFT. Nothing here has been tried on hardware.
+# M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
+# DRAFT. Runs under the gemifi bootloader (bootloader/stm32f1); the keys, panel
+# buttons and encoders below still need their first hardware test.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -8,69 +9,97 @@
 #   [likely] the setup is clear, but what the pin is for is inferred
 #   [guess]  needs a board photo or a hardware test
 #
+# The matrix (hw-map.md §2, §9): rows come from 3-to-8 decoders on PB3-PB5
+# (address) and PB6/PB7 (group: PB6=1 rows 0-7, PB7=1 rows 8-15, both 0 rows
+# 16-23); columns are PB8-PB15, pull-up, active-low. Keys on rows 0-15 (two
+# contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
+#
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - Key matrix. Rows come from 3-to-8 decoders, not from GPIOs: PB3-PB5 pick
-#     the line, and PB6/PB7 pick the group (PB6=1: rows 0-7, PB7=1: rows 8-15,
-#     both 0: rows 16-22). Columns are PB8-PB15, pull-up, active-low. The stock
-#     scan also drives the columns high (push-pull) between rows.
-#     Keys use rows 0-15: row 2k is the first contact, row 2k+1 the second,
-#     same column. The core wants one GPIO per row, and k % rows / columns
-#     2p, 2p+1 for the two contacts. Needs a decoder-row hub, plus a key map
-#     table: stock key = map[(row/2)*8 + col]. Code 61 map (hw-map.md §9): rows
-#     0/1 cols 0-7 = keys 55..48 down to rows 12/13 = keys 7..0, rows 14/15
-#     cols 3-7 = keys 60..56. Key 0 = note 36.
-#   - Panel buttons (transport, octave, bank, ...): matrix rows 16-20 (40 slots)
-#     behind the same decoders. Which slot is which button is unknown.
-#   - 8 encoders: matrix rows 21-22, A = column 2n, B = column 2n+1.
-#   - LEDs and the 6-character display: two TM1628-class serial LED drivers
-#     (CLK PC10, DIO PC11 open-drain, STB PA15 / PC12). There's no driver for them.
-#   - 16 pads: two 8:1 mux channels on ADC ch0 (PA0) and ch1 (PA1), select
-#     PC0-PC2, through the slot table at 0x08014C08. They need pad velocity
-#     from pressure, which the core doesn't have.
-#   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5). Which is which is unknown,
-#     and the core has no analog pitch bend.
+#   - LEDs: the two TM1628-class drivers are declared (tm1628: below), but
+#     which RAM bit lights which LED is unknown, so there are no leds: yet.
+#     Map them on hardware (core/README.md "TM1628 LED drivers").
+#   - The 6-character 7-segment display (on the same two chips): no display
+#     component yet.
+#   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5); the panel has PB then
+#     MOD, left to right. Which pin is which is unknown, and the core has no
+#     analog pitch bend.
 #   - Aftertouch strip on PC3 (ch13): the core has no channel pressure source.
 #   - XY pad (4-wire resistive): PB1/PC5 drive X, PC4/PB2 drive Y, read on
 #     PC4 (ch14) / PC5 (ch15) in turn. Pins change mode on every mux step.
-#   - PB0 (ch8): an analog input of unknown use (expression pedal?).
-#   - 5-pin MIDI out: USART1 TX on PA9 at 31250 baud. No serial MIDI transport on stm32f1.
-#   - USB D+ pull-up switch on PA8 (high = connected). The platform should
-#     drive it, not the YAML.
-#   - Settings storage: use only vendor EEPROM pages 0x0801EC00 / 0x0801F000
-#     (the stock app doesn't use them, see hw-map.md §3 and §9). Platform side.
-#   - boot_combo: no panel button is on a plain GPIO, so a combo needs the
-#     matrix (row 16: PB6=PB7=0, PB3-5=0, read PB8/PB9).
+#   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
+#   - 5-pin MIDI out (USART1 TX, PA9) and MIDI in (USART1 RX, PA10; the rear
+#     panel has both jacks), 31250 baud: no serial MIDI transport on stm32f1.
+#   - USB D+ pull-up switch on PA8 (high = connected): driven by the platform.
+#   - Settings storage: pages 0x0801EC00 / 0x0801F000 (platform side).
+#   - No boot_combo here: up + down at power-on is the bootloader's update
+#     mode (bootloader/stm32f1), checked before the app runs.
 gemifi: 2
 name: m-audio-code61
 friendly_name: Code 61
-description: "M-Audio Code 61 (STM32F103). DRAFT with faders and sustain only; keys, pads and encoders still TODO"
+description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.1.0
+  version: 0.2.14
 board_id: 0x0002
 platform: stm32f1
-chip: STM32F103RB          # [guess] LQFP64 with 128 KB / 1 KB pages fits everything the app uses; the marking may be GD32F103RB
+chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
-scan_interval: 200us       # the stock main loop counts in 200 us ticks
+# Scan time on hardware (fw 0.2.6): ~170 us on average for the 16 key rows,
+# the panel/encoder rows (every other tick) and the encoders. 400 us leaves the
+# main loop (USB, pads, faders) more than half the CPU, and matches the stock
+# firmware's key timing resolution (its key timestamps advance every 400 us).
+scan_interval: 400us
 
 # Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
 # No enable line is set by the stock app. The pads use the same select lines
-# on two more muxes (PA0, PA1), which aren't listed here (see TODO).
+# on two more muxes (PA0, PA1, below): allow_other_uses on every use.
 cd74hc4051:
   - id: fader_mux
-    pin_s0: PC0            # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
-    pin_s1: PC1            # [sure]
-    pin_s2: PC2            # [sure]
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
     common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
-    delay: 10us            # [guess] the stock app waits a whole ADC frame after switching
+    delay: 4us             # [guess] the stock app waits a whole ADC frame after switching
+  # Pad muxes: mux step n = pad slot n on PA0 (ADC ch0), slot n + 8 on PA1 (ch1) [sure].
+  # Keep delay: the same on muxes that share select lines.
+  - id: pad_mux_a
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
+    common_pin: PA0        # [sure] ADC rank 1 = ch0
+    delay: 4us             # [guess]
+  - id: pad_mux_b
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
+    common_pin: PA1        # [sure] ADC rank 2 = ch1
+    delay: 4us             # [guess]
 
-buttons:
-  # Sustain jack: PC9, input with pull-up, read directly (0x080120FC). [likely]
-  # The stock app learns the pedal polarity at power-up. "inverted: true"
-  # assumes a normally-open pedal that shorts to ground. [guess]
-  - id: sustain
-    pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
-    action: cc_momentary
-    cc: 64
+# LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
+# with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive
+# every LED and the 6-character display. A pin on them is a RAM bit:
+# number = byte * 8 + bit. PA15 is a JTAG pin at reset; the board config
+# turns JTAG off (BOARD_SWJ_NOJTAG, SWD stays on).
+# The stock app never sends a display-mode command (no grids:), and its
+# brightness is unknown (intensity: 7 = the default). [guess]
+tm1628:
+  - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PA15
+    ram_bytes: 14
+  - id: leds_b             # the stock app writes 6 bytes [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PC12
+    ram_bytes: 6
+# No leds: yet: the bit map is unknown. Once mapped, for example:
+# leds:
+#   - { id: shift_led, pin: { tm1628: leds_a, number: 37 } }      # byte 4, bit 5
+#   - id: pad_1_led                                               # RGB: red, green, blue bits
+#     pin: { tm1628: leds_b, number: 0 }
+#     pin2: { tm1628: leds_b, number: 1 }
+#     pin3: { tm1628: leds_b, number: 2 }
+#     feedback: { note: 36 }
 
 # Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
 # used as the range. [likely] Which slot is which physical fader is [guess]:
@@ -85,3 +114,184 @@ analog:
   - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
+
+# ---- the matrix ----------------------------------------------------------
+
+# Row select (hw-map.md §2, [sure]): PB3-PB5 = address, PB6/PB7 = group.
+decoder:
+  - id: rows
+    address: [PB3, PB4, PB5]
+    groups:
+      - { PB6: 1, PB7: 0 }     # outputs 0-7: key rows 0-7
+      - { PB6: 0, PB7: 1 }     # outputs 8-15: key rows 8-15
+      - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
+
+# Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
+# 0-28 and 30-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the
+# faders). "Button mode" gives no event on any slot: slots 29, 38 and 39 are
+# the unused ones left (kept as placeholders for now). A switch_matrix takes at
+# most 32 switches, so row 20 is its own.
+switch_matrix:
+  - id: panel
+    rows: { decoder: rows, first: 16, count: 4 }
+    rows_per_scan: 1       # one row per scan, in turn: each row every ~3 ms, plenty for buttons
+    columns:
+      - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB10, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB11, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB12, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    settle: 3us            # [guess]
+  - id: panel_row20
+    rows: { decoder: rows, first: 20, count: 1 }
+    columns:
+      - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB10, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB11, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB12, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    settle: 3us            # [guess]
+  # Encoders 1-4 on row 21, 5-8 on row 22: A = column 2n, B = column 2n+1 [sure, hw-map.md §2]
+  - id: encoder_rows
+    rows: { decoder: rows, first: 21, count: 2 }
+    columns:
+      - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB10, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB11, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB12, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    settle: 3us            # [guess]
+
+# 61 keys, two contacts each on rows 2k / 2k+1 (same column). Key map from the
+# stock firmware's table (hw-map.md §9, [sure]): key 0 = the lowest C = note 36.
+key_matrix:
+  type: velocity
+  contacts: rows
+  rows: { decoder: rows, first: 0, count: 16 }
+  columns:
+    - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB10, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB11, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB12, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+  keys: 61
+  first_note: 36
+  settle: 3us              # [guess] the stock scan waits ~30 loop passes per row
+  key_map:
+    - [55, 54, 53, 52, 51, 50, 49, 48]   # rows 0/1
+    - [47, 46, 45, 44, 43, 42, 41, 40]   # rows 2/3
+    - [39, 38, 37, 36, 35, 34, 33, 32]   # rows 4/5
+    - [31, 30, 29, 28, 27, 26, 25, 24]   # rows 6/7
+    - [23, 22, 21, 20, 19, 18, 17, 16]   # rows 8/9
+    - [15, 14, 13, 12, 11, 10, 9, 8]   # rows 10/11
+    - [7, 6, 5, 4, 3, 2, 1, 0]   # rows 12/13
+    - [null, null, null, 60, 59, 58, 57, 56]   # rows 14/15
+
+# Slots 0-19: labels from the user (2026-11-03). Up + down at power-on is the
+# bootloader's update mode. CC numbers for the unlabelled-function buttons are
+# placeholders to change in the web editor.
+buttons:
+  # Sustain jack: PC9, input with pull-up, read directly (0x080120FC). [likely]
+  # The stock app learns the pedal polarity at power-up. "inverted: true"
+  # assumes a normally-open pedal that shorts to ground. [guess]
+  - id: sustain
+    pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
+    action: cc_momentary
+    cc: 64
+  - { id: up, name: "Up", pin: { switch_matrix: panel, number: 0 }, action: program_next }
+  - { id: down, name: "Down", pin: { switch_matrix: panel, number: 1 }, action: program_prev }
+  - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102 }
+  - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 103 }
+  - { id: edit, name: "Edit", pin: { switch_matrix: panel, number: 4 }, action: cc_momentary, cc: 104 }
+  - { id: zone, name: "Zone", pin: { switch_matrix: panel, number: 5 }, action: cc_momentary, cc: 105 }
+  - { id: num_1, name: "1", pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 106 }
+  - { id: num_2, name: "2", pin: { switch_matrix: panel, number: 7 }, action: cc_momentary, cc: 107 }
+  - { id: num_3, name: "3", pin: { switch_matrix: panel, number: 8 }, action: cc_momentary, cc: 108 }
+  - { id: num_4, name: "4", pin: { switch_matrix: panel, number: 9 }, action: cc_momentary, cc: 109 }
+  - { id: rewind, name: "Rewind", pin: { switch_matrix: panel, number: 10 }, action: cc_momentary, cc: 110 }
+  - { id: fast_forward, name: "Fast forward", pin: { switch_matrix: panel, number: 11 }, action: cc_momentary, cc: 111 }
+  - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112 }
+  - { id: play, name: "Play", pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113 }
+  - { id: record, name: "Record", pin: { switch_matrix: panel, number: 14 }, action: cc_momentary, cc: 114 }
+  - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: cc_momentary, cc: 115 }
+  - { id: pad_octave_up, name: "Pad octave +", pin: { switch_matrix: panel, number: 16 }, action: cc_momentary, cc: 116 }
+  - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
+  - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
+  - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85 }   # under fader 1
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86 }   # under fader 2
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87 }   # under fader 3
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88 }   # under fader 4
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89 }   # under fader 5
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90 }   # under fader 6
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91 }   # under fader 7
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92 }   # under fader 8
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93 }   # under fader 9
+  - { id: slot_29, name: "Slot 29", pin: { switch_matrix: panel, number: 29 }, action: none }
+  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94 }
+  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95 }
+  - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96 }
+  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }
+  - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98 }
+  - { id: x_button, name: "X", pin: { switch_matrix: panel_row20, number: 3 }, action: cc_momentary, cc: 99 }
+  - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100 }
+  - { id: y_button, name: "Y", pin: { switch_matrix: panel_row20, number: 5 }, action: cc_momentary, cc: 101 }
+  - { id: slot_38, name: "Slot 38", pin: { switch_matrix: panel_row20, number: 6 }, action: none }
+  - { id: slot_39, name: "Slot 39", pin: { switch_matrix: panel_row20, number: 7 }, action: none }
+
+# x1 decoding in the stock firmware: one step per A rising edge. [guess] 4 quadrature steps per detent.
+encoders:
+  - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70 }
+  - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71 }
+  - { id: encoder_3, name: "E3", pin_a: { switch_matrix: encoder_rows, number: 4 }, pin_b: { switch_matrix: encoder_rows, number: 5 }, cc: 72 }
+  - { id: encoder_4, name: "E4", pin_a: { switch_matrix: encoder_rows, number: 6 }, pin_b: { switch_matrix: encoder_rows, number: 7 }, cc: 73 }
+  - { id: encoder_5, name: "E5", pin_a: { switch_matrix: encoder_rows, number: 8 }, pin_b: { switch_matrix: encoder_rows, number: 9 }, cc: 74 }
+  - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75 }
+  - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76 }
+  - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77 }
+
+# Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
+# right. Pad k is pad_k. Mapped on hardware (2026-11-03): the mux slots count
+# from the TOP row, left to right: slots 0-7 (pad_mux_a) are the top two rows,
+# 8-15 (pad_mux_b) the bottom two. Polarity confirmed: pressure raises the
+# reading (no inverted:).
+pads:
+  - { id: pad_1,  pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36 }
+  - { id: pad_2,  pin: { cd74hc4051: pad_mux_b, number: 5 }, note: 37 }
+  - { id: pad_3,  pin: { cd74hc4051: pad_mux_b, number: 6 }, note: 38 }
+  - { id: pad_4,  pin: { cd74hc4051: pad_mux_b, number: 7 }, note: 39 }
+  - { id: pad_5,  pin: { cd74hc4051: pad_mux_b, number: 0 }, note: 40 }
+  - { id: pad_6,  pin: { cd74hc4051: pad_mux_b, number: 1 }, note: 41 }
+  - { id: pad_7,  pin: { cd74hc4051: pad_mux_b, number: 2 }, note: 42 }
+  - { id: pad_8,  pin: { cd74hc4051: pad_mux_b, number: 3 }, note: 43 }
+  - { id: pad_9,  pin: { cd74hc4051: pad_mux_a, number: 4 }, note: 44 }
+  - { id: pad_10, pin: { cd74hc4051: pad_mux_a, number: 5 }, note: 45 }
+  - { id: pad_11, pin: { cd74hc4051: pad_mux_a, number: 6 }, note: 46 }
+  - { id: pad_12, pin: { cd74hc4051: pad_mux_a, number: 7 }, note: 47 }
+  - { id: pad_13, pin: { cd74hc4051: pad_mux_a, number: 0 }, note: 48 }
+  - { id: pad_14, pin: { cd74hc4051: pad_mux_a, number: 1 }, note: 49 }
+  - { id: pad_15, pin: { cd74hc4051: pad_mux_a, number: 2 }, note: 50 }
+  - { id: pad_16, pin: { cd74hc4051: pad_mux_a, number: 3 }, note: 51 }
+
+# Pad sensing. All [guess] until tried: tune them live from the web app
+# (Pads group); with debug.events on, each hit's EVENT pad value is its peak
+# reading x 4.
+pad_settings:
+  channel: 10              # [guess] drums on channel 10; 0 = follow midi.channel
+  threshold: 200           # [guess] reading that starts a hit
+  release: 100             # [guess] the pad is let go below this
+  full: 3000               # [guess] peak reading for velocity 127
+  window: 3ms              # peak search after the threshold (3-4 samples at 1 ms)
+  retrigger: 20ms          # no new hit for 20 ms after a release

@@ -319,6 +319,44 @@ class TestValidation(unittest.TestCase):
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
         self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
 
+    def test_displays(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        tm = ("tm1628:\n  - { id: ta, clk_pin: PC10, dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN }, "
+              "stb_pin: PB12 }\n")
+
+        def dev(chars="[{ tm1628: ta, number: 48 }, { tm1628: ta, number: 0 }]", extra="", more=""):
+            return stm + tm + f"displays:\n  - {{ id: disp, chars: {chars}{extra} }}\n" + more
+
+        self.assertClean(dev())
+        self.assertClean(dev(extra=", type: segment14"))
+        self.assertError(dev(extra=", type: lcd"), r"unknown display type 'lcd' \(use segment14\)")
+        self.assertError(dev(chars="[]"), r"needs chars")
+        # 15 pins from each first one: 97..111 fits on 14 bytes, 98 doesn't
+        self.assertClean(dev(chars="[{ tm1628: ta, number: 97 }]"))
+        self.assertError(dev(chars="[{ tm1628: ta, number: 98 }]"),
+                         r"pins 98\.\.112 \(segments a\.\.m and the dot\) don't fit on hub 'ta' \(0\.\.111\)")
+        self.assertError(dev(chars="[PB0]"), r"must be a hub pin")
+        self.assertError(dev(chars="[{ number: PB0 }]"), r"must be a hub pin")
+        # its segments are pins: an LED on one of them is a clash
+        self.assertError(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 5 } }\n"),
+                         r"ta\.5 is already used by leds\[0\]\.pin", path="displays[0].chars[1]")
+        self.assertClean(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 15 } }\n"))
+        self.assertError(dev(chars="[" + ", ".join(["{ tm1628: ta, number: 0 }"] * 17) + "]"),
+                         r"17 characters: at most 16")
+        two = dev() + "  - { id: d2, chars: [{ tm1628: ta, number: 96 }] }\n"
+        self.assertError(two, r"2 displays: at most 1")
+        dev_, diags = load(dev())
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        files = gd.generate(dev_, "t.yaml")
+        self.assertIn("#define GM_N_DISPLAYS 1 ", files["gm_device_config.h"])
+        c = files["gm_device_config.c"]
+        self.assertIn("static const gm_pin_t display_0_chars[2] = {", c)
+        self.assertIn("{ GM_DISPLAY_SEG14, 2, display_0_chars }, /* disp */", c)
+        dev_, _ = load(stm)
+        files = gd.generate(dev_, "t.yaml")
+        self.assertIn("#define GM_N_DISPLAYS 0 ", files["gm_device_config.h"])
+        self.assertNotIn("gm_displays", files["gm_device_config.c"])
+
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         share = "{ number: %s, allow_other_uses: true }"

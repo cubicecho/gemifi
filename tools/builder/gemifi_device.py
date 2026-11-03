@@ -250,7 +250,8 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes"]
+            "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
+            "displays"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -693,6 +694,7 @@ class Device:
         self.modes = []              # Hub per mode (validate_modes), in YAML order
         self.pads = []               # Hub per pad (validate_pads), in YAML order
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
+        self.displays = []           # Hub per display (validate_displays), in YAML order
         self.budget = None           # storage_budget(self), after validation
 
 
@@ -1282,6 +1284,7 @@ def validate(data, file=None):
     preset_slots(v, dev, data)
     validate_components(v, dev, data)
     validate_pads(v, dev, data)
+    validate_displays(v, dev, data)
 
     if data.get("key_matrix") is not None:
         validate_matrix(v, dev, data["key_matrix"], data.line_of("key_matrix"))
@@ -2257,6 +2260,80 @@ def validate_pads(v, dev, data):
                        "for those not given)")
 
 
+
+DISPLAY_KEYS = ["id", "type", "chars"]
+DISPLAY_TYPES = {"segment14": 1}     # gm_display.h GM_DISPLAY_SEG14
+SEG14_PINS = 15                      # segments a..m, then the dot
+MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC
+MAX_DISPLAYS = 1                     # the core only writes display 0 for now
+
+
+def validate_displays(v, dev, data):
+    """displays: character displays on hub output pins. chars: each character's first pin
+    (segment a); the 14 segments a..m and the dot are that pin and the next 14."""
+    lst = v.seq(data.get("displays"), "displays", data.line_of("displays"))
+    for i, d in enumerate(lst):
+        p = f"displays[{i}]"
+        d = v.mapping(d, p, lst.line_of(i), DISPLAY_KEYS, renamed=RENAMED_ID)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "display", len(dev.displays))
+        typ = d.get("type", "segment14")
+        if typ not in DISPLAY_TYPES:
+            v.err(f"{p}.type", d.line_of("type"), f"unknown display type '{typ}' (use {', '.join(DISPLAY_TYPES)})")
+            continue
+        chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
+        if not chars:
+            v.err(f"{p}.chars", d.line_of("chars") or d.line, "needs chars: each character's first pin "
+                                                              "(segment a), left to right")
+            continue
+        if len(chars) > MAX_DISPLAY_CHARS:
+            v.err(f"{p}.chars", d.line_of("chars"), f"{len(chars)} characters: at most {MAX_DISPLAY_CHARS}")
+            continue
+        pins = []
+        for j, raw in enumerate(chars):
+            cp = f"{p}.chars[{j}]"
+            line = chars.line_of(j)
+            if not isinstance(raw, dict):
+                v.err(cp, line, "must be a hub pin, e.g. { tm1628: leds_a, number: 0 }: the 15 pins from "
+                                "it (segments a..m, then the dot) must be in a row")
+                continue
+            pin = v.pin(raw, cp, line, "out")
+            if pin is None:
+                continue
+            if pin.hub == 0:
+                v.err(cp, line, "must be a hub pin: the 15 pins from it (segments a..m, then the dot) "
+                                "must be in a row")
+                continue
+            hub = dev.hubs[pin.hub - 1]
+            if pin.num + SEG14_PINS > hub.n_pins:
+                v.err(cp, line, f"pins {pin.num}..{pin.num + SEG14_PINS - 1} (segments a..m and the dot) "
+                                f"don't fit on hub '{hub.id}' (0..{hub.n_pins - 1})")
+                continue
+            for k in range(1, SEG14_PINS):      # the first one was recorded by v.pin
+                v.use(("hub", hub.index, pin.num + k), f"{hub.id}.{pin.num + k}", Use(cp, line))
+            pins.append(pin)
+        dev.displays.append(Hub(id=ident or "", type=DISPLAY_TYPES[typ], chars=pins, path=p, line=d.line))
+    if len(dev.displays) > MAX_DISPLAYS:
+        v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS} "
+                                                    "for now")
+
+
+def display_tables(dev):
+    """gm_displays[] (gm_display.h gm_display_t); nothing without displays."""
+    if not dev.displays:
+        return []
+    c = ['#include "gm_display.h"']
+    for i, x in enumerate(dev.displays):
+        c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
+        c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
+        c.append("};")
+    c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
+    c += [f"    {{ GM_DISPLAY_SEG14, {len(x.chars)}, display_{i}_chars }}, /* {_comment(x.id)} */"
+          for i, x in enumerate(dev.displays)]
+    c += ["};", ""]
+    return c
+
 # ---------------------------------------------------------------------------------------------
 # presets (research/core/presets-design.md §2, §10.2)
 
@@ -3037,6 +3114,7 @@ def generate(dev, source="device.yaml"):
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
     h += pad_defines(dev)
+    h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -3156,6 +3234,7 @@ def generate(dev, source="device.yaml"):
     c += preset_tables(dev)
     c += mode_tables(dev)
     c += pad_tables(dev)
+    c += display_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 
 

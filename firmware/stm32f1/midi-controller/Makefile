@@ -52,6 +52,7 @@ APP_SRCS := main.c \
             $(CORE)/src/app_proto.c \
             $(CORE)/src/settings.c \
             $(CORE)/src/vpin.c \
+            $(CORE)/src/display.c \
             $(CORE)/src/controller.c \
             $(CORE)/src/midi_in.c \
             $(CORE)/src/mcu.c \

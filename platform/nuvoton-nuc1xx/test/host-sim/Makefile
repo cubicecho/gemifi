@@ -60,7 +60,7 @@ $(BUILD)/midi_test: midi_test.c $(PLAT)/src/usb_midi.c $(ROOT)/core/src/gsx.c | 
 DEVICE  := $(ROOT)/devices/keystation-mini32-mk3.yaml
 DEV_DIR := $(BUILD)/device
 CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
-            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c midi_in.c mcu.c presets.c) \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c midi_in.c mcu.c presets.c) \
             $(DEV_DIR)/gm_device_config.c
 
 $(DEV_DIR)/gm_device_config.c: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py) | $(BUILD)

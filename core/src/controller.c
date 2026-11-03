@@ -24,6 +24,7 @@
 #include "gm_presets.h"
 #include "gm_feedback.h"
 #include "gm_mcu.h"
+#include "gm_display.h"
 
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
@@ -68,6 +69,7 @@ static void midi3(uint8_t status, uint32_t a, uint32_t b)
 {
     uint8_t m[3] = { status, (uint8_t)(a & 0x7F), (uint8_t)(b & 0x7F) };
     hal_midi_send(m, 3);
+    gm_display_midi(m[0], m[1], m[2]);
 }
 
 #if GM_N_BUTTONS > 0
@@ -75,6 +77,7 @@ static void midi2(uint8_t status, uint32_t a)
 {
     uint8_t m[2] = { status, (uint8_t)(a & 0x7F) };
     hal_midi_send(m, 2);
+    gm_display_midi(m[0], m[1], 0);
 }
 #endif
 
@@ -1736,6 +1739,7 @@ void gm_poll(void)
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);
+        gm_display_poll();
         if (has_tm_hubs)
             vpin_flush_tm1628();
     }

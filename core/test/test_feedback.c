@@ -11,6 +11,7 @@
 #include "gm_hal.h"
 #include "gm_controller.h"
 #include "gm_device.h"
+#include "gm_mcu.h"
 #include "gm_settings.h"
 #include "gm_feedback.h"
 #include "app_proto.h"
@@ -58,6 +59,24 @@ void hal_midi_flush(uint32_t t) { (void)t; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
+
+/* MCU display hooks (the weak ones in mcu.c do nothing) */
+static char lcd_text[112 + 1];
+static int lcd_calls;
+static uint8_t char_seen[12];
+
+void gm_mcu_on_lcd(uint32_t pos, const uint8_t *text, uint32_t n)
+{
+    for (uint32_t i = 0; i < n && pos + i < 112; i++)
+        lcd_text[pos + i] = (char)text[i];
+    lcd_calls++;
+}
+
+void gm_mcu_on_char(uint32_t pos, uint8_t v)
+{
+    if (pos < 12)
+        char_seen[pos] = v;
+}
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -381,6 +400,66 @@ int main(void)
     usb(1, 0xB0, 0x30, 0x30 | 6);       /* spread, full */
     run_ms(20);
     CHECK(ring_led(0) && ring_led(4), "ring spread 6: all");
+    CHECK(!ring_led(5), "centre LED off without bit 6");
+    usb(1, 0xB0, 0x30, 0x40 | 0x00 | 6);
+    run_ms(20);
+    CHECK(ring_led(5) && ring_led(2), "bit 6: centre LED on, with the dot");
+
+    /* timecode / assignment characters: CC 0x40 + n */
+    usb(1, 0xB0, 0x4B, 0x13);           /* 'S' */
+    usb(1, 0xB0, 0x40, 0x31 | 0x40);    /* '1' with its decimal point */
+    CHECK(gm_mcu_char(11) == 0x13 && gm_mcu_char_ascii(gm_mcu_char(11)) == 'S' && char_seen[11] == 0x13,
+          "character 11 = 'S'");
+    CHECK(gm_mcu_char_ascii(gm_mcu_char(0)) == '1' && (gm_mcu_char(0) & 0x40), "character 0 = '1' + point");
+    usb(0, 0xB0, 0x41, 0x05);
+    CHECK(gm_mcu_char(1) == 0, "characters only on the DAW port");
+
+    /* LCD text: SysEx 12, streamed to the hook */
+    {
+        uint8_t m[6 + 20 + 1] = { 0xF0, 0x00, 0x00, 0x66, 0x14, 0x12, 56 };
+        const char *t = "Track 1 Name Here!!";
+        for (int i = 0; i < 19; i++)
+            m[7 + i] = (uint8_t)t[i];
+        m[26] = 0xF7;
+        lcd_calls = 0;
+        usb_sysex(1, m, 27);
+        CHECK(memcmp(lcd_text + 56, t, 19) == 0, "LCD text at row 2 ('%.19s')", lcd_text + 56);
+        CHECK(lcd_calls >= 2, "LCD text came in pieces (%d calls)", lcd_calls);
+    }
+
+    /* meter mode: SysEx 20 */
+    {
+        const uint8_t m[] = { 0xF0, 0x00, 0x00, 0x66, 0x14, 0x20, 3, 0x05, 0xF7 };
+        usb_sysex(1, m, sizeof m);
+        CHECK(gm_mcu_meter_mode(3) == 5, "meter mode of strip 4 = 5");
+    }
+
+    /* handshake: 00 -> 01 serial challenge; 02 serial response -> 03 serial */
+    {
+        const uint8_t q[] = { 0xF0, 0x00, 0x00, 0x66, 0x14, 0x00, 0xF7 };
+        out_n = 0;
+        usb_sysex(1, q, sizeof q);
+        CHECK(out_n == 18 && out[5] == 0x01 && out[17] == 0xF7 && out_cable[0] == 1,
+              "device query: 01 + 7 serial + 4 challenge (%d bytes)", out_n);
+        uint8_t serial[7];
+        memcpy(serial, out + 6, 7);
+        uint8_t a[6 + 7 + 4 + 1] = { 0xF0, 0x00, 0x00, 0x66, 0x14, 0x02 };
+        memcpy(a + 6, serial, 7);
+        a[17] = 0xF7;
+        out_n = 0;
+        usb_sysex(1, a, sizeof a);
+        CHECK(out_n == 14 && out[5] == 0x03 && memcmp(out + 6, serial, 7) == 0, "answer accepted: 03 + serial");
+    }
+
+    /* 62: all LEDs off */
+    {
+        const uint8_t m[] = { 0xF0, 0x00, 0x00, 0x66, 0x14, 0x62, 0xF7 };
+        usb(1, 0x90, 0x5E, 0x7F);       /* play LED on */
+        run_ms(20);
+        usb_sysex(1, m, sizeof m);
+        run_ms(20);
+        CHECK(!ring_led(5) && !ring_led(2), "62: ring and centre off");
+    }
 
     printf("%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

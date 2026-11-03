@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.7.1](https://github.com/cubicecho/gemifi/compare/v0.7.0...v0.7.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **updater:** don't hold the keyboard's MIDI ports open across a power cycle ([dbcd896](https://github.com/cubicecho/gemifi/commit/dbcd8968d2913861d3aa4708948474ea4b678173))
+
 # [0.7.0](https://github.com/cubicecho/gemifi/compare/v0.6.0...v0.7.0) (2026-11-03)
 
 

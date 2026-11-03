@@ -18,6 +18,8 @@ DEVICE := $(ROOT)/devices/keystation-mini32-mk3.yaml
 DEV    := $(BUILD)/device
 FB_DEVICE := feedback-test.yaml
 FB_DEV    := $(BUILD)/device-feedback
+MX_DEVICE := matrix-test.yaml
+MX_DEV    := $(BUILD)/device-matrix
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -25,6 +27,10 @@ endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(FB_DEVICE) -o $(FB_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(FB_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(MX_DEVICE) -o $(MX_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(MX_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
@@ -39,12 +45,15 @@ SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
 
 FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 
+MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c
+
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback
+test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
+	$(BUILD)/test_matrix
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -53,6 +62,10 @@ $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_conf
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(FB_DEV) $(FB_SRCS) -o $@
+
+$(BUILD)/test_matrix: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MX_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(MX_DEV) $(MX_SRCS) -o $@
 
 clean:
 	rm -rf $(BUILD)

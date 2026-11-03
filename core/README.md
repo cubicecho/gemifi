@@ -44,10 +44,29 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `cd74hc4067` | `GM_HUB_MUX` | `pin_s0`–`pin_s3`, `common_pin`, optional `enable_pin`, `delay` | 16 input channels, as above |
 | `mcp23017` | `GM_HUB_MCP23017` | I2C (`address`, default 0x20; the `i2c:` pins) | 16 GPIO (`0`–`15` or `GPA0`–`GPB7`) |
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
+| `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
+| `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
 
 A pin on a hub names the hub by its chip key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
 Inputs on HC165, MCP23017 and PCF8574 are read once per scan into a cache, and outputs on HC595 are written once per scan, so a whole key matrix can live on shift registers.
+
+**Matrices behind decoders** (the M-Audio Code 61, `devices/m-audio-code61.yaml`): rows come from 3-to-8 decoders that share address lines, and the keys, panel buttons and encoders all share the same columns. Declare the decoder once, then give each matrix a range of its outputs, `rows: { decoder: rows, first: 16, count: 4 }` (or a list of `{ decoder: rows, number: n }` pins). The key matrix and the switch matrices are scanned one after the other from the scan interrupt, so they can share column pins: set `allow_other_uses: true` on each use. A decoder output is selected when its row is driven and stays selected until the next row's select replaces it.
+
+```yaml
+decoder:
+  - id: rows
+    address: [PB3, PB4, PB5]
+    groups: [{ PB6: 1, PB7: 0 }, { PB6: 0, PB7: 1 }, { PB6: 0, PB7: 0 }]   # outputs 0-7, 8-15, 16-23
+switch_matrix:
+  - id: panel
+    rows: { decoder: rows, first: 16, count: 4 }
+    columns:
+      - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      # ... PB9-PB15
+buttons:
+  - { id: play, pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113 }
+```
 
 ## Components
 
@@ -153,9 +172,25 @@ key_matrix:
   velocity: { fast: 1.6ms, slow: 120ms }
 ```
 
+**Key matrix options.** `type: velocity` keys have two contacts. By default they are columns 2p and 2p+1 of one row (`contacts: columns`, the Keystation). `contacts: rows` puts them on rows 2p and 2p+1 of one column instead (the Code 61). `key_map` says which key sits where when the wiring doesn't follow the default numbering: one list per row (per row pair with `contacts: rows`), one key number per column (per column pair with `contacts: columns`), `null` where there is no key. Without it, key k is row k % rows, column (pair) k / rows. Rows can be MCU pins, sn74hc595 pins or decoder outputs; columns MCU pins or sn74hc165 pins.
+
+```yaml
+key_matrix:
+  type: velocity
+  contacts: rows
+  rows: { decoder: rows, first: 0, count: 16 }
+  columns: [ ... PB8-PB15 ... ]
+  keys: 61
+  first_note: 36
+  key_map:
+    - [55, 54, 53, 52, 51, 50, 49, 48]      # rows 0/1
+    # ...
+    - [null, null, null, 60, 59, 58, 57, 56]  # rows 14/15
+```
+
 **Pins** (ESPHome's pin schema): a string (`PA1`, `GPIO5`, `5`) or a mapping `{ number: PA1, inverted: true, mode: INPUT_PULLUP, allow_other_uses: true }`. On a hub, the chip key names the hub: `{ sn74hc165: buttons, number: 3 }`.
 - `mode`: `INPUT`, `OUTPUT`, `ANALOG`, `INPUT_PULLUP`, `INPUT_PULLDOWN` (also `OUTPUT_OPEN_DRAIN`, `INPUT_OUTPUT_OPEN_DRAIN`, which gemifi refuses: no open-drain driver yet), or a mapping of `input`, `output`, `pullup`, `pulldown`, `open_drain` booleans. The default comes from the use: buttons, encoders and matrix columns are inputs, LEDs and matrix rows outputs, analog inputs analog. A mode the use or the chip can't do is an error (an output with a pull-up, a pull-down on NUC1xx, pulls on ESP32 GPIO34–39, a pull-up on a 74HC165 pin). On NUC1xx, `INPUT_PULLUP` is the quasi-bidirectional mode's weak pull-up.
-- `allow_other_uses: true`: the pin has more than one use. gemifi only allows that for hub control lines shared between hubs (e.g. one `clock_pin` for an sn74hc595 and an sn74hc165), with the same job on each and the flag on every use.
+- `allow_other_uses: true`: the pin has more than one use. gemifi only allows that for hub control lines shared between hubs (e.g. one `clock_pin` for an sn74hc595 and an sn74hc165) and for matrix columns shared between a `key_matrix` and `switch_matrix` hubs, with the same job on each and the flag on every use.
 
 **Time periods** (ESPHome style): a number and a unit, `us`, `ms`, `s` (also `ns`, `min`): `scan_interval: 125us`, `delay: 5us`, `settle: 1us`, `velocity: { fast: 1.6ms, slow: 120ms }`. A bare number is an error that says which unit to add.
 

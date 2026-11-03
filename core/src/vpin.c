@@ -77,6 +77,18 @@ void vpin_init(void)
             if (h->data.hub == 0)
                 hal_pin_mode(h->data.num, HAL_IN);
             break;
+        case GM_HUB_DECODER:
+            for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
+                mcu_out(h->sel[k], 0);
+            for (uint32_t k = 0; k < h->n_en && k < 3; k++)
+                mcu_out(h->en[k], 0);
+            break;
+        case GM_HUB_SWMATRIX:
+            for (uint32_t c = 0; c < h->n_cols; c++)
+                vpin_input(h->cols[c]);
+            for (uint32_t r = 0; r < h->n_rows; r++)
+                vpin_output(h->rows[r]);
+            break;
         case GM_HUB_MUX:
             for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
                 mcu_out(h->sel[k], 0);
@@ -137,6 +149,23 @@ static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
     hal_delay_us(h->settle_us ? h->settle_us : 2);
 }
 
+/* Decoder: address lines = n's low bits, enable lines = its group's levels.
+ * Written only when the selection changes. */
+static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n)
+{
+    if (s->channel == (int8_t)n)
+        return;
+    uint32_t g = n >> h->n_sel;
+    for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
+        if (h->sel[k].hub == 0)
+            hal_pin_write(h->sel[k].num, (n >> k) & 1u);
+    uint32_t lv = g < 4 ? h->group_lv[g] : 0;
+    for (uint32_t k = 0; k < h->n_en && k < 3; k++)
+        if (h->en[k].hub == 0)
+            hal_pin_write(h->en[k].num, (lv >> k) & 1u);
+    s->channel = (int8_t)n;
+}
+
 __attribute__((weak)) const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
 {
     (void)pin;
@@ -175,9 +204,15 @@ void vpin_write(gm_pin_t p, int active)
         hal_pin_write(p.num, level);
         return;
     }
-    if (!hub_of(p))
+    const gm_hub_t *h = hub_of(p);
+    if (!h)
         return;
     hub_state_t *s = &hs[p.hub - 1];
+    if (h->type == GM_HUB_DECODER) {
+        if (active)
+            decoder_select(h, s, p.num);
+        return;
+    }
     if (level)
         s->out |= 1u << p.num;
     else
@@ -254,6 +289,37 @@ void vpin_flush(void)
         pulse(h->latch.num);
         s->written = v;
         s->never = 0;
+    }
+}
+
+/* ---- switch matrices --------------------------------------------------- */
+
+int vpin_has_matrices(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++)
+        if (gm_device.hubs[i].type == GM_HUB_SWMATRIX)
+            return 1;
+    return 0;
+}
+
+/* One pass over every switch matrix: drive a row, wait, read the columns.
+ * Bit n of the cache = row n / n_cols, column n % n_cols, 1 = closed. */
+void vpin_scan_matrices(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        if (h->type != GM_HUB_SWMATRIX)
+            continue;
+        uint32_t v = 0, bit = 0;
+        for (uint32_t r = 0; r < h->n_rows; r++) {
+            vpin_write(h->rows[r], 1);
+            hal_delay_us(h->settle_us ? h->settle_us : 1);
+            for (uint32_t c = 0; c < h->n_cols && bit < 32; c++, bit++)
+                if (vpin_read(h->cols[c]))
+                    v |= 1u << bit;
+            vpin_write(h->rows[r], 0);
+        }
+        hs[i].in = v;
     }
 }
 

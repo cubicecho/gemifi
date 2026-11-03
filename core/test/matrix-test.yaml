@@ -1,0 +1,52 @@
+# Test device for core/test/test_matrix.c: a Code 61-style matrix. A decoder
+# hub selects the rows (3 address lines, 3 groups on 2 enable lines), the keys
+# have their two contacts on row pairs with a descending key map, and buttons
+# plus an encoder sit on a switch matrix that shares the key columns. Not a
+# real board; the pins only need to be distinct for the simulated HAL.
+gemifi: 2
+name: matrix-test
+friendly_name: Matrix Test
+board_id: 0x3F11
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 250us
+
+decoder:
+  - id: rows
+    address: [PA2, PA3, PA4]
+    groups:
+      - { PA5: 1, PA6: 0 }     # outputs 0-7
+      - { PA5: 0, PA6: 1 }     # outputs 8-15
+      - { PA5: 0, PA6: 0 }     # outputs 16-23
+
+switch_matrix:
+  - id: panel
+    rows: { decoder: rows, first: 16, count: 2 }
+    columns:
+      - { number: PB0, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB1, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB2, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+      - { number: PB3, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+
+key_matrix:
+  type: velocity
+  contacts: rows
+  rows: { decoder: rows, first: 0, count: 4 }
+  columns:
+    - { number: PB0, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB1, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB2, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+    - { number: PB3, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
+  keys: 8
+  first_note: 36
+  key_map:                     # descending, like the Code 61's keybed
+    - [7, 6, 5, 4]             # rows 0/1
+    - [3, 2, 1, 0]             # rows 2/3
+
+buttons:
+  - { id: up,   pin: { switch_matrix: panel, number: 0 }, action: cc_momentary, cc: 20 }
+  - { id: down, pin: { switch_matrix: panel, number: 1 }, action: cc_momentary, cc: 21 }
+
+encoders:
+  - { id: enc, pin_a: { switch_matrix: panel, number: 4 }, pin_b: { switch_matrix: panel, number: 5 }, cc: 30 }

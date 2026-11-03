@@ -47,6 +47,7 @@
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
+static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
 static uint8_t has_i2c_hubs;
 
 /* ---- MIDI out --------------------------------------------------------- */
@@ -172,10 +173,19 @@ static void key_update(uint32_t k, uint32_t c)
     }
 }
 
+/* Key number at matrix position pos (gm_matrix_t.key_map), or dflt without a
+ * map. GM_KEY_NONE (and anything >= n_keys) is no key. */
+static uint32_t key_at(const gm_matrix_t *m, uint32_t pos, uint32_t dflt)
+{
+    return m->key_map ? m->key_map[pos] : dflt;
+}
+
 static void matrix_scan(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
     uint32_t rows = m->n_rows > 32 ? 32 : m->n_rows;
+    int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+    uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
     for (uint32_t r = 0; r < rows; r++) {
         if (rows_fast)
             *row_reg[r] = (row_on >> r) & 1u;
@@ -209,6 +219,28 @@ static void matrix_scan(void)
             *row_reg[r] = ((row_on >> r) & 1u) ^ 1u;
         else
             vpin_write(m->rows[r], 0);
+        if (by_rows) {
+            /* Contacts on rows 2p and 2p+1, same column: handle the pair once
+             * both rows of this pass have been read. */
+            if (!(r & 1u)) {
+                even = s;
+                continue;
+            }
+            uint32_t diff = (even ^ mprev[r - 1u]) | (s ^ mprev[r]);
+            if (!diff)
+                continue;
+            mprev[r - 1u] = even;
+            mprev[r] = s;
+            uint32_t pair = r / 2u;
+            for (uint32_t c = 0; c < m->n_cols; c++) {
+                if (!((diff >> c) & 1u))
+                    continue;
+                uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
+                if (k < m->n_keys)
+                    key_update(k, ((even >> c) & 1u) | (((s >> c) & 1u) << 1));
+            }
+            continue;
+        }
         uint32_t diff = s ^ mprev[r];
         if (!diff)
             continue;
@@ -217,7 +249,7 @@ static void matrix_scan(void)
             for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
                 if (!((diff >> (2u * p)) & 3u))
                     continue;
-                uint32_t k = r + rows * p;
+                uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
                 if (k < m->n_keys)
                     key_update(k, (s >> (2u * p)) & 3u);
             }
@@ -225,7 +257,7 @@ static void matrix_scan(void)
             for (uint32_t c = 0; c < m->n_cols; c++) {
                 if (!((diff >> c) & 1u))
                     continue;
-                uint32_t k = r + rows * c;
+                uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
                 if (k < m->n_keys)
                     kq_push(k, (s >> c) & 1u, 0);
             }
@@ -286,6 +318,8 @@ void gm_scan_tick(void)
     if (gm_device.matrix)
         matrix_scan();
 #endif
+    if (has_matrices)
+        vpin_scan_matrices();       /* before the encoders read them */
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
         if (!enc_i2c[i])
@@ -389,20 +423,20 @@ static void keys_off(void)
 /* ---- buttons ----------------------------------------------------------- */
 
 #if GM_N_BUTTONS > 0
-static uint32_t btn_stable, btn_last, btn_toggled;
-static uint32_t btn_ignore;         /* held through a preset switch: release is silent */
+static uint64_t btn_stable, btn_last, btn_toggled;   /* bit = button (at most 64) */
+static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
 static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
-static uint32_t read_buttons(void)
+static uint64_t read_buttons(void)
 {
-    uint32_t s = 0;
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++)
+    uint64_t s = 0;
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
         if (vpin_read(gm_device.buttons[i].pin))
-            s |= 1u << i;
+            s |= 1ull << i;
     return s;
 }
 
@@ -446,7 +480,7 @@ static void button_changed(uint32_t i, int down)
         break;
     case ACT_CC_TOGGLE:
         if (down) {
-            btn_toggled ^= 1u << i;
+            btn_toggled ^= 1ull << i;
             cc(num, ((btn_toggled >> i) & 1u) ? 127 : 0);
         }
         break;
@@ -627,15 +661,15 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 static void buttons_sample(void)
 {
-    uint32_t s = read_buttons();
+    uint64_t s = read_buttons();
     if (s == btn_last && s != btn_stable) {
-        uint32_t diff = s ^ btn_stable;
+        uint64_t diff = s ^ btn_stable;
         btn_stable = s;
-        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             if (!((diff >> i) & 1u))
                 continue;
             if ((btn_ignore >> i) & 1u) {
-                btn_ignore &= ~(1u << i);   /* released after a preset switch */
+                btn_ignore &= ~(1ull << i);   /* released after a preset switch */
                 continue;
             }
 #if GM_N_MODES > 0
@@ -686,6 +720,15 @@ static void ramps_ms(uint32_t now)
 #endif
 
 /* ---- analog inputs ---------------------------------------------------- */
+
+#if GM_N_ANALOGS == 0
+/* Host feedback (app_proto.c) calls it whatever the device has. */
+void gm_analog_host(uint32_t i, uint32_t value)
+{
+    (void)i;
+    (void)value;
+}
+#endif
 
 #if GM_N_ANALOGS > 0
 static int32_t a_filt[NA];          /* 0..4095 << 2 */
@@ -1098,9 +1141,9 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
         if (type == 0xB0 && act == ACT_CC_TOGGLE) {
             /* the host's echo is the toggle's state (and so its LED's) */
             if (v >= 64)
-                btn_toggled |= 1u << i;
+                btn_toggled |= 1ull << i;
             else
-                btn_toggled &= ~(1u << i);
+                btn_toggled &= ~(1ull << i);
         } else if (li >= 0 && (type == 0xB0 ? act == ACT_CC_MOMENTARY || act == ACT_CC_RAMP
                                             : act == ACT_NOTE)) {
             gm_led_host((uint32_t)li, v);
@@ -1135,7 +1178,7 @@ void gm_release_all(void)
     keys_off();
 #endif
 #if GM_N_BUTTONS > 0
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
         int held = (btn_stable >> i) & 1u;
         int32_t act = gm_cfg.btn_action[i];
         if (btn_note[i] != NOTE_NONE) {
@@ -1176,6 +1219,7 @@ uint32_t gm_buttons_now(void)
     hal_delay_us(50);
     vpin_refresh();
     vpin_refresh_i2c();
+    vpin_scan_matrices();
     uint32_t s = 0;
     for (uint32_t i = 0; i < gm_device.n_buttons && i < 32; i++)
         if (vpin_read(gm_device.buttons[i].pin))
@@ -1196,6 +1240,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
             has_sr_hubs = 1;
         if (t == GM_HUB_MCP23017 || t == GM_HUB_PCF8574)
             has_i2c_hubs = 1;
+        if (t == GM_HUB_SWMATRIX)
+            has_matrices = 1;
     }
     vpin_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)

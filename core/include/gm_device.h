@@ -49,6 +49,14 @@ enum {
                              analog or digital, input only                 */
     GM_HUB_MCP23017 = 4,  /* I2C, 16 GPIO                                */
     GM_HUB_PCF8574 = 5,   /* I2C, 8 quasi-bidirectional GPIO             */
+    GM_HUB_DECODER = 6,   /* 74HC138-style one-of-N select: outputs only, and
+                             only as matrix rows. Output n "on" = address
+                             lines = n % 2^n_sel, enable lines = group
+                             n / 2^n_sel's levels. "Off" leaves it as is: the
+                             next row's select replaces it                 */
+    GM_HUB_SWMATRIX = 8,  /* switch matrix scanned from the scan interrupt:
+                             inputs only. Pin n = row n / n_cols, column
+                             n % n_cols; reads 1 = closed                   */
 };
 
 typedef struct {
@@ -62,7 +70,19 @@ typedef struct {
     gm_pin_t sel[4];      /* MUX S0..S3                                    */
     gm_pin_t common;      /* MUX common pin (an MCU pin; ADC for analog)   */
     gm_pin_t enable;      /* MUX /E, HC595 /OE (optional)                  */
-    uint16_t settle_us;   /* MUX: wait after switching channel             */
+    uint16_t settle_us;   /* MUX: wait after switching channel; SWMATRIX:
+                             after driving a row                            */
+    /* DECODER: sel[0..n_sel-1] are the address lines (A0 first). */
+    gm_pin_t en[3];       /* DECODER: group enable lines                   */
+    uint8_t n_en;
+    uint8_t n_groups;     /* DECODER: groups of 2^n_sel outputs            */
+    uint8_t group_lv[4];  /* DECODER: bit e = level of en[e] for group g    */
+    /* SWMATRIX: rows (any output pin, usually a DECODER's) and columns
+     * (MCU inputs; "closed" level = not INVERT). n_rows * n_cols <= 32. */
+    const gm_pin_t *rows;
+    const gm_pin_t *cols;
+    uint8_t n_rows;
+    uint8_t n_cols;
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */
@@ -110,7 +130,20 @@ typedef struct {
     uint8_t n_keys;
     uint8_t first_note;    /* note of key 0 at octave 0, transpose 0       */
     uint8_t settle_us;     /* wait after driving a row                      */
+    uint8_t contacts;      /* VELOCITY: GM_MATRIX_CONTACTS_*                */
+    /* Optional: key number of each matrix position, 0xFF = none. Position =
+     * row * n_cols + col for SWITCH; pair p * n_cols + col for VELOCITY with
+     * contacts on rows (pair p = rows 2p, 2p+1); row * (n_cols / 2) + p for
+     * contacts on columns. NULL: the default numbering above. */
+    const uint8_t *key_map;
 } gm_matrix_t;
+
+enum {
+    GM_MATRIX_CONTACTS_COLS = 0,  /* key k on row k % rows, cols 2p, 2p+1      */
+    GM_MATRIX_CONTACTS_ROWS = 1,  /* key k = p + (rows / 2) * c: rows 2p, 2p+1,
+                                     column c (the Code 61's keybed)          */
+};
+#define GM_KEY_NONE 0xFFu
 
 /* ---- host feedback and Mackie Control --------------------------------
  * core/README.md "DAW feedback". These tables are generated only when the

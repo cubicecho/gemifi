@@ -441,6 +441,90 @@ class TestValidation(unittest.TestCase):
         self.assertError(vel + "  velocity: { fst: 2ms }\n", r"unknown key")
         self.assertError((m % "switch") + "  velocity: { fast: 2ms }\n", r"only for type: velocity")
 
+    DECODER = ("decoder:\n  - id: dec\n    address: [PA2, PA3, PA4]\n"
+               "    groups: [{ PA5: 1, PA6: 0 }, { PA5: 0, PA6: 1 }, { PA5: 0, PA6: 0 }]\n")
+    COLS = ("[{ number: PB0, mode: INPUT_PULLUP, inverted: true%s }, "
+            "{ number: PB1, mode: INPUT_PULLUP, inverted: true%s }]")
+
+    def test_decoder_key_matrix(self):
+        """Decoder rows (shorthand), contacts on row pairs and a key map, as on the Code 61."""
+        km = ("key_matrix:\n  type: velocity\n  rows: { decoder: dec, first: 0, count: 4 }\n"
+              "  columns: " + self.COLS % ("", "") + "\n  contacts: rows\n  keys: 4\n"
+              "  key_map: [[3, 2], [1, 0]]\n")
+        t = MINIMAL_NUC + self.DECODER + km
+        self.assertClean(t)
+        dev, _ = load(t)
+        self.assertEqual([x.num for x in dev.matrix.rows], [0, 1, 2, 3])
+        self.assertEqual(dev.matrix.key_map, [3, 2, 1, 0])
+        dec = dev.hubs[0]
+        self.assertEqual((dec.n_sel, dec.group_lv, dec.n_pins), (3, [1, 2, 0], 24))
+        c = gd.generate(dev, "x.yaml")["gm_device_config.c"]
+        self.assertIn(".type = GM_HUB_DECODER", c)
+        self.assertIn(".n_groups = 3, .group_lv = { 1, 2, 0, 0 }", c)
+        self.assertIn(".contacts = GM_MATRIX_CONTACTS_ROWS, .key_map = matrix_key_map", c)
+        self.assertIn("static const uint8_t matrix_key_map[4] = {", c)
+        # a key map with a hole, and keys beyond rows x columns are fine with a map
+        t2 = t.replace("key_map: [[3, 2], [1, 0]]", "key_map: [[3, null], [1, 0]]")
+        self.assertTrue(any("never play: 2" in w.msg for w in self.errs(t2, level="warning")))
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 2]]"), r"one list per row pair: 2, got 1")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 2], [1]]"), r"needs 2 entries, one per column")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[3, 3], [1, 0]]"), r"key 3 is already at")
+        self.assertError(t.replace("[[3, 2], [1, 0]]", "[[4, 2], [1, 0]]"), r"key number 0\.\.3 or null")
+        self.assertError(t.replace("count: 4", "count: 3").replace("key_map: [[3, 2], [1, 0]]\n", ""),
+                         r"contacts: rows needs an even number of rows")
+        self.assertError(t.replace("count: 4", "count: 30"), r"outputs 0\.\.29 are out of range")
+        self.assertError(t.replace("type: velocity", "type: switch"), r"only for type: velocity")
+        self.assertError(t.replace("contacts: rows", "contacts: diagonal"), r"'diagonal' is unknown")
+        # explicit decoder pins work too
+        t3 = t.replace("{ decoder: dec, first: 0, count: 4 }",
+                       "[{ decoder: dec, number: 8 }, { decoder: dec, number: 9 }, { decoder: dec, number: 10 }, "
+                       "{ decoder: dec, number: 11 }]")
+        self.assertClean(t3)
+
+    def test_decoder_errors(self):
+        self.assertError(MINIMAL_NUC + "decoder:\n  - { id: d }\n", r"needs a list of 1-4 address pins")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 0, PA7: 1 }")
+        self.assertError(MINIMAL_NUC + bad, r"same enable pins")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 1, PA6: 0 }")
+        self.assertError(MINIMAL_NUC + bad, r"same enable levels as groups\[0\]")
+        bad = self.DECODER.replace("{ PA5: 0, PA6: 1 }", "{ PA5: 2, PA6: 1 }")
+        self.assertError(MINIMAL_NUC + bad, r"level must be 0 or 1")
+        # a decoder output is a row select, not an LED
+        self.assertError(MINIMAL_NUC + self.DECODER + "leds:\n  - { id: l, pin: { decoder: dec, number: 0 } }\n",
+                         r"hub 'dec' is a decoder, which can't be an output")
+        # no groups: one group of 2^n outputs
+        dev, _ = load(MINIMAL_NUC + "decoder:\n  - { id: d, address: [PA2, PA3] }\n")
+        self.assertEqual((dev.hubs[0].group_lv, dev.hubs[0].n_pins), ([0], 4))
+
+    def test_switch_matrix(self):
+        """Buttons and encoders on a switch matrix that shares the key matrix's columns."""
+        sw = ("switch_matrix:\n  - id: panel\n    rows: { decoder: dec, first: 16, count: 2 }\n"
+              "    columns: " + self.COLS % (", allow_other_uses: true", ", allow_other_uses: true") + "\n")
+        km = ("key_matrix:\n  type: velocity\n  rows: { decoder: dec, count: 4 }\n"
+              "  columns: " + self.COLS % (", allow_other_uses: true", ", allow_other_uses: true") +
+              "\n  contacts: rows\n  keys: 4\n")
+        btns = ("  - { id: up, pin: { switch_matrix: panel, number: 0 }, action: cc_momentary, cc: 20 }\n"
+                "  - { id: down, pin: { switch_matrix: panel, number: 1 }, action: cc_momentary, cc: 21 }\n")
+        enc = "encoders:\n  - { id: e, pin_a: { switch_matrix: panel, number: 2 }, " \
+              "pin_b: { switch_matrix: panel, number: 3 }, cc: 30 }\n"
+        t = MINIMAL_NUC + btns + sw + self.DECODER + km + enc   # the switch_matrix comes before its decoder
+        self.assertClean(t)
+        dev, _ = load(t)
+        panel = dev.hubs[0]
+        self.assertEqual(([x.num for x in panel.rows], len(panel.cols), panel.n_pins), ([16, 17], 2, 4))
+        c = gd.generate(dev, "x.yaml")["gm_device_config.c"]
+        self.assertIn("static const gm_pin_t hub1_rows[2] = {", c)
+        self.assertIn(".rows = hub1_rows, .cols = hub1_cols, .n_rows = 2, .n_cols = 2,", c)
+        self.assertIn(".type = GM_HUB_SWMATRIX", c)
+        # shared columns need allow_other_uses on each use
+        self.assertError(t.replace(", allow_other_uses: true", "", 1), r"PB0 is already used")
+        # rows: only MCU pins or decoder outputs; size limit
+        bad = t.replace("rows: { decoder: dec, first: 16, count: 2 }", "rows: [{ switch_matrix: panel, number: 0 }]")
+        self.assertError(bad, r"which can't be an output")
+        big = t.replace("first: 16, count: 2", "first: 0, count: 17")
+        self.assertError(big, r"17 rows x 2 columns = 34 switches: at most 32")
+        self.assertError(t.replace("number: 3 }, cc: 30", "number: 4 }, cc: 30"), r"pin 4 is out of range")
+
     def test_matrix_hub_restrictions(self):
         hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
                 "mcp23017:\n  - { id: x, address: 0x20 }\ni2c: { sda: PA10, scl: PA11 }\n")
@@ -465,8 +549,8 @@ class TestValidation(unittest.TestCase):
             "sn74hc165:\n  - { id: i, data_pin: PA2, clock_pin: PA3, load_pin: PA4, sr_count: 4 }\nbuttons:\n" + \
             "".join(f"  - {{ id: b{i}, pin: {{ sn74hc165: i, number: {i} }} }}\n" for i in range(32))
         self.assertClean(t)
-        t += "  - { id: x, pin: PB0 }\n"
-        self.assertError(t, r"33 buttons: at most 32")
+        t += "".join(f"  - {{ id: x{i}, pin: P{'C' if i < 16 else 'D'}{i % 16} }}\n" for i in range(33))
+        self.assertError(t, r"65 buttons: at most 64")
 
     def test_i2c_required(self):
         t = MINIMAL_NUC + "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"

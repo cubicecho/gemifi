@@ -50,6 +50,16 @@ key_matrix:
 buttons:
   - { id: up,   pin: { switch_matrix: panel, number: 0 }, action: cc_momentary, cc: 20 }
   - { id: down, pin: { switch_matrix: panel, number: 1 }, action: cc_momentary, cc: 21 }
+  - { id: chan, pin: { switch_matrix: panel, number: 2 }, led: chan_led }   # holds the channel mode
+
+leds:
+  - { id: chan_led, pin: PC0 }
+
+# While chan is held, up / down change the channel; the keys keep playing.
+modes:
+  - id: channel
+    hold: { button: chan }
+    buttons: { up: channel_up, down: channel_down }
 
 encoders:
   - { id: enc, pin_a: { switch_matrix: panel, number: 4 }, pin_b: { switch_matrix: panel, number: 5 }, cc: 30 }

@@ -194,6 +194,9 @@ static void do_select(uint32_t slot, int from_host)
     }
     if (!from_host)
         app_param_changed(P_PRESET_ACTIVE, 0);   /* the host knows its own SETs */
+    preset_info_t info;
+    if (presets_info(slot, &info) == GSX_OK)
+        gm_display_message(info.name);          /* over the Program Change, if any */
     preset_changed();
     active_pending = 1;
     active_t = hal_millis();

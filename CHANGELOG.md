@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.16.0](https://github.com/cubicecho/gemifi/compare/v0.15.0...v0.16.0) (2026-11-03)
+
+
+### Features
+
+* LED idle/active looks; Code 61 LEDs lit by default ([f3f9f5c](https://github.com/cubicecho/gemifi/commit/f3f9f5c78fdd9a1aec50ab449da49aa26e585108))
+
 # [0.15.0](https://github.com/cubicecho/gemifi/compare/v0.14.0...v0.15.0) (2026-11-03)
 
 

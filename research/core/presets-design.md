@@ -183,7 +183,7 @@ Implemented as above (core/README.md "Modes"), on the Keystation with Edit as th
 
 - **No `mode` button action.** A root mode is entered only by its `toggle:` button, so `button.action` keeps its 16 values and the schema, host and web lists don't change. A button that enters a mode directly can come later if a device needs one.
 - **The toggle button has no action of its own,** and the builder refuses a preset that rebinds it (that is what would lock you out). A `button.action` the host sets for it is stored but ignored.
-- **No `buttons:` rebinding inside a mode** yet: buttons keep their normal actions in every mode.
+- **No `buttons:` rebinding inside a mode** yet: buttons keep their normal actions in every mode. *Added 2026-11-03 (§6.2).*
 - **No EVENT type for mode changes** (§5): the protocol is unchanged. The toggle button's presses still show as button EVENTs.
 - **Held keys** get their Note Off when the mode starts, not at their release.
 - **Keys:** named by note at octave 0 (C4 = 60, so the Keystation's lowest key is C3) or by MIDI note number. Besides the design's `white_from:` range there is `from:` (every key) and `count:`; a range can be `preset_select` or `channel`. An action with no number can be written as just its name (`C3: octave_reset`).
@@ -191,6 +191,17 @@ Implemented as above (core/README.md "Modes"), on the Keystation with Edit as th
 - **LEDs:** a root mode lights its toggle button's LED by default, and a sub-mode blinks its parent's. The preset-number blink (Q7) is the per-mode option `preset_blink: [count LED, done LED]`, inherited by sub-modes; it runs after a preset switch made from a mode (not from a button or the host): one dark step, the slot number in 200 ms blinks, then both LEDs flash for 400 ms.
 - **Keystation YAML:** Edit lost its CC toggle 80 (it is the mode button now); the Drums snare moved from Edit to Mod, and the DAW preset's Edit CC 81 was dropped.
 - **Cost on the Keystation:** +844 B flash (19884 → 20728 B text) and +12 B RAM, tables included.
+
+### 6.2 Hold modes and button bindings (2026-11-03)
+
+For the Code 61: Up / Down step through the presets, and with Channel held they change the MIDI channel.
+
+- **`hold: { button: <id> }`** is a third way into a root mode, beside `toggle:` and `parent:`. The mode is active only while the button is held. It can't have sub-modes, and it goes first when a toggled mode is also active. If the button is held through a preset switch, its release still ends the mode.
+- **`buttons: { <button id>: <action> }`**, in any mode: the key actions (not sub-modes or ranges) for buttons. A bound button pressed in the mode runs that instead of its own action, and its release is silent even after the mode ends.
+- **`channel_up` / `channel_down`** (GM_MK 13, 14): new actions for keys and buttons; 16 wraps to 1.
+- **A mode with no `keys:` leaves the keyboard playing** (a Channel-held mode shouldn't silence it).
+- **The display** shows the preset's name on any switch (scrolling it on the Code 61's 6 characters), and `CH <n>` on a device-side channel change (core/README.md "Displays").
+- **Storage:** the STM32F1's single 1 KB page holds 3 Code 61 slots, at 96% in the worst case (the builder warns). More slots need the store to span more flash pages.
 
 ## 7. Tools and web
 

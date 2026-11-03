@@ -121,11 +121,16 @@ typedef struct {
 /* An LED with one, two or three pins. Two pins = a bicolour LED shown with
  * levels: 1 = pin, 2 = both, 3 = pin2, 4 = pin2 blinking. Three pins = an
  * RGB LED (pin red, pin2 green, pin3 blue): any level is white, except the
- * colours FB_LED_RGB sets (controller.c LV_RGB). */
+ * colours FB_LED_RGB sets (controller.c LV_RGB).
+ * looks (YAML idle: / active:): which pins are lit when the LED is off
+ * (idle) and for a plain "on" (active), each a mask (bit 0 pin, 1 pin2,
+ * 2 pin3); 0 = the defaults: idle dark, active pin (white on RGB). */
+#define GM_LED_LOOKS(idle, active) (0x80u | (idle) | (active) << 3)
 typedef struct {
     gm_pin_t pin;
     gm_pin_t pin2;        /* LEDs have no name: nothing shows it */
     gm_pin_t pin3;        /* RGB: blue; GM_NO_PIN otherwise */
+    uint8_t looks;        /* GM_LED_LOOKS(idle, active), 0 = defaults */
 } gm_led_t;
 
 typedef struct {
@@ -283,10 +288,12 @@ typedef struct {
 extern const gm_preset_def_t gm_presets[];   /* GM_N_PRESETS entries */
 
 /* Modes (research/core/presets-design.md §6, core/README.md "Modes"):
- * layers that turn the keys into function keys. Generated only when the
- * YAML has modes: (GM_N_MODES > 0 in gm_device_config.h). A root mode is
- * entered and left with its toggle button; a sub-mode (parent) is entered
- * from a key and goes back to its parent after one action. */
+ * layers that turn the keys (and buttons: buttons[]) into function keys.
+ * Generated only when the YAML has modes: (GM_N_MODES > 0 in
+ * gm_device_config.h). A root mode is entered and left with its toggle
+ * button, or (hold = 1) is active while that button is held; a sub-mode
+ * (parent) is entered from a key and goes back to its parent after one
+ * action. A mode without keys leaves the keyboard playing. */
 enum {                           /* gm_mode_key_t.op                      */
     GM_MK_PRESET = 1,            /* arg = slot 1..GM_N_PRESETS            */
     GM_MK_PRESET_NEXT,
@@ -300,17 +307,20 @@ enum {                           /* gm_mode_key_t.op                      */
     GM_MK_CHANNEL,               /* arg = 1..16                           */
     GM_MK_CURVE,                 /* arg = velocity.curve value            */
     GM_MK_MODE,                  /* arg = mode index: go to that sub-mode */
+    GM_MK_CHANNEL_UP,            /* midi.channel + 1 (16 wraps to 1)      */
+    GM_MK_CHANNEL_DOWN,          /* midi.channel - 1 (1 wraps to 16)      */
 };
 #define GM_MODE_NONE 0xFFu
 
 typedef struct {
-    uint8_t key;                 /* key matrix index (the physical key)   */
+    uint8_t key;                 /* key matrix index (the physical key); in
+                                    gm_mode_t.buttons, the button index   */
     uint8_t op;                  /* GM_MK_*                               */
     uint8_t arg;
 } gm_mode_key_t;
 
 typedef struct {
-    uint8_t toggle;              /* button index; GM_MODE_NONE: sub-mode  */
+    uint8_t toggle;              /* button index (toggle: or hold:); GM_MODE_NONE: sub-mode */
     uint8_t parent;              /* mode index, or GM_MODE_NONE           */
     uint8_t root;                /* the root mode it belongs to (itself)  */
     int8_t led;                  /* lit while active, or -1               */
@@ -319,6 +329,11 @@ typedef struct {
     int8_t blink_done;           /* ... then it and this one flash once, or -1 */
     uint8_t n_keys;
     const gm_mode_key_t *keys;   /* sorted by key                         */
+    /* Newer fields last, so a config generated before them still builds
+     * (left out = 0: a toggle mode, no button bindings). */
+    uint8_t hold;                /* 1: active while the toggle button is held */
+    uint8_t n_buttons;
+    const gm_mode_key_t *buttons;   /* { button index, op, arg }, sorted  */
 } gm_mode_t;
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */

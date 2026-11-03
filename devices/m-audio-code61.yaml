@@ -156,6 +156,12 @@ displays:
 # Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
 # LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
 # the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
+# Looks (core/README.md "LED looks"), the user's request (2026-11-03): every
+# LED lit while idle so the panel is easy to see, and changed while active.
+# RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
+# (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
+# LED with idle: / active:.
+led_defaults: { idle: blue, active: white }
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
   - { id: edit_led, name: "Edit", pin: { tm1628: leds_a, number: 97 } }
@@ -322,10 +328,13 @@ buttons:
     pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
     action: cc_momentary
     cc: 64
-  - { id: up, name: "Up", pin: { switch_matrix: panel, number: 0 }, action: program_next }
-  - { id: down, name: "Down", pin: { switch_matrix: panel, number: 1 }, action: program_prev }
+  # Up / Down step through the presets (the display shows the name); with
+  # Channel held they change the MIDI channel instead (modes: below).
+  # Panel slot 0 is the leftmost of the two, Down (the user, 2026-11-03).
+  - { id: up, name: "Up", pin: { switch_matrix: panel, number: 1 }, action: preset_next }
+  - { id: down, name: "Down", pin: { switch_matrix: panel, number: 0 }, action: preset_prev }
   - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102 }
-  - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 103, led: channel_led }
+  - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, led: channel_led }   # holds the channel mode
   - { id: edit, name: "Edit", pin: { switch_matrix: panel, number: 4 }, action: cc_momentary, cc: 104, led: edit_led }
   - { id: zone, name: "Zone", pin: { switch_matrix: panel, number: 5 }, action: cc_momentary, cc: 105, led: zone_led }
   - { id: num_1, name: "1", pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 106, led: num_1_led }
@@ -407,3 +416,22 @@ pad_settings:
   full: 3000               # [guess] peak reading for velocity 127
   window: 3ms              # peak search after the threshold (3-4 samples at 1 ms)
   retrigger: 20ms          # no new hit for 20 ms after a release
+
+# Presets (core/README.md "Presets"): Up / Down step through them, and the
+# display shows the name. The STM32F1's 1 KB settings page holds 3 slots at
+# most. Rename them from the web editor; slots 2 and 3 start as copies of
+# slot 1.
+presets:
+  slots: 3
+  list:
+    - name: Default
+
+# While Channel is held, Up / Down change the MIDI channel (the display
+# shows "CH <n>"; 16 wraps to 1) and the keys keep playing; Channel's LED is
+# lit meanwhile (core/README.md "Modes", hold:).
+modes:
+  - id: channel
+    hold: { button: channel }
+    buttons:
+      up: channel_up
+      down: channel_down

@@ -308,6 +308,13 @@ export class PayloadReader {
     return value;
   }
 
+  /** @returns Everything left, as it is. */
+  rest(): number[] {
+    const slice = Array.from(this.#bytes).slice(this.#offset);
+    this.#offset = this.#bytes.length;
+    return slice;
+  }
+
   /** @returns Everything left, unpacked 8→7. */
   restPacked(): number[] {
     const slice = Array.from(this.#bytes).slice(this.#offset);

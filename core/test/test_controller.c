@@ -791,6 +791,10 @@ int main(int argc, char **argv)
         CHECK(out[pl] == 0 && gsx_get_u(out + pl + 1, 2) == 1, "role app, board 1");
         uint32_t caps = gsx_get_u(out + pl + 1 + 2 + 5 + 1 + 2, 2);
         CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS), "caps 0x%x", caps);
+        int node_at = pl + 1 + 2 + 5 + 1 + 2 + 2 + 14;
+        size_t node_len = strlen(gm_device.node_name);
+        CHECK(out[node_at] == node_len && memcmp(out + node_at + 1, gm_device.node_name, node_len) == 0,
+              "HELLO ends with the node name '%s'", gm_device.node_name);
         CHECK(request(GSX_CMD_FW_END, 0, 0, 0) == GSX_BAD_STATE, "FW_* -> BAD_STATE on NUC");
         uint8_t m = 1;
         CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1)");

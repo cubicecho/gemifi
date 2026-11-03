@@ -87,7 +87,8 @@ class SimDevice:
                         | (gp.CAP_PRESETS if self.presets is not None else 0))
             h = gp.Hello(self.role, self.board_id, self.fw_version, 1,
                          self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
-                         gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)))
+                         gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
+                         None if self.role == gp.ROLE_BOOT else "sim-device")
             return gp.build_hello_reply(h)
         if f.cmd in (gp.GET_SCHEMA, gp.GET_PARAM, gp.SET_PARAM, gp.GET_PARAMS, gp.SET_PARAMS, gp.COMMIT,
                      gp.FACTORY_RESET):

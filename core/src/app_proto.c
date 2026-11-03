@@ -153,6 +153,23 @@ static void identity_reply(void)
     hal_midi_send(msg, sizeof(msg));
 }
 
+/* HELLO `node` (sysex.md 4.1.1): u8 len, then the node name. Left out when
+ * there is none; the builder has already checked the name's characters. */
+static void put_node_name(gsx_tx_t *t)
+{
+    const char *s = gm_device.node_name;
+    uint32_t n = 0;
+    if (s == 0)
+        return;
+    while (s[n] != 0 && n < GSX_NODE_NAME_MAX)
+        n++;
+    if (n == 0)
+        return;
+    gsx_put(t, (uint8_t)n);
+    for (uint32_t i = 0; i < n; i++)
+        gsx_put(t, (uint8_t)s[i]);
+}
+
 static int cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
 {
     if (f->len != 0)
@@ -164,6 +181,7 @@ static int cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
     gsx_put_u(t, fw ? fw->max_chunk : 0, 2);
     gsx_put_u(t, caps(), 2);
     gsx_put_packed(t, uid, sizeof(uid));
+    put_node_name(t);
     return GSX_OK;
 }
 

@@ -81,6 +81,9 @@ extern "C" {
 #define GSX_CAP_EVENT     (1u << 3)
 #define GSX_CAP_PRESETS   (1u << 5)
 
+/* HELLO `node`: longest node name (section 4.1.1) */
+#define GSX_NODE_NAME_MAX 31u
+
 /* ---- byte-stream receiver -------------------------------------------- */
 typedef struct {
     uint8_t *buf;

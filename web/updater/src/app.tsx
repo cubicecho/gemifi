@@ -4,12 +4,13 @@ import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
-import { fetchBuilderInfo } from './builder/api.ts';
-import { BuilderView } from './builder/builder-view.tsx';
+import { type DeviceListing, fetchBuilderInfo, listDevices } from './builder/api.ts';
+import { BuilderView, type OpenRequest } from './builder/builder-view.tsx';
+import { devicesWithNodeName } from './builder/node-match.ts';
 import { useRequest } from './builder/use-request.ts';
 import { ConfigCard } from './device/config-card.tsx';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
-import { DeviceCard } from './device/device-card.tsx';
+import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
 import { FlashCard } from './device/flash-card.tsx';
 import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
@@ -27,6 +28,9 @@ const InstallCard = lazy(() => import('./device/install-card.tsx').then((m) => (
 
 /** The site's changelog: the builder's version links to it. */
 const CHANGELOG_URL = 'https://cubicecho.github.io/gemifi/changelog/';
+
+/** Without a builder there is no device list to ask for. */
+const noDevices = async (): Promise<DeviceListing> => ({ devices: [], userDir: '' });
 
 /** The page's two views, when a builder serves it. */
 const AppView = { Devices: 'devices', Update: 'update' } as const;
@@ -59,6 +63,9 @@ const insecureAlert = (
 export function App() {
   const builder = useRequest(fetchBuilderInfo, 'info');
   const builderInfo = builder.data ?? null;
+  const hasBuilder = builderInfo !== null;
+  const devices = useRequest(hasBuilder ? listDevices : noDevices, hasBuilder ? 'devices' : 'none');
+  const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
   const [viewParam, setViewParam] = useSearchParam('view');
   const view = viewOf(viewParam);
   const [flashImage, setFlashImage] = useState<PickedImage | null>(null);
@@ -86,6 +93,16 @@ export function App() {
   const canInstall = serial.access.kind !== 'unavailable';
   const isSecure = window.isSecureContext;
   const showView = (next: AppView) => setViewParam(next === AppView.Devices ? null : next);
+  const nodeName = info?.nodeName ?? null;
+  const deviceFiles: DeviceFiles | null = hasBuilder
+    ? {
+        matches: devicesWithNodeName(devices.data?.devices ?? [], nodeName),
+        onOpen: (device) => {
+          showView(AppView.Devices);
+          setOpenRequest((last) => ({ id: device.id, nonce: (last?.nonce ?? 0) + 1 }));
+        },
+      }
+    : null;
 
   const updateCards = (
     <>
@@ -103,7 +120,7 @@ export function App() {
         isBusy={isBusy}
       />
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <DeviceCard client={client} hello={hello} onRefresh={refresh} isBusy={isBusy} />
+        <DeviceCard client={client} hello={hello} onRefresh={refresh} isBusy={isBusy} deviceFiles={deviceFiles} />
         <FlashCard
           link={link}
           image={flashImage}
@@ -186,6 +203,9 @@ export function App() {
           <div hidden={view !== AppView.Devices} className="min-w-0">
             <BuilderView
               info={builderInfo}
+              devices={devices}
+              connectedNodeName={nodeName}
+              openRequest={openRequest}
               isBusy={isBusy}
               canInstall={canInstall}
               onFlash={(image) => {

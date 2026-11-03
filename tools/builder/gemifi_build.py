@@ -262,15 +262,22 @@ def list_presets():
 def peek(path):
     """(platform, description, display name) from a YAML without full validation. The display name is
     friendly_name, else name (the node name)."""
+    return peek_info(path)[:3]
+
+
+def peek_info(path):
+    """peek(), plus the node name ("" when name: isn't a valid one): what a device reports in HELLO."""
     try:
         with open(path, encoding="utf-8") as f:
             data = gd.load_yaml(f.read())
         if isinstance(data, dict):
+            node = data.get("name")
             return (str(data.get("platform", "?")), str(data.get("description", "") or ""),
-                    str(data.get("friendly_name") or data.get("name", "") or ""))
+                    str(data.get("friendly_name") or node or ""),
+                    node if isinstance(node, str) and gd.NODE_NAME_RE.fullmatch(node) else "")
     except (OSError, UnicodeDecodeError, gd.YamlLoadError):
         pass
-    return ("?", "(unreadable)", "")
+    return ("?", "(unreadable)", "", "")
 
 
 def new_device(name, preset, directory, force=False):

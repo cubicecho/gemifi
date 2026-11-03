@@ -12,8 +12,8 @@ import type { PickedBytes } from '../serial/esp-manifest.ts';
 import {
   type BuilderDevice,
   type BuilderInfo,
+  type DeviceListing,
   deleteDevice,
-  listDevices,
   listPresets,
   PLATFORM_TOOLCHAIN,
   readDeviceFile,
@@ -25,14 +25,26 @@ import { ImagesCard } from './images-card.tsx';
 import { NewDeviceDialog } from './new-device-dialog.tsx';
 import { deviceTitle, platformLabel, presetNameOf } from './platforms.ts';
 import { type BuildState, useBuild } from './use-build.ts';
-import { useRequest } from './use-request.ts';
+import { type RequestState, useRequest } from './use-request.ts';
 
 /** Where the list and the open device stack (the layout's `stackBelow="lg"`), so opening one scrolls to it. */
 const STACKED_QUERY = '(width < 64rem)';
 
+/** Asks the builder to open a device file; a new `nonce` asks again for the same file. */
+export interface OpenRequest {
+  id: string;
+  nonce: number;
+}
+
 /** Props of {@link BuilderView}. */
 export interface BuilderViewProps {
   info: BuilderInfo;
+  /** The device files, asked for by the page so the Update view can match the connected device too. */
+  devices: RequestState<DeviceListing>;
+  /** The node name the connected device reports in HELLO, or null. */
+  connectedNodeName: string | null;
+  /** The Update view's "open this device's file", or null. */
+  openRequest: OpenRequest | null;
   /** An upload or install is running on the Update view. */
   isBusy: boolean;
   /** The first-install card is on the page: this browser has Web Serial. */
@@ -70,7 +82,7 @@ function buildBlockerOf(device: BuilderDevice, info: BuilderInfo, build: BuildSt
 }
 
 /** Props of {@link DeviceDetail}. */
-interface DeviceDetailProps extends Omit<BuilderViewProps, 'info'> {
+interface DeviceDetailProps extends Omit<BuilderViewProps, 'info' | 'devices' | 'connectedNodeName' | 'openRequest'> {
   device: BuilderDevice;
   buildBlocker: string | null;
   isToolchainMissing: boolean;
@@ -138,8 +150,8 @@ function DeviceDetail(props: DeviceDetailProps) {
  * The builder: the device list beside the open device, where its YAML is edited, validated and
  * built, and its images are handed to the Update view.
  */
-export function BuilderView({ info, isBusy, canInstall, onFlash, onInstall }: BuilderViewProps) {
-  const devices = useRequest(listDevices, 'devices');
+export function BuilderView(props: BuilderViewProps) {
+  const { info, devices, connectedNodeName, openRequest, isBusy, canInstall, onFlash, onInstall } = props;
   const presets = useRequest(listPresets, 'presets');
   const [selectedId, setSelectedId] = useSearchParam('device');
   // The open editor's own question, asked only when something would throw its edits away.
@@ -168,6 +180,13 @@ export function BuilderView({ info, isBusy, canInstall, onFlash, onInstall }: Bu
       detail.current.scrollIntoView({ block: 'start' });
     }
   }, [selected?.id]);
+  // The Update view's request goes through the same unsaved-edits question as a click in the list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new request is the trigger, not `open`.
+  useEffect(() => {
+    if (openRequest !== null) {
+      open(openRequest.id);
+    }
+  }, [openRequest]);
   const onUnsavedCheckChange = useCallback((check: (() => boolean) | null) => {
     unsavedCheck.current = check;
   }, []);
@@ -196,6 +215,7 @@ export function BuilderView({ info, isBusy, canInstall, onFlash, onInstall }: Bu
             devices={devices}
             selectedId={selectedId}
             deleteFailure={deleteFailure}
+            connectedNodeName={connectedNodeName}
             onSelect={(device) => open(device.id)}
             onNew={() => setNewFromPreset('')}
             onDelete={remove}

@@ -78,7 +78,19 @@ describe('messages (§4)', () => {
       maxChunk: 256,
       caps: 0b0101,
       uid,
+      nodeName: null,
     });
+  });
+
+  it('reads the node name after the uid (§4.1.1)', () => {
+    const base = [0x00, ...encodeU14(1), ...encodeU32(0x0001_0005), 0x01, ...encodeU14(0), ...encodeU14(0)];
+    const head = [...base, ...pack(new Array(12).fill(0))];
+    const text = (s: string) => Array.from(s, (c) => c.charCodeAt(0));
+    expect(parseHello([...head, 17, ...text('keystation-mini32')]).nodeName).toBe('keystation-mini32');
+    expect(parseHello([...head, 3, ...text('abc'), 0x05, 0x06]).nodeName, 'later fields ignored').toBe('abc');
+    for (const bad of [[0], [5, ...text('abc')], [3, ...text('A-b')], [4, ...text('-ab-')]]) {
+      expect(parseHello([...head, ...bad]).nodeName, String(bad)).toBeNull();
+    }
   });
 
   it('parses LOG and EVENT', () => {

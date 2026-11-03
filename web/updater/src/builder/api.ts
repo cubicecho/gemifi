@@ -56,6 +56,8 @@ export interface BuilderDevice {
   file: string;
   /** The YAML's `friendly_name`, else its `name` (the node name); empty when it gives neither. */
   name: string;
+  /** The YAML's `name:`, which its firmware reports in HELLO; empty when it is missing or not a valid one. */
+  nodeName: string;
   /** Null when the file names no platform this page knows, as a half-edited file may. */
   platform: Platform | null;
   description: string;
@@ -332,6 +334,8 @@ function parseDevice(value: unknown): BuilderDevice {
     root,
     file: readString(record, 'file', what),
     name: readString(record, 'name', what),
+    // Optional: an older builder does not send it, and nothing then matches a connected device.
+    nodeName: typeof record.node_name === 'string' ? record.node_name : '',
     platform: readPlatform(record),
     description: typeof record.description === 'string' ? record.description : '',
     images,

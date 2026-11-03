@@ -126,6 +126,9 @@ STORE_BUDGETS = {
     # journal: `pages` pages of `page` bytes, `spare` of them kept free (one erase spare, one for a
     # slot's old and new copy while it is rewritten); a record never spans a page
     "nuvoton-nuc1xx": {"kind": "journal", "page": 512, "pages": 7, "spare": 2, "what": "data-flash journal"},
+    # two 1 KB pages swapped on a rewrite: the newest record of every slot must fit one page together
+    # (platform/stm32f1/src/config_store.c), the same rule as one image
+    "stm32f1": {"kind": "image", "total": 1024, "what": "config page"},
     # nvs: one blob per slot (each <= record bytes), all of them <= total bytes
     **{p: {"kind": "nvs", "record": 1984, "total": 12 * 1024, "what": "NVS"}
        for p in ("esp32", "esp32s2", "esp32s3")},
@@ -2249,6 +2252,7 @@ def generate(dev, source="device.yaml"):
     combo = " | ".join(f"(1u << {i})" for i in sorted(dev.boot_combo)) or "0"
     c += ["const gm_device_t gm_device = {",
           "    .name = GM_DEVICE_NAME,",
+          "    .node_name = GM_NODE_NAME,",
           "    .board_id = GM_BOARD_ID,",
           "    .usb_vid = GM_USB_VID,",
           "    .usb_pid = GM_USB_PID,",

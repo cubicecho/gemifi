@@ -102,9 +102,10 @@ class Roots:
                 continue
             for name in sorted(os.listdir(base)):
                 if NAME_RE.fullmatch(name) and os.path.isfile(os.path.join(base, name)):
-                    plat, desc, dname = gb.peek(os.path.join(base, name))
+                    plat, desc, dname, node = gb.peek_info(os.path.join(base, name))
                     ident = f"{root}/{name}"
-                    out.append({"id": ident, "root": root, "file": name, "name": dname, "platform": plat,
+                    out.append({"id": ident, "root": root, "file": name, "name": dname, "node_name": node,
+                                "platform": plat,
                                 "description": desc, "images": self.images(ident),
                                 "stale": self.is_stale(ident), "writable": self.writable(ident)})
         return out

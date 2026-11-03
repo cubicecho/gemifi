@@ -412,6 +412,8 @@ def bar(i, n, off):
 def print_hello(name, h):
     print(f"{name}")
     print(f"  role        {h.role_name}")
+    if h.node:
+        print(f"  node        {h.node}")
     print(f"  board_id    0x{h.board_id:04x} ({gi.BOARDS.get(h.board_id, ('unknown',))[0]})")
     print(f"  fw_version  {gp.fmt_version(h.fw_version)}")
     print(f"  protocol    {h.proto_version}")

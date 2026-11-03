@@ -15,11 +15,14 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - LEDs: the two TM1628-class drivers are declared (tm1628: below), but
-#     which RAM bit lights which LED is unknown, so there are no leds: yet.
-#     Map them on hardware (core/README.md "TM1628 LED drivers").
-#   - The 6-character 7-segment display (on the same two chips): no display
-#     component yet.
+#   - LEDs still unmapped: shift (leds: below has the rest).
+#   - The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
+#     2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
+#     segments a b c d e f g1 g2 h i j k l m (a top, b/c right, d bottom,
+#     e/f left, g1/g2 middle halves, h i j upper diagonals/centre, k l m
+#     lower), bit 14 its dot, bit 15 unused. Characters left to right are at
+#     bits 48, 64, 80, 0, 16, 32 (bytes 6, 8, 10, 0, 2, 4). No display
+#     component yet. a_96-a_111 (bytes 12-13) and chip B: LEDs, still to map.
 #   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5); the panel has PB then
 #     MOD, left to right. Which pin is which is unknown, and the core has no
 #     analog pitch bend.
@@ -38,7 +41,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.14
+  version: 0.2.26
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -92,14 +95,63 @@ tm1628:
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
     ram_bytes: 6
-# No leds: yet: the bit map is unknown. Once mapped, for example:
-# leds:
-#   - { id: shift_led, pin: { tm1628: leds_a, number: 37 } }      # byte 4, bit 5
-#   - id: pad_1_led                                               # RGB: red, green, blue bits
-#     pin: { tm1628: leds_b, number: 0 }
-#     pin2: { tm1628: leds_b, number: 1 }
-#     pin3: { tm1628: leds_b, number: 2 }
-#     feedback: { note: 36 }
+# Pad LEDs: not on the TM1628s but on the pad board, a small controller fed by
+# USART2 TX on PA2 at 115200 baud [sure, found in the stock app and tried
+# 2026-11-03]: one message per LED, 02, 0x80 + LED, R, G, B, 03, and an A5
+# keepalive (core/README.md "RGB serial LEDs"). Its LED index counts from the
+# top row, like the pad mux slots: pad k (1 = bottom left) is LED
+# (3 - (k-1) / 4) * 4 + (k-1) % 4.
+rgb_serial:
+  - id: pad_leds
+    tx_pin: PA2
+    count: 16
+
+# LEDs, mapped on hardware (2026-11-03) with the LED-map build
+# (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display
+# (see the TODO at the top); bits 96-102 are single-colour button LEDs.
+# Chip B bit n (0-15) is an RGB LED's blue, n+16 its green, n+32 its red.
+# Not found yet: the shift LED (not on a_103-a_111 or bit 15 of a display
+# character, and not chip B bytes 6-13).
+leds:
+  - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
+  - { id: edit_led, name: "Edit", pin: { tm1628: leds_a, number: 97 } }
+  - { id: zone_led, name: "Zone", pin: { tm1628: leds_a, number: 98 } }
+  - { id: num_1_led, name: "1", pin: { tm1628: leds_a, number: 99 } }
+  - { id: num_2_led, name: "2", pin: { tm1628: leds_a, number: 100 } }
+  - { id: num_3_led, name: "3", pin: { tm1628: leds_a, number: 101 } }
+  - { id: num_4_led, name: "4", pin: { tm1628: leds_a, number: 102 } }
+  - { id: b1_led, name: "B1", pin: { tm1628: leds_b, number: 32 }, pin2: { tm1628: leds_b, number: 16 }, pin3: { tm1628: leds_b, number: 0 } }
+  - { id: b2_led, name: "B2", pin: { tm1628: leds_b, number: 33 }, pin2: { tm1628: leds_b, number: 17 }, pin3: { tm1628: leds_b, number: 1 } }
+  - { id: b3_led, name: "B3", pin: { tm1628: leds_b, number: 34 }, pin2: { tm1628: leds_b, number: 18 }, pin3: { tm1628: leds_b, number: 2 } }
+  - { id: b4_led, name: "B4", pin: { tm1628: leds_b, number: 35 }, pin2: { tm1628: leds_b, number: 19 }, pin3: { tm1628: leds_b, number: 3 } }
+  - { id: b5_led, name: "B5", pin: { tm1628: leds_b, number: 36 }, pin2: { tm1628: leds_b, number: 20 }, pin3: { tm1628: leds_b, number: 4 } }
+  - { id: b6_led, name: "B6", pin: { tm1628: leds_b, number: 37 }, pin2: { tm1628: leds_b, number: 21 }, pin3: { tm1628: leds_b, number: 5 } }
+  - { id: b7_led, name: "B7", pin: { tm1628: leds_b, number: 38 }, pin2: { tm1628: leds_b, number: 22 }, pin3: { tm1628: leds_b, number: 6 } }
+  - { id: b8_led, name: "B8", pin: { tm1628: leds_b, number: 39 }, pin2: { tm1628: leds_b, number: 23 }, pin3: { tm1628: leds_b, number: 7 } }
+  - { id: b9_led, name: "B9", pin: { tm1628: leds_b, number: 40 }, pin2: { tm1628: leds_b, number: 24 }, pin3: { tm1628: leds_b, number: 8 } }
+  - { id: button_mode_led, name: "Button mode", pin: { tm1628: leds_b, number: 41 }, pin2: { tm1628: leds_b, number: 25 }, pin3: { tm1628: leds_b, number: 9 } }
+  - { id: bank_left_led, name: "Bank left", pin: { tm1628: leds_b, number: 42 }, pin2: { tm1628: leds_b, number: 26 }, pin3: { tm1628: leds_b, number: 10 } }
+  - { id: bank_right_led, name: "Bank right", pin: { tm1628: leds_b, number: 43 }, pin2: { tm1628: leds_b, number: 27 }, pin3: { tm1628: leds_b, number: 11 } }
+  - { id: fader_mode_led, name: "Fader mode", pin: { tm1628: leds_b, number: 44 }, pin2: { tm1628: leds_b, number: 28 }, pin3: { tm1628: leds_b, number: 12 } }
+  - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 } }
+  - { id: x_mode_led, name: "X mode", pin: { tm1628: leds_b, number: 46 }, pin2: { tm1628: leds_b, number: 30 }, pin3: { tm1628: leds_b, number: 14 } }
+  - { id: y_mode_led, name: "Y mode", pin: { tm1628: leds_b, number: 47 }, pin2: { tm1628: leds_b, number: 31 }, pin3: { tm1628: leds_b, number: 15 } }
+  - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
+  - { id: pad_2_led, name: "Pad 2", pin: { rgb_serial: pad_leds, number: 39 }, pin2: { rgb_serial: pad_leds, number: 40 }, pin3: { rgb_serial: pad_leds, number: 41 } }
+  - { id: pad_3_led, name: "Pad 3", pin: { rgb_serial: pad_leds, number: 42 }, pin2: { rgb_serial: pad_leds, number: 43 }, pin3: { rgb_serial: pad_leds, number: 44 } }
+  - { id: pad_4_led, name: "Pad 4", pin: { rgb_serial: pad_leds, number: 45 }, pin2: { rgb_serial: pad_leds, number: 46 }, pin3: { rgb_serial: pad_leds, number: 47 } }
+  - { id: pad_5_led, name: "Pad 5", pin: { rgb_serial: pad_leds, number: 24 }, pin2: { rgb_serial: pad_leds, number: 25 }, pin3: { rgb_serial: pad_leds, number: 26 } }
+  - { id: pad_6_led, name: "Pad 6", pin: { rgb_serial: pad_leds, number: 27 }, pin2: { rgb_serial: pad_leds, number: 28 }, pin3: { rgb_serial: pad_leds, number: 29 } }
+  - { id: pad_7_led, name: "Pad 7", pin: { rgb_serial: pad_leds, number: 30 }, pin2: { rgb_serial: pad_leds, number: 31 }, pin3: { rgb_serial: pad_leds, number: 32 } }
+  - { id: pad_8_led, name: "Pad 8", pin: { rgb_serial: pad_leds, number: 33 }, pin2: { rgb_serial: pad_leds, number: 34 }, pin3: { rgb_serial: pad_leds, number: 35 } }
+  - { id: pad_9_led, name: "Pad 9", pin: { rgb_serial: pad_leds, number: 12 }, pin2: { rgb_serial: pad_leds, number: 13 }, pin3: { rgb_serial: pad_leds, number: 14 } }
+  - { id: pad_10_led, name: "Pad 10", pin: { rgb_serial: pad_leds, number: 15 }, pin2: { rgb_serial: pad_leds, number: 16 }, pin3: { rgb_serial: pad_leds, number: 17 } }
+  - { id: pad_11_led, name: "Pad 11", pin: { rgb_serial: pad_leds, number: 18 }, pin2: { rgb_serial: pad_leds, number: 19 }, pin3: { rgb_serial: pad_leds, number: 20 } }
+  - { id: pad_12_led, name: "Pad 12", pin: { rgb_serial: pad_leds, number: 21 }, pin2: { rgb_serial: pad_leds, number: 22 }, pin3: { rgb_serial: pad_leds, number: 23 } }
+  - { id: pad_13_led, name: "Pad 13", pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 } }
+  - { id: pad_14_led, name: "Pad 14", pin: { rgb_serial: pad_leds, number: 3 }, pin2: { rgb_serial: pad_leds, number: 4 }, pin3: { rgb_serial: pad_leds, number: 5 } }
+  - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 } }
+  - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 } }
 
 # Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
 # used as the range. [likely] Which slot is which physical fader is [guess]:
@@ -127,14 +179,13 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-28 and 30-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the
-# faders). "Button mode" gives no event on any slot: slots 29, 38 and 39 are
-# the unused ones left (kept as placeholders for now). A switch_matrix takes at
-# most 32 switches, so row 20 is its own.
+# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders,
+# 29 = button mode). Slots 38 and 39 have no button (placeholders). A
+# switch_matrix takes at most 32 switches, so row 20 is its own.
 switch_matrix:
   - id: panel
     rows: { decoder: rows, first: 16, count: 4 }
-    rows_per_scan: 1       # one row per scan, in turn: each row every ~3 ms, plenty for buttons
+    rows_per_scan: 2       # two rows per scan, in turn: each row every 1.6 ms (quick taps)
     columns:
       - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
@@ -213,13 +264,13 @@ buttons:
   - { id: up, name: "Up", pin: { switch_matrix: panel, number: 0 }, action: program_next }
   - { id: down, name: "Down", pin: { switch_matrix: panel, number: 1 }, action: program_prev }
   - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102 }
-  - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 103 }
-  - { id: edit, name: "Edit", pin: { switch_matrix: panel, number: 4 }, action: cc_momentary, cc: 104 }
-  - { id: zone, name: "Zone", pin: { switch_matrix: panel, number: 5 }, action: cc_momentary, cc: 105 }
-  - { id: num_1, name: "1", pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 106 }
-  - { id: num_2, name: "2", pin: { switch_matrix: panel, number: 7 }, action: cc_momentary, cc: 107 }
-  - { id: num_3, name: "3", pin: { switch_matrix: panel, number: 8 }, action: cc_momentary, cc: 108 }
-  - { id: num_4, name: "4", pin: { switch_matrix: panel, number: 9 }, action: cc_momentary, cc: 109 }
+  - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 103, led: channel_led }
+  - { id: edit, name: "Edit", pin: { switch_matrix: panel, number: 4 }, action: cc_momentary, cc: 104, led: edit_led }
+  - { id: zone, name: "Zone", pin: { switch_matrix: panel, number: 5 }, action: cc_momentary, cc: 105, led: zone_led }
+  - { id: num_1, name: "1", pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 106, led: num_1_led }
+  - { id: num_2, name: "2", pin: { switch_matrix: panel, number: 7 }, action: cc_momentary, cc: 107, led: num_2_led }
+  - { id: num_3, name: "3", pin: { switch_matrix: panel, number: 8 }, action: cc_momentary, cc: 108, led: num_3_led }
+  - { id: num_4, name: "4", pin: { switch_matrix: panel, number: 9 }, action: cc_momentary, cc: 109, led: num_4_led }
   - { id: rewind, name: "Rewind", pin: { switch_matrix: panel, number: 10 }, action: cc_momentary, cc: 110 }
   - { id: fast_forward, name: "Fast forward", pin: { switch_matrix: panel, number: 11 }, action: cc_momentary, cc: 111 }
   - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112 }
@@ -230,23 +281,23 @@ buttons:
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
-  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85 }   # under fader 1
-  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86 }   # under fader 2
-  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87 }   # under fader 3
-  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88 }   # under fader 4
-  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89 }   # under fader 5
-  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90 }   # under fader 6
-  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91 }   # under fader 7
-  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92 }   # under fader 8
-  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93 }   # under fader 9
-  - { id: slot_29, name: "Slot 29", pin: { switch_matrix: panel, number: 29 }, action: none }
-  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94 }
-  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95 }
-  - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96 }
-  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }
-  - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98 }
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led }   # under fader 1
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led }   # under fader 2
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led }   # under fader 3
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led }   # under fader 4
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led }   # under fader 5
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led }   # under fader 6
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led }   # under fader 7
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led }   # under fader 8
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led }   # under fader 9
+  - { id: button_mode, name: "Button mode", pin: { switch_matrix: panel, number: 29 }, action: cc_momentary, cc: 84, led: button_mode_led }
+  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led }
+  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led }
+  - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96, led: fader_mode_led }
+  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97, led: encoder_mode_led }
+  - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98, led: x_mode_led }
   - { id: x_button, name: "X", pin: { switch_matrix: panel_row20, number: 3 }, action: cc_momentary, cc: 99 }
-  - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100 }
+  - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100, led: y_mode_led }
   - { id: y_button, name: "Y", pin: { switch_matrix: panel_row20, number: 5 }, action: cc_momentary, cc: 101 }
   - { id: slot_38, name: "Slot 38", pin: { switch_matrix: panel_row20, number: 6 }, action: none }
   - { id: slot_39, name: "Slot 39", pin: { switch_matrix: panel_row20, number: 7 }, action: none }
@@ -268,22 +319,22 @@ encoders:
 # 8-15 (pad_mux_b) the bottom two. Polarity confirmed: pressure raises the
 # reading (no inverted:).
 pads:
-  - { id: pad_1,  pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36 }
-  - { id: pad_2,  pin: { cd74hc4051: pad_mux_b, number: 5 }, note: 37 }
-  - { id: pad_3,  pin: { cd74hc4051: pad_mux_b, number: 6 }, note: 38 }
-  - { id: pad_4,  pin: { cd74hc4051: pad_mux_b, number: 7 }, note: 39 }
-  - { id: pad_5,  pin: { cd74hc4051: pad_mux_b, number: 0 }, note: 40 }
-  - { id: pad_6,  pin: { cd74hc4051: pad_mux_b, number: 1 }, note: 41 }
-  - { id: pad_7,  pin: { cd74hc4051: pad_mux_b, number: 2 }, note: 42 }
-  - { id: pad_8,  pin: { cd74hc4051: pad_mux_b, number: 3 }, note: 43 }
-  - { id: pad_9,  pin: { cd74hc4051: pad_mux_a, number: 4 }, note: 44 }
-  - { id: pad_10, pin: { cd74hc4051: pad_mux_a, number: 5 }, note: 45 }
-  - { id: pad_11, pin: { cd74hc4051: pad_mux_a, number: 6 }, note: 46 }
-  - { id: pad_12, pin: { cd74hc4051: pad_mux_a, number: 7 }, note: 47 }
-  - { id: pad_13, pin: { cd74hc4051: pad_mux_a, number: 0 }, note: 48 }
-  - { id: pad_14, pin: { cd74hc4051: pad_mux_a, number: 1 }, note: 49 }
-  - { id: pad_15, pin: { cd74hc4051: pad_mux_a, number: 2 }, note: 50 }
-  - { id: pad_16, pin: { cd74hc4051: pad_mux_a, number: 3 }, note: 51 }
+  - { id: pad_1,  pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36, led: pad_1_led }
+  - { id: pad_2,  pin: { cd74hc4051: pad_mux_b, number: 5 }, note: 37, led: pad_2_led }
+  - { id: pad_3,  pin: { cd74hc4051: pad_mux_b, number: 6 }, note: 38, led: pad_3_led }
+  - { id: pad_4,  pin: { cd74hc4051: pad_mux_b, number: 7 }, note: 39, led: pad_4_led }
+  - { id: pad_5,  pin: { cd74hc4051: pad_mux_b, number: 0 }, note: 40, led: pad_5_led }
+  - { id: pad_6,  pin: { cd74hc4051: pad_mux_b, number: 1 }, note: 41, led: pad_6_led }
+  - { id: pad_7,  pin: { cd74hc4051: pad_mux_b, number: 2 }, note: 42, led: pad_7_led }
+  - { id: pad_8,  pin: { cd74hc4051: pad_mux_b, number: 3 }, note: 43, led: pad_8_led }
+  - { id: pad_9,  pin: { cd74hc4051: pad_mux_a, number: 4 }, note: 44, led: pad_9_led }
+  - { id: pad_10, pin: { cd74hc4051: pad_mux_a, number: 5 }, note: 45, led: pad_10_led }
+  - { id: pad_11, pin: { cd74hc4051: pad_mux_a, number: 6 }, note: 46, led: pad_11_led }
+  - { id: pad_12, pin: { cd74hc4051: pad_mux_a, number: 7 }, note: 47, led: pad_12_led }
+  - { id: pad_13, pin: { cd74hc4051: pad_mux_a, number: 0 }, note: 48, led: pad_13_led }
+  - { id: pad_14, pin: { cd74hc4051: pad_mux_a, number: 1 }, note: 49, led: pad_14_led }
+  - { id: pad_15, pin: { cd74hc4051: pad_mux_a, number: 2 }, note: 50, led: pad_15_led }
+  - { id: pad_16, pin: { cd74hc4051: pad_mux_a, number: 3 }, note: 51, led: pad_16_led }
 
 # Pad sensing. All [guess] until tried: tune them live from the web app
 # (Pads group); with debug.events on, each hit's EVENT pad value is its peak

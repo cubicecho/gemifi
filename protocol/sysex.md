@@ -315,7 +315,7 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 
 An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind replies BAD_PARAM for index 0.
 
-**`role`** is the YAML `daw:` value of the component (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
+**`role`** is the YAML `daw:` value of the component (the names gemifi's scripts understand are listed in `hosts/README.md`) (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
 
 #### 4.6.2 Notifications (host → device, 0x20–0x3F)
 
@@ -333,7 +333,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 | 0x25 | FB_TEXT | `display` u14, `row` (1 byte), `col` (1 byte), text (7-bit ASCII, ≤ 64 bytes) |
 | 0x26 | FB_RELEASE | `what` (1 byte: 0 everything, 1 LEDs, 2 values, 3 text) |
 
-**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED, the nearer of its two colours.
+**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED it shows colour 1 if `r` ≥ `g`, else colour 2 (black = off). No current device has RGB LEDs, so `colours` 3 is reserved for when one does.
 
 **Ownership.** FB_* states are host states, like plain feedback (`owner:` in `core/README.md`), with one difference: they don't time out (`led_timeout` doesn't apply), because the script is the authority while it runs. An LED with `owner: local` ignores them. FB_RELEASE hands the chosen states back to local, as if the host had never set them.
 

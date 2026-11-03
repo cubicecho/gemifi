@@ -13,6 +13,8 @@
  * - On the wire each record goes as SysEx messages of up to 11 record bytes in uppercase ASCII
  *   hex; the device answers `F0 cc F7` after the last one ({@link VendorReply}).
  * - {@link vendorUpdate} probes for the bootloader, then sends the stream with an ack per record.
+ *   In update mode the keyboard shows "update" and its port is named "Code updater"
+ *   ({@link isMaudioBootloaderName}).
  *
  * Framework-free, no DOM types: any {@link Transport} will do.
  */
@@ -322,6 +324,17 @@ export function replyCode(message: Uint8Array): number | null {
   return isReply ? (message[1] ?? null) : null;
 }
 
+/** The port name of M-Audio's bootloader: "Code updater" (the OS may add a suffix such as " MIDI 1"). */
+const BOOTLOADER_NAME = /code updater/i;
+
+/**
+ * @param name - A MIDI port's name.
+ * @returns Whether it looks like M-Audio's bootloader (the keyboard in update mode).
+ */
+export function isMaudioBootloaderName(name: string): boolean {
+  return BOOTLOADER_NAME.test(name);
+}
+
 /** A MIDI port the uploader may probe. */
 export interface ProbePort {
   /** Stable while it stays connected. */
@@ -410,7 +423,26 @@ export interface VendorUpdateOptions {
   onLog?: (line: string) => void;
   signal?: AbortSignal;
   settings?: Partial<VendorSettings>;
+  /**
+   * Runs, and is awaited, right before the keyboard is expected to vanish from USB: before
+   * `request`, and before the power-cycle phase is reported. The page stores the image here, so it
+   * survives a browser that has to be closed. Errors in it are logged, not fatal.
+   */
+  beforeVanish?: () => Promise<void>;
+  /**
+   * End the run once the stock app has accepted the update request, instead of waiting for the
+   * bootloader under the open page. Set on Windows, where Chrome can stop responding when a MIDI
+   * device is switched off while a page has Web MIDI access.
+   */
+  stopForPowerCycle?: boolean;
 }
+
+/** How {@link vendorUpdate} ended without an error. */
+export type VendorOutcome =
+  /** The bootloader took every record. */
+  | { kind: 'done'; portName: string }
+  /** The app accepted the update request and {@link VendorUpdateOptions.stopForPowerCycle} is set. */
+  | { kind: 'power-cycle'; portName: string };
 
 /** Thrown when a vendor update stops. */
 export class VendorError extends Error {
@@ -532,18 +564,22 @@ class ReplyQueue {
 /**
  * Probes ports until the bootloader answers: the selected port, and any port that appears (or
  * comes back) after the wait starts, so a power-cycled keyboard is found under whatever name its
- * bootloader has. Other ports that were there already are left alone.
+ * bootloader has, and any port named like the bootloader ("Code updater"), so a keyboard that was
+ * in update mode before the page loaded is found too. Other ports that were there already are left
+ * alone.
  *
  * @param options - The update's options.
  * @param settings - Timings.
  * @param report - Progress.
- * @returns The bootloader's port.
+ * @param beforeVanish - {@link VendorUpdateOptions.beforeVanish}, with its errors logged.
+ * @returns The bootloader's port, or the app's port name when the run stops for the power cycle.
  */
 async function findBootloader(
   options: VendorUpdateOptions,
   settings: VendorSettings,
   report: (phase: VendorPhase, portName?: string) => void,
-): Promise<ProbePort> {
+  beforeVanish: () => Promise<void>,
+): Promise<{ port: ProbePort } | { powerCycle: string }> {
   const { signal, onLog } = options;
   const deadline = Date.now() + settings.bootloaderTimeoutMs;
   /** Ports present when the wait started and not gone since: not probed unless selected. */
@@ -567,7 +603,7 @@ async function findBootloader(
     const now = Date.now();
     const due = ports.filter(
       (port) =>
-        (port.selected || old.has(port.id) === false) &&
+        (port.selected || old.has(port.id) === false || isMaudioBootloaderName(port.name)) &&
         requested.has(port.id) === false &&
         now - (lastProbe.get(port.id) ?? -Infinity) >= settings.probeIntervalMs,
     );
@@ -583,13 +619,17 @@ async function findBootloader(
         }
         if (code === VendorReply.Ok || code === VendorReply.OkAlt) {
           onLog?.(`${port.name}: the M-Audio bootloader is ready`);
-          return port;
+          return { port };
         }
         if (code === VendorReply.Nak) {
           onLog?.(`${port.name}: F0 15 F7, the app set the update request; the keyboard needs a power cycle`);
           requested.add(port.id);
           queue.close();
           port.release?.(); // closed before the user switches the keyboard off
+          await beforeVanish();
+          if (options.stopForPowerCycle === true) {
+            return { powerCycle: port.name };
+          }
           report(VendorPhase.PowerCycle, port.name);
         } else if (code !== null) {
           onLog?.(`${port.name}: unexpected reply ${formatReply(code)} to the probe`);
@@ -615,11 +655,12 @@ async function findBootloader(
  * Puts the keyboard into update mode and sends the stream: `request` (REBOOT(1) to a gemifi app),
  * then the probe every 2 s until the bootloader answers `F0 45 F7` (an app's `F0 15 F7` means
  * "power-cycle now"), then the start message and every record, waiting for an ack after each.
+ * With {@link VendorUpdateOptions.stopForPowerCycle} it ends at that `F0 15 F7` instead.
  *
  * @param options - The records, the ports, callbacks and a signal.
- * @returns The bootloader port's name.
+ * @returns How it ended, with the port's name.
  */
-export async function vendorUpdate(options: VendorUpdateOptions): Promise<string> {
+export async function vendorUpdate(options: VendorUpdateOptions): Promise<VendorOutcome> {
   const settings = { ...VENDOR_DEFAULTS, ...options.settings };
   const { records, signal, onLog } = options;
   const totalBytes = records.reduce((n, record) => n + record.length, 0);
@@ -631,8 +672,17 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<string
     options.onProgress?.({ phase, sentBytes, totalBytes, ...(portName === undefined ? {} : { portName }) });
   };
 
+  const beforeVanish = async () => {
+    try {
+      await options.beforeVanish?.();
+    } catch (error) {
+      onLog?.(`Saving the upload for later: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   if (options.request !== undefined) {
     report(VendorPhase.Requesting);
+    await beforeVanish(); // REBOOT(1) restarts the keyboard into the bootloader: it vanishes
     try {
       await options.request();
     } catch (error) {
@@ -651,7 +701,11 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<string
   }
 
   report(VendorPhase.WaitingForBootloader);
-  const port = await findBootloader(options, settings, report);
+  const found = await findBootloader(options, settings, report, beforeVanish);
+  if ('powerCycle' in found) {
+    return { kind: 'power-cycle', portName: found.powerCycle };
+  }
+  const { port } = found;
   report(VendorPhase.Writing, port.name);
 
   const queue = new ReplyQueue(port.transport, (message) =>
@@ -707,5 +761,5 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<string
     queue.close();
   }
   report(VendorPhase.Done, port.name, totalBytes);
-  return port.name;
+  return { kind: 'done', portName: port.name };
 }

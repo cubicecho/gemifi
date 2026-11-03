@@ -1,4 +1,4 @@
-import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageLayout } from '@/components/page-layout';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -12,18 +12,21 @@ import { ConfigCard } from './device/config-card.tsx';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
 import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
 import { FeedbackCard } from './device/feedback-card.tsx';
-import { FlashCard } from './device/flash-card.tsx';
+import { FlashCard, type ResumeOffer } from './device/flash-card.tsx';
 import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
+import { isWindows } from './device/platform.ts';
 import { offersConfig } from './device/use-config.ts';
 import { useConnection } from './device/use-connection.ts';
 import { useDeviceLog } from './device/use-device-log.ts';
 import { offersFeedback } from './device/use-feedback.ts';
 import { useHello } from './device/use-hello.ts';
+import { usePendingUpload } from './device/use-pending-upload.ts';
 import { useSerial } from './device/use-serial.ts';
 import { useSearchParam } from './navigation/use-search-param.ts';
 import type { DeviceLink } from './protocol/flash.ts';
 import type { PickedBytes } from './serial/esp-manifest.ts';
+import { isMaudioBootloaderName } from './vendor/maudio.ts';
 
 /** The first-install card, loaded on its own: only ESP users need it. */
 const InstallCard = lazy(() => import('./device/install-card.tsx').then((m) => ({ default: m.InstallCard })));
@@ -33,6 +36,9 @@ const CHANGELOG_URL = 'https://cubicecho.github.io/gemifi/changelog/';
 
 /** Without a builder there is no device list to ask for. */
 const noDevices = async (): Promise<DeviceListing> => ({ devices: [], userDir: '' });
+
+/** Read once: Windows changes how a Code 61 is put into update mode (the Firmware card). */
+const isOnWindows = isWindows();
 
 /** The non-affiliation notice (issue #2), also in the README and the site footer. */
 const disclaimer = (
@@ -80,6 +86,8 @@ export function App() {
   const [viewParam, setViewParam] = useSearchParam('view');
   const view = viewOf(viewParam);
   const [flashImage, setFlashImage] = useState<PickedImage | null>(null);
+  const pendingUpload = usePendingUpload();
+  const { pending } = pendingUpload;
   const [installFiles, setInstallFiles] = useState<PickedBytes[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
   // The views share one scrolling body: each opens at its top rather than where the other was.
@@ -105,6 +113,38 @@ export function App() {
   const isSecure = window.isSecureContext;
   const showView = (next: AppView) => setViewParam(next === AppView.Devices ? null : next);
   const nodeName = info?.nodeName ?? null;
+  // An upload stored before the Code 61 went into update mode: offered once its bootloader is here.
+  const bootloaderPair = midi.snapshot.pairs.find((pair) => isMaudioBootloaderName(pair.name)) ?? null;
+  const resume: ResumeOffer | null =
+    pending === null
+      ? null
+      : { image: pending.image, isBootloaderPresent: bootloaderPair !== null, isMidiReady: manager !== null };
+  if (resume?.isBootloaderPresent === true && flashImage === null) {
+    setFlashImage(resume.image);
+  }
+  const bootloaderId = bootloaderPair?.id ?? null;
+  const isNothingSelected = midi.snapshot.selected === null;
+  const hasPending = pending !== null;
+  // The vendor flow probes the selected port: select the bootloader when nothing else is.
+  useEffect(() => {
+    const isIdle = isFlashing === false && isInstalling === false;
+    if (hasPending && isIdle && isMidi && isNothingSelected && bootloaderId !== null) {
+      manager?.select(bootloaderId);
+    }
+  }, [hasPending, isFlashing, isInstalling, isMidi, isNothingSelected, bootloaderId, manager]);
+  /** A new image replaces the stored one; so does none. */
+  const changeFlashImage = (image: PickedImage | null) => {
+    setFlashImage(image);
+    if (pending !== null && image !== pending.image) {
+      pendingUpload.clear();
+    }
+  };
+  const dismissResume = () => {
+    pendingUpload.clear();
+    if (flashImage !== null && flashImage === pending?.image) {
+      setFlashImage(null);
+    }
+  };
   const deviceFiles: DeviceFiles | null = hasBuilder
     ? {
         matches: devicesWithNodeName(devices.data?.devices ?? [], nodeName),
@@ -135,11 +175,16 @@ export function App() {
         <FlashCard
           link={link}
           image={flashImage}
-          onImageChange={setFlashImage}
+          onImageChange={changeFlashImage}
           device={info}
           probePorts={isMidi && manager !== null ? manager.probePorts : null}
           onRunningChange={setIsFlashing}
           onFinished={refresh}
+          resume={resume}
+          onDismissResume={dismissResume}
+          onBeforeVanish={pendingUpload.save}
+          onUploaded={pendingUpload.clear}
+          isWindows={isOnWindows}
         />
       </div>
       {client !== null && info !== null && offersConfig(info) && isBusy === false ? (
@@ -222,7 +267,7 @@ export function App() {
               isBusy={isBusy}
               canInstall={canInstall}
               onFlash={(image) => {
-                setFlashImage(image);
+                changeFlashImage(image);
                 showView(AppView.Update);
               }}
               onInstall={(files) => {

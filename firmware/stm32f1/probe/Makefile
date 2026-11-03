@@ -14,7 +14,7 @@
 # vendor bootloader. The image is linked at 0x08002400.
 
 TARGET     := probe
-FW_VERSION ?= 0.1.0
+FW_VERSION ?= 0.1.4
 PLAT       := ../../../platform/stm32f1
 CORE       := ../../../core
 

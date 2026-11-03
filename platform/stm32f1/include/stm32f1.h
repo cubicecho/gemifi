@@ -224,6 +224,8 @@
 
 #define SCB_CPUID       REG32(0xE000ED00u)
 #define SCB_ICSR        REG32(0xE000ED04u)
+#define SCB_ICSR_PENDSTCLR (1u << 25)
+#define SCB_ICSR_PENDSVCLR (1u << 27)
 #define SCB_VTOR        REG32(0xE000ED08u)
 #define SCB_AIRCR       REG32(0xE000ED0Cu)
 #define SCB_SCR         REG32(0xE000ED10u)

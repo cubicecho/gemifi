@@ -72,10 +72,28 @@
 #define BOARD_BTN_LAST  0
 #define BOARD_BOOT_COMBO 0u
 
+/* Soft power (verified on hardware over SWD, 2026-11-03):
+ *   PC13 = power button, input pull-up, LOW while pressed;
+ *   PC15 = power latch, push-pull, HIGH = stay on.
+ * Pressing the button powers the board only while it is held; the firmware
+ * must drive PC15 high to keep it on after release. The stock app's power-off
+ * path (hold the button ~2 s: save settings, then PC15 = 0 at 0x08010710)
+ * drives it low to switch off. The vendor bootloader used to latch it before
+ * the app ran; with it gone (the RDP unlock erased it) the app must.
+ *
+ * Called from Reset_Handler before anything else (startup.c), so it must
+ * stay register-only: no globals, no calls. The matrix and LED drivers are
+ * the device config's (midi-controller) business. */
+#define BOARD_POWER_BTN_PIN   13            /* PC13, low = pressed */
+#define BOARD_POWER_LATCH_PIN 15            /* PC15, high = stay on */
+
 static inline void board_gpio_init(void)
 {
-    /* Nothing: the matrix and the LED drivers are the device config's
-     * (midi-controller) business; the probe leaves pins at reset state. */
+    RCC_APB2ENR |= RCC_APB2_IOP(PORTC);
+    GPIO_BSRR(PORTC) = 1u << 15;                       /* PC15 high: stay on */
+    GPIO_CRH(PORTC) = (GPIO_CRH(PORTC) & ~(0xFu << 28)) | GPIO_CFG_OUT_PP << 28;
+    GPIO_BSRR(PORTC) = 1u << 13;                       /* PC13 pull-up */
+    GPIO_CRH(PORTC) = (GPIO_CRH(PORTC) & ~(0xFu << 20)) | GPIO_CFG_PULL << 20;
 }
 
 /* Bit n set = button n pressed. Buttons are in the matrix: none here. */

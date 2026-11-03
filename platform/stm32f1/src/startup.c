@@ -6,10 +6,14 @@
  * where the .gfw header goes (app offset 0x130, ld/app.ld).
  *
  * Reset_Handler, in this order:
+ *   0. interrupts masked (PRIMASK): the bootloader may leave some live,
+ *   0b. board_gpio_init(): pins the board needs held from the start (the
+ *      Code 61 switches itself off unless PC15 is driven high),
  *   1. SP = _estack (in case the bootloader jumped without loading MSP),
  *   2. recovery_check() (src/recovery.c): the button combo, before anything
  *      else can go wrong; it needs only a stack,
- *   3. VTOR = our table (the vendor bootloader may leave it at 0x08000000),
+ *   3. SysTick off, every IRQ disabled and cleared, then VTOR = our table
+ *      (the vendor bootloader may leave it at 0x08000000),
  *   4. .data copy, .bss zero, main().
  *
  * SPDX-License-Identifier: MIT
@@ -17,6 +21,15 @@
 #include <stdint.h>
 #include "stm32f1.h"
 #include "recovery.h"
+#include "board.h"
+
+/* The bootloader (GEMIFI_BOOTLOADER) checks its own entry combo; only apps run
+ * recovery_check() from the reset handler. */
+#ifdef GEMIFI_BOOTLOADER
+#define RECOVERY_CALL ""
+#else
+#define RECOVERY_CALL "bl recovery_check\n\t"
+#endif
 
 #define VECTOR_IRQS VECTOR_IRQS_F1
 
@@ -78,6 +91,21 @@ _Static_assert(sizeof(gemifi_vectors) == 0x130, "vector table must be 0x130 byte
 __attribute__((noreturn, used, externally_visible)) void reset_c(void);
 void reset_c(void)
 {
+    /* The vendor bootloader jumps here with whatever it was using still
+     * running: SysTick and NVIC interrupts may be enabled or pending. The
+     * stock app copes because its table has real handlers for them; ours
+     * mostly point at Default_Handler. Stop SysTick, disable and clear
+     * every IRQ and the pending SysTick/PendSV before our table goes live.
+     * PRIMASK stays set (Reset_Handler); apps that want interrupts enable
+     * them once their own handlers are set up (irq_enable_all()). */
+    SYST_CSR = 0;
+    for (uint32_t i = 0; i < (VECTOR_IRQS + 31u) / 32u; i++) {
+        NVIC_ICER(i) = 0xFFFFFFFFu;
+        NVIC_ICPR(i) = 0xFFFFFFFFu;
+    }
+    SCB_ICSR = SCB_ICSR_PENDSTCLR | SCB_ICSR_PENDSVCLR;
+    __asm__ volatile ("dsb\n\tisb" ::: "memory");
+
     SCB_VTOR = (uint32_t)(uintptr_t)gemifi_vectors;
     __asm__ volatile ("dsb\n\tisb" ::: "memory");
 
@@ -91,20 +119,35 @@ void reset_c(void)
     }
 }
 
+/* Called by name from Reset_Handler, before .data/.bss exist: the board
+ * header keeps board_gpio_init() register-only. */
+__attribute__((used, externally_visible)) void board_early_init(void);
+void board_early_init(void)
+{
+    board_gpio_init();
+}
+
 /* Naked: no prologue touches the stack before SP is ours. */
 __attribute__((naked, noreturn)) void Reset_Handler(void)
 {
     __asm__ volatile (
+        "cpsid i\n\t"
         "ldr r0, =_estack\n\t"
         "mov sp, r0\n\t"
-        "bl recovery_check\n\t"
+        "bl board_early_init\n\t"
+        RECOVERY_CALL
         "b reset_c\n\t"
         ".ltorg\n\t");
 }
 
 void Default_Handler(void)
 {
-    /* Spin: the IWDG (if started) turns this into a reset. */
+    /* Reset rather than spin: a fault before the IWDG is started would
+     * otherwise hang for good. Each reset runs recovery_check() again, so
+     * the recovery combo still works from a crash loop. */
+    __asm__ volatile ("dsb" ::: "memory");
+    SCB_AIRCR = SCB_AIRCR_VECTKEY | (SCB_AIRCR & SCB_AIRCR_PRIGROUP) | SCB_AIRCR_SYSRESETREQ;
+    __asm__ volatile ("dsb" ::: "memory");
     for (;;) {
     }
 }

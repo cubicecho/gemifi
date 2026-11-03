@@ -14,8 +14,15 @@
  *                          BOARD_CONFIG_BASE/PAGES live in here)
  *   0x0801FC00-0x0801FFFF  vendor update-request flag page (recovery.h)
  *
- * RAM: the size isn't known (the stock app uses up to ~0x20004900), so use
- * 20 KB, which every F103 with >= 20 KB has; the stack starts at its top.
+ * RAM: 20 KB (STM32F103RBT6, confirmed on hardware 2026-11-03).
+ *
+ * The initial SP must NOT be the top of RAM. The vendor bootloader loads
+ * MSP from our vector table and then accesses memory at the new SP itself
+ * (seen over SWD: precise bus fault, BFAR = 0x20005000, in the bootloader
+ * at 0x08000770, before our Reset_Handler ran). With SP = 0x20005000 that
+ * is past the end of RAM, so the bootloader hard-faults and the board looks
+ * dead. The stock app's SP is 0x200041A0. Keep STACK_GUARD bytes free above
+ * the initial SP for whatever the bootloader touches there.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -70,7 +77,8 @@ SECTIONS
         _enoinit = .;
     } > RAM
 
-    _estack = ORIGIN(RAM) + LENGTH(RAM);
+    STACK_GUARD = 0x100;
+    _estack = ORIGIN(RAM) + LENGTH(RAM) - STACK_GUARD;
     _image_end = LOADADDR(.data) + SIZEOF(.data);
 
     ASSERT(ADDR(.text) == 0x08002400, "image must start at 0x08002400")
@@ -78,6 +86,7 @@ SECTIONS
     ASSERT(_gemifi_hdr_end == 0x08002550, "image header missing or not 32 bytes")
     ASSERT(_image_end <= 0x0801B000, "image runs into the vendor checksum page 0x0801B000")
     ASSERT(_enoinit + 1024 <= _estack, "less than 1 KB of RAM left for the stack")
+    ASSERT(_estack < ORIGIN(RAM) + LENGTH(RAM), "initial SP at the top of RAM: the vendor bootloader faults on it")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

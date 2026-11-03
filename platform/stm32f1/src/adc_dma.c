@@ -24,7 +24,7 @@
  * so a conversion is 324 timer ticks at any clock.
  *
  * DMA1 channels used: 1 (ADC1), 4 (TIM4_CH2). Nothing else may use ADC1
- * (hal_adc_read) or reconfigure the plan's pins while this runs.
+ * (hal_adc_read uses ADC2) or reconfigure the plan's pins while this runs.
  *
  * SPDX-License-Identifier: MIT
  */

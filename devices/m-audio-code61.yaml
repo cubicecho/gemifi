@@ -15,8 +15,6 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - XY pad (4-wire resistive): PB1/PC5 drive X, PC4/PB2 drive Y, read on
-#     PC4 (ch14) / PC5 (ch15) in turn. Pins change mode on every mux step.
 #   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
 #   - 5-pin MIDI out (USART1 TX, PA9) and MIDI in (USART1 RX, PA10; the rear
 #     panel has both jacks), 31250 baud: no serial MIDI transport on stm32f1.
@@ -29,7 +27,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.56
+  version: 0.2.59
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -115,6 +113,18 @@ rgb_serial:
   - id: pad_leds
     tx_pin: PA2
     count: 16
+
+# The XY pad, a 4-wire resistive panel [sure, tested 2026-11-03; drive
+# pattern from the stock app, 0x0800277C]: X (left to right) is PC4 high and
+# PB2 low, read on PC5 (ch15); Y (bottom to top) is PB1 high and PC5 low, read
+# on PC4 (ch14). The stock app counts a touch while both read inside
+# 0x250..0xD50 (592..3408) +- 22, the default touch window here.
+xy_pad:
+  - id: xy
+    x_plus_pin: PC4
+    x_minus_pin: PB2
+    y_plus_pin: PB1
+    y_minus_pin: PC5
 
 # The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
 # 2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
@@ -210,6 +220,12 @@ analog:
   # pressure. The stock app works in raw 0x4D0..0x900 (1232..2304). The
   # reading falls as you press [sure: tested], so adc_min is the high end.
   - { id: aftertouch, name: Aftertouch, pin: PC3, mode: channel_pressure, adc_min: 2304, adc_max: 1232 }
+  # XY pad axes: CC 16 / 17 [guess: unassigned general-purpose CCs]; 0, 0 is
+  # bottom left [sure, tested]. Its edges read about raw 800..3130 [sure, a
+  # trace around the edge with 592..3408 gave 9..115]. Released, they hold
+  # their last value.
+  - { id: xy_x, name: XY X, pin: { xy_pad: xy, number: x }, cc: 16, adc_min: 830, adc_max: 3100 }
+  - { id: xy_y, name: XY Y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 830, adc_max: 3100 }
 
 # ---- the matrix ----------------------------------------------------------
 

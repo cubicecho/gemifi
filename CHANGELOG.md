@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.15.0](https://github.com/cubicecho/gemifi/compare/v0.14.0...v0.15.0) (2026-11-03)
+
+
+### Features
+
+* 4-wire resistive XY pads; Code 61 XY pad ([1c49b09](https://github.com/cubicecho/gemifi/commit/1c49b09815616d32af9ecc6ac557bc084a56b792))
+
 # [0.14.0](https://github.com/cubicecho/gemifi/compare/v0.13.0...v0.14.0) (2026-11-03)
 
 

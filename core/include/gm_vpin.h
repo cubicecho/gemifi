@@ -37,6 +37,9 @@ void vpin_output(gm_pin_t p);      /* and drive it inactive                 */
 int vpin_read(gm_pin_t p);         /* cached for hubs; mux: switches channel */
 void vpin_write(gm_pin_t p, int active);
 int32_t vpin_analog(gm_pin_t p);   /* 0..4095, or -1 (not analog-capable)   */
+/* 1 once after an XY pad axis is touched again: the reading jumps there,
+ * so a smoothing filter should start over from it. 0 for other pins. */
+int vpin_analog_jump(gm_pin_t p);
 
 int vpin_on_i2c(gm_pin_t p);       /* pin lives on an I2C hub               */
 int vpin_is_none(gm_pin_t p);

@@ -41,7 +41,26 @@ static uint32_t sel(void) { return level[PC0] | level[PC0 + 1] << 1 | level[PC0 
 
 uint32_t hal_millis(void) { return now_ms; }
 void hal_delay_us(uint32_t us) { if (us == 10) settles++; }
-void hal_pin_mode(uint16_t pin, uint8_t m) { (void)pin; (void)m; }
+/* The XY pad (Code 61 pins, PB10 for Y-): a plate driven + high and - low
+ * puts the touch point's position on the other, floating plate. Untouched,
+ * the floating plate reads XY_FLOAT. Every read checks the drive is right
+ * (xy_bad), and no pin of both plates is ever driven at once (xy_short). */
+#define XP 17u                      /* PB1 */
+#define XM 37u                      /* PC5: Y is read here */
+#define YP 36u                      /* PC4: X is read here */
+#define YM 26u                      /* PB10 */
+#define XY_FLOAT 30
+static uint8_t mode[64];
+static int xy_touch, xy_bad, xy_short, xy_reads;
+static int32_t xy_x, xy_y;
+static int driven(uint16_t hi, uint16_t lo) { return mode[hi] == HAL_OUT && level[hi] && mode[lo] == HAL_OUT && !level[lo]; }
+static int plate_out(uint16_t a, uint16_t b) { return mode[a] == HAL_OUT || mode[b] == HAL_OUT; }
+void hal_pin_mode(uint16_t pin, uint8_t m)
+{
+    mode[pin] = m;
+    if (plate_out(XP, XM) && plate_out(YP, YM))
+        xy_short++;
+}
 void hal_pin_write(uint16_t pin, int l) { level[pin] = (uint8_t)l; }
 int hal_pin_read(uint16_t pin) { return level[pin]; }
 const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask) { (void)pin; (void)mask; return 0; }
@@ -62,6 +81,19 @@ int32_t hal_adc_read(uint16_t pin)
 #ifdef HW_ADC_TEST
     adc_reads++;
 #endif
+    if (pin == YP || pin == XM) {
+#ifdef HW_ADC_TEST
+        adc_reads--;                /* the XY pad is read in software either way */
+#endif
+        xy_reads++;
+        int x = pin == YP;
+        uint16_t other = x ? YM : XP;
+        if (mode[pin] != HAL_ANALOG || mode[other] != HAL_IN || !(x ? driven(XP, XM) : driven(YP, YM))) {
+            xy_bad++;
+            return 2000;
+        }
+        return xy_touch ? (x ? xy_x : xy_y) : XY_FLOAT;
+    }
     switch (pin) {
     case 0: return mux_a[sel()];
     case 1: return mux_b[sel()];
@@ -295,7 +327,7 @@ int main(void)
     out_n = 0;
     for (int k = 0; k < 8; k++)
         fader_mux[k] = k == 3 ? 4095 : 0;
-    run_ms(60);                         /* one analog read per 2 ms, averaged */
+    run_ms(150);                        /* one analog read per 2 ms in turn (3 inputs), averaged */
     i = -1;
     for (int k = 0; find_nth(0xB0, 20, k) >= 0; k++)
         i = find_nth(0xB0, 20, k);
@@ -404,6 +436,62 @@ int main(void)
     CHECK(find(0x90, 70) >= 0, "next hit plays the preset's note 70 on channel 1");
     mux_a[0] = 0;
     run_ms(25);
+
+    /* The XY pad: X on CC 16, Y on CC 17, over raw 592..3408. Untouched it
+     * sends nothing; a touch jumps straight to where it is. */
+    out_n = 0;
+    run_ms(40);
+    CHECK(find(0xB0, 16) < 0 && find(0xB0, 17) < 0, "XY untouched: nothing");
+    CHECK(xy_reads > 0 && xy_bad == 0 && xy_short == 0, "XY: read with the right drive (%d reads, %d bad, %d shorts)",
+          xy_reads, xy_bad, xy_short);
+    xy_touch = 1;
+    xy_x = 2000;                        /* (2000 - 592) * 4095 / 2816 = 2047: CC 63 */
+    xy_y = 3408;
+    run_ms(40);
+    {
+        int a = find(0xB0, 16), b = find(0xB0, 17);
+        CHECK(a >= 0 && out[a + 2] == 63 && find_nth(0xB0, 16, 1) < 0, "touch: X = CC 16 63 at once, one message (%d)",
+              a >= 0 ? out[a + 2] : -1);
+        CHECK(b >= 0 && out[b + 2] == 127 && find_nth(0xB0, 17, 1) < 0, "touch: Y = CC 17 127 (%d)",
+              b >= 0 ? out[b + 2] : -1);
+    }
+    out_n = 0;
+    xy_x = 592;
+    run_ms(200);                        /* software reads: each input every 6 ms, averaged */
+    {
+        int a = -1;
+        for (int k = 0; find_nth(0xB0, 16, k) >= 0; k++)
+            a = find_nth(0xB0, 16, k);
+        CHECK(a >= 0 && out[a + 2] == 0 && find(0xB0, 17) < 0, "slide left: X to 0, Y stays (%d)",
+              a >= 0 ? out[a + 2] : -1);
+    }
+    out_n = 0;
+    xy_touch = 0;
+    run_ms(40);
+    CHECK(find(0xB0, 16) < 0 && find(0xB0, 17) < 0, "let go: nothing (it holds)");
+    out_n = 0;
+    xy_touch = 1;
+    xy_x = 700;                         /* a finger landing: the first readings are off */
+    xy_y = 1000;
+    run_ms(2);
+    xy_x = 3408;
+    xy_y = 592;
+    run_ms(40);
+    {
+        int a = find(0xB0, 16), b = find(0xB0, 17);
+        CHECK(a >= 0 && out[a + 2] == 127 && find_nth(0xB0, 16, 1) < 0, "touch elsewhere: X jumps to 127, no glide (%d)",
+              a >= 0 ? out[a + 2] : -1);
+        CHECK(b >= 0 && out[b + 2] == 0 && find_nth(0xB0, 17, 1) < 0, "and Y to 0 (%d)", b >= 0 ? out[b + 2] : -1);
+    }
+    xy_touch = 0;
+    xy_x = 4095;                        /* out of the window on one axis: no touch */
+    run_ms(10);
+    out_n = 0;
+    xy_touch = 1;
+    run_ms(40);
+    CHECK(find(0xB0, 16) < 0 && find(0xB0, 17) < 0, "one axis outside the touch window: no touch");
+    xy_touch = 0;
+    CHECK(xy_bad == 0 && xy_short == 0, "XY drive right throughout (%d bad, %d shorts)", xy_bad, xy_short);
 
     /* the schema has the Pads group and its params */
     {

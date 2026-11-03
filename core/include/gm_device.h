@@ -66,6 +66,9 @@ enum {
                              pad LED board, 115200 baud on `data`): outputs
                              only, pin n = LED n / 3, colour n % 3 (0 red,
                              1 green, 2 blue); sent from the main loop     */
+    GM_HUB_XY = 10,       /* 4-wire resistive XY pad: analog only, channel 0
+                             = X, 1 = Y. Read in software (vpin.c), one axis
+                             per ms in turn                                 */
 };
 
 typedef struct {
@@ -99,6 +102,10 @@ typedef struct {
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
     uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
+    /* XY: sel[0..3] = X+, X-, Y+, Y- (MCU pins); data = the Y-plate pin X
+     * is read on, clock = the X-plate pin Y is read on (both ADC pins). A
+     * touch: both readings within touch_min..touch_max. */
+    uint16_t touch_min, touch_max;
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */

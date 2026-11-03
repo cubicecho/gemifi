@@ -16,7 +16,7 @@
 int adc_dma_start(const gm_adc_plan_t *p);
 uint32_t adc_dma_sweep_us(void);
 void adc_dma_stop(void);
-int adc_dma_running(void);          /* hal_adc_read() refuses while it is */
+int adc_dma_running(void);          /* ADC1 is busy (hal_adc_read uses ADC2) */
 
 /* For the scan report: the longest sweep interrupt (us), sweeps the
  * interrupt was too late for, restarts after the mux steps and the

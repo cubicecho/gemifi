@@ -212,13 +212,17 @@ COMP_STR_MAX = 31               # sysex.md lstring
 HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc4051": "GM_HUB_MUX",
             "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574",
             "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX",
-            "tm1628": "GM_HUB_TM1628", "rgb_serial": "GM_HUB_RGB_SERIAL"}
+            "tm1628": "GM_HUB_TM1628", "rgb_serial": "GM_HUB_RGB_SERIAL", "xy_pad": "GM_HUB_XY"}
 HUB_TYPES = list(HUB_ENUM)
 HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
 I2C_HUBS = {"mcp23017", "pcf8574"}
 SHIFT_HUBS = {"sn74hc595", "sn74hc165"}
 MUX_HUBS = {"cd74hc4051", "cd74hc4067"}
+# A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
+XY_HUBS = {"xy_pad"}
+ANALOG_HUBS = MUX_HUBS | XY_HUBS
+XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 MUX_SELECT = {"cd74hc4051": 3, "cd74hc4067": 4}
 # TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
 TM_HUBS = {"tm1628"}
@@ -242,13 +246,15 @@ HUB_KEYS = {
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
     "rgb_serial": ["id", "tx_pin", "count"],
+    "xy_pad": ["id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
 CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data",
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3",
              # TM1628 lines only pair with each other: they're bit-banged from the main loop
-             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx"}
+             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx",
+             "x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
@@ -1014,7 +1020,7 @@ class _V:
         num = self.hub_pin_num(hub, raw, path, line)
         if num is None:
             return None
-        allowed = hubs or {"out": OUT_HUBS, "in": IN_HUBS, "analog": MUX_HUBS}[role]
+        allowed = hubs or {"out": OUT_HUBS, "in": IN_HUBS, "analog": ANALOG_HUBS}[role]
         if hub.type not in allowed:
             self.err(path, line, f"hub '{hub.id}' is a {hub.type}, which can't be {ROLE_TEXT[role]} "
                                  f"(use {' / '.join(sorted(allowed))}{'; ' + why if why else ''})")
@@ -1034,6 +1040,8 @@ class _V:
         n = None
         if isinstance(raw, int) and not isinstance(raw, bool):
             n = raw
+        elif isinstance(raw, str) and hub.type in XY_HUBS and raw.strip().lower() in ("x", "y"):
+            n = "xy".index(raw.strip().lower())
         elif isinstance(raw, str):
             s = raw.strip().upper()
             m = re.fullmatch(r"(?:GP)?([AB])([0-7])", s) if hub.type == "mcp23017" else \
@@ -1045,7 +1053,8 @@ class _V:
             elif s.isdigit():
                 n = int(s)
         if n is None:
-            self.err(path, line, f"'{raw}' is not a pin of hub '{hub.id}' (use a number 0..{hub.n_pins - 1})")
+            self.err(path, line, f"'{raw}' is not a pin of hub '{hub.id}' (use " +
+                     ("x or y)" if hub.type in XY_HUBS else f"a number 0..{hub.n_pins - 1})"))
             return None
         if not 0 <= n < hub.n_pins:
             what = "channel" if hub.type in MUX_HUBS else "pin"
@@ -1655,6 +1664,9 @@ def validate_components(v, dev, data):
         if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
                                                   f"drop mode: {ANALOG_MODES[mode]} or mcu:")
+        if mode == 1 and pin is not None and pin.hub and dev.hubs[pin.hub - 1].type in XY_HUBS:
+            v.err(f"{p}.mode", d.line_of("mode"), "pitch_bend centres on the power-up reading, and an XY "
+                                                  "pad reads nothing until touched: use cc or channel_pressure")
         cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None and mode == 0)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
@@ -1976,7 +1988,7 @@ def validate_hub(v, dev, h, typ, p, line):
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
               common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
-              ram_bytes=0, intensity=0, grids=0, raw=h)
+              ram_bytes=0, intensity=0, grids=0, touch_min=0, touch_max=0, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
@@ -2016,6 +2028,8 @@ def validate_hub(v, dev, h, typ, p, line):
             why = v.plat.serial_tx(hub.data.num)
             if why:
                 v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
+    elif typ in XY_HUBS:
+        validate_xy_pad(v, hub, h, p, ctl)
     elif typ in MUX_HUBS:
         hub.n_sel = MUX_SELECT[typ]
         hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
@@ -2054,6 +2068,31 @@ def validate_hub(v, dev, h, typ, p, line):
         if hub.addr not in ok:
             v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {typ} "
                                                          f"(usually 0x20-0x27{'' if typ == 'mcp23017' else ', PCF8574A 0x38-0x3F'})")
+
+
+def validate_xy_pad(v, hub, h, p, ctl):
+    """xy_pad: a 4-wire resistive panel on four MCU pins. Reading X drives x_plus high and x_minus low,
+    and reads the Y plate; reading Y the other way round. Each axis is read on the other plate's minus
+    pin if it has an ADC, else its plus pin."""
+    hub.n_pins = 2
+    hub.sel = [ctl(k, "out") for k in ("x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin")]
+    hub.touch_min = v.integer(h, "touch_min", p, 0, 4095, default=XY_TOUCH[0])
+    hub.touch_max = v.integer(h, "touch_max", p, 0, 4095, default=XY_TOUCH[1])
+    if hub.touch_min >= hub.touch_max:
+        v.err(p, h.line, f"touch_min {hub.touch_min} must be below touch_max {hub.touch_max}")
+
+    def sense(minus, plus, axis, keys):
+        for pn in (minus, plus):
+            if pn.hub == 0 and pn.num >= 0 and v.plat.adc(pn.num)[0]:
+                return pn
+        if all(pn.hub == 0 for pn in (minus, plus)) and all(h.get(k) is not None for k in keys):
+            v.err(p, h.line, f"{axis} is read on {keys[0]} or {keys[1]}: neither has an ADC "
+                             f"({adc_text(v.plat)})")
+        return NO_PIN
+
+    xp, xm, yp, ym = hub.sel
+    hub.data = sense(ym, yp, "X", ("y_minus_pin", "y_plus_pin"))
+    hub.clock = sense(xm, xp, "Y", ("x_minus_pin", "x_plus_pin"))
 
 
 def validate_decoder(v, hub, h, p, index):
@@ -2368,7 +2407,8 @@ def validate_pads(v, dev, data):
         ident = v.ident(d, p, "pad", len(dev.pads))
         name = v.display_name(d, p, ident)
         unique_name(v, names, "pad", name, p, d)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", why="a pad is read with the ADC")
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", hubs=MUX_HUBS,
+                    why="a pad is read with the ADC")
         note = v.integer(d, "note", p, 0, 127, default=0, required=True)
         led = -1
         if d.get("led") is not None:           # lit while the pad is held
@@ -3330,6 +3370,8 @@ def generate(dev, source="device.yaml"):
                   *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
                      f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
                   *([f"        .ram_bytes = {hb.ram_bytes},"] if hb.type == "rgb_serial" else []),
+                  *([f"        .touch_min = {hb.touch_min}, .touch_max = {hb.touch_max},"]
+                    if hb.type in XY_HUBS else []),
                   "    },"]
         c += ["};", ""]
     if dev.buttons:

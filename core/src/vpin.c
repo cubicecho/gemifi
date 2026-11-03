@@ -33,6 +33,10 @@ typedef struct {
     int8_t channel;       /* MUX: selected channel, -1 = none             */
     uint8_t tm_dirty;     /* TM1628: RAM changed since the last write     */
     uint16_t tm_off;      /* TM1628, RGB_SERIAL: its bytes in tm_ram      */
+    uint16_t xy_raw[2];   /* XY: last X / Y reading, 0xFFFF = none        */
+    uint8_t xy_touch;     /* XY: readings in a row with both in the window */
+    uint8_t xy_fresh;     /* XY: bit = axis, touched since vpin_analog_jump */
+    uint32_t xy_t;        /* XY: ms of the last axis switch               */
 } hub_state_t;
 
 static hub_state_t hs[N_HUBS];
@@ -168,6 +172,55 @@ static void mcu_out(gm_pin_t p, int level)
 
 static void mux_shared_init(void);
 
+/* ---- XY pads (4-wire resistive) ----------------------------------------
+ * One plate is driven at a time, + pin high and - pin low; the other plate
+ * floats and takes the voltage where it's pressed, read on its sense pin
+ * (gm_hub_t: data for X, clock for Y). Untouched, the floating plate reads
+ * outside touch_min..touch_max (stock Code 61: 592 - 22 .. 3408 + 22). The
+ * other plate is let go before this one is driven, so a touch never joins
+ * two driven pins. */
+static void xy_drive(const gm_hub_t *h, uint32_t axis)
+{
+    const gm_pin_t *drv = &h->sel[axis ? 2 : 0], *oth = &h->sel[axis ? 0 : 2];
+    gm_pin_t sense = axis ? h->clock : h->data;
+    for (uint32_t k = 0; k < 2; k++)
+        if (oth[k].hub == 0)
+            hal_pin_mode(oth[k].num, oth[k].num == sense.num ? HAL_ANALOG : HAL_IN);
+    mcu_out(drv[0], 1);
+    mcu_out(drv[1], 0);
+}
+
+/* A touch counts after XY_SETTLE readings in a row inside the window
+ * (each axis twice, ~4 ms): the first as a finger lands can be anywhere. */
+#define XY_SETTLE 4u
+
+/* Once per ms: read the axis driven since the last switch (a whole ms to
+ * settle), then drive the other. So each axis is new every 2 ms. -1 while
+ * untouched (the input holds its last value). */
+static int32_t xy_read(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
+{
+    uint32_t now = hal_millis();
+    if (now != s->xy_t && s->channel >= 0) {
+        uint32_t a = (uint32_t)s->channel;
+        gm_pin_t sense = a ? h->clock : h->data;
+        int32_t v = sense.hub == 0 ? hal_adc_read(sense.num) : -1;
+        s->xy_raw[a] = v < 0 ? 0xFFFFu : (uint16_t)v;
+        int t = 1;
+        for (uint32_t k = 0; k < 2; k++)
+            t = t && s->xy_raw[k] >= h->touch_min && s->xy_raw[k] <= h->touch_max;
+        if (!t)
+            s->xy_touch = 0;
+        else if (s->xy_touch < XY_SETTLE && ++s->xy_touch == XY_SETTLE)
+            s->xy_fresh = 3u;
+        s->channel = (int8_t)(a ^ 1u);
+        xy_drive(h, a ^ 1u);
+        s->xy_t = now;
+    }
+    if (ch > 1u || s->xy_touch < XY_SETTLE)
+        return -1;
+    return s->xy_raw[ch];
+}
+
 /* Hardware scan (vpin_scan_plan): which plan slot each switch-matrix row
  * reads from. */
 #define FED_MAX 32u
@@ -196,6 +249,9 @@ void vpin_init(void)
         s->channel = -1;
         s->tm_dirty = 0;
         s->tm_off = 0;
+        s->xy_raw[0] = s->xy_raw[1] = 0xFFFFu;
+        s->xy_touch = 0;
+        s->xy_fresh = 0;
         dec_slot[i] = -1;
         switch (h->type) {
         case GM_HUB_HC595:
@@ -256,6 +312,11 @@ void vpin_init(void)
                 (void)hal_serial_open(h->data.num, 115200u);
             break;
 #endif
+        case GM_HUB_XY:
+            xy_drive(h, 0);
+            s->channel = 0;
+            s->xy_t = hal_millis();
+            break;
         default:
             break;
         }
@@ -585,8 +646,12 @@ const gm_adc_plan_t *gm_adc_plan(void)
     aplan.n_pins = 0;
     aplan.settle_ns = 0;
     int ok = 1;
-    for (uint32_t i = 0; ok && i < gm_device.n_analogs; i++)
+    for (uint32_t i = 0; ok && i < gm_device.n_analogs; i++) {
+        const gm_hub_t *h = hub_of(gm_device.analogs[i].pin);
+        if (h && h->type == GM_HUB_XY)
+            continue;               /* read in software (ADC2 on stm32f1) */
         ok = adc_plan_source(gm_device.analogs[i].pin, &group);
+    }
 #if GM_N_PADS > 0
     for (uint32_t i = 0; ok && i < GM_N_PADS; i++)
         ok = adc_plan_source(gm_pads[i].pin, &group);
@@ -710,6 +775,10 @@ int32_t vpin_analog(gm_pin_t p)
         v = hal_adc_read(p.num);
     } else {
         const gm_hub_t *h = hub_of(p);
+        if (h && h->type == GM_HUB_XY) {
+            v = xy_read(h, &hs[p.hub - 1], p.num);
+            return v >= 0 && (p.flags & GM_PIN_INVERT) ? 4095 - v : v;
+        }
         if (!h || h->type != GM_HUB_MUX || h->common.hub != 0)
             return -1;
         mux_select(h, &hs[p.hub - 1], p.num);
@@ -718,6 +787,19 @@ int32_t vpin_analog(gm_pin_t p)
     if (v >= 0 && (p.flags & GM_PIN_INVERT))
         v = 4095 - v;
     return v;
+}
+
+int vpin_analog_jump(gm_pin_t p)
+{
+    const gm_hub_t *h = hub_of(p);
+    if (!h || h->type != GM_HUB_XY || p.num > 1u)
+        return 0;
+    hub_state_t *s = &hs[p.hub - 1];
+    uint8_t bit = (uint8_t)(1u << p.num);
+    if (!(s->xy_fresh & bit))
+        return 0;
+    s->xy_fresh &= (uint8_t)~bit;
+    return 1;
 }
 
 /* ---- shift registers -------------------------------------------------- */

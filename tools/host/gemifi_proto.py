@@ -907,13 +907,14 @@ def fb_value(kind, index, value):
     return bytes([kind]) + u14(index) + u14(value)
 
 
-def fb_ring(encoder, mode, value, center=False):
-    """FB_RING: encoder u14, mode (0 dot, 1 boost/cut, 2 wrap, 3 spread), value u14, flags (bit 0 centre LED)."""
+def fb_ring(encoder, mode, value, center=False, off=False):
+    """FB_RING: encoder u14, mode (0 dot, 1 boost/cut, 2 wrap, 3 spread), value u14, flags (bit 0 centre LED,
+    bit 1 ring off)."""
     _check_index(encoder, "encoder")
     if mode not in RING_MODES.values():
         raise ValueError(f"ring mode {mode!r}: 0 dot, 1 boost/cut, 2 wrap, 3 spread")
     _check_byte(value, "value", VALUE_MAX)
-    return u14(encoder) + bytes([mode]) + u14(value) + bytes([1 if center else 0])
+    return u14(encoder) + bytes([mode]) + u14(value) + bytes([(1 if center else 0) | (2 if off else 0)])
 
 
 def fb_text(display, row, col, text):

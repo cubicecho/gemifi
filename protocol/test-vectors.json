@@ -1686,6 +1686,19 @@
     }
    },
    {
+    "desc": "FB_RING encoder 0 ring off (flags bit 1)",
+    "cmd": 36,
+    "seq": 0,
+    "payload": "00 00 02 00 00 02",
+    "frame": "F0 7D 67 6D 01 24 00 06 00 00 00 02 00 00 02 2F F7",
+    "fields": {
+     "encoder": 0,
+     "mode": 2,
+     "value": 0,
+     "flags": 2
+    }
+   },
+   {
     "desc": "FB_TEXT display 0 row 1 col 4 'Track 1'",
     "cmd": 37,
     "seq": 0,

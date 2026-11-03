@@ -130,7 +130,7 @@ static const param_def_t params[] = {
       .name = "encoder.mode", .label = "Mode", .values = gm_cfg.enc_mode },
 #endif
 
-    { .id = P_EVENTS, .type = PT_BOOL, .group = G_DEBUG, .count = 1,
+    { .id = P_EVENTS, .type = PT_BOOL, .group = G_DEBUG, .count = 1, .flags = PF_VOLATILE,
       .min = 0, .max = 1, .def = 0,
       .name = "debug.events", .label = "Send EVENT messages", .values = &gm_cfg.events },
     { .id = P_LOG_LEVEL, .type = PT_ENUM, .group = G_DEBUG, .count = 1,

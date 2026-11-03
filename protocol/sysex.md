@@ -329,7 +329,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 | 0x21 | FB_LED_RGB | `led` u14, `r`, `g`, `b` (1 byte each, 0..127), `flags` (bit 0 blink) |
 | 0x22 | FB_LEDS | `first` u14, `n` (1 byte, 1..64), then `n` × `level`: several LEDs at once (a bank switch) |
 | 0x23 | FB_VALUE | `kind` (3 analog, 4 encoder), `index` u14, `value` u14 (0..16383) |
-| 0x24 | FB_RING | `encoder` u14, `mode` (0 dot, 1 boost/cut, 2 wrap, 3 spread), `value` u14 (0..16383), `flags` (bit 0 centre LED) |
+| 0x24 | FB_RING | `encoder` u14, `mode` (0 dot, 1 boost/cut, 2 wrap, 3 spread), `value` u14 (0..16383), `flags` (bit 0 centre LED, bit 1 ring off) |
 | 0x25 | FB_TEXT | `display` u14, `row` (1 byte), `col` (1 byte), text (7-bit ASCII, ≤ 64 bytes) |
 | 0x26 | FB_RELEASE | `what` (1 byte: 0 everything, 1 LEDs, 2 values, 3 text) |
 
@@ -339,11 +339,13 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`; otherwise it's ignored). For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there; in a relative mode it's ignored. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them (a device that sends 7-bit CCs uses the top 7 bits).
 
-**FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution. 0 is the first LED and 16383 the last. Boost/cut fills from the ring's middle LED to the position, so 8192 is "centre". Spread fills both ways from the middle, `value` setting the width (16383 = every LED). `flags` bit 0 lights the centre LED; on an encoder without one it's ignored.
+**FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution. 0 is the first LED and 16383 the last. Boost/cut fills from the ring's middle LED to the position, so 8192 is "centre". Spread fills both ways from the middle, `value` setting the width (16383 = every LED). `flags` bit 0 lights the centre LED; on an encoder without one it's ignored. Bit 1 turns every ring LED off (nothing mapped), whatever `mode` and `value` say; the centre LED still follows bit 0.
 
 **FB_TEXT** writes characters into a display from (`row`, `col`). Text is printable ASCII (0x20–0x7E); other bytes show as blank. It's clipped at the end of the row (it doesn't wrap), and a `row` or `col` outside the display drops the message. Nothing else on the row changes, so a host clears old text by sending spaces. Characters a display can't show (a 7-segment one) show as blank.
 
 **Out of range:** an index past the last LED, encoder or analog input is ignored. A `kind`, ring `mode` or release `what` the device doesn't know drops the message. Unused `flags` bits are sent as 0 and ignored.
+
+**EVENTs and pick-up:** an analog input's EVENT value is its calibrated position (after `adc_min`/`adc_max`), scaled to 0..16383. With `takeover: pickup`, EVENTs are held back like its CCs until it picks up the host's value. An encoder's EVENT value is the change in detents since the last one.
 
 **FB_RELEASE:** 1 (LEDs) covers every LED state a host set, rings included. 2 (values) drops the pick-up targets, so analog inputs send at once again; encoder values stay where they are. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
 

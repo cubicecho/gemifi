@@ -133,6 +133,8 @@ const RGB_MAX = DATA_MASK;
 const RGB_FLAG_BLINK = 1 << 0;
 /** FB_RING `flags` bit 0: light the centre LED. */
 const RING_FLAG_CENTRE = 1 << 0;
+/** FB_RING `flags` bit 1: every ring LED off. */
+const RING_FLAG_OFF = 1 << 1;
 
 /**
  * @param index - A u14 index field.
@@ -344,10 +346,11 @@ export function fbValuePayload(kind: ValueKind, index: number, value: number): n
  * @param centre - Whether to light the centre LED.
  * @returns The payload.
  */
-export function fbRingPayload(encoder: number, mode: RingMode, value: number, centre = false): number[] {
+export function fbRingPayload(encoder: number, mode: RingMode, value: number, centre = false, off = false): number[] {
   checkRange('mode', mode, RingMode.Dot, RingMode.Spread);
   checkRange('value', value, 0, FEEDBACK_VALUE_MAX);
-  return [...encodeU14(encoder), mode, ...encodeU14(value), centre ? RING_FLAG_CENTRE : 0];
+  const flags = (centre ? RING_FLAG_CENTRE : 0) | (off ? RING_FLAG_OFF : 0);
+  return [...encodeU14(encoder), mode, ...encodeU14(value), flags];
 }
 
 /**

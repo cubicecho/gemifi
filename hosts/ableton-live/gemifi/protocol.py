@@ -485,8 +485,9 @@ def fb_value(kind, index, value):
     return bytes([kind]) + u14(index) + u14(value)
 
 
-def fb_ring(encoder, mode, value, centre=False):
-    return u14(encoder) + _byte(mode, "mode") + u14(value) + bytes([1 if centre else 0])
+def fb_ring(encoder, mode, value, centre=False, off=False):
+    """FB_RING; off (flags bit 1) turns every ring LED off."""
+    return u14(encoder) + _byte(mode, "mode") + u14(value) + bytes([(1 if centre else 0) | (2 if off else 0)])
 
 
 def fb_text(display, row, col, text):

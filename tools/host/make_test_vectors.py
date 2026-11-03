@@ -266,6 +266,8 @@ def feedback_vectors():
        index=130, value=8192)
     fr("FB_RING encoder 1 mode 1 (boost/cut) value 4096, centre LED on", gp.FB_RING, 0,
        gp.fb_ring(1, gp.RING_BOOST, 4096, center=True), encoder=1, mode=gp.RING_BOOST, value=4096, flags=1)
+    fr("FB_RING encoder 0 ring off (flags bit 1)", gp.FB_RING, 0,
+       gp.fb_ring(0, gp.RING_WRAP, 0, off=True), encoder=0, mode=gp.RING_WRAP, value=0, flags=2)
     fr("FB_TEXT display 0 row 1 col 4 'Track 1'", gp.FB_TEXT, 0, gp.fb_text(0, 1, 4, "Track 1"), display=0, row=1,
        col=4, text="Track 1")
     fr("FB_RELEASE what 0 (everything)", gp.FB_RELEASE, 0, gp.fb_release(gp.REL_ALL), what=gp.REL_ALL)

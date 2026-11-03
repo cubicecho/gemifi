@@ -571,7 +571,7 @@ class Mapping(object):
         p = b.target()
         k = (P.KIND_ENCODER, c.index)
         if p is None:
-            ring = (P.RING_WRAP, 0, False)      # wrap at 0 = no ring LEDs lit
+            ring = (P.RING_WRAP, 0, False, True)    # nothing mapped: ring off (flags bit 1)
             self._value_cache[k] = None
         else:
             v = to14(p.get_norm())
@@ -579,7 +579,7 @@ class Mapping(object):
             if self._value_cache.get(k) != now:
                 self._value_cache[k] = now
                 self.notify(P.FB_VALUE, P.fb_value(P.KIND_ENCODER, c.index, v))
-            ring = (P.RING_BOOST_CUT, v, True) if p.bipolar else (P.RING_WRAP, v, False)
+            ring = (P.RING_BOOST_CUT, v, True, False) if p.bipolar else (P.RING_WRAP, v, False, False)
         if c.ring and self._ring_cache.get(c.index) != ring:
             self._ring_cache[c.index] = ring
-            self.notify(P.FB_RING, P.fb_ring(c.index, ring[0], ring[1], ring[2]))
+            self.notify(P.FB_RING, P.fb_ring(c.index, ring[0], ring[1], ring[2], ring[3]))

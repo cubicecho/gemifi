@@ -589,6 +589,10 @@ int main(void)
         gsx_request(GSX_FB_RING, dot, 6, 0, 0);
         run_ms(20);
         CHECK(ring_led(6) && !ring_led(7) && !ring_led(8), "FB_RING dot at 0: first LED");
+        uint8_t off[6] = { 2, 0, 0, 0, 0, 2 };
+        gsx_request(GSX_FB_RING, off, 6, 0, 0);
+        run_ms(20);
+        CHECK(!ring_led(6) && !ring_led(7) && !ring_led(8), "FB_RING flags bit 1: ring off");
 
         /* FB_VALUE: an absolute encoder carries on from the host's value */
         uint8_t val[5] = { GSX_KIND_ENCODER, 2, 0, 0, 64 };   /* 64 << 7 */

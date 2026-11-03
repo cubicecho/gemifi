@@ -286,6 +286,21 @@ class TestValidation(unittest.TestCase):
         self.assertError(MINIMAL_NUC + "cd74hc4067:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, "
                          "common_pin: PA5 }\n", r"cd74hc4067\[0\]\.pin_s3|is required")
 
+    def test_stm32f1_pins(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RC")
+        self.assertClean(stm)
+        self.assertClean(stm.replace("pin: PA1", "pin: PG15"))
+        self.assertError(stm.replace("pin: PA1", "pin: PH0"), r"'PH0' is not a pin on stm32f1")
+        self.assertError(stm.replace("pin: PA1", "pin: PA12"), r"PA12 is a USB data line")
+        self.assertClean(stm + "analog:\n  - { id: v, pin: PC5, cc: 7 }\n")
+        self.assertError(stm + "analog:\n  - { id: v, pin: PC6, cc: 7 }\n",
+                         r"PC6 has no ADC on stm32f1 \(ADC pins: PA0-PA7, PB0-PB1, PC0-PC5")
+        warns = [str(d) for d in self.errs(stm.replace("pin: PA1", "pin: PA13"), level="warning")]
+        self.assertTrue(any("SWD" in w for w in warns), warns)
+        warns = [str(d) for d in self.errs(stm.replace("STM32F103RC", "NUC120"), level="warning")]
+        self.assertTrue(any("STM32F1-class" in w for w in warns), warns)
+        self.assertEqual(self.errs(stm.replace("STM32F103RC", "GD32F103RC"), level="warning"), [])
+
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",
                          r"PB0 has no ADC on nuvoton-nuc1xx \(ADC pins: PA0-PA7", line=10)
@@ -710,7 +725,7 @@ class TestFeedback(unittest.TestCase):
         h, c = self.header(base.replace("action: cc_momentary, cc: 1", "mcu: play, led: l1") +
                            "analog: [{ id: f, pin: PA0, mcu: master }]\n"
                            "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_3, ring: [l2] }]\n")
-        self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 13 }; /* mcu */", c)
+        self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 16 }; /* mcu */", c)
         self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 94 };", c)
         self.assertIn("{ GM_FB_NONE, 0, 0, GM_OWNER_HOST, 200 }, /* l1 */", c)   # MCU-driven: host
         self.assertIn("{ GM_FB_NONE, 0, 0, GM_OWNER_HOST, 200 }, /* l2 */", c)   # ring LED
@@ -754,6 +769,315 @@ class TestFeedbackCompiles(unittest.TestCase):
         self.compile_with_core(gen_dir(dev, self.tmp, "fb"))
 
 
+# ---- presets (research/core/presets-design.md §2, §10) ----
+
+PRESET_NUC = MINIMAL_NUC + """\
+  - { id: b, pin: PA2, action: note, note: 60 }
+  - { id: c, pin: PA3, action: octave_up }
+analog:
+  - { id: knob, pin: PA0, cc: 7 }
+encoders:
+  - { id: enc, pin_a: PB0, pin_b: PB1, cc: 20 }
+key_matrix:
+  type: velocity
+  rows: [PA8, PA9]
+  columns: [PB2, PB3]
+  keys: 2
+"""
+
+
+def presets(body, base=PRESET_NUC):
+    """base + a presets: block (body: the lines under it, indented by 2)."""
+    return base + "presets:\n" + "".join(f"  {ln}\n" for ln in body.strip("\n").split("\n"))
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestPresets(unittest.TestCase):
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return dev, files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def warns(self, text):
+        return [d.msg for d in self.errs(text, level="warning")]
+
+    def test_no_presets(self):
+        """A device without presets: one slot, "Default", no overrides; otherwise as before."""
+        dev, h, c = self.gen(MINIMAL_NUC)
+        self.assertEqual(dev.n_presets, 1)
+        self.assertIn("#define GM_N_PRESETS 1 /* no presets: in the YAML */", h)
+        self.assertIn("#define GM_PRESETS_REVISION 0", h)
+        self.assertIn('    { "Default", GM_PROGRAM_NONE, 0, 0 }, /* slot 1 */\n};', c)
+        self.assertNotIn("gm_preset_val_t", c)
+        self.assertNotIn("presets:", gb.summary(dev))
+
+    def test_generate(self):
+        dev, h, c = self.gen(presets("""
+slots: 5
+revision: 3
+list:
+  - { name: Main, program: 0 }
+  - name: Drums
+    program: 9
+    midi: { channel: 10, transpose: -2, octave: 1 }
+    velocity: { curve: hard, fixed: 90 }
+    bend: { glide: 0ms }
+    ramp: { time: 1s }
+    buttons:
+      a: { action: note, note: 36 }
+      b: { note: 38 }
+      c: { action: preset_select, preset: 5 }
+    analog: { knob: { cc: 11 } }
+    encoders: { enc: { cc: 21, mode: relative_offset } }
+  - name: Empty copy
+"""))
+        self.assertIn("#define GM_N_PRESETS 5 /* presets.slots */", h)
+        self.assertIn("#define GM_PRESETS_REVISION 3", h)
+        vals = re.findall(r"\{ (\d+), (\d+), (-?\d+) \}, /\* (.*?) \*/", c.split("presets: overrides")[1])
+        self.assertEqual([(int(a), int(b), int(x)) for a, b, x, _ in vals], [
+            (1, 0, 10), (2, 0, -2), (3, 0, 1), (4, 0, 2), (5, 0, 90), (8, 0, 11), (9, 0, 4), (9, 2, 15),
+            (10, 0, 36), (10, 1, 38), (10, 2, 5), (11, 0, 0), (12, 0, 1000), (15, 0, 21), (16, 0, 2)])
+        self.assertIn("velocity.curve = hard", c)
+        self.assertIn("button.action[c] = preset_select", c)
+        self.assertIn("static const gm_preset_val_t preset_2_vals[15] = { /* Drums */", c)
+        self.assertIn('{ "Main", 0, 0, 0 }, /* slot 1 */', c)
+        self.assertIn('{ "Drums", 9, 15, preset_2_vals }, /* slot 2 */', c)
+        self.assertIn('{ "Empty copy", GM_PROGRAM_NONE, 0, 0 }, /* slot 3 */', c)
+        self.assertIn('{ "Preset 4", GM_PROGRAM_NONE, 0, 0 }, /* slot 4 */', c)
+        self.assertIn('{ "Preset 5", GM_PROGRAM_NONE, 0, 0 }, /* slot 5 */', c)
+        self.assertIn("presets: 5 slots, worst case", gb.summary(dev))
+
+    def test_default_slots_and_names(self):
+        dev, h, c = self.gen(presets("list:\n  - {}\n  - { midi: { channel: 2 } }"))
+        self.assertIn("#define GM_N_PRESETS 2", h)
+        self.assertIn('{ "Default", GM_PROGRAM_NONE, 0, 0 }', c)
+        self.assertIn('{ "Preset 2", GM_PROGRAM_NONE, 1, preset_2_vals }', c)
+        dev, h, c = self.gen(presets("slots: 3"))
+        self.assertEqual([p.name for p in dev.presets], ["Default", "Preset 2", "Preset 3"])
+
+    def test_same_as_default_dropped(self):
+        t = presets("list:\n  - {}\n  - midi: { channel: 1 }\n    buttons: { a: { cc: 1 }, b: { action: note } }\n"
+                    "    analog: { knob: { cc: 7 } }\n    encoders: { enc: { mode: absolute } }")
+        ws = self.warns(t)
+        self.assertEqual(sum("the same as in preset 1" in w for w in ws), 5, ws)
+        self.assertTrue(any("midi.channel = 1" in w for w in ws), ws)
+        dev, _h, c = self.gen(t)
+        self.assertEqual(dev.presets[1].vals, [])
+        self.assertNotIn("gm_preset_val_t", c)
+
+    def test_action_numbers(self):
+        """preset_next 13, preset_prev 14, preset_select 15 (number = slot), mcu 16."""
+        btns = MINIMAL_NUC.replace("  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n",
+                                   "  - { id: a, pin: PA1, action: preset_next }\n"
+                                   "  - { id: b, pin: PA2, action: preset_prev }\n"
+                                   "  - { id: c, pin: PA3, action: preset_select, preset: 4 }\n"
+                                   "  - { id: d, pin: PA4, action: program_prev }\n"
+                                   "  - { id: e, pin: PA5, mcu: play }\nmcu: {}\n")
+        _dev, _h, c = self.gen(btns + "presets: { slots: 4 }\n")
+        self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 13, 14, 15, 12, 16 };", c)
+        self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 0, 0, 4, 0, 94 };", c)
+        self.assertEqual(gd.ACTION_IDS["mcu"], 16)
+        self.assertEqual(gd.ACTIONS.index("preset_select"), 15)
+
+    def test_preset_action_errors(self):
+        btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
+        self.assertError(btn % "action: preset_next", r"this device has 1 preset slot: add presets:")
+        self.assertError(btn % "action: preset_select, preset: 2" + "presets: { slots: 1 }\n",
+                         r"switches presets.*1 preset slot")
+        withp = btn + "presets: { slots: 3 }\n"
+        self.assertClean(withp % "action: preset_select, preset: 3")
+        self.assertError(withp % "action: preset_select, preset: 4", r"4 is out of range \(1\.\.3\)")
+        self.assertError(withp % "action: preset_select", r"action preset_select needs preset: \(1\.\.3")
+        self.assertError(withp % "action: preset_select, cc: 3", r"takes preset:, not cc:")
+        self.assertError(withp % "action: preset_next, preset: 2", r"action preset_next takes no a preset number")
+        self.assertError(withp % "action: note, preset: 2", r"action note takes note:, not preset:")
+        self.assertError(withp % "action: preset_nxt", r"did you mean 'preset_next'")
+
+    def test_section_errors(self):
+        self.assertError(MINIMAL_NUC + "presets: [a]\n", r"must be a mapping", path="presets")
+        self.assertError(presets("slots: 8\nlists: []"), r"unknown key \(did you mean 'list'\?\)", path="presets.lists")
+        self.assertEqual(len(self.errs(presets("slots: 8\nlists: []"))), 1)     # reported once
+        self.assertError(presets("slots: 0"), r"0 is out of range \(1\.\.64\)")
+        self.assertError(presets("slots: 65"), r"65 is out of range \(1\.\.64\)")
+        self.assertError(presets("slots: 1\nlist: [{ name: A }, { name: B }]"),
+                         r"1 slot can't hold the 2 presets in presets.list")
+        self.assertError(presets("revision: 16384"), r"16384 is out of range \(0\.\.16383\)")
+        self.assertClean(presets("revision: 16383"))
+        self.assertError(presets("list: { name: A }"), r"must be a list", path="presets.list")
+
+    def test_names(self):
+        self.assertError(presets("list: [{ name: A }, { name: a }]"), r"'a' is already the name of presets.list\[0\]")
+        self.assertError(presets("slots: 3\nlist: [{ name: A }, { name: Preset 3 }]"),
+                         r"'Preset 3' is the name of empty slot 3")
+        self.assertError(presets("list: [{ name: 12345678901234567 }]"), r"17 characters: at most 16")
+        self.assertClean(presets("list: [{ name: 1234567890123456 }, { name: 808 }]"))
+        self.assertError(presets("list: [{ name: Café }]"), r"printable ASCII")
+        self.assertError(presets("list: [{ name: '  ' }]"), r"non-empty")
+        dev, _ = load(presets("list: [{ name: 808 }]"))
+        self.assertEqual(dev.presets[0].name, "808")
+
+    def test_preset_1_only_name_and_program(self):
+        self.assertError(presets("list:\n  - { name: A, midi: { channel: 2 } }"),
+                         r"preset 1 is the component defaults", path="presets.list[0].midi")
+        self.assertError(presets("list:\n  - { name: A, program: 128 }"), r"128 is out of range \(0\.\.127\)")
+        self.assertError(presets("list:\n  - {}\n  - { leds: {} }"), r"unknown key", path="presets.list[1].leds")
+
+    def test_override_errors(self):
+        two = "list:\n  - {}\n  - "
+        self.assertError(presets(two + "buttons: { aa: { cc: 2 } }"), r"no button with id 'aa'.*did you mean 'a'")
+        self.assertError(presets(two + "buttons: { knob: { cc: 2 } }"), r"'knob' is the id of analog\[0\] "
+                                                                         r"\(an analog input\), not of a button")
+        self.assertError(presets(two + "analog: { a: { cc: 2 } }"), r"not of an analog input")
+        self.assertError(presets(two + "buttons: { a: { pin: PA5 } }"), r"pin: is the same in every preset",
+                         path="presets.list[1].buttons.a.pin")
+        self.assertError(presets(two + "analog: { knob: { adc_min: 3 } }"), r"adc_min: is the same in every")
+        self.assertError(presets(two + "buttons: { a: { cc: 200 } }"), r"200 is out of range \(0\.\.127\)")
+        self.assertError(presets(two + "buttons: { a: { note: 2 } }"), r"action cc_momentary takes cc:, not note:")
+        self.assertError(presets(two + "buttons: { c: { cc: 2 } }"), r"action octave_up takes no a CC or note")
+        self.assertError(presets(two + "buttons: { a: { action: note } }"), r"action note needs note:")
+        self.assertError(presets(two + "buttons: { a: { action: preset_select, preset: 3 } }"),
+                         r"3 is out of range \(1\.\.2\)")
+        self.assertError(presets(two + "buttons: { a: { mcu: play } }"), r"mcu: is for action: mcu")
+        self.assertError(presets(two + "buttons: [a]"), r"must be a mapping of button ids")
+        self.assertError(presets(two + "encoders: { enc: { mode: relative_ofset } }"),
+                         r"unknown mode 'relative_ofset' \(did you mean 'relative_offset'")
+        self.assertError(presets(two + "encoders: { enc: { steps_per_detent: 2 } }"), r"same in every preset")
+        self.assertTrue(any("changes nothing" in w for w in self.warns(presets(two + "buttons: { a: {} }"))))
+
+    def test_global_errors(self):
+        two = "list:\n  - {}\n  - "
+        self.assertError(presets(two + "midi: { channel: 17 }"), r"17 is out of range \(1\.\.16\)")
+        self.assertError(presets(two + "midi: { transpose: 25 }"), r"25 is out of range \(-24\.\.24\)")
+        self.assertError(presets(two + "midi: { octave: -5 }"), r"-5 is out of range \(-4\.\.4\)")
+        self.assertError(presets(two + "midi: { chanel: 2 }"), r"did you mean 'channel'")
+        self.assertError(presets(two + "midi: { transport: usb }"), r"the MIDI transport is the device's")
+        self.assertError(presets(two + "velocity: { fast: 1ms }"), r"global .*key_matrix.velocity")
+        self.assertError(presets(two + "velocity: { curve: hrad }"), r"unknown curve 'hrad' \(did you mean 'hard'")
+        self.assertError(presets(two + "velocity: { fixed: 0 }"), r"0 is out of range \(1\.\.127\)")
+        self.assertError(presets(two + "bend: { glide: 50 }"), r"needs a unit")
+        self.assertError(presets(two + "bend: { glide: 3s }"), r"3s is out of range \(0us\.\.2000ms\)")
+        self.assertError(presets(two + "ramp: { time: 6s }"), r"out of range")
+        self.assertError(presets(two + "velocity: { curve: hard }", base=MINIMAL_NUC),
+                         r"velocity.curve doesn't exist on this device: it needs a velocity key matrix")
+        nobtn = MINIMAL_ESP.format(plat="esp32", tr="serial") + "analog: [{ id: k, pin: GPIO34, cc: 1 }]\n"
+        self.assertError(presets(two + "bend: { glide: 10ms }", base=nobtn), r"bend.glide doesn't exist.*no buttons")
+        self.assertClean(presets(two + "velocity: { fixed: 100 }"))     # same as default: a warning only
+
+    def test_budget_nuc(self):
+        """NUC: 6 usable pages of 512 B (one of 7 spare); records never span a page."""
+        dev, diags = load(presets("slots: 4"))
+        bd = dev.budget
+        # per-preset: channel, transpose, octave, curve, fixed, analog 1, buttons 3 x 2, glide, ramp,
+        # encoder 2, program = 17 values; globals: fast, slow, events, log_level, active = 5
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (17, 5))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 34), 4 * (9 + 10)))
+        self.assertEqual((bd["used"], bd["capacity"], bd["unit"]), (2, 5, "pages"))   # 2 per page; globals fit
+        self.assertEqual(bd["max_slots"], 10)                                          # 5 pages x 2
+        self.assertEqual([d for d in diags if "presets use" in d.msg], [])
+        self.assertTrue(any("presets use 100% of the nuvoton-nuc1xx data-flash journal" in w and
+                            "Up to 10 slots fit; 8 or fewer stay under 85%" in w
+                            for w in self.warns(presets("slots: 10"))), self.warns(presets("slots: 10")))
+        e = self.assertError(presets("slots: 11"), r"presets don't fit the nuvoton-nuc1xx data-flash journal",
+                             path="presets.slots")
+        self.assertIn("At most 10 slots fit (slots: 10)", e.msg)
+        self.assertIn("6 of the 5 usable 512 B pages", e.msg)
+        # one record bigger than a page: 32 buttons = 64 values + 7 others
+        pins = [f"P{p}{n}" for p in "AB" for n in range(16)]
+        many = MINIMAL_NUC.replace("  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n",
+                                   "".join(f"  - {{ id: b{i}, pin: {pn} }}\n" for i, pn in enumerate(pins)))
+        self.assertTrue(any(re.search(r"the settings don't fit one record of the nuvoton-nuc1xx data-flash "
+                                      r"journal \(at most 512 B\)", w) for w in self.warns(many)))
+        self.assertClean(many)        # without presets: a warning, as with the v1 record
+        self.assertIn("71 per-preset values", self.assertError(many + "presets: { slots: 2 }\n", r"one record").msg)
+
+    def test_budget_esp8266(self):
+        """ESP8266: every slot in one 4096 B EEPROM image."""
+        base = MINIMAL_ESP.format(plat="esp8266", tr="serial") + "buttons: [{ id: a, pin: GPIO4, action: cc_toggle, cc: 3 }]\n"
+        dev, _ = load(presets("slots: 2", base=base))
+        bd = dev.budget
+        self.assertEqual((bd["preset_record"], bd["global_record"], bd["capacity"], bd["unit"]), (108, 60, 4096, "B"))
+        self.assertEqual(bd["max_slots"], 37)          # (4096 - 60) // 108
+        self.assertEqual(bd["max_slots_calm"], 31)     # 31 * 108 + 60 = 3408 <= 0.85 * 4096
+        self.assertFalse(any("presets use" in w for w in self.warns(presets("slots: 31", base=base))))
+        self.assertTrue(any("presets use 85% of the esp8266 EEPROM sector" in w
+                            for w in self.warns(presets("slots: 32", base=base))))
+        e = self.assertError(presets("slots: 38", base=base), r"don't fit the esp8266 EEPROM sector")
+        self.assertIn("4164 of 4096 B", e.msg)
+        self.assertIn("At most 37 slots", e.msg)
+
+    def test_budget_esp32(self):
+        """ESP32: one NVS blob per slot (<= 1984 B), 12 KB for all."""
+        gp = [13, 14, 16, 17, 18, 19, 21]
+        base = MINIMAL_ESP.format(plat="esp32", tr="serial") + "buttons:\n" + "".join(
+            f"  - {{ id: b{g}, pin: GPIO{g} }}\n" for g in gp)
+        dev, _ = load(presets("slots: 30", base=base))
+        bd = dev.budget
+        self.assertEqual((bd["preset_values"], bd["preset_record"]), (21, 204))
+        self.assertEqual(bd["max_slots"], 59)          # (12288 - 60) // 204
+        self.assertFalse(any("presets use" in w for w in self.warns(presets("slots: 50", base=base))))
+        self.assertTrue(any("presets use" in w and "NVS" in w for w in self.warns(presets("slots: 51", base=base))))
+        self.assertError(presets("slots: 64", base=base), r"don't fit the esp32 NVS.*At most 59 slots")
+        for plat in ("esp32s2", "esp32s3"):
+            self.assertEqual(gd.STORE_BUDGETS[plat], gd.STORE_BUDGETS["esp32"])
+
+    def test_keystation_presets(self):
+        dev, diags = gd.load_device(KEYSTATION)
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
+        self.assertEqual(dev.n_presets, 8)
+        self.assertEqual([p.name for p in dev.presets[:3]], ["Default", "Drums", "DAW"])
+        # the components' defaults are unchanged by the presets
+        self.assertEqual([b.action_name for b in dev.buttons],
+                         ["cc_momentary", "cc_toggle", "octave_down", "octave_up", "bend_down", "bend_up", "cc_ramp"])
+        self.assertIn((1, 0, 10, "midi.channel = 10"), dev.presets[1].vals)
+        bd = dev.budget
+        self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (220, 76, 5, 5))
+        self.assertEqual(bd["max_slots"], 9)
+
+
+@unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
+class TestPresetsCompile(unittest.TestCase):
+    setUp = TestGenerateCompiles.setUp
+    tearDown = TestGenerateCompiles.tearDown
+    gcc = TestGenerateCompiles.gcc
+    dump = TestGenerateCompiles.dump
+
+    def test_presets_dump(self):
+        dev, diags = load(presets("""
+slots: 4
+revision: 7
+list:
+  - { name: Main, program: 5 }
+  - name: "Q\\"uote?"
+    midi: { channel: 3 }
+    buttons: { c: { action: preset_select, preset: 4 } }
+    encoders: { enc: { mode: relative_twos } }
+"""))
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        out = self.dump(gen_dir(dev, self.tmp), "presets")
+        self.assertIn("presets=4 revision=7", out)
+        self.assertIn(" preset 1 name=Main program=5 n=0 vals=null", out)
+        self.assertIn(' preset 2 name=Q"uote? program=-1 n=4 vals=ptr\n'
+                      "  val id=1 index=0 value=3\n  val id=9 index=2 value=15\n"
+                      "  val id=10 index=2 value=4\n  val id=16 index=0 value=1\n", out)
+        self.assertIn(" preset 4 name=Preset 4 program=-1 n=0 vals=null", out)
+
+    def test_no_presets_dump(self):
+        dev, _ = load(MINIMAL_NUC)
+        out = self.dump(gen_dir(dev, self.tmp), "nopresets")
+        self.assertIn("presets=1 revision=0\n preset 1 name=Default program=-1 n=0 vals=null\n", out)
+
+    def test_keystation_dump(self):
+        dev, _ = gd.load_device(KEYSTATION)
+        out = self.dump(gen_dir(dev, self.tmp), "ks")
+        self.assertIn("presets=8 revision=0", out)
+        self.assertIn(" preset 2 name=Drums program=-1 n=6 vals=ptr", out)
+
+
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
 class TestCli(unittest.TestCase):
     def setUp(self):
@@ -778,6 +1102,10 @@ class TestCli(unittest.TestCase):
         rc, _, err = self.run_cli("validate", bad)
         self.assertEqual(rc, 1)
         self.assertRegex(err, r"bad\.yaml:8: error: buttons\[0\]\.pin: 'PZ1'")
+        rc, out, err = self.run_cli("validate", KEYSTATION, bad)      # several files: 1 if any fails
+        self.assertEqual(rc, 1)
+        self.assertIn("presets: 8 slots, worst case 1836 B in 5 of 5 pages (2560 B)", out)
+        self.assertIn("bad.yaml: 1 error", err)
 
     def test_generate(self):
         rc, _, _ = self.run_cli("generate", KEYSTATION, "-o", self.tmp)
@@ -897,6 +1225,14 @@ class TestDashboard(unittest.TestCase):
         j = json.loads(body)
         self.assertFalse(j["ok"])
         self.assertEqual(j["diags"][0]["line"], 8)
+        with open(KEYSTATION) as f:
+            st, body = self.req("/api/validate", {"text": f.read()})
+        j = json.loads(body)
+        self.assertTrue(j["ok"])
+        self.assertIn("presets: 8 slots, worst case 1836 B in 5 of 5 pages", j["summary"])
+        self.assertEqual([p["name"] for p in j["presets"]["slots"]][:3], ["Default", "Drums", "DAW"])
+        self.assertEqual(j["presets"]["slots"][1]["changes"], 6)
+        self.assertEqual(j["presets"]["storage"]["max_slots"], 9)
         st, body = self.req("/api/save", {"id": "mine/dash.yaml", "text": MINIMAL_NUC})
         self.assertEqual(st, 200)
         st, body = self.req("/api/file?id=mine%2Fdash.yaml")
@@ -909,7 +1245,7 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual(st, 200)
         j = json.loads(body)
         self.assertEqual((j["name"], j["version"], j["user_dir"]), ("gemifi builder", "0.1.0", self.mine))
-        self.assertEqual(set(j["toolchains"]), {"nuvoton-nuc1xx", "esp"})
+        self.assertEqual(set(j["toolchains"]), {"nuvoton-nuc1xx", "stm32f1", "esp"})
         self.assertTrue(all(isinstance(v, bool) for v in j["toolchains"].values()))
         st, body = self.req("/api/presets")
         names = [p["name"] for p in json.loads(body)["presets"]]

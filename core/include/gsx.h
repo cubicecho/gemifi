@@ -44,6 +44,10 @@ extern "C" {
 #define GSX_CMD_COMMIT     0x07
 #define GSX_CMD_GET_PARAMS 0x09
 #define GSX_CMD_SET_PARAMS 0x0A
+#define GSX_CMD_PRESET_INFO  0x0B
+#define GSX_CMD_PRESET_SAVE  0x0C
+#define GSX_CMD_PRESET_RESET 0x0D
+#define GSX_CMD_PRESET_NAME  0x0E
 #define GSX_CMD_FACTORY_RESET 0x08
 #define GSX_CMD_REBOOT     0x10
 #define GSX_CMD_FW_BEGIN   0x18
@@ -54,6 +58,7 @@ extern "C" {
 #define GSX_MSG_LOG        0x60
 #define GSX_MSG_EVENT      0x61
 #define GSX_MSG_PARAM_CHANGED 0x62
+#define GSX_MSG_PRESET_CHANGED 0x63
 
 /* status codes (section 3) */
 #define GSX_OK           0
@@ -74,6 +79,7 @@ extern "C" {
 #define GSX_CAP_CONFIG    (1u << 1)
 #define GSX_CAP_LOG       (1u << 2)
 #define GSX_CAP_EVENT     (1u << 3)
+#define GSX_CAP_PRESETS   (1u << 5)
 
 /* ---- byte-stream receiver -------------------------------------------- */
 typedef struct {

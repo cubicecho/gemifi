@@ -32,13 +32,14 @@ extern "C" {
 #define PF_PER_INDEX_DEFAULT (1u << 2)   /* set by params.c, not by hand */
 #define PF_INDEX_LABELS      (1u << 3)   /* set by params.c, not by hand */
 #define PF_HAS_UNIT          (1u << 4)   /* set by params.c, not by hand */
+#define PF_PRESET            (1u << 5)   /* per preset (gm_presets.h)    */
 
 typedef struct {
     uint16_t id;                     /* 1..0x3FFF, never reused          */
     uint8_t type;
     uint8_t group;
     uint16_t count;                  /* 1 = plain param, <= 0x3FFF       */
-    uint8_t flags;                   /* PF_READ_ONLY / PF_VOLATILE only  */
+    uint8_t flags;                   /* PF_READ_ONLY / PF_VOLATILE / PF_PRESET */
     uint8_t option_count;            /* PT_ENUM: number of options       */
     int32_t min, max;
     int32_t def;                     /* default when defs is NULL        */
@@ -62,6 +63,8 @@ typedef struct {
 extern const param_table_t app_params;
 
 void params_defaults(void);
+/* Default of index i (the per-index default, or def). */
+int32_t params_default_at(const param_def_t *p, uint32_t i);
 const param_def_t *params_find(uint16_t id);
 
 /* Each returns a GSX status: GSX_OK, GSX_BAD_PARAM or GSX_BAD_VALUE.

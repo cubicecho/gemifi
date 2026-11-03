@@ -21,10 +21,118 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 
 FORMAT_VERSION = 2
 
-# core/README.md "Button actions". `mcu` (13) only exists on devices with an `mcu:` section.
-ACTIONS = ["none", "cc_momentary", "cc_toggle", "cc_ramp", "note", "octave_down", "octave_up",
-           "transpose_down", "transpose_up", "bend_down", "bend_up", "program_next", "program_prev", "mcu"]
+# core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
+# actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section.
+ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note": 4, "octave_down": 5,
+              "octave_up": 6, "transpose_down": 7, "transpose_up": 8, "bend_down": 9, "bend_up": 10,
+              "program_next": 11, "program_prev": 12, "preset_next": 13, "preset_prev": 14,
+              "preset_select": 15, "mcu": 16}
+ACTIONS = list(ACTION_IDS)
 CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
+PRESET_ACTIONS = {"preset_next", "preset_prev", "preset_select"}
+NUMBER_KEYS = ("cc", "note", "preset")      # the YAML keys that give button.number (mcu: aside)
+
+
+def number_key(act):
+    """The key that gives button.number for an action (None: the action takes no number)."""
+    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
+
+
+# ---- params and their scope (research/core/presets-design.md §1, §10.3) ----
+# The ONE place the builder knows core/src/settings.c's param table: the id (gm_settings.h P_*), the
+# scope (PRESET = PF_PRESET: each preset has its own value; GLOBAL: one value for the device;
+# VOLATILE: never stored) and how many values a device has (0 = the param doesn't exist there).
+# The storage budget (§10.5) counts the stored values from it. Keep it in step with settings.c.
+PRESET, GLOBAL, VOLATILE = "preset", "global", "volatile"
+
+
+def _vel(dev):
+    return 1 if dev.matrix is not None and dev.matrix.kind == "velocity" else 0
+
+
+PARAMS = [  # (name, id, scope, count(dev))
+    ("midi.channel", 1, PRESET, lambda d: 1),
+    ("midi.transpose", 2, PRESET, lambda d: 1),
+    ("midi.octave", 3, PRESET, lambda d: 1),
+    ("velocity.curve", 4, PRESET, _vel),
+    ("velocity.fixed", 5, PRESET, lambda d: 1),
+    ("velocity.fast", 6, GLOBAL, _vel),
+    ("velocity.slow", 7, GLOBAL, _vel),
+    ("analog.cc", 8, PRESET, lambda d: len(d.analogs)),
+    ("button.action", 9, PRESET, lambda d: len(d.buttons)),
+    ("button.number", 10, PRESET, lambda d: len(d.buttons)),
+    ("bend.glide", 11, PRESET, lambda d: 1 if d.buttons else 0),
+    ("ramp.time", 12, PRESET, lambda d: 1 if d.buttons else 0),
+    ("debug.events", 13, GLOBAL, lambda d: 1),
+    ("debug.log_level", 14, GLOBAL, lambda d: 1),
+    ("encoder.cc", 15, PRESET, lambda d: len(d.encoders)),
+    ("encoder.mode", 16, PRESET, lambda d: len(d.encoders)),
+    ("preset.active", 17, GLOBAL, lambda d: 1),
+    ("preset.program", 18, PRESET, lambda d: 1 if d.n_presets > 1 else 0),
+    ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.n_presets > 1 else 0),
+]
+PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
+PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
+
+
+def stored_counts(dev):
+    """(per-preset values, global values) the device stores at most: the record sizes of §10.5."""
+    out = {PRESET: 0, GLOBAL: 0, VOLATILE: 0}
+    for _n, _i, scope, count in PARAMS:
+        out[scope] += count(dev)
+    return out[PRESET], out[GLOBAL]
+
+
+# The per-preset globals a preset may set (§10.2): YAML section -> key -> (param, default, kind, lo, hi).
+# Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
+# enum's YAML names in value order.
+CURVES = ["normal", "soft", "hard", "fixed"]
+ENC_MODES = ["absolute", "relative_twos", "relative_offset"]
+PRESET_GLOBALS = {
+    "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
+             "transpose": ("midi.transpose", 0, "int", -24, 24),
+             "octave": ("midi.octave", 0, "int", -4, 4)},
+    "velocity": {"curve": ("velocity.curve", 0, CURVES, 0, 3),
+                 "fixed": ("velocity.fixed", 100, "int", 1, 127)},
+    "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
+    "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
+}
+# Keys that look per-preset but aren't: they get this message instead of "unknown key".
+PRESET_NOT_HERE = {
+    "midi": {"transport": "the MIDI transport is the device's (the same in every preset): set it in the "
+                          "top-level midi:"},
+    "velocity": {k: "global (the keybed's calibration, the same in every preset): set it in "
+                    "key_matrix.velocity" for k in ("fast", "slow")},
+}
+_HW = "the same in every preset: set it on the component itself"
+PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
+    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu"], ["id", "name", "pin", "led"]),
+    "analog": ("analog input", "analog inputs", ["cc"],
+               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu"]),
+    "encoders": ("encoder", "encoders", ["cc", "mode"],
+                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring"]),
+}
+PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
+PRESETS_KEYS = ["slots", "revision", "list"]
+MAX_PRESETS = 64
+PRESET_NAME_LEN = 16           # config_store.h CS_NAME_LEN
+PRESET_REVISION_MAX = 0x3FFF
+
+# ---- storage budget (§10.5) ----
+# Worst-case record, in 32-bit words: header (magic, seq, slot|flags|revision, count) + a name + 2 per
+# value ({id | index << 16, value}) + crc (config_store.h "Record v2").
+REC_HEADER_WORDS, REC_NAME_WORDS, REC_CRC_WORDS = 4, 4, 1
+STORE_BUDGETS = {
+    # journal: `pages` pages of `page` bytes, `spare` of them kept free (one erase spare, one for a
+    # slot's old and new copy while it is rewritten); a record never spans a page
+    "nuvoton-nuc1xx": {"kind": "journal", "page": 512, "pages": 7, "spare": 2, "what": "data-flash journal"},
+    # nvs: one blob per slot (each <= record bytes), all of them <= total bytes
+    **{p: {"kind": "nvs", "record": 1984, "total": 12 * 1024, "what": "NVS"}
+       for p in ("esp32", "esp32s2", "esp32s3")},
+    # image: every slot in one image of total bytes
+    "esp8266": {"kind": "image", "total": 4096, "what": "EEPROM sector"},
+}
+BUDGET_WARN = 0.85             # warn above this share of the budget (more erase cycles)
 
 # ---- host feedback / DAW (core/README.md "DAW feedback") ----
 # LED owners (gm_device.h GM_OWNER_*): who drives an LED that both the host and the device want.
@@ -90,7 +198,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix"]
+            "buttons", "leds", "analog", "encoders", "key_matrix", "presets"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -350,6 +458,43 @@ class NucPlatform(Platform):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
 
 
+class Stm32F1Platform(Platform):
+    """STM32F103-class parts (and GD32F103 clones): ports A-G, pin = port * 16 + bit."""
+    name = "stm32f1"
+    native_usb = True
+    PORTS = "ABCDEFG"
+    VALID = "PA0-PA15 ... PG0-PG15 (as fitted on the package)"
+    # ADC1 channels 0-15: PA0-PA7 = 0-7, PB0-PB1 = 8-9, PC0-PC5 = 10-15
+    ADC = set(range(0, 8)) | {16, 17} | set(range(32, 38))
+
+    def parse_pin(self, v):
+        m = re.fullmatch(r"P([A-Za-z])\.?(\d{1,2})", str(v).strip()) if not isinstance(v, bool) else None
+        if not m or m.group(1).upper() not in self.PORTS or int(m.group(2)) > 15:
+            hint = " (STM32 pins are named by port, e.g. PB8)" if isinstance(v, int) else ""
+            raise ValueError(f"'{v}' is not a pin on {self.name}{hint} (valid: {self.VALID})")
+        return self.PORTS.index(m.group(1).upper()) * 16 + int(m.group(2))
+
+    def pin_name(self, num):
+        return f"P{self.PORTS[num // 16]}{num % 16}"
+
+    def check(self, num, role, flags, transport):
+        out, nm = [], self.pin_name(num)
+        if num in (11, 12):
+            out.append(("error", f"{nm} is a USB data line (D-/D+)"))
+        if num in (13, 14, 15, 19, 20):
+            out.append(("warning", f"{nm} is a JTAG/SWD pin: using it needs the debug port remapped "
+                                   "off, and SWD (PA13/PA14) then stops working"))
+        if num == 18:
+            out.append(("warning", "PB2 is BOOT1 on STM32F1: a pull at reset can change the boot mode"))
+        if num in (45, 46, 47) and role == "out":
+            out.append(("warning", f"{nm} is in the backup domain: it can only sink about 3 mA and "
+                                   "switch slowly (2 MHz); don't drive LEDs from it directly"))
+        return out
+
+    def adc(self, num):
+        return num in self.ADC, None
+
+
 class EspPlatform(Platform):
     is_esp = True
 
@@ -424,6 +569,7 @@ class EspPlatform(Platform):
 
 PLATFORMS = {p.name: p for p in [
     NucPlatform(),
+    Stm32F1Platform(),
     EspPlatform("esp32", valid=list(range(0, 20)) + [21, 22, 23, 25, 26, 27] + list(range(32, 40)),
                 flash=range(6, 12), strapping=[0, 2, 5, 12, 15], input_only=range(34, 40),
                 adc1=range(32, 40), adc2=[0, 2, 4, 12, 13, 14, 15, 25, 26, 27], uart0=[1, 3],
@@ -476,6 +622,12 @@ class Device:
         self.led_owner, self.led_timeout = 0, DEFAULT_LED_TIMEOUT_MS // 10
         self.mcu = None              # Hub(extender=bool, cable=0|1) when mcu: is given
         self.daw_port = False
+        # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
+        self.n_presets = 1
+        self.presets_given = False   # the YAML has presets:
+        self.presets_revision = 0
+        self.presets = []
+        self.budget = None           # storage_budget(self), after validation
 
 
 class Use:
@@ -499,6 +651,7 @@ class _V:
         self.plat = None
         self.transport = None
         self.hub_by_id = {}
+        self.presets = None      # the presets: mapping, once preset_slots has checked it
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
 
     def err(self, path, line, msg):
@@ -865,6 +1018,8 @@ def type_name(v):
 def adc_text(plat):
     if plat.name == "nuvoton-nuc1xx":
         return "ADC pins: PA0-PA7"
+    if plat.name == "stm32f1":
+        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
     if plat.name == "esp8266":
         return "the only ADC pin is A0"
     return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
@@ -973,8 +1128,11 @@ def validate(data, file=None):
     v.plat = plat = PLATFORMS[pname]
     dev.platform = plat
     dev.chip = v.string(data, "chip", "", required=True)
-    if dev.chip and not plat.is_esp and not re.fullmatch(r"NUC1\d\d\w+", dev.chip, re.I):
+    if dev.chip and plat.name == "nuvoton-nuc1xx" and not re.fullmatch(r"NUC1\d\d\w+", dev.chip, re.I):
         v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like a NUC1xx part number")
+    if dev.chip and plat.name == "stm32f1" and not re.fullmatch(r"(STM32|GD32|APM32|CKS32)F1\d\d\w*",
+                                                                 dev.chip, re.I):
+        v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like an STM32F1-class part number")
 
     # midi
     midi = data.get("midi") or LDict()
@@ -1039,6 +1197,7 @@ def validate(data, file=None):
                                                    f"'{addrs[h.addr]}'")
             addrs[h.addr] = h.id
 
+    preset_slots(v, dev, data)
     validate_components(v, dev, data)
 
     if data.get("key_matrix") is not None:
@@ -1058,6 +1217,9 @@ def validate(data, file=None):
                 v.warn(p, ln, f"'{bc[i]}' is listed twice")
             else:
                 dev.boot_combo.append(idx)
+
+    validate_presets(v, dev, data)
+    check_budget(v, dev, data)
 
     if len(dev.buttons) > 32:
         v.err("buttons", data.line_of("buttons"), f"{len(dev.buttons)} buttons: at most 32 (the runtime "
@@ -1201,7 +1363,8 @@ def validate_components(v, dev, data):
     buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
     for i, d in enumerate(buttons):
         p = f"buttons[{i}]"
-        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "led", "mcu"],
+        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "preset", "led",
+                                                 "mcu"],
                       renamed=RENAMED_BUTTON)
         if d is None:
             continue
@@ -1209,19 +1372,7 @@ def validate_components(v, dev, data):
         name = v.display_name(d, p, ident)
         unique_name(v, names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
-        act = d.get("action", "mcu" if "mcu" in d else "none")
-        if act not in ACTIONS:
-            close = difflib.get_close_matches(str(act), ACTIONS, 1)
-            hint = f"did you mean '{close[0]}'? " if close else ""
-            v.err(f"{p}.action", d.line_of("action"), f"unknown action '{act}' ({hint}valid: "
-                                                       f"{', '.join(ACTIONS)})")
-            act = "none"
-        if act == "mcu" or "mcu" in d:
-            num = button_mcu(v, dev, d, p, act)
-            if act != "mcu":
-                act = "none"
-        else:
-            num = button_number(v, d, p, act)
+        act, num = button_action(v, dev, d, p)
         led = -1
         if d.get("led") is not None:
             idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
@@ -1232,7 +1383,7 @@ def validate_components(v, dev, data):
                     led = -1
         if led >= 0:
             dev.leds[led].used_by.append(("button", act))
-        dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTIONS.index(act),
+        dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
                                action_name=act, number=num, led=led))
 
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
@@ -1318,7 +1469,7 @@ def button_mcu(v, dev, d, p, act):
         return 0
     if not mcu_needed(v, dev, f"{p}.action", d.line_of("action") if "action" in d else line):
         return 0
-    for k in ("cc", "note"):
+    for k in NUMBER_KEYS:
         if k in d:
             v.err(f"{p}.{k}", d.line_of(k), f"action mcu takes mcu: (e.g. `mcu: play`), not {k}:")
     if d.get("mcu") is None:
@@ -1453,29 +1604,70 @@ def unique_name(v, names, kind, name, path, d):
                "(set a different name:)")
 
 
-def button_number(v, d, p, act):
-    """The default button.number: cc: for the CC actions, note: for action note."""
-    want = "note" if act == "note" else "cc" if act in CC_ACTIONS else None
+def button_action(v, dev, d, p, base=None):
+    """A button's action and default button.number, from action: and cc: / note: / preset: / mcu:.
+    base: (action, number) of the component, for a preset's override of it: what the override leaves
+    out stays as the component has it. Returns (action name, number)."""
+    if "action" in d:
+        act = d["action"]
+        if act not in ACTIONS:
+            close = difflib.get_close_matches(str(act), ACTIONS, 1)
+            hint = f"did you mean '{close[0]}'? " if close else ""
+            v.err(f"{p}.action", d.line_of("action"), f"unknown action '{d.raw_of('action')}' ({hint}valid: "
+                                                       f"{', '.join(ACTIONS)})")
+            return base or ("none", 0)
+    else:
+        act = base[0] if base else "mcu" if "mcu" in d else "none"
+    if act in PRESET_ACTIONS and dev.n_presets < 2:
+        v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
+              f"action {act} switches presets, but this device has {dev.n_presets} preset slot: add "
+              "presets: (with 2 or more slots)")
+        return act, (base[1] if base else 0)
+    if act == "mcu" or "mcu" in d:
+        if base and act == base[0] == "mcu" and "mcu" not in d:
+            return act, base[1]
+        num = button_mcu(v, dev, d, p, act)
+        return (act if act == "mcu" else base[0] if base else "none"), num
+    return act, button_number(v, dev, d, p, act, base)
+
+
+def button_number(v, dev, d, p, act, base=None):
+    """The default button.number: cc: for the CC actions, note: for action note, preset: (the slot) for
+    preset_select. With base (a preset override), a number left out keeps the component's, and a
+    number on an action that takes none is an error (in a component it only warns)."""
+    want = number_key(act)
+    keep = base[1] if base else 0
+    given = [k for k in NUMBER_KEYS if k in d]
     if "cc" in d and "note" in d:
         v.err(p, d.line, "give cc: or note:, not both")
+    elif len(given) > 1:
+        v.err(p, d.line, f"give one of {', '.join(k + ':' for k in given)}, not {len(given)}")
     if want is None:
-        given = next((k for k in ("cc", "note") if k in d), None)
         if given:
-            v.warn(f"{p}.{given}", d.line_of(given), f"action {act} sends no CC or note; {given}: only "
-                                                     "sets the default button.number for when the action is "
-                                                     "changed in the config")
-            return v.integer(d, given, p, 0, 127, default=0)
-        return 0
-    other = "cc" if want == "note" else "note"
-    if other in d:
-        v.err(f"{p}.{other}", d.line_of(other), f"action {act} takes {want}:, not {other}:")
-        return v.integer(d, other, p, 0, 127, default=0)
+            k = given[0]
+            if base or k == "preset":
+                what = "a preset number" if k == "preset" else "a CC or note"
+                v.err(f"{p}.{k}", d.line_of(k), f"action {act} takes no {what}: drop {k}:")
+                return keep
+            v.warn(f"{p}.{k}", d.line_of(k), f"action {act} sends no CC or note; {k}: only "
+                                             "sets the default button.number for when the action is "
+                                             "changed in the config")
+            return v.integer(d, k, p, 0, 127, default=0)
+        return keep
+    other = [k for k in given if k != want]
+    if other:
+        v.err(f"{p}.{other[0]}", d.line_of(other[0]), f"action {act} takes {want}:, not {other[0]}:")
+        return v.integer(d, other[0], p, 0, 127, default=0) if other[0] != "preset" else keep
     if "number" in d:          # format 1; reported as renamed
         return 0
+    lo, hi = (1, dev.n_presets) if want == "preset" else (0, 127)
     if want not in d:
-        v.err(p, d.line, f"action {act} needs {want}: (0..127)")
+        if base and act == base[0]:
+            return keep
+        v.err(p, d.line, f"action {act} needs {want}: ({lo}..{hi}" +
+              (", the preset slot" if want == "preset" else "") + ")")
         return 0
-    return v.integer(d, want, p, 0, 127, default=0)
+    return v.integer(d, want, p, lo, hi, default=0)
 
 
 def validate_hub(v, dev, h, typ, p, line):
@@ -1626,6 +1818,304 @@ def validate_velocity(v, d, path, kind):
     return fast, slow
 
 
+# ---------------------------------------------------------------------------------------------
+# presets (research/core/presets-design.md §2, §10.2)
+
+def preset_section(v, data):
+    """presets: as a mapping, or None (not given, or not a mapping: reported once, here)."""
+    if data.get("presets") is None:
+        return None
+    return v.mapping(data["presets"], "presets", data.line_of("presets"), PRESETS_KEYS)
+
+
+def preset_slots(v, dev, data):
+    """Before the components (preset_select checks its slot against it): dev.n_presets and the
+    revision, from presets.slots (default: the number of listed presets, at least 1)."""
+    ps = v.presets = preset_section(v, data)
+    if ps is None:
+        return
+    dev.presets_given = True
+    lst = ps.get("list")
+    n_list = len(lst) if isinstance(lst, list) else 0
+    slots = v.integer(ps, "slots", "presets", 1, MAX_PRESETS)
+    if slots is not None and slots < n_list:
+        v.err("presets.slots", ps.line_of("slots"), f"{slots} slot{'s' if slots != 1 else ''} can't hold the "
+                                                     f"{n_list} presets in presets.list (set slots: {n_list} or more)")
+        slots = None
+    if n_list > MAX_PRESETS:
+        v.err("presets.list", ps.line_of("list"), f"{n_list} presets: at most {MAX_PRESETS}")
+    dev.n_presets = min(slots or max(n_list, 1), MAX_PRESETS)
+    dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
+
+
+def validate_presets(v, dev, data):
+    """presets.list -> dev.presets (one Hub per slot: name, program, vals = sorted (id, index, value,
+    comment) overrides that differ from slot 1)."""
+    ps = v.presets
+    lst = LList()
+    if ps is not None and "list" in ps:
+        lst = v.seq(ps["list"], "presets.list", ps.line_of("list"))
+    names = {}
+    dev.n_yaml_presets = max(1, min(len(lst), dev.n_presets))
+    dev.presets = []
+    for i in range(dev.n_presets):
+        slot = i + 1
+        p = f"presets.list[{i}]"
+        if i >= len(lst):
+            name = "Default" if slot == 1 else f"Preset {slot}"
+            dev.presets.append(Hub(name=name, program=-1, vals=[], listed=False))
+            if name.lower() in names:
+                pth, ln = names[name.lower()]
+                v.err(pth, ln, f"'{name}' is the name of empty slot {slot}: preset names are unique "
+                               "(set a different name:)")
+            continue
+        d = v.mapping(lst[i], p, lst.line_of(i), PRESET_KEYS)
+        if d is None:
+            dev.presets.append(Hub(name=f"Preset {slot}", program=-1, vals=[], listed=True))
+            continue
+        name = preset_name(v, d, p, slot)
+        if name.lower() in names:
+            pth, ln = names[name.lower()]
+            v.err(f"{p}.name" if "name" in d else p, d.line_of("name"),
+                  f"'{name}' is already the name of {pth} (line {ln}): preset names are unique")
+        names.setdefault(name.lower(), (p, d.line_of("name")))
+        program = v.integer(d, "program", p, 0, 127, default=-1)
+        vals = []
+        if slot == 1:
+            for k in d:
+                if k in PRESET_GLOBALS or k in PRESET_COMPONENTS:
+                    v.err(f"{p}.{k}", d.line_of(k), "preset 1 is the component defaults written in the rest "
+                                                    "of the file, so it takes only name: and program: (change "
+                                                    "the component itself, or put this in another preset)")
+        else:
+            vals = preset_values(v, dev, d, p)     # none: a named copy of preset 1 (fine)
+        dev.presets.append(Hub(name=name, program=program, vals=sorted(vals), listed=True, line=d.line))
+
+
+def preset_name(v, d, p, slot):
+    if d.get("name") is None:
+        return "Default" if slot == 1 else f"Preset {slot}"
+    name, line = d["name"], d.line_of("name")
+    if not isinstance(name, str):
+        name = d.raw_of("name")     # `name: 808` is the text 808
+    bad = [c for c in name if not 32 <= ord(c) <= 126]
+    if not name.strip():
+        v.err(f"{p}.name", line, "must be a non-empty string")
+    elif bad:
+        v.err(f"{p}.name", line, f"'{name}' has {bad[0]!r}: a preset name is printable ASCII (it is stored "
+                                 "and sent over SysEx as 7-bit text)")
+    elif len(name) > PRESET_NAME_LEN:
+        v.err(f"{p}.name", line, f"'{name}' is {len(name)} characters: at most {PRESET_NAME_LEN} "
+                                 f"(e.g. '{name[:PRESET_NAME_LEN].rstrip()}')")
+    else:
+        return name
+    return f"Preset {slot}"
+
+
+def preset_values(v, dev, d, p):
+    """A preset's overrides -> [(id, index, value, comment)], only those that differ from slot 1."""
+    out = []
+
+    def put(param, index, value, base, path, line, label, shown=None):
+        """One override; label names it (`button.action[sustain]`), shown is the value as written."""
+        if value is None:
+            return
+        text = f"{label} = {value if shown is None else shown}"
+        if value == base:
+            v.warn(path, line, f"the same as in preset 1 ({text}): ignored")
+            return
+        out.append((PARAM_ID[param], index, value, text))
+
+    for sec, keys in PRESET_GLOBALS.items():
+        if sec not in d:
+            continue
+        sp, sl = f"{p}.{sec}", d.line_of(sec)
+        g = v.mapping(d[sec], sp, sl, list(keys), renamed=PRESET_NOT_HERE.get(sec))
+        if g is None:
+            continue
+        for k, (param, default, kind, lo, hi) in keys.items():
+            if k not in g:
+                continue
+            kp, kl = f"{sp}.{k}", g.line_of(k)
+            if not any(n == param and c(dev) for n, _i, _s, c in PARAMS):
+                why = ("it needs a velocity key matrix (key_matrix: { type: velocity })"
+                       if param == "velocity.curve" else "the device has no buttons")
+                v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
+                continue
+            if kind == "int":
+                val, shown = v.integer(g, k, sp, lo, hi), None
+            elif kind == "ms":
+                val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
+                shown = f"{val} ms"
+            else:
+                val = enum_value(v, g, k, kp, kind)
+                shown = None if val is None else kind[val]
+            put(param, 0, val, default, kp, kl, param, shown)
+
+    for sec, (kind, plural, allowed, hw) in PRESET_COMPONENTS.items():
+        if sec not in d:
+            continue
+        sp, sl = f"{p}.{sec}", d.line_of(sec)
+        comps = d[sec]
+        if not isinstance(comps, dict):
+            v.err(sp, sl, f"must be a mapping of {kind} ids to what changes, e.g. "
+                          f"`{sec}: {{ {example_id(kind)}: {{ cc: 11 }} }}` (got {type_name(comps)})")
+            continue
+        for cid in comps:
+            cp, cl = f"{sp}.{cid}", comps.line_of(cid)
+            idx = preset_ref(v, cid, cp, cl, kind, plural)
+            if idx is None:
+                continue
+            o = v.mapping(comps[cid], cp, cl, allowed, renamed={k: f"{k}: is {_HW}" for k in hw})
+            if o is None:
+                continue
+            if not o:
+                v.warn(cp, cl, "changes nothing")
+                continue
+            line = lambda k: o.line_of(k) if k in o else o.line   # noqa: E731
+            if sec == "buttons":
+                b = dev.buttons[idx]
+                act, num = button_action(v, dev, o, cp, base=(b.action_name, b.number))
+                if "action" in o or act != b.action_name:
+                    put("button.action", idx, ACTION_IDS[act], b.action, f"{cp}.action", line("action"),
+                        f"button.action[{cid}]", act)
+                nk = next((k for k in (*NUMBER_KEYS, "mcu") if k in o), None)
+                if nk is not None or num != b.number:
+                    put("button.number", idx, num, b.number, f"{cp}.{nk or 'action'}", line(nk or "action"),
+                        f"button.number[{cid}]")
+            elif sec == "analog":
+                put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
+                    line("cc"), f"analog.cc[{cid}]")
+            else:
+                e = dev.encoders[idx]
+                if "cc" in o:
+                    put("encoder.cc", idx, v.integer(o, "cc", cp, 0, 127), e.cc, f"{cp}.cc", line("cc"),
+                        f"encoder.cc[{cid}]")
+                if "mode" in o:
+                    m = enum_value(v, o, "mode", f"{cp}.mode", ENC_MODES)
+                    put("encoder.mode", idx, m, 0, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
+                        None if m is None else ENC_MODES[m])
+    return out
+
+
+def enum_value(v, d, key, path, options):
+    x = d[key]
+    if x in options:
+        return options.index(x)
+    close = difflib.get_close_matches(str(d.raw_of(key)), options, 1)
+    hint = f"did you mean '{close[0]}'? " if close else ""
+    v.err(path, d.line_of(key), f"unknown {key} '{d.raw_of(key)}' ({hint}valid: {', '.join(options)})")
+    return None
+
+
+def preset_ref(v, cid, path, line, kind, plural):
+    """A component id used as a key in a preset -> its index, or None after saying why."""
+    target = v.ids.get(cid) if isinstance(cid, str) else None
+    if target is not None and target[0] == kind:
+        return target[3]
+    if target is not None:
+        v.err(path, line, f"'{cid}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+        return None
+    known = [i for i, t in v.ids.items() if t[0] == kind]
+    close = difflib.get_close_matches(str(cid), known, 1)
+    hint = f"; did you mean '{close[0]}'?" if close else ""
+    v.err(path, line, f"no {kind} with id '{cid}' ({plural}: {', '.join(known) or 'none'}{hint})")
+    return None
+
+
+# ---------------------------------------------------------------------------------------------
+# storage budget (research/core/presets-design.md §10.5)
+
+def record_bytes(n_values):
+    """Worst-case bytes of one stored record holding n_values values (with a name)."""
+    return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + 2 * n_values + REC_CRC_WORDS)
+
+
+def storage_need(plat_name, preset_rec, global_rec, slots):
+    """-> (record_ok, used, capacity, unit) for slots presets + the globals at worst case.
+    unit is "pages" for a journal, "B" otherwise."""
+    b = STORE_BUDGETS.get(plat_name)
+    if b is None:
+        return True, 0, 0, "B"
+    big = max(preset_rec, global_rec)
+    if b["kind"] == "journal":
+        page = b["page"]
+        if big > page:
+            return False, 0, b["pages"] - b["spare"], "pages"
+        per_page = page // preset_rec
+        pages = -(-slots // per_page)
+        left = page - ((slots % per_page) or per_page) * preset_rec
+        if global_rec > left:
+            pages += 1
+        return True, pages, b["pages"] - b["spare"], "pages"
+    total = slots * preset_rec + global_rec
+    limit = b.get("record", b["total"])
+    return big <= limit, total, b["total"], "B"
+
+
+def storage_budget(dev):
+    """The worst case of what the device stores, against its platform's store. -> dict (also shown by
+    gemifi_build.py and the dashboard)."""
+    n_preset, n_global = stored_counts(dev)
+    prec, grec = record_bytes(n_preset), record_bytes(n_global)
+    b = STORE_BUDGETS.get(dev.platform.name)
+    ok, used, cap, unit = storage_need(dev.platform.name, prec, grec, dev.n_presets)
+    fits = [s for s in range(1, MAX_PRESETS + 1)
+            if (lambda r: r[0] and r[1] <= r[2])(storage_need(dev.platform.name, prec, grec, s))]
+    calm = [s for s in fits if storage_need(dev.platform.name, prec, grec, s)[1] <=
+            BUDGET_WARN * storage_need(dev.platform.name, prec, grec, s)[2]]
+    return {"slots": dev.n_presets, "preset_values": n_preset, "global_values": n_global,
+            "preset_record": prec, "global_record": grec, "record_ok": ok,
+            "record_limit": None if b is None else b.get("record") or b.get("page") or b["total"],
+            "worst_bytes": dev.n_presets * prec + grec, "used": used, "capacity": cap, "unit": unit,
+            "fits": ok and used <= cap, "max_slots": max(fits) if fits else 0,
+            "max_slots_calm": max(calm) if calm else 0, "store": b and b["what"],
+            "page": b and b.get("page")}
+
+
+def budget_text(bd):
+    """'8 slots, worst case 1836 B: 5 of 6 pages' (for the summary line)."""
+    s = f"{bd['slots']} slot{'s' if bd['slots'] != 1 else ''}, worst case {bd['worst_bytes']} B"
+    if bd["unit"] == "pages":
+        return s + f" in {bd['used']} of {bd['capacity']} pages ({bd['capacity'] * bd['page']} B)"
+    if bd["capacity"]:
+        return s + f" of {bd['capacity']} B"
+    return s
+
+
+def check_budget(v, dev, data):
+    bd = dev.budget = storage_budget(dev)
+    if bd["store"] is None:
+        return
+    ps = data.get("presets") if dev.presets_given else None
+    path = "presets.slots" if isinstance(ps, dict) and "slots" in ps else "presets" if ps is not None else ""
+    line = (ps.line_of("slots") if path == "presets.slots" else data.line_of("presets")) if ps is not None \
+        else data.line
+    where = f"{dev.platform.name} {bd['store']}"
+    recs = (f"a preset record is up to {bd['preset_record']} B ({bd['preset_values']} per-preset values), "
+            f"the globals' {bd['global_record']} B ({bd['global_values']} values)")
+    if not bd["record_ok"]:
+        # Without presets: it was already so with the v1 record (the device works, but saving every
+        # value changed at once fails), so it stays a warning there.
+        (v.err if dev.presets_given else v.warn)(
+            path, line, f"the settings don't fit one record of the {where} (at most {bd['record_limit']} B): "
+                        f"{recs}, so saving many changed values at once would fail. Fewer buttons / analog "
+                        "inputs / encoders would fit")
+        return
+    if bd["unit"] == "pages":
+        need = (f"{bd['slots']} presets + the globals need up to {bd['used']} of the {bd['capacity']} usable "
+                f"{bd['page']} B pages (2 of {bd['capacity'] + 2} are kept free for rewrites)")
+    else:
+        need = f"{bd['slots']} presets + the globals need up to {bd['worst_bytes']} of {bd['capacity']} B"
+    if not bd["fits"]:
+        v.err(path, line, f"presets don't fit the {where}: {need}; {recs}. At most "
+                          f"{bd['max_slots']} slots fit (slots: {bd['max_slots']})")
+    elif bd["used"] > BUDGET_WARN * bd["capacity"]:
+        v.warn(path, line, f"presets use {100 * bd['used'] // bd['capacity']}% of the {where} at worst case: "
+                           f"{need}, so a full store means more erase cycles. Up to {bd['max_slots']} slots "
+                           f"fit; {bd['max_slots_calm']} or fewer stay under {int(BUDGET_WARN * 100)}%")
+
+
 def load_device(path, text=None):
     """Load and validate a device YAML. Returns (Device or None, [Diag])."""
     try:
@@ -1694,6 +2184,11 @@ def generate(dev, source="device.yaml"):
         h += [f"#define GM_I2C_SDA {dev.i2c[0].num} /* {dev.i2c[0].desc} */",
               f"#define GM_I2C_SCL {dev.i2c[1].num} /* {dev.i2c[1].desc} */"]
     h += feedback_defines(dev)
+    h += ["", "/* presets (research/core/presets-design.md §10.1) */",
+          f"#define GM_N_PRESETS {dev.n_presets} /* " +
+          ("presets.slots */" if dev.presets_given else "no presets: in the YAML */"),
+          f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
+          f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */"]
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -1780,6 +2275,7 @@ def generate(dev, source="device.yaml"):
           arr("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
           arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
     c += feedback_tables(dev)
+    c += preset_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 
 
@@ -1863,6 +2359,24 @@ def feedback_tables(dev):
         c.append(f"const gm_ring_t gm_encoder_ring[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
                  f"{{ {', '.join(rings) or '{ 0, 0 }'} }};")
         c.append("")
+    return c
+
+
+def preset_tables(dev):
+    """gm_presets[]: slot n = gm_presets[n - 1]; each preset's overrides (vs slot 1) sorted by (id, index)."""
+    c = ["/* presets: overrides of the slot 1 values, as { param id, index, value } (ids: gm_settings.h) */"]
+    rows = []
+    presets = dev.presets or [Hub(name="Default", program=-1, vals=[], listed=False)]
+    for n, pr in enumerate(presets, 1):
+        arr = "0"
+        if pr.vals:
+            arr = f"preset_{n}_vals"
+            c.append(f"static const gm_preset_val_t {arr}[{len(pr.vals)}] = {{ /* {_comment(pr.name)} */")
+            c += [f"    {{ {pid}, {idx}, {val} }}, /* {_comment(text)} */" for pid, idx, val, text in pr.vals]
+            c.append("};")
+        prog = "GM_PROGRAM_NONE" if pr.program < 0 else str(pr.program)
+        rows.append(f"    {{ {c_str(pr.name)}, {prog}, {len(pr.vals)}, {arr} }}, /* slot {n} */")
+    c += ["const gm_preset_def_t gm_presets[GM_N_PRESETS] = {", *rows, "};", ""]
     return c
 
 

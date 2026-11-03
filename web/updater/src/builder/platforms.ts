@@ -3,6 +3,7 @@ import type { BuilderDevice, Platform } from './api.ts';
 /** What each platform is called on screen. */
 const PLATFORM_LABELS = Object.freeze({
   'nuvoton-nuc1xx': 'Nuvoton NUC1xx',
+  stm32f1: 'STM32F1',
   esp32: 'ESP32',
   esp32s2: 'ESP32-S2',
   esp32s3: 'ESP32-S3',

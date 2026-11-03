@@ -1,7 +1,10 @@
 # host-sim: native (host gcc) simulation of the NUC1xx bootloader, the usb-log
-# app and the USB-MIDI packing. See README.md.
+# app, the USB-MIDI packing, the config_store journal and the midi-controller's
+# presets end to end. See README.md.
 #
-#   make test     build everything into build/ and run all checks
+#   make test       build everything into build/ and run all checks
+#   make cs-test    only the config_store journal test (no arm-none-eabi-gcc)
+#   make presets-test  only the presets end-to-end test (no arm-none-eabi-gcc)
 #   make clean
 #
 # Needs: host gcc, python3, and arm-none-eabi-gcc (to build hello-led.gfw,
@@ -17,11 +20,17 @@ HELLO  := $(ROOT)/firmware/nuvoton-nuc1xx/hello-led
 CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fPIC \
           -Istub -I$(PLAT)/include -I$(ROOT)/core/include -DBOARD_HEADER='"simboard.h"'
 
-.PHONY: test clean hello-led
-test: $(BUILD)/libboot.so $(BUILD)/libboot_test.so $(BUILD)/libapp.so $(BUILD)/midi_test hello-led
+.PHONY: test clean hello-led cs-test presets-test
+test: $(BUILD)/libboot.so $(BUILD)/libboot_test.so $(BUILD)/libapp.so $(BUILD)/libctl.so $(BUILD)/midi_test $(BUILD)/cs_test hello-led
 	$(BUILD)/midi_test
+	$(BUILD)/cs_test $(CS_ARGS)
 	SIM_BUILD=$(BUILD) $(PYTHON) -I run_sim.py
 	SIM_BUILD=$(BUILD) $(PYTHON) -I run_app.py
+	SIM_BUILD=$(BUILD) $(PYTHON) -I run_presets.py
+
+# Only the presets end-to-end test (host gcc only).
+presets-test: $(BUILD)/libctl.so
+	SIM_BUILD=$(BUILD) $(PYTHON) -I run_presets.py
 
 hello-led:
 	$(MAKE) -C $(HELLO)
@@ -45,6 +54,27 @@ $(BUILD)/libapp.so: $(APP_SRCS) $(ROOT)/firmware/nuvoton-nuc1xx/usb-log/main.c $
 
 $(BUILD)/midi_test: midi_test.c $(PLAT)/src/usb_midi.c $(ROOT)/core/src/gsx.c | $(BUILD)
 	$(HOSTCC) $(filter-out -fPIC,$(CFLAGS)) $^ -o $@
+
+# The midi-controller's protocol side (core/src, presets included) with the
+# generated Keystation device config and the real config_store.c.
+DEVICE  := $(ROOT)/devices/keystation-mini32-mk3.yaml
+DEV_DIR := $(BUILD)/device
+CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c midi_in.c mcu.c presets.c) \
+            $(DEV_DIR)/gm_device_config.c
+
+$(DEV_DIR)/gm_device_config.c: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py) | $(BUILD)
+	$(PYTHON) $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV_DIR) >/dev/null
+
+$(BUILD)/libctl.so: $(CTL_SRCS) $(wildcard $(ROOT)/core/include/*.h $(PLAT)/include/*.h) | $(BUILD)
+	$(HOSTCC) $(CFLAGS) -shared -I$(DEV_DIR) $(CTL_SRCS) -o $@
+
+# CS_ARGS=-q: fewer power-cut sweeps; -long: 20x the writes, no sweeps.
+cs-test: $(BUILD)/cs_test
+	$(BUILD)/cs_test $(CS_ARGS)
+
+$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c $(ROOT)/core/include/config_store.h | $(BUILD)
+	$(HOSTCC) -O2 $(filter-out -fPIC -O1,$(CFLAGS)) $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf $(BUILD)

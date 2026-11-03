@@ -131,7 +131,7 @@ Points in favour of (a), and later (a′):
 1. Does the bootloader accept a stream sent by our tool? Does it accept a non-stock image whose checksum is correct?
 2. Does it check the image checksum at every boot, or only on `0D`? What do `0D` and `0E` do exactly, and what's the difference between the `45` and `1A` acks?
 3. Is there a button combo at power-up, and does a soft reset with the flag set enter update mode?
-4. Is the record signature `6A 04 DA 3B` model-specific? Compare against the Code 61 (and 25/88) updater files. The newest Code 61 update (fw 1.0.4.4, updater 1.3.0) needs tracking down.
+4. ~~Is the record signature `6A 04 DA 3B` model-specific?~~ **Answered 2026-11-02:** no. The Code 61 v1.2.2 file uses the same signature, layout and checksum rule, and our packer rebuilds it byte for byte.
 5. Chip marking (ST or clone), RDP and write-protect option bytes, and whether SWD pads and BOOT0 are reachable.
 6. Which vendor EEPROM pages are in use, so gemifi can pick free ones and leave the calibration alone.
 7. The bootloader's USB identity in update mode (VID/PID, port name).

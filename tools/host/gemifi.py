@@ -9,6 +9,9 @@
   gemifi.py flash FILE.bin --board 0x3F00 --version 1.2.3
                                       upload to an A/B device (ESP32/ESP8266): the app takes it itself
   gemifi.py flash FILE --dry-run      check the image and print the upload plan; no MIDI
+  gemifi.py flash FILE.gfw            Code 61 (board 0x0002): through M-Audio's own bootloader (maudio_update.py)
+  gemifi.py restore-stock FirmwareFile.hex.txt
+                                      Code 61: send a vendor update file as it is (back to stock firmware)
 
 Config (app firmware, sysex.md 4.3):
   gemifi.py schema [--json] [--raw OUT.bin]   print the device's param schema
@@ -18,8 +21,16 @@ Config (app firmware, sysex.md 4.3):
                                       (any case), on/off for bool, or a note name (MIDI 60 = C4)
   gemifi.py commit                    store the current values in flash
   gemifi.py factory-reset [--yes]     back to defaults and erase the stored profile
-  gemifi.py backup OUT.json           save every value by name
+  gemifi.py backup OUT.json           save every value by name (with presets: every slot, then back)
   gemifi.py restore IN.json [--commit]
+
+Presets (sysex.md 4.5; HELLO caps bit 5):
+  gemifi.py presets                   list the slots: number, name, active (*), unsaved/stored edits, program
+  gemifi.py preset select N|NAME [--discard]
+  gemifi.py preset save [N|NAME] [--name NAME]   store the live values (save-as with N) and make it active
+  gemifi.py preset reset N|NAME|all [--yes]      back to the firmware's preset (stored edits and name dropped)
+  gemifi.py preset rename N|NAME NEWNAME         ("" = back to the firmware's name)
+  flash takes --backup FILE / --no-backup and --keep-presets / --use-firmware-presets (see tools/README.md)
 
 Backends: python-rtmidi, then mido, then raw ALSA /dev/snd/midiC*D* (Linux, no dependencies).
 Choose one with --backend. --port picks a port by substring instead of the "gemifi" name match.
@@ -35,6 +46,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gemifi_image as gi  # noqa: E402
 import gemifi_proto as gp  # noqa: E402
+import maudio_update as mu  # noqa: E402
 
 
 class GemifiError(RuntimeError):
@@ -94,6 +106,7 @@ class Session:
                 if left <= 0:
                     break
                 resend = False
+                found = None
                 for msg in self.port.recv(left):
                     if not gp.is_gemifi(msg):
                         continue
@@ -107,15 +120,18 @@ class Session:
                         if self.on_unsolicited:
                             self.on_unsolicited(f)
                         continue
-                    if gp.reply_matches(f, cmd, seq):
+                    if found is None and gp.reply_matches(f, cmd, seq):
                         if f.status in (gp.BAD_CHECKSUM, gp.BUSY):
                             resend = True      # not completed on the device: same seq again
                             if f.status == gp.BUSY:
                                 time.sleep(min(self.timeout, 0.05))
                             break
-                        return f
+                        found = f              # still pass on unsolicited messages that came with it
+                        continue
                     if self.verbose:
                         print(f"  ignoring frame cmd 0x{f.cmd:02x} seq {f.seq}", file=sys.stderr)
+                if found is not None:
+                    return found
                 if resend:
                     break
         raise NoReply(f"no reply to {gp.CMD_NAMES.get(cmd, hex(cmd))} after {tries} tries")
@@ -211,6 +227,36 @@ class Session:
 
     def factory_reset(self):
         expect_ok(self.request(gp.FACTORY_RESET), "FACTORY_RESET")
+
+    # -- presets (sysex.md 4.5) --
+
+    def preset_info(self, slot=0):
+        """PRESET_INFO for `slot` (0 = the active one)."""
+        f = expect_ok(self.request(gp.PRESET_INFO, gp.req_preset_info(slot)), f"PRESET_INFO {slot}")
+        info = gp.parse_preset_info(f.payload)
+        if slot and info.slot != slot:
+            raise GemifiError(f"PRESET_INFO: reply is for slot {info.slot}, asked for {slot}")
+        return info
+
+    def preset_infos(self):
+        """PRESET_INFO for every slot, 1..count."""
+        first = self.preset_info(0)
+        return [first if n == first.slot else self.preset_info(n) for n in range(1, first.count + 1)]
+
+    def preset_select(self, slot):
+        """Select = SET_PARAM preset.active. Unsaved edits of the old preset are dropped."""
+        now = self.set_param(gp.P_PRESET_ACTIVE, 0, slot)
+        if now != slot:
+            raise GemifiError(f"selected preset {slot}, but the device reports {now}")
+
+    def preset_save(self, slot):
+        expect_ok(self.request(gp.PRESET_SAVE, gp.req_preset_save(slot)), f"PRESET_SAVE {slot}")
+
+    def preset_reset(self, slot=gp.PRESET_ALL):
+        expect_ok(self.request(gp.PRESET_RESET, gp.req_preset_reset(slot)), f"PRESET_RESET {slot or 'all'}")
+
+    def preset_name(self, slot, name):
+        expect_ok(self.request(gp.PRESET_NAME, gp.req_preset_name(slot, name)), f"PRESET_NAME {slot}")
 
 
 def expect_ok(f, what):
@@ -370,7 +416,7 @@ def print_hello(name, h):
     print(f"  fw_version  {gp.fmt_version(h.fw_version)}")
     print(f"  protocol    {h.proto_version}")
     caps = [n for b, n in ((gp.CAP_FW, "fw-upload"), (gp.CAP_CONFIG, "config"), (gp.CAP_LOG, "log"),
-                           (gp.CAP_EVENT, "event")) if h.caps & b]
+                           (gp.CAP_EVENT, "event"), (gp.CAP_PRESETS, "presets")) if h.caps & b]
     print(f"  caps        0x{h.caps:04x} {' '.join(caps)}")
     print(f"  max_chunk   {h.max_chunk}")
     print(f"  uid         {h.uid_hex}")
@@ -393,6 +439,8 @@ def print_unsolicited(f, schema=None):
             print(gp.parse_event(f.payload), flush=True)
         elif f.cmd == gp.PARAM_CHANGED:
             print(describe_param_changed(gp.parse_param_changed(f.payload), schema), flush=True)
+        elif f.cmd == gp.PRESET_CHANGED:
+            print(gp.parse_preset_changed(f.payload), flush=True)
         else:
             print(f"[unsolicited 0x{f.cmd:02x}] {f.payload.hex()}", flush=True)
     except gp.ProtocolError as e:
@@ -668,23 +716,124 @@ def cmd_factory_reset(a, backend):
     return 0
 
 
-BACKUP_FORMAT = 1
+BACKUP_FORMAT = 1            # {"values"}: a device without presets
+BACKUP_FORMAT_PRESETS = 2    # {"values": globals, "active", "presets": [every slot]}
+
+
+def has_presets(h):
+    return bool(h.caps & gp.CAP_PRESETS) and bool(h.caps & gp.CAP_CONFIG)
+
+
+def quiet_presets(s):
+    """While the tool switches presets itself: drop the PRESET_CHANGED / PARAM_CHANGED that it causes."""
+    def handler(f):
+        if f.cmd not in (gp.PRESET_CHANGED, gp.PARAM_CHANGED):
+            print_unsolicited(f)
+    s.on_unsolicited = handler
+
+
+def preset_session(a, backend):
+    """config_session for a device with presets (HELLO caps bit 5). Returns (name, port, session, hello)."""
+    name, port, s, h = config_session(a, backend)
+    if not h.caps & gp.CAP_PRESETS:
+        port.close()
+        raise GemifiError(f"{name}: this firmware has no presets (HELLO caps 0x{h.caps:04x}, bit 5 not set)")
+    quiet_presets(s)
+    return name, port, s, h
+
+
+def read_values(s, params):
+    out = {}
+    for p in params:
+        vals = s.get_values(p)
+        out[p.name] = vals[0] if p.count == 1 else vals
+    return out
+
+
+def preset_params(schema):
+    """The params each preset has its own value of (schema flag PRESET)."""
+    return [p for p in schema.params if p.per_preset]
+
+
+def global_params(schema):
+    """Everything else, without preset.active (a backup keeps that as "active") and preset.dirty (state)."""
+    return [p for p in schema.params if not p.per_preset and p.id not in (gp.P_PRESET_ACTIVE, gp.P_PRESET_DIRTY)]
+
+
+def sub_schema(schema, params):
+    return gp.Schema(schema.version, schema.groups, list(params))
+
+
+def put_back(s, params, want):
+    """Write the values in `want` ({name: value | [values]}) that differ from what the device has now."""
+    for p in params:
+        w = want[p.name] if isinstance(want[p.name], list) else [want[p.name]]
+        now = s.get_values(p)
+        for i in range(0, p.count, gp.MAX_RUN):
+            if now[i:i + gp.MAX_RUN] != w[i:i + gp.MAX_RUN]:
+                s.set_values(p.id, i, w[i:i + gp.MAX_RUN])
+
+
+def backup_doc(s, h, schema, progress=None):
+    """Read the device into a backup document. With presets, it switches to every slot in turn and reads
+    its values (sysex.md 4.5 "Backups"), then switches back to the slot that was active and puts its unsaved
+    edits back, so the device ends as it started (dirty flag included)."""
+    doc = {"gemifi_backup": BACKUP_FORMAT, "board_id": h.board_id, "fw_version": gp.fmt_version(h.fw_version)}
+    if not has_presets(h) or schema.by_id(gp.P_PRESET_ACTIVE) is None:
+        doc["values"] = read_values(s, schema.params)
+        return doc
+    quiet_presets(s)
+    infos = s.preset_infos()
+    first = infos[0]
+    active = first.active
+    pp = preset_params(schema)
+    doc.update(gemifi_backup=BACKUP_FORMAT_PRESETS, presets_revision=first.revision, active=active,
+               values=read_values(s, global_params(schema)))
+    live = read_values(s, pp)              # the active slot as it is now, unsaved edits included
+    dirty = next(i.dirty for i in infos if i.slot == active)
+    slots, switched = [], False
+    try:
+        for i in infos:
+            if i.slot == active:
+                vals = live
+            else:
+                s.preset_select(i.slot)
+                switched = True
+                vals = read_values(s, pp)
+            e = {"slot": i.slot, "name": i.name, "stored": i.stored, "stored_revision": i.stored_revision,
+                 "values": vals}
+            if i.slot == active and dirty:
+                e["unsaved"] = True
+            slots.append(e)
+            if progress:
+                progress(len(slots), len(infos))
+    finally:
+        if switched:
+            s.preset_select(active)
+            if dirty:
+                put_back(s, pp, live)
+    doc["presets"] = slots
+    return doc
+
+
+def backup_summary(doc):
+    n = len(doc["values"]) + sum(len(e["values"]) for e in doc.get("presets", []))
+    return f"{n} params" + (f", {len(doc['presets'])} presets" if "presets" in doc else "")
+
+
+def write_backup(doc, path):
+    with open(path, "w") as f:
+        json.dump(doc, f, indent=1)
+        f.write("\n")
 
 
 def cmd_backup(a, backend):
     name, port, s, h = config_session(a, backend)
     with port:
         schema = s.get_schema()
-        values = {}
-        for p in schema.params:
-            vals = s.get_values(p)
-            values[p.name] = vals[0] if p.count == 1 else vals
-    doc = {"gemifi_backup": BACKUP_FORMAT, "board_id": h.board_id, "fw_version": gp.fmt_version(h.fw_version),
-           "values": values}
-    with open(a.file, "w") as f:
-        json.dump(doc, f, indent=1)
-        f.write("\n")
-    print(f"{name}: saved {len(values)} params ({sum(p.count for p in schema.params)} values) to {a.file}")
+        doc = backup_doc(s, h, schema)
+    write_backup(doc, a.file)
+    print(f"{name}: saved {backup_summary(doc)} to {a.file}")
     return 0
 
 
@@ -763,26 +912,250 @@ def restore_values(s, schema, values, warn=print):
     return n_set, n_err
 
 
+def restore_presets(s, schema, doc, warn=print):
+    """A format-2 backup onto a device with presets: the globals, then every slot (PRESET_RESET it, and if
+    the backup has stored edits for it: select, set its values, PRESET_SAVE, PRESET_NAME), then select the
+    slot that was active and COMMIT, so preset.active is stored too. Returns (n_set, n_errors)."""
+    quiet_presets(s)
+    first = s.preset_info(0)
+    count = first.count
+    gvals = {k: v for k, v in doc["values"].items() if k != "preset.active"}
+    n_set, n_err = restore_values(s, sub_schema(schema, global_params(schema)), gvals, warn)
+    pview = sub_schema(schema, preset_params(schema))
+    done = set()
+    for e in doc["presets"]:
+        n = e.get("slot")
+        if not isinstance(n, int) or not 1 <= n <= count:
+            warn(f"  warning: preset {n}: this device has presets 1..{count}; skipped")
+            continue
+        s.preset_reset(n)
+        done.add(n)
+        if not e.get("stored"):
+            continue                       # no stored edits in the backup: the firmware's preset as it is
+        s.preset_select(n)
+        k, err = restore_values(s, pview, e.get("values", {}),
+                                lambda m, n=n: warn(m.replace("  ", f"  preset {n}: ", 1)))
+        n_set, n_err = n_set + k, n_err + err
+        s.preset_save(n)
+        name = e.get("name")
+        if isinstance(name, str) and name != s.preset_info(n).name:
+            try:
+                s.preset_name(n, name)
+            except (ValueError, StatusError) as ex:
+                warn(f"  preset {n}: name {name!r}: {ex}")
+                n_err += 1
+    left = [n for n in range(1, count + 1) if n not in done]
+    if left:
+        warn(f"  presets not in the backup, left as they are: {', '.join(map(str, left))}")
+    active = doc.get("active")
+    s.preset_select(active if isinstance(active, int) and 1 <= active <= count else 1)
+    s.commit()
+    return n_set, n_err
+
+
 def cmd_restore(a, backend):
     with open(a.file) as f:
         doc = json.load(f)
     values = doc.get("values") if isinstance(doc, dict) else None
     if not isinstance(values, dict):
         raise GemifiError(f"{a.file}: not a gemifi backup (no \"values\" object)")
+    presets = doc.get("presets")
+    if presets is not None and not isinstance(presets, list):
+        raise GemifiError(f"{a.file}: \"presets\" is not a list")
     name, port, s, h = config_session(a, backend)
     with port:
         if "board_id" in doc and doc["board_id"] != h.board_id:
             print(f"  warning: backup is from board 0x{doc['board_id']:04x}, this is 0x{h.board_id:04x}; "
                   "matching by name anyway")
         schema = s.get_schema()
+        if presets is not None and has_presets(h):
+            n_set, n_err = restore_presets(s, schema, doc)
+            print(f"{name}: restored {n_set} values in {len(presets)} presets" + (f", {n_err} errors" if n_err else ""))
+            print("stored in flash (every preset is saved as it is restored)")
+            return 1 if n_err else 0
+        if presets is not None:
+            act = next((e for e in presets if e.get("slot") == doc.get("active")), presets[0] if presets else None)
+            print("  warning: the backup has presets but this firmware doesn't; restoring the globals and "
+                  f"preset {act['slot'] if act else '?'} only")
+            values = dict(values, **(act or {}).get("values", {}))
+        elif has_presets(h):
+            print(f"  note: a backup without presets; per-preset values go into the active preset "
+                  f"({s.preset_info(0).active})")
         n_set, n_err = restore_values(s, schema, values)
         print(f"{name}: restored {n_set} values" + (f", {n_err} errors" if n_err else ""))
         maybe_commit(s, a, n_set)
     return 1 if n_err else 0
 
 
+# ---------------- presets (sysex.md 4.5) ----------------
+
+def program_text(v):
+    return "off" if v < 0 else str(v)
+
+
+def print_presets(infos):
+    first = infos[0]
+    print(f"{first.count} presets, active {first.active}, firmware presets revision {first.revision}")
+    w = max(len(i.name) for i in infos)
+    print(f"     #  {'name'.ljust(w)}  {'program':7}  state")
+    for i in infos:
+        state = []
+        if i.dirty:
+            state.append("unsaved edits")
+        if i.stored:
+            state.append("stored edits" + (f" (revision {i.stored_revision})" if i.stale else ""))
+        if not i.yaml:
+            state.append("empty slot")
+        mark = "*" if i.is_active else " "
+        print(f"  {mark} {i.slot:2d}  {i.name.ljust(w)}  {program_text(i.program):7}  {', '.join(state)}".rstrip())
+
+
+def cmd_presets(a, backend):
+    name, port, s, h = preset_session(a, backend)
+    with port:
+        infos = s.preset_infos()
+    print(name)
+    print_presets(infos)
+    return 0
+
+
+def slot_arg(infos, text):
+    """A preset by number (1..count) or by name (any case)."""
+    t = text.strip()
+    if t.isdigit():
+        n = int(t)
+        if 1 <= n <= infos[0].count:
+            return n
+        raise GemifiError(f"preset {n}: this device has presets 1..{infos[0].count}")
+    hits = [i.slot for i in infos if i.name.lower() == t.lower()]
+    if not hits:
+        raise GemifiError(f"no preset named {text!r} (gemifi.py presets lists them)")
+    return hits[0]
+
+
+def cmd_preset(a, backend):
+    name, port, s, h = preset_session(a, backend)
+    with port:
+        infos = s.preset_infos()
+        cur = next(i for i in infos if i.is_active)
+        what = a.preset_cmd
+        if what == "select":
+            n = slot_arg(infos, a.slot)
+            if cur.dirty and not a.discard and not confirm(
+                    f"preset {cur.slot} ({cur.name}) has unsaved edits; switching drops them."):
+                print("cancelled (save them with `gemifi.py preset save`, or pass --discard)")
+                return 1
+            s.preset_select(n)
+            i = s.preset_info(n)
+            print(f"{name}: preset {n} ({i.name}) active")
+            return 0
+        if what == "save":
+            n = slot_arg(infos, a.slot) if a.slot is not None else cur.slot
+            if a.name is not None:
+                gp_check_name(a.name)
+            s.preset_save(n)
+            if a.name is not None:
+                s.preset_name(n, a.name)
+            i = s.preset_info(n)
+            print(f"{name}: saved into preset {n} ({i.name})" + ("" if n == cur.slot else f", copied from {cur.slot}")
+                  + "; it is now the active one")
+            return 0
+        if what == "reset":
+            if a.slot.lower() == "all":
+                n, label = gp.PRESET_ALL, "every preset"
+            else:
+                n = slot_arg(infos, a.slot)
+                label = f"preset {n} ({next(i.name for i in infos if i.slot == n)})"
+            if not a.yes and not confirm(f"{name}: drop the stored edits and name of {label}, back to the "
+                                         "firmware's values?"):
+                print("cancelled")
+                return 1
+            s.preset_reset(n)
+            print(f"{name}: {label} back to the firmware's values")
+            return 0
+        if what == "rename":
+            n = slot_arg(infos, a.slot)
+            gp_check_name(a.name)
+            s.preset_name(n, a.name)
+            print(f"{name}: preset {n} is now {s.preset_info(n).name!r}"
+                  + (" (the firmware's name)" if a.name == "" else ""))
+            return 0
+    raise GemifiError(f"unknown preset command {what!r}")
+
+
+def gp_check_name(name):
+    try:
+        gp.check_preset_name(name)
+    except ValueError as e:
+        raise GemifiError(str(e)) from None
+
+
+# ---------------- presets around a firmware upload (sysex.md 4.5 "After a firmware upload") ----------------
+
+def auto_backup_name(h):
+    return f"gemifi-backup-{h.board_id:04x}-{gp.fmt_version(h.fw_version)}-{time.strftime('%Y%m%d-%H%M%S')}.json"
+
+
+def flash_backup(a, s, h):
+    """Before an upload, on an open app session: save every preset and the globals to a file, unless
+    --no-backup. The default (no --backup) does it only on a device with presets, to an automatic name in
+    the current directory. Returns the path or None."""
+    if getattr(a, "no_backup", False):
+        return None
+    path = getattr(a, "backup", None)
+    if path is None and not has_presets(h):
+        return None
+    if not h.caps & gp.CAP_CONFIG:
+        if path:
+            raise GemifiError("--backup: this firmware has no config to back up")
+        return None
+    path = path or auto_backup_name(h)
+    doc = backup_doc(s, h, s.get_schema())
+    write_backup(doc, path)
+    print(f"backup: saved {backup_summary(doc)} to {path} (gemifi.py restore {path} puts it back)")
+    return path
+
+
+def ask_presets_choice(backup):
+    undo = f" The backup {backup} can bring them back." if backup else ""
+    try:
+        ans = input(f"Keep your edits on top of the new presets, or use the firmware's presets (drops your "
+                    f"edits and names).{undo} [K]eep / [u]se: ").strip().lower()
+    except EOFError:
+        ans = ""
+    return "use" if ans in ("u", "use") else "keep"
+
+
+def presets_after_upload(a, s, h, backup=None):
+    """After an upload: if a slot's stored edits were made on another presets revision, keep them
+    (--keep-presets, the default answer) or PRESET_RESET every slot (--use-firmware-presets). Asks when
+    neither flag is given. Returns 'keep', 'use' or None (nothing to decide)."""
+    if not has_presets(h):
+        return None
+    quiet_presets(s)
+    infos = s.preset_infos()
+    stale = [i for i in infos if i.stale]
+    if not stale:
+        return None
+    print(f"The presets in this firmware changed (revision {infos[0].revision}). Your stored edits were made on "
+          "another revision in: " + ", ".join(f"{i.slot} {i.name} (revision {i.stored_revision})" for i in stale))
+    if getattr(a, "use_firmware_presets", False):
+        choice = "use"
+    elif getattr(a, "keep_presets", False):
+        choice = "keep"
+    else:
+        choice = ask_presets_choice(backup)
+    if choice == "use":
+        s.preset_reset(gp.PRESET_ALL)
+        print("presets: every slot reset to the firmware's presets" + (f" (undo: gemifi.py restore {backup})"
+                                                                        if backup else ""))
+    else:
+        print("presets: kept your edits on top of the new presets")
+    return choice
+
+
 def is_gfw(img):
-    return len(img) >= gi.HDR_OFFSET + 4 and img[gi.HDR_OFFSET:gi.HDR_OFFSET + 4] == b"GMFI"
+    return gi.find_hdr_offset(img) is not None
 
 
 def ab_args(a):
@@ -802,6 +1175,9 @@ def cmd_flash(a, backend_factory):
     with open(a.file, "rb") as f:
         img = f.read()
     gfw = is_gfw(img)
+    if (gfw and gi.parse_header(img, gi.find_hdr_offset(img)).board_id == mu.BOARD_ID) or \
+            (not gfw and a.board == mu.BOARD_ID):
+        return flash_vendor(a, backend_factory, img)
     if gfw:
         try:
             hdr = gi.check_image(img, a.board)
@@ -835,6 +1211,10 @@ def cmd_flash(a, backend_factory):
     t0 = time.monotonic()
     boot_wait = a.wait if a.wait is not None else 6.0
     boot = None if getattr(backend, "fixed", False) else find_port(backend, "boot", a.boot_port)
+    backup = app = None
+    if boot and getattr(a, "backup", None) and not getattr(a, "no_backup", False):
+        raise GemifiError(f"--backup: {boot} is the bootloader, so there is nothing to read; start the app first "
+                          "or pass --no-backup")
     if not boot:
         app = find_port(backend, "app", a.port)
         if not app:
@@ -843,23 +1223,29 @@ def cmd_flash(a, backend_factory):
             s = Session(port, retries=a.retries, verbose=a.verbose)
             h = s.hello()
             if h.role == gp.ROLE_BOOT:
+                if getattr(a, "backup", None) and not getattr(a, "no_backup", False):
+                    raise GemifiError(f"--backup: {app} answers as the bootloader, so there is nothing to read")
                 boot, app = app, None          # a serial port answering as a bootloader
             elif is_ab(h):
                 if gfw:
                     raise GemifiError(f"{app} takes uploads in the app (A/B slots, no gemifi bootloader): give it "
                                       "the chip's own image (e.g. the ESP app .bin) with --board and --version, "
                                       "not a .gfw")
-                return flash_ab(a, backend, app, s, h, img, board, version, t0)
+                backup = flash_backup(a, s, h)
+                return flash_ab(a, backend, app, s, h, img, board, version, t0, backup)
             else:
                 if not gfw:
                     raise GemifiError(f"{app} uploads through the gemifi bootloader, which needs a .gfw image "
                                       "(mkimage.py), not a raw .bin")
                 if h.board_id != hdr.board_id:
                     raise GemifiError(f"device board_id 0x{h.board_id:04x} != image 0x{hdr.board_id:04x}")
+                backup = flash_backup(a, s, h)
                 print(f"{app}: app {gp.fmt_version(h.fw_version)}; rebooting into the bootloader")
                 s.reboot(gp.REBOOT_BOOT)
         if app:
             boot = wait_port(backend, "boot", boot_wait, a.boot_port, gone=app)
+    if app is None and not getattr(a, "no_backup", False):
+        print("note: the device is in the bootloader, so no backup of its settings was made")
 
     if not gfw:
         raise GemifiError(f"{boot} is a gemifi bootloader, which needs a .gfw image (mkimage.py), not a raw .bin")
@@ -879,12 +1265,15 @@ def cmd_flash(a, backend_factory):
 
     app = wait_port(backend, "app", boot_wait, a.port, gone=boot)
     with backend.open(app) as port:
-        print_hello(app, Session(port, retries=a.retries).hello())
+        s = Session(port, retries=a.retries, on_unsolicited=print_unsolicited, verbose=a.verbose)
+        h = s.hello()
+        print_hello(app, h)
+        presets_after_upload(a, s, h, backup)
     print(f"done in {time.monotonic() - t0:.1f} s")
     return 0
 
 
-def flash_ab(a, backend, name, s, h, img, board, version, t0):
+def flash_ab(a, backend, name, s, h, img, board, version, t0, backup=None):
     """A/B upload on an open session to the app (sysex.md 4.1, 4.2 "A/B devices"): FW_* to the app itself,
     then REBOOT(0) (never REBOOT(1)), then wait for HELLO and check the new fw_version."""
     print(f"{name}: app {gp.fmt_version(h.fw_version)} takes uploads itself (max_chunk {h.max_chunk})")
@@ -899,8 +1288,103 @@ def flash_ab(a, backend, name, s, h, img, board, version, t0):
     if h2.fw_version != version:
         raise GemifiError(f"the device runs {gp.fmt_version(h2.fw_version)} after the reboot, expected "
                           f"{gp.fmt_version(version)} (wrong --version, or the new slot didn't boot and it fell back)")
+    if has_presets(h2):
+        with backend.open(new) as port:
+            presets_after_upload(a, Session(port, retries=a.retries, on_unsolicited=print_unsolicited,
+                                            verbose=a.verbose), h2, backup)
     print(f"done in {time.monotonic() - t0:.1f} s")
     return 0
+
+
+# ---------------- Code 61: M-Audio's bootloader (maudio_update.py) ----------------
+
+def vendor_kw(a):
+    return {"ack_timeout": a.ack_timeout, "probe_timeout": a.probe_timeout, "gap": a.gap / 1000.0,
+            "record_retries": a.record_retries, "restart": not a.no_restart,
+            "log": lambda m: print("  " + m, file=sys.stderr)}
+
+
+def flash_vendor(a, backend_factory, img):
+    """Board 0x0002: build the vendor update stream from the image and send it through the stock bootloader.
+    A running gemifi app is asked for update mode with REBOOT(1); a running stock app with the start message.
+    Either way the keyboard then needs a power cycle."""
+    try:
+        app, desc = mu.app_from_file(a.file, img)
+        if a.board is not None and a.board != mu.BOARD_ID:
+            raise GemifiError(f"{a.file} is for board 0x{mu.BOARD_ID:04x}, not --board 0x{a.board:04x}")
+        version = gi.check_image(img, mu.BOARD_ID).fw_version if is_gfw(img) else \
+            (gi.parse_version(a.version) if a.version else None)
+        recs = mu.build_stream(app)
+    except (mu.UpdateError, ValueError) as e:
+        raise GemifiError(str(e)) from None
+    print(f"{a.file}: {desc}")
+    return send_vendor(a, backend_factory, recs, version)
+
+
+def cmd_restore_stock(a, backend_factory):
+    try:
+        recs = mu.parse_stream(mu.load_hex(a.file))
+    except mu.UpdateError as e:
+        raise GemifiError(f"{a.file}: {e}") from None
+    print(f"{a.file}: vendor update file")
+    return send_vendor(a, backend_factory, recs, None, stock=True)
+
+
+def send_vendor(a, backend_factory, recs, version, stock=False):
+    errs = mu.check_stream(recs)
+    if errs:
+        raise GemifiError("refusing to send: " + "; ".join(errs))
+    for line in mu.summary(recs):
+        print(line)
+    if a.dry_run:
+        print("dry run: Code 61 vendor update; nothing sent")
+        return 0
+    backend = backend_factory()
+    t0 = time.monotonic()
+    kw = vendor_kw(a)
+    wait = a.wait if a.wait is not None else 120.0
+    gm = None if getattr(backend, "fixed", False) else find_port(backend, "app", a.port)
+    if gm:
+        with backend.open(gm) as port:
+            s = Session(port, retries=a.retries, verbose=a.verbose)
+            h = s.hello()
+            if h.board_id != mu.BOARD_ID:
+                raise GemifiError(f"{gm} is board 0x{h.board_id:04x}, not the Code 61 (0x{mu.BOARD_ID:04x})")
+            print(f"{gm}: gemifi {h.role_name} {gp.fmt_version(h.fw_version)}; asking for update mode (REBOOT 1)")
+            s.reboot(gp.REBOOT_BOOT)
+        name = mu.wait_power_cycle(backend, gm, wait, a.boot_port)
+    else:
+        name = mu.find_vendor_port(backend, a.boot_port)
+        if not name:
+            raise GemifiError("no Code 61 port found: neither a gemifi app nor a port named 'Code'/'M-Audio' "
+                              "(try `gemifi.py ports`, or --boot-port NAME)")
+    try:
+        name = mu.enter_bootloader(backend, name, kw, wait, a.boot_port)
+        with backend.open(name) as port:
+            mu.send_stream(port, recs, kw, None if a.quiet else mu.bar)
+    except mu.UpdateError as e:
+        raise GemifiError(f"{e}. The bootloader keeps the update request, so power-cycle the keyboard and run "
+                          "the same command again (or restore-stock).") from None
+    if stock:
+        print(f"done in {time.monotonic() - t0:.1f} s. The keyboard should restart on the stock firmware "
+              "(power-cycle it if it doesn't).")
+        return 0
+    try:
+        new, h = wait_hello(backend, a.after_wait, a.port, gone=name, retries=a.retries)
+    except GemifiError:
+        raise GemifiError(f"the update was accepted, but no gemifi app answered within {a.after_wait:.0f} s. "
+                          "Power-cycle the keyboard, then run `gemifi.py hello`.") from None
+    print_hello(new, h)
+    if version is not None and h.fw_version != version:
+        raise GemifiError(f"the device runs {gp.fmt_version(h.fw_version)}, expected {gp.fmt_version(version)}")
+    print(f"done in {time.monotonic() - t0:.1f} s")
+    return 0
+
+
+def add_vendor_options(p):
+    mu.add_sender_options(p, wait=False)
+    p.add_argument("--after-wait", type=float, default=20.0,
+                   help="Code 61: seconds to wait for the gemifi app after the update (20)")
 
 
 def build_parser():
@@ -926,13 +1410,32 @@ def build_parser():
     f.add_argument("--board", type=lambda s: int(s, 0),
                    help=".gfw: refuse images for another board_id; .bin (A/B device): the board_id to send (required)")
     f.add_argument("--version", help=".bin (A/B device): the image's fw_version as X.Y.Z (required)")
-    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot')")
+    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot'; Code 61: "
+                   "'Code' or 'M-Audio')")
     f.add_argument("--wait", type=float, default=None,
                    help="seconds to wait for the device after a reboot (default 6; 15 for A/B devices, since an "
-                        "ESP8266 copies the new image into place before it starts)")
+                        "ESP8266 copies the new image into place before it starts; Code 61: 120 for the power "
+                        "cycle)")
     f.add_argument("--dry-run", action="store_true", help="validate and print the chunk plan; no MIDI")
     f.add_argument("--max-chunk", type=int, default=256, help="max_chunk for --dry-run")
     f.add_argument("-q", "--quiet", action="store_true")
+    f.add_argument("--backup", metavar="FILE.json",
+                   help="save every preset and the globals to this file before the upload (default on a device "
+                        "with presets: gemifi-backup-<board>-<version>-<time>.json in the current directory)")
+    f.add_argument("--no-backup", action="store_true", help="don't save a backup before the upload")
+    g = f.add_mutually_exclusive_group()
+    g.add_argument("--keep-presets", action="store_true",
+                   help="if the firmware's presets changed, keep your stored edits on top of them (no question)")
+    g.add_argument("--use-firmware-presets", action="store_true",
+                   help="if the firmware's presets changed, reset every slot to them (PRESET_RESET all)")
+    add_vendor_options(f)
+    f = sub.add_parser("restore-stock", help="Code 61: send an M-Audio update file (FirmwareFile*.hex.txt) as it is")
+    f.add_argument("file", metavar="FirmwareFile.hex.txt")
+    f.add_argument("--boot-port", help="substring for the keyboard's port (default 'Code' or 'M-Audio')")
+    f.add_argument("--wait", type=float, default=None, help="seconds to wait for the power cycle (120)")
+    f.add_argument("--dry-run", action="store_true", help="check the file and print a summary; no MIDI")
+    f.add_argument("-q", "--quiet", action="store_true")
+    add_vendor_options(f)
     c = sub.add_parser("schema", help="print the device's param schema")
     c.add_argument("--json", action="store_true", help="print the parsed schema as JSON")
     c.add_argument("--raw", metavar="OUT.bin", help="also save the raw schema bytes")
@@ -949,13 +1452,28 @@ def build_parser():
     c.add_argument("file", metavar="OUT.json")
     c = sub.add_parser("restore", help="set values from a backup file, matched by name")
     c.add_argument("file", metavar="IN.json")
-    c.add_argument("--commit", action="store_true", help="store in flash afterwards")
+    c.add_argument("--commit", action="store_true", help="store in flash afterwards (presets are always stored)")
+    sub.add_parser("presets", help="list the preset slots")
+    c = sub.add_parser("preset", help="select, save, reset or rename a preset")
+    ps = c.add_subparsers(dest="preset_cmd", required=True)
+    x = ps.add_parser("select", help="make a preset active (drops unsaved edits of the current one)")
+    x.add_argument("slot", metavar="N|NAME")
+    x.add_argument("--discard", action="store_true", help="don't ask when the current preset has unsaved edits")
+    x = ps.add_parser("save", help="store the live values into a preset (default: the active one) and make it active")
+    x.add_argument("slot", nargs="?", metavar="N|NAME")
+    x.add_argument("--name", help="also rename it")
+    x = ps.add_parser("reset", help="drop a preset's stored edits and name (back to the firmware's preset)")
+    x.add_argument("slot", metavar="N|NAME|all")
+    x.add_argument("--yes", action="store_true", help="don't ask")
+    x = ps.add_parser("rename", help="give a preset a new name (\"\" = back to the firmware's name)")
+    x.add_argument("slot", metavar="N|NAME")
+    x.add_argument("name", metavar="NAME", help=f"0..{gp.PRESET_NAME_MAX} printable ASCII characters")
     return ap
 
 
 COMMANDS = {"ports": cmd_ports, "hello": cmd_hello, "log": cmd_log, "reboot": cmd_reboot, "schema": cmd_schema,
             "get": cmd_get, "set": cmd_set, "commit": cmd_commit, "factory-reset": cmd_factory_reset,
-            "backup": cmd_backup, "restore": cmd_restore}
+            "backup": cmd_backup, "restore": cmd_restore, "presets": cmd_presets, "preset": cmd_preset}
 
 
 def main(argv=None):
@@ -968,6 +1486,8 @@ def main(argv=None):
     try:
         if a.cmd == "flash":
             return cmd_flash(a, make_backend)
+        if a.cmd == "restore-stock":
+            return cmd_restore_stock(a, make_backend)
         backend = make_backend()
         return COMMANDS[a.cmd](a, backend)
     except (GemifiError, MidiError, gp.ProtocolError, OSError) as e:

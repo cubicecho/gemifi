@@ -1,0 +1,87 @@
+# M-Audio Code 61 with gemifi (STM32F103RB-class, maybe a GD32 clone).
+# DRAFT. Nothing here has been tried on hardware.
+# Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
+# Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
+#
+# Confidence tags on each pin:
+#   [sure]   read directly from the stock app's GPIO and ADC setup
+#   [likely] the setup is clear, but what the pin is for is inferred
+#   [guess]  needs a board photo or a hardware test
+#
+# TODO: hardware the core can't describe yet, so it is left out here:
+#   - Key matrix. Rows come from 3-to-8 decoders, not from GPIOs: PB3-PB5 pick
+#     the line, and PB6/PB7 pick the group (PB6=1: rows 0-7, PB7=1: rows 8-15,
+#     both 0: rows 16-22). Columns are PB8-PB15, pull-up, active-low. The stock
+#     scan also drives the columns high (push-pull) between rows.
+#     Keys use rows 0-15: row 2k is the first contact, row 2k+1 the second,
+#     same column. The core wants one GPIO per row, and k % rows / columns
+#     2p, 2p+1 for the two contacts. Needs a decoder-row hub, plus a key map
+#     table: stock key = map[(row/2)*8 + col]. Code 61 map (hw-map.md §9): rows
+#     0/1 cols 0-7 = keys 55..48 down to rows 12/13 = keys 7..0, rows 14/15
+#     cols 3-7 = keys 60..56. Key 0 = note 36.
+#   - Panel buttons (transport, octave, bank, ...): matrix rows 16-20 (40 slots)
+#     behind the same decoders. Which slot is which button is unknown.
+#   - 8 encoders: matrix rows 21-22, A = column 2n, B = column 2n+1.
+#   - LEDs and the 6-character display: two TM1628-class serial LED drivers
+#     (CLK PC10, DIO PC11 open-drain, STB PA15 / PC12). There's no driver for them.
+#   - 16 pads: two 8:1 mux channels on ADC ch0 (PA0) and ch1 (PA1), select
+#     PC0-PC2, through the slot table at 0x08014C08. They need pad velocity
+#     from pressure, which the core doesn't have.
+#   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5). Which is which is unknown,
+#     and the core has no analog pitch bend.
+#   - Aftertouch strip on PC3 (ch13): the core has no channel pressure source.
+#   - XY pad (4-wire resistive): PB1/PC5 drive X, PC4/PB2 drive Y, read on
+#     PC4 (ch14) / PC5 (ch15) in turn. Pins change mode on every mux step.
+#   - PB0 (ch8): an analog input of unknown use (expression pedal?).
+#   - 5-pin MIDI out: USART1 TX on PA9 at 31250 baud. No serial MIDI transport on stm32f1.
+#   - USB D+ pull-up switch on PA8 (high = connected). The platform should
+#     drive it, not the YAML.
+#   - Settings storage: use only vendor EEPROM pages 0x0801EC00 / 0x0801F000
+#     (the stock app doesn't use them, see hw-map.md §3 and §9). Platform side.
+#   - boot_combo: no panel button is on a plain GPIO, so a combo needs the
+#     matrix (row 16: PB6=PB7=0, PB3-5=0, read PB8/PB9).
+gemifi: 2
+name: m-audio-code61
+friendly_name: Code 61
+description: "M-Audio Code 61 (STM32F103). DRAFT with faders and sustain only; keys, pads and encoders still TODO"
+project:
+  version: 0.1.0
+board_id: 0x0002
+platform: stm32f1
+chip: STM32F103RB          # [guess] LQFP64 with 128 KB / 1 KB pages fits everything the app uses; the marking may be GD32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 200us       # the stock main loop counts in 200 us ticks
+
+# Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
+# No enable line is set by the stock app. The pads use the same select lines
+# on two more muxes (PA0, PA1), which aren't listed here (see TODO).
+cd74hc4051:
+  - id: fader_mux
+    pin_s0: PC0            # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
+    pin_s1: PC1            # [sure]
+    pin_s2: PC2            # [sure]
+    common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
+    delay: 10us            # [guess] the stock app waits a whole ADC frame after switching
+
+buttons:
+  # Sustain jack: PC9, input with pull-up, read directly (0x080120FC). [likely]
+  # The stock app learns the pedal polarity at power-up. "inverted: true"
+  # assumes a normally-open pedal that shorts to ground. [guess]
+  - id: sustain
+    pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
+    action: cc_momentary
+    cc: 64
+
+# Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
+# used as the range. [likely] Which slot is which physical fader is [guess]:
+# slot 0 is the one direct fader (PA6), slots 1-8 come from the mux.
+analog:
+  - { id: fader_1, pin: { cd74hc4051: fader_mux, number: 0 }, cc: 20, adc_min: 80, adc_max: 4000 }   # [guess] position
+  - { id: fader_2, pin: { cd74hc4051: fader_mux, number: 1 }, cc: 21, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_3, pin: { cd74hc4051: fader_mux, number: 2 }, cc: 22, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_4, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 23, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_5, pin: { cd74hc4051: fader_mux, number: 4 }, cc: 24, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_6, pin: { cd74hc4051: fader_mux, number: 5 }, cc: 25, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000 }   # [guess]
+  - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader

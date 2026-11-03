@@ -65,7 +65,7 @@ Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`,
 
 **Key matrix.** One row is driven at a time (to the active level: high, or low with `inverted`), the columns are read, then the row is released. `type: switch`: key = row + rows × column. `type: velocity`: two contacts per key; key k is on row k % rows and columns 2p, 2p+1 with p = k / rows. Whichever contact closes first starts the timer, the second sends Note On with a velocity from the time between them, and the key is released when both are open. Put diodes on the matrix if more than one key can be held.
 
-**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with `mcu:` only, 13 Mackie Control (`mcu`). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the MCU note for `mcu` (from `mcu: play` etc.). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
+**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with 2 or more preset slots (see "Presets") 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
 
 **Encoder modes** (`encoder.mode`): 0 absolute (0..127, sends the value), 1 relative two's complement (1 = +1, 127 = −1), 2 relative offset (65 = +1, 63 = −1).
 
@@ -80,7 +80,7 @@ friendly_name: Keystation Mini 32   # display name: USB product string, HELLO, w
 project:
   version: 0.1.3               # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
 board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DIY/private
-platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | esp32 | esp32s2 | esp32s3 | esp8266
+platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3 | esp8266
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
 usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
 midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
@@ -166,6 +166,51 @@ key_matrix:
 - Only names reach the firmware (buttons, analog inputs and encoders; LEDs have no name in the tables, since nothing shows one). Ids are a build-time thing and appear only in comments in the generated C.
 
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
+
+## Presets
+
+A preset is a named set of *behaviours*: what the controls send, not how they are wired (research/core/presets-design.md). The YAML defines them; the user switches them at runtime with the preset button actions or from the editor (`preset.active`). A device without `presets:` has one preset, "Default", and works as before.
+
+```yaml
+presets:
+  slots: 8                 # optional, 1..64, at least the number listed; default: the number listed
+  revision: 1              # optional, 0..16383: bump it when the YAML presets change (the updater asks then)
+  list:
+    - name: Default        # slot 1: the components' own values (above); only name: and program:
+    - name: Drums          # <= 16 printable ASCII, unique; default "Preset N"
+      program: 9           # optional 0..127: the Program Change sent when it is selected
+      midi: { channel: 10, transpose: 0, octave: 0 }   # start values (the octave buttons still move them)
+      velocity: { curve: hard, fixed: 100 }            # curve: normal | soft | hard | fixed
+      bend: { glide: 50ms }                            # 0..2s
+      ramp: { time: 300ms }                            # 0..5s
+      buttons:                                         # by id, with the button's own keys
+        sustain: { action: note, note: 36 }
+        edit:    { note: 38 }                          # action left out: keeps the button's
+      analog:   { volume: { cc: 11 } }
+      encoders: { encoder_1: { cc: 21, mode: relative_offset } }   # absolute | relative_twos | relative_offset
+```
+
+- **Slot 1** is the first list entry (or "Default" when the list is empty); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
+- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `cc`, `note`, `preset`, `mcu`), `analog.cc`, `encoder.cc`/`encoder.mode`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), `midi.transport`.
+- **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above half (tools/builder/README.md "Storage budget").
+
+**Generated code** (`gm_device.h` `gm_preset_def_t`): `GM_N_PRESETS` (slots; 1 without `presets:`) and `GM_PRESETS_REVISION` in `gm_device_config.h`, and in `gm_device_config.c` `gm_presets[GM_N_PRESETS]` (slot n = `gm_presets[n - 1]`) with one sorted `{ param id, index, value }` array per preset that has overrides:
+
+```c
+static const gm_preset_val_t preset_2_vals[6] = { /* Drums */
+    { 1, 0, 10 }, /* midi.channel = 10 */
+    { 4, 0, 2 }, /* velocity.curve = hard */
+    { 9, 0, 4 }, /* button.action[sustain] = note */
+    { 9, 1, 4 }, /* button.action[edit] = note */
+    { 10, 0, 36 }, /* button.number[sustain] = 36 */
+    { 10, 1, 38 }, /* button.number[edit] = 38 */
+};
+const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
+    { "Default", GM_PROGRAM_NONE, 0, 0 }, /* slot 1 */
+    { "Drums", GM_PROGRAM_NONE, 6, preset_2_vals }, /* slot 2 */
+    { "Preset 3", GM_PROGRAM_NONE, 0, 0 }, /* slot 3 */
+};
+```
 
 ## DAW feedback
 

@@ -3,10 +3,13 @@
  * before sending anything, and the order its chunks are uploaded in (§4.2).
  */
 
-import { type Board, boardById, formatBoardId } from './boards.ts';
+import { type Board, boardById, formatBoardId, HEADER_OFFSETS } from './boards.ts';
 import { CHUNK_ALIGN_BYTES, HEX_RADIX, PAGE_BYTES, PROTOCOL_VERSION } from './wire.ts';
 
-/** Where the header sits: right after the 48-entry vector table. */
+/**
+ * Where the header sits on a NUC1xx board, right after the 48-entry vector table. Other boards
+ * put it elsewhere (`Board.headerOffset`); {@link findHeader} tries each.
+ */
 export const HEADER_OFFSET = 0xc0;
 /** Header size. */
 export const HEADER_SIZE = 32;
@@ -20,7 +23,7 @@ const Field = {
   FwVersion: 16,
   ProtoVersion: 20,
 } as const;
-/** Offset of the header's `crc32` field inside the image. */
+/** Offset of the header's `crc32` field inside a NUC1xx image. */
 export const CRC_FIELD_OFFSET = HEADER_OFFSET + Field.Crc32;
 /** `'GMFI'` read as a little-endian u32. */
 export const IMAGE_MAGIC = 0x49464d47;
@@ -47,6 +50,8 @@ export interface ImageHeader {
 /** A `.gfw` file that passed every check. */
 export interface FirmwareImage {
   header: ImageHeader;
+  /** Where the header was found. */
+  headerOffset: number;
   board: Board;
   /** Exactly `imageSize` bytes, as they will be written. */
   bytes: Uint8Array;
@@ -93,11 +98,13 @@ export function crc32(bytes: Uint8Array): number {
  *
  * @param image - At least `size` bytes.
  * @param size - `image_size`.
+ * @param headerOffset - Where the header is.
  * @returns The CRC.
  */
-export function imageCrc(image: Uint8Array, size: number): number {
+export function imageCrc(image: Uint8Array, size: number, headerOffset = HEADER_OFFSET): number {
   const copy = image.slice(0, size);
-  copy.fill(0, CRC_FIELD_OFFSET, CRC_FIELD_OFFSET + CRC_FIELD_BYTES);
+  const crcField = headerOffset + Field.Crc32;
+  copy.fill(0, crcField, crcField + CRC_FIELD_BYTES);
   return crc32(copy);
 }
 
@@ -105,13 +112,14 @@ export function imageCrc(image: Uint8Array, size: number): number {
  * Reads the header, if the file is long enough to hold one.
  *
  * @param bytes - The whole file.
+ * @param offset - Where the header is.
  * @returns The header, or null.
  */
-export function readHeader(bytes: Uint8Array): ImageHeader | null {
-  if (bytes.length < HEADER_OFFSET + HEADER_SIZE) {
+export function readHeader(bytes: Uint8Array, offset = HEADER_OFFSET): ImageHeader | null {
+  if (bytes.length < offset + HEADER_SIZE) {
     return null;
   }
-  const view = new DataView(bytes.buffer, bytes.byteOffset + HEADER_OFFSET, HEADER_SIZE);
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, HEADER_SIZE);
   return {
     magic: view.getUint32(Field.Magic, true),
     hdrVersion: view.getUint16(Field.HdrVersion, true),
@@ -121,6 +129,39 @@ export function readHeader(bytes: Uint8Array): ImageHeader | null {
     fwVersion: view.getUint32(Field.FwVersion, true),
     protoVersion: view.getUint32(Field.ProtoVersion, true),
   };
+}
+
+/**
+ * Finds the header: at the expected board's offset first, then at every offset a known board uses,
+ * taking the first that holds the magic and whose board puts its header there.
+ *
+ * @param bytes - The whole file.
+ * @param expectedBoardId - The connected device's board, when known.
+ * @returns The header and its offset; the header at the first offset tried when none matches.
+ */
+export function findHeader(
+  bytes: Uint8Array,
+  expectedBoardId?: number,
+): { header: ImageHeader | null; offset: number } {
+  const expected = expectedBoardId === undefined ? undefined : boardById(expectedBoardId)?.headerOffset;
+  const offsets = [...new Set([...(expected === undefined ? [] : [expected]), ...HEADER_OFFSETS])];
+  for (const offset of offsets) {
+    const header = readHeader(bytes, offset);
+    const isHere = header?.magic === IMAGE_MAGIC && boardById(header.boardId)?.headerOffset === offset;
+    if (isHere) {
+      return { header, offset };
+    }
+  }
+  const first = offsets[0] ?? HEADER_OFFSET;
+  return { header: readHeader(bytes, first), offset: first };
+}
+
+/**
+ * @param bytes - A file's contents.
+ * @returns Whether it holds the `.gfw` magic where some known board puts its header.
+ */
+export function hasGfwMagic(bytes: Uint8Array): boolean {
+  return HEADER_OFFSETS.some((offset) => readHeader(bytes, offset)?.magic === IMAGE_MAGIC);
 }
 
 /**
@@ -143,12 +184,12 @@ export function hex(value: number, digits = 8): string {
  * @returns The image, or every problem found.
  */
 export function validateImage(bytes: Uint8Array, expectedBoardId?: number): ImageResult {
-  const header = readHeader(bytes);
+  const { header, offset } = findHeader(bytes, expectedBoardId);
   if (header === null) {
     return {
       ok: false,
       header: null,
-      problems: [`The file is ${bytes.length} bytes, too short to hold a header at ${hex(HEADER_OFFSET, 0)}.`],
+      problems: [`The file is ${bytes.length} bytes, too short to hold a header at ${hex(offset, 0)}.`],
     };
   }
   const problems: string[] = [];
@@ -165,6 +206,11 @@ export function validateImage(bytes: Uint8Array, expectedBoardId?: number): Imag
   if (board === undefined) {
     problems.push(`Board id ${formatBoardId(header.boardId)} is not a known gemifi board.`);
   }
+  if (board !== undefined && board.headerOffset !== offset) {
+    problems.push(
+      `The header is at ${hex(offset, 0)}, but ${board.name} images have it at ${hex(board.headerOffset, 0)}.`,
+    );
+  }
   if (header.boardId > MAX_BOARD_ID) {
     problems.push(`Board id ${formatBoardId(header.boardId)} is above 0x3FFF and cannot be sent as a u14.`);
   }
@@ -178,18 +224,18 @@ export function validateImage(bytes: Uint8Array, expectedBoardId?: number): Imag
   if (size % CHUNK_ALIGN_BYTES !== 0) {
     problems.push(`The image size ${size} is not a multiple of ${CHUNK_ALIGN_BYTES}.`);
   }
-  if (size < HEADER_OFFSET + HEADER_SIZE) {
+  if (size < offset + HEADER_SIZE) {
     problems.push(`The image size ${size} does not even cover the header.`);
   }
   if (board !== undefined && size > board.apromBytes) {
-    problems.push(`The image is ${size} bytes; ${board.name} has ${board.apromBytes} bytes of APROM.`);
+    problems.push(`The image is ${size} bytes; ${board.name} has ${board.apromBytes} bytes of ${board.areaName}.`);
   }
   if (bytes.length !== size) {
     problems.push(`The file is ${bytes.length} bytes but its header says the image is ${size}.`);
   }
   const canCheckContents = problems.length === 0 && board !== undefined;
   if (canCheckContents) {
-    const actualCrc = imageCrc(bytes, size);
+    const actualCrc = imageCrc(bytes, size, offset);
     if (actualCrc !== header.crc32) {
       problems.push(`The CRC is ${hex(actualCrc)} but the header says ${hex(header.crc32)}. The file is damaged.`);
     }
@@ -198,7 +244,7 @@ export function validateImage(bytes: Uint8Array, expectedBoardId?: number): Imag
   if (problems.length > 0 || board === undefined) {
     return { ok: false, header, problems };
   }
-  return { ok: true, image: { header, board, bytes: bytes.slice(0, size) } };
+  return { ok: true, image: { header, headerOffset: offset, board, bytes: bytes.slice(0, size) } };
 }
 
 /**
@@ -220,7 +266,7 @@ function vectorProblems(bytes: Uint8Array, size: number, board: Board): string[]
     problems.push(`The initial stack pointer ${hex(stackPointer)} is not in SRAM; the bootloader would refuse it.`);
   }
   const isThumb = (resetVector & 1) === 1;
-  const isInsideImage = resetVector < size;
+  const isInsideImage = resetVector >= board.imageBase && resetVector - board.imageBase < size;
   const isResetValid = isThumb && isInsideImage;
   if (isResetValid === false) {
     problems.push(

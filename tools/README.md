@@ -5,7 +5,7 @@ This is the order to do things in when you first put your own code on the **M-Au
 | Folder | What's in it |
 |---|---|
 | `swd/nuvoton-nuc1xx/` | SWD scripts (OpenOCD): check the chip, back it up, flash APROM/LDROM, restore stock |
-| `host/` | `mkimage.py` (makes `.gfw` images), `gemifi.py` (USB MIDI or serial: hello, log, reboot, flash, config), tests |
+| `host/` | `mkimage.py` (makes `.gfw` images), `gemifi.py` (USB MIDI or serial: hello, log, reboot, flash, config), `maudio_update.py` (Code 61: M-Audio's update protocol), tests |
 | `usb/probe-midi-device.sh` | read-only USB/MIDI probe of the stock keyboard (lsusb, identity request, capture) |
 
 All scripts work from any directory. Every script that writes to flash prints what it will do and waits for you to type `yes`, unless you pass `--yes`. **No script writes CONFIG by default.** Only `restore-stock.sh --write-config` does, and it asks you to type `write config` first.
@@ -261,11 +261,13 @@ Safety built in:
 ```sh
 python3 tools/host/mkimage.py in.bin out.gfw --board 1 --version 0.1.0   # used by the firmware Makefiles
 python3 tools/host/mkimage.py --check out.gfw [--board 1]
+python3 tools/host/gemifi.py flash app.gfw | restore-stock FirmwareFile.hex.txt    # Code 61, see below
 python3 tools/host/gemifi.py ports | hello | log | reboot app|boot [--wait 5]
 python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-port NAME]
 python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
+python3 tools/host/gemifi.py presets | preset select|save|reset|rename     # presets, below
 cd tools/host && python3 -m unittest            # codec, mkimage, upload against a simulated bootloader, vectors
 python3 tools/host/make_test_vectors.py         # regenerate protocol/test-vectors.json (--check to compare)
 ```
@@ -280,6 +282,8 @@ How `gemifi.py flash` uploads (`protocol/sysex.md` §4.2):
 3. Sends `FW_BEGIN`.
 4. Sends chunks from 0x200 upward, then page 0 last, never crossing a 512-byte page. Each request is stop-and-wait with a 200 ms timeout (2000 ms for `FW_BEGIN` and `FW_END`); a timeout, BAD_CHECKSUM or BUSY means the same seq is resent, up to 5 resends (6 sends in all).
 5. Sends `FW_END`, then `REBOOT(app)`, and prints HELLO from the app.
+
+On a device with presets it also backs up before step 2 and checks the presets after step 5 ("Presets and firmware updates" below).
 
 It picks the path from HELLO: a device whose **app** answers with role 0, caps bit 0 (firmware upload) and a non-zero `max_chunk` takes the upload itself (A/B slots, below), and is never rebooted into a bootloader.
 
@@ -316,6 +320,32 @@ gemifi.py flash firmware.bin --board 0x3F00 --version 1.2.3 --dry-run --max-chun
 4. FW_END (the device checks the CRC and marks the new slot), then REBOOT(0), never REBOOT(1).
 5. Waits for HELLO again (default 15 s; `--wait`) and checks that `fw_version` is the new one. If it isn't, the version given was wrong, or the new slot didn't boot and the device fell back to the old one.
 
+### M-Audio Code 61 (STM32F1, board 0x0002)
+
+The Code 61 keeps M-Audio's bootloader (0x08000000–0x080023FF). gemifi replaces only the app, through M-Audio's own SysEx update protocol, so the case stays closed. **None of this has run on hardware yet.** Background: `research/devices/m-audio-code61/analysis/update-protocol.md` and `custom-firmware-path.md`.
+
+```sh
+python3 tools/host/mkimage.py app.bin app.gfw --board 0x0002 --version 0.1.0 \
+    --hdr-offset 0x130 --base 0x08002400 --max-size 102398        # what the platform Makefile runs
+python3 tools/host/gemifi.py flash app.gfw [--dry-run]
+python3 tools/host/gemifi.py restore-stock FirmwareFile_v1.2.1.hex.txt [--dry-run]
+python3 tools/host/maudio_update.py info|build|syx|send|request ...   # the vendor protocol on its own
+```
+
+How `gemifi.py flash` does it:
+1. Checks the `.gfw` (header at 0x130, linked at 0x08002400, at most 102,398 bytes). A raw `.bin` works too, with `--board 0x0002`.
+2. Builds the update stream the way the stock file is laid out: one record per 1 KB page that holds the image (erase, load, program), an erase-only record for each page after it up to 0x0801AFFF, then page 0x0801B000 with the image checksum at 0x0801B3FE, written last. Built from the stock app, this gives the stock file byte for byte.
+3. Asks the running app for update mode. A gemifi app gets HELLO, then REBOOT(1). The stock app gets the vendor start message and answers `F0 15 F7`.
+4. Tells you to **power-cycle the keyboard**, and waits for the port to go away and come back (`--wait`, 120 s).
+5. Probes the bootloader with the start message until it answers `F0 45 F7` (or `1A`). Then sends the start message again, and every record as ASCII-hex SysEx chunks, 3 ms apart, waiting up to 10 s for the ack after each record.
+6. Waits for HELLO from the new gemifi app (`--after-wait`, 20 s) and checks the version.
+
+If anything fails, the update request stays set. Power-cycle and run the same command again, or go back to stock with `restore-stock` and M-Audio's update file (never commit that file).
+
+Options for the vendor protocol: `--boot-port NAME` (the bootloader's port name isn't known yet; the default looks for "Code" or "M-Audio"), `--ack-timeout`, `--probe-timeout`, `--gap` (ms), `--record-retries N` (default 0: the stock updater doesn't resend), `--no-restart` (no second start message after the probe).
+
+Unknowns that a first hardware run has to settle: whether the bootloader takes a stream from our tool at all, what `45` and `1A` each mean, whether `0D`/`0E` reboot the keyboard by themselves, and whether a soft reset with the request flag set is enough (otherwise it's always a power cycle). Do the safe steps in `custom-firmware-path.md` §8 first: send the stock stream with `restore-stock` before any gemifi image.
+
 ### Config from the command line (`gemifi.py`, app firmware)
 
 These talk to the app (not the bootloader) and need the `config` cap in HELLO. The tool reads the device's schema first (`protocol/sysex.md` §4.3–4.4), so nothing in it is board-specific.
@@ -339,3 +369,31 @@ gemifi.py log --names                 # LOG/EVENT/PARAM_CHANGED, with param name
 - `get`, `backup` and `restore` use GET_PARAMS/SET_PARAMS (runs of 16) for array params and fall back to single GET/SET_PARAM if the device replies BAD_CMD. If a run fails in `restore`, it retries that run one value at a time, so each bad entry is reported on its own.
 - `backup` stores raw values by param name. `restore` matches by name: names the firmware doesn't know are skipped with a warning, read-only params are skipped, BAD_VALUE/BAD_PARAM is reported per entry and the rest still goes in (exit code 1 if any entry failed). A backup from another board gives a warning, not an error.
 - COMMIT and FACTORY_RESET use the 2000 ms timeout.
+
+### Presets (`gemifi.py`, app firmware with HELLO caps bit 5)
+
+`protocol/sysex.md` §4.5. GET/SET always address the **active** preset, so `get`, `set` and `commit` above work on it.
+
+```sh
+gemifi.py presets                          # every slot: number, name, * = active, program, state
+gemifi.py preset select 2                  # or by name: preset select drums
+gemifi.py preset save                      # store the live values into the active preset (= commit)
+gemifi.py preset save 5 --name "Live set"  # save as: into slot 5, which becomes the active one
+gemifi.py preset reset 3 [--yes]           # slot 3 back to the firmware's preset (edits and name dropped)
+gemifi.py preset reset all [--yes]
+gemifi.py preset rename 2 "Kit"            # "" = back to the firmware's name
+```
+
+- `presets` shows per slot: "unsaved edits" (the active one only), "stored edits" (with the revision they were made on, when it isn't the firmware's), "empty slot" (not in the YAML).
+- `preset select` asks first when the active preset has unsaved edits, because switching drops them; `--discard` doesn't ask.
+- A preset is a number (1..count) or a name (any case).
+- Names are 0..16 printable ASCII characters.
+
+**Backup and restore with presets.**
+- `backup` switches to every slot in turn and reads its per-preset values, then switches back to the slot that was active and puts its unsaved edits back, so the device ends as it started. The file (format 2) holds the globals in `values`, the active slot in `active`, and one entry per slot in `presets` (`slot`, `name`, `stored`, `stored_revision`, `values`). The active slot is saved as it is live, unsaved edits included.
+- `restore` of such a file sets the globals, then for each slot: PRESET_RESET; if the backup has stored edits for it, select it, set its values, PRESET_SAVE and set its name. Then it selects the slot that was active and commits. So everything is stored; `--commit` isn't needed. Slots the device doesn't have are skipped with a warning.
+- An old backup (no presets) restores into the active preset, live, as before. A preset backup onto firmware without presets restores the globals and the active slot only.
+
+**Presets and firmware updates (`flash`).**
+- Before the upload, on a device with presets, `flash` saves a backup to `gemifi-backup-<board>-<version>-<time>.json` in the current directory. `--backup FILE` picks the name (and also works on a device without presets); `--no-backup` skips it. If the device is already in the bootloader, there is nothing to read, and it says so.
+- After the upload, it reads PRESET_INFO for every slot. If a slot's stored edits were made on another presets revision (the firmware's YAML presets changed), it lists them and asks: keep your edits on top of the new presets (Enter, the default), or use the firmware's presets (PRESET_RESET on every slot; names too; the globals stay). `--keep-presets` and `--use-firmware-presets` answer in advance. Either way, `gemifi.py restore <backup>` undoes it.

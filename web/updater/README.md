@@ -89,6 +89,20 @@ the GitHub Pages address) gets its own add-on.
    with the padded size and the CRC-32 over the padded file, FW_DATA in plain order from offset 0,
    FW_END, then REBOOT(0), and keeps asking HELLO (up to 15 s) until the app reports the new
    version. The old slot keeps working until FW_END has checked the new one.
+   **M-Audio Code 61 (board 0x0002).** gemifi has no bootloader of its own there: the app goes in
+   through M-Audio's stock bootloader and its SysEx update protocol
+   (`research/devices/m-audio-code61/analysis/`, `tools/host/maudio_update.py`). Its `.gfw` has
+   the header at 0x130 (76 vectors) and is linked at 0x08002400; the page finds the header at
+   whichever offset a known board uses. **Flash** turns the image into M-Audio's record stream (a
+   data record per 1 KB page, erase-only records up to 0x0801AFFF, then the 0x0801B000 page with
+   the whole-image checksum), sends REBOOT(1) if a gemifi app is connected (it sets M-Audio's
+   update request), and asks you to **turn the keyboard off and on**. It then probes the selected
+   port and any port that (re)appears with the start message every 2 s: `F0 15 F7` is an app that
+   just set the request (power-cycle now), `F0 45 F7` is the bootloader. Each record goes as
+   11-byte ASCII-hex SysEx chunks with an ack (10 s timeout) after it; unexpected replies are
+   shown in the card. A stock M-Audio update file (`FirmwareFile…hex.txt`) is sent as it is, which
+   restores the stock firmware; to use it from a stock keyboard, select its port first. Untested
+   on hardware so far.
 4. **Install firmware (first flash)**, for an ESP chip with no gemifi firmware yet, or to
    recover one: choose a merged factory image (one `.bin`, written at 0x0, from
    `esptool.py merge_bin` or PlatformIO), or a `manifest.json` in the
@@ -149,6 +163,8 @@ src/
     ports.ts           tells app / bootloader / other ports apart by name
     defaults.ts        tunable timings (reply timeout, retries, reboot wait)
     *.test.ts          Vitest; flash.test.ts and ab-flash.test.ts run whole uploads against simulated devices
+  vendor/
+    maudio.ts          M-Audio's update protocol (Code 61): record stream, checksums, ASCII-hex SysEx, probe and upload
   midi/
     device-manager.ts  Web MIDI: access, port pairing, hot-plug, the DeviceLink the page uses
   serial/

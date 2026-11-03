@@ -140,6 +140,41 @@ static int find_msg(uint8_t status, int *d1, int *d2)
     return 0;
 }
 
+/* The last pitch bend (status 0xE0 | channel 0) in out[], 0..16383, or -1. */
+static int last_bend(void)
+{
+    int last = -1;
+    for (int i = 0; i + 2 < out_n; i++) {
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+            continue;
+        }
+        if (out[i] == 0xE0)
+            last = out[i + 1] | out[i + 2] << 7;
+    }
+    return last;
+}
+
+/* Channel pressure messages (0xD0, 2 bytes) in out[]: how many, and the last value (-1: none). */
+static int pressure(int *last)
+{
+    int n = 0;
+    *last = -1;
+    for (int i = 0; i + 1 < out_n; i++) {
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+            continue;
+        }
+        if (out[i] == 0xD0) {
+            *last = out[i + 1];
+            n++;
+        }
+    }
+    return n;
+}
+
 static int count_msgs(uint8_t status_hi)
 {
     int n = 0;
@@ -889,6 +924,74 @@ int main(int argc, char **argv)
     adc[0] = 4080;                   /* jitter near the top: no new messages */
     run_ms(50);
     CHECK(count_msgs(0xB0) == 0, "knob hysteresis");
+
+    /* the knob as a pitch wheel (analog.mode): its reading at boot (2048) is the centre */
+    CHECK(set_param(P_ANALOG_MODE, 0, AN_MODE_BEND) == GSX_OK, "SET analog.mode = pitch bend");
+    out_n = 0;
+    adc[0] = 4095;
+    run_ms(50);
+    CHECK(last_bend() == 16383 && count_msgs(0xB0) == 0, "wheel up: bend 16383, no CC (got %d)", last_bend());
+    out_n = 0;
+    adc[0] = 2048;
+    run_ms(50);
+    CHECK(last_bend() == 8192, "back to the centre: bend 8192 exactly (got %d)", last_bend());
+    out_n = 0;
+    adc[0] = 2048 + 12;              /* inside the dead zone (16 raw counts) */
+    run_ms(50);
+    CHECK(count_msgs(0xE0) == 0, "dead zone: no bend");
+    out_n = 0;
+    adc[0] = 0;
+    run_ms(50);
+    CHECK(last_bend() == 0, "wheel down: bend 0 (got %d)", last_bend());
+    adc[0] = 1024;
+    run_ms(50);
+    out_n = 0;
+    adc[0] = 1022;                   /* jitter, back toward the last value sent */
+    run_ms(50);
+    CHECK(count_msgs(0xE0) == 0, "bend hysteresis");
+    {
+        int b;
+        adc[0] = 1024;
+        run_ms(50);
+        out_n = 0;
+        adc[0] = 1100;
+        run_ms(50);
+        b = last_bend();
+        CHECK(b > 0 && b < 8192, "halfway down: 0 < bend < 8192 (got %d)", b);
+    }
+    adc[0] = 2048;
+    run_ms(50);
+    CHECK(set_param(P_ANALOG_MODE, 0, AN_MODE_CC) == GSX_OK, "analog.mode back to CC");
+    out_n = 0;
+    adc[0] = 4095;
+    run_ms(50);
+    CHECK(find_msg(0xB0, &d1, 0) && d1 == 7 && count_msgs(0xE0) == 0, "CC again, no bend");
+
+    /* the knob as an aftertouch strip: channel pressure 0..127, no CC */
+    CHECK(set_param(P_ANALOG_MODE, 0, AN_MODE_PRESSURE) == GSX_OK, "SET analog.mode = channel pressure");
+    out_n = 0;
+    adc[0] = 32;                     /* adc_min: released */
+    run_ms(50);
+    {
+        int last, n = pressure(&last);
+        CHECK(n > 0 && last == 0 && count_msgs(0xB0) == 0, "released: pressure 0, no CC (%d, %d)", n, last);
+        out_n = 0;
+        adc[0] = 4064;               /* adc_max: pressed hard */
+        run_ms(50);
+        n = pressure(&last);
+        CHECK(last == 127 && n > 1, "pressed: pressure rises to 127 (got %d, %d messages)", last, n);
+        out_n = 0;
+        adc[0] = 4050;               /* jitter near the top */
+        run_ms(50);
+        CHECK(pressure(&last) == 0, "pressure hysteresis");
+        out_n = 0;
+        adc[0] = 32;
+        run_ms(50);
+        n = pressure(&last);
+        CHECK(n > 0 && last == 0, "let go: back to 0 (got %d)", last);
+    }
+    CHECK(set_param(P_ANALOG_MODE, 0, 3) == GSX_BAD_VALUE, "analog.mode 3 -> BAD_VALUE");
+    CHECK(set_param(P_ANALOG_MODE, 0, AN_MODE_CC) == GSX_OK, "analog.mode back to CC");
 
     /* config over SysEx */
     CHECK(set_param(P_CHANNEL, 0, 2) == GSX_OK, "SET channel 2");

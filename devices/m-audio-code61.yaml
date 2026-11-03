@@ -15,10 +15,6 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5); the panel has PB then
-#     MOD, left to right. Which pin is which is unknown, and the core has no
-#     analog pitch bend.
-#   - Aftertouch strip on PC3 (ch13): the core has no channel pressure source.
 #   - XY pad (4-wire resistive): PB1/PC5 drive X, PC4/PB2 drive Y, read on
 #     PC4 (ch14) / PC5 (ch15) in turn. Pins change mode on every mux step.
 #   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
@@ -33,7 +29,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.54
+  version: 0.2.55
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -197,6 +193,17 @@ analog:
   - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
+  # Wheels on PA4 (ch4) and PA5 (ch5) [sure]; the panel has pitch then mod,
+  # left to right [sure, 2026-11-03: PA4 = pitch, analog 9].
+  # The pitch wheel's resting reading at power-up is its centre.
+  # Measured 2026-11-03: raw 1404 bottom, 1929 at rest, 2375 top; the ends
+  # sit a little inside so full bend is reached.
+  - { id: pitch_wheel, name: Pitch, pin: PA4, mode: pitch_bend, adc_min: 1420, adc_max: 2360 }
+  - { id: mod_wheel, name: Mod, pin: PA5, cc: 1, adc_min: 1420, adc_max: 2360 }   # about the same range as pitch
+  # Aftertouch sensor on PC3 (ch13) [sure pin, likely use: hw-map.md]: channel
+  # pressure. The stock app works in raw 0x4D0..0x900 (1232..2304). The
+  # reading falls as you press [sure: tested], so adc_min is the high end.
+  - { id: aftertouch, name: Aftertouch, pin: PC3, mode: channel_pressure, adc_min: 2304, adc_max: 1232 }
 
 # ---- the matrix ----------------------------------------------------------
 

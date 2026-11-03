@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.13.0](https://github.com/cubicecho/gemifi/compare/v0.12.0...v0.13.0) (2026-11-03)
+
+
+### Features
+
+* 14-segment displays; the Code 61's shows the last MIDI message ([dfad297](https://github.com/cubicecho/gemifi/commit/dfad2976eefd54119c13b2e063b8b41b32f387fb))
+* **core:** LED walk diagnostic; Code 61 shift has no LED ([c599d53](https://github.com/cubicecho/gemifi/commit/c599d53922016fc890e09783b7d3432d344ace24))
+
 # [0.12.0](https://github.com/cubicecho/gemifi/compare/v0.11.0...v0.12.0) (2026-11-03)
 
 

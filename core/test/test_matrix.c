@@ -297,6 +297,58 @@ int main(void)
     closed[3][0] = 0;
     run_ms(5);
 
+#if GM_N_MODES > 0
+    /* hold mode: while chan (output 16 col 2) is held, up / down change the
+     * channel instead of sending their CCs, and the keys keep playing */
+    out_n = 0;
+    closed[16][2] = 1;
+    run_ms(20);
+    CHECK(level[32] == 1, "chan held: its LED (PC0) is lit");
+    CHECK(!last_msg(0xB0, &d1, &d2), "chan itself sends nothing");
+    closed[16][0] = 1;
+    run_ms(20);
+    closed[16][0] = 0;
+    run_ms(20);
+    CHECK(!last_msg(0xB0, &d1, &d2), "up in the mode: no CC 20, press or release");
+    press(1, 3, 1000);
+    CHECK(last_msg(0x91, &d1, &d2) && d1 == 36, "channel 2 after up; keys still play");
+    release(1, 3);
+    out_n = 0;
+    closed[16][1] = 1;                /* down twice: 2 -> 1 -> 16 */
+    run_ms(20);
+    closed[16][1] = 0;
+    run_ms(20);
+    closed[16][1] = 1;
+    run_ms(20);
+    closed[16][1] = 0;
+    run_ms(20);
+    press(1, 3, 1000);
+    CHECK(last_msg(0x9F, &d1, &d2) && d1 == 36, "down from 1 wraps to 16");
+    release(1, 3);
+    /* up pressed in the mode (16 wraps to 1), released after it: still silent */
+    out_n = 0;
+    closed[16][0] = 1;
+    run_ms(20);
+    closed[16][2] = 0;
+    run_ms(20);
+    CHECK(level[32] == 0, "chan released: LED off");
+    closed[16][0] = 0;
+    run_ms(20);
+    CHECK(!last_msg(0xB0, &d1, &d2), "a mode press's release is silent after the mode ends");
+    /* up pressed before chan: its release still sends */
+    closed[16][0] = 1;
+    run_ms(20);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 20 && d2 == 127, "out of the mode: up = CC 20 again (ch 1)");
+    closed[16][2] = 1;
+    run_ms(20);
+    out_n = 0;
+    closed[16][0] = 0;
+    run_ms(20);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 20 && d2 == 0, "pressed before the mode: its release is normal");
+    closed[16][2] = 0;
+    run_ms(20);
+#endif
+
     /* encoder: A = output 17 col 0, B = output 17 col 1, one detent clockwise */
     out_n = 0;
     static const uint8_t seq[5][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };

@@ -17,7 +17,9 @@
  *
  * The core shows the last MIDI message it sent on display 0 (a CC as
  * "<number>.<value>", a note as its name and velocity, a program change as
- * "PG <n>"), and "gemifi" at boot.
+ * "PG <n>"), "gemifi" at boot, and messages (gm_display_message): the
+ * preset's name when it is selected, "CH <n>" when the channel changes on
+ * the device.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -51,9 +53,16 @@ void gm_display_text(uint32_t d, const char *s);
  * Safe from the scan interrupt: it only records the message. */
 void gm_display_midi(uint8_t status, uint8_t a, uint8_t b);
 
-/* Main loop: format a recorded message and write changed segments to the
- * pins. The caller flushes the hubs afterwards (vpin_flush_tm1628 ...). */
-void gm_display_poll(void);
+/* Show s on display 0 until the next MIDI message (or message). Text
+ * longer than the display scrolls once: the start for 1 s, one character
+ * every 300 ms, the end for 1 s, then the start again. Every character
+ * takes a place ('.' too). Main loop only; s is copied (at most 24). */
+void gm_display_message(const char *s);
+
+/* Main loop: format a recorded message, step a scrolling one, and write
+ * changed segments to the pins. The caller flushes the hubs afterwards
+ * (vpin_flush_tm1628 ...). now = hal_millis(). */
+void gm_display_poll(uint32_t now);
 
 #ifdef __cplusplus
 }

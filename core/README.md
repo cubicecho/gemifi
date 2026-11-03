@@ -273,8 +273,9 @@ displays:
 ```
 
 - **What it shows.** "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`. Note Offs, pitch bend and pressure leave it as it is. When the two parts would touch, a dot separates them.
+- **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, and a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again. `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
 - **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
-- **Timing.** Messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
+- **Timing.** MIDI messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
@@ -442,7 +443,7 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 ## Modes
 
-A mode is a layer that turns the keys into function keys: while it is active, a key press runs what the mode binds to that key and sends no note (research/core/presets-design.md §6). It is how a keyboard with few buttons switches presets, the octave or the channel. Modes are device UI, so they are the same in every preset: a preset can't take away the way back.
+A mode is a layer that turns the keys (and buttons) into function keys: while it is active, a key press runs what the mode binds to that key and sends no note (research/core/presets-design.md §6). It is how a keyboard with few buttons switches presets, the octave or the channel. Modes are device UI, so they are the same in every preset: a preset can't take away the way back.
 
 ```yaml
 modes:
@@ -463,17 +464,23 @@ modes:
     parent: edit                 # a sub-mode: entered from a key, back to its parent after one action
     led: { edit_led: blink }     # default for a sub-mode: its parent's LED, blinking
     keys: { white_from: D4, action: preset_select }   # D4, E4, F4, ... = preset 1, 2, 3, ...
+  - id: channel
+    hold: { button: channel }    # active while the button is held (or `hold: channel`)
+    buttons:                     # what these buttons do instead, while the mode is active
+      up: channel_up
+      down: channel_down
 ```
 
-- **Entering and leaving.** The toggle button enters the mode and, pressed again, leaves it, also from one of its sub-modes; there is no timeout. Keys held when the mode starts get their Note Off then, and their release sends nothing. A sub-mode (`parent:`) goes back to its parent after one action, so Edit → E3 → D4 picks preset 1 and leaves you in edit mode for another action, until Edit is pressed again.
-- **The toggle button** has no action of its own (leave `action:` out): it only toggles the mode, and presets can't rebind it. A `button.action` set for it from the host is stored but not used. Its presses still show as EVENTs.
-- **While a mode is active,** unbound keys are silent, and the buttons keep their normal actions.
-- **Key actions:** `preset_select` (`preset: N`), `preset_next`, `preset_prev` (these need 2 or more preset slots), `octave_down`, `octave_up`, `octave_reset`, `transpose_down`, `transpose_up`, `transpose_reset`, `channel` (`channel: 1..16`), `velocity_curve` (`curve: normal | soft | hard | fixed`, velocity matrices only), and `{ mode: <id> }` to go to a sub-mode.
+- **Entering and leaving.** The toggle button enters the mode and, pressed again, leaves it, also from one of its sub-modes; there is no timeout. A `hold:` mode is active only while its button is held (it can't have sub-modes); it can be held during a toggled mode, and goes first. Keys held when the mode starts get their Note Off then, and their release sends nothing. A sub-mode (`parent:`) goes back to its parent after one action, so Edit → E3 → D4 picks preset 1 and leaves you in edit mode for another action, until Edit is pressed again.
+- **The toggle (or hold) button** has no action of its own (leave `action:` out): it only toggles the mode, and presets can't rebind it. A `button.action` set for it from the host is stored but not used. Its presses still show as EVENTs. Its LED is lit while the mode is active (the default `led:`).
+- **While a mode is active,** unbound keys are silent, and the buttons keep their normal actions. A mode with no `keys:` leaves the keyboard playing.
+- **Buttons.** `buttons:` maps button ids to the same actions as keys (not sub-modes or ranges). While the mode is active, a bound button runs that instead of its own action; its release sends nothing, even if the mode has ended by then. A button pressed before the mode started is released normally. A mode's own toggle/hold button can't be bound.
+- **Key actions:** `preset_select` (`preset: N`), `preset_next`, `preset_prev` (these need 2 or more preset slots), `octave_down`, `octave_up`, `octave_reset`, `transpose_down`, `transpose_up`, `transpose_reset`, `channel` (`channel: 1..16`), `channel_up`, `channel_down` (16 wraps to 1), `velocity_curve` (`curve: normal | soft | hard | fixed`, velocity matrices only), and `{ mode: <id> }` to go to a sub-mode.
 - **Ranges.** `keys:` may also hold one range, `white_from: <key>` (white keys only) or `from: <key>` (every key), with `action: preset_select` or `channel` and an optional `count:` (default: every slot, or 16 channels). The keys are numbered 1, 2, ... in order. Single keys can sit beside a range in the same mapping.
-- **What it sends.** A preset switch from a mode is the same as from a button: Note Offs, PRESET_CHANGED and PARAM_CHANGED `preset.active`, and the preset's Program Change. Octave/transpose keys send PARAM_CHANGED like the octave buttons. `channel` and `velocity_curve` send PARAM_CHANGED and make the preset dirty, like a host edit: COMMIT keeps the change, a preset switch drops it.
-- **The builder checks** that ids are unique, that every mode has either `toggle:` or `parent:`, that parents exist and don't loop, that every sub-mode is reachable from a key, that keys are on the keyboard and bound once per mode, and the actions' numbers.
+- **What it sends.** A preset switch from a mode is the same as from a button: Note Offs, PRESET_CHANGED and PARAM_CHANGED `preset.active`, and the preset's Program Change. Octave/transpose keys send PARAM_CHANGED like the octave buttons. `channel`, `channel_up`, `channel_down` and `velocity_curve` send PARAM_CHANGED and make the preset dirty, like a host edit: COMMIT keeps the change, a preset switch drops it. A display shows the preset's name or `CH <n>` ("Displays").
+- **The builder checks** that ids are unique, that every mode has exactly one of `toggle:`, `hold:` or `parent:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that keys are on the keyboard and bound once per mode, and the actions' numbers.
 
-**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`. The runtime keeps 1 byte for the active mode and 6 for the preset blink.
+**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds). The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink.
 
 ## DAW feedback
 

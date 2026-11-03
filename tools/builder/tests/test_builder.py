@@ -395,6 +395,45 @@ class TestValidation(unittest.TestCase):
         self.assertTrue(any("STM32F1-class" in w for w in warns), warns)
         self.assertEqual(self.errs(stm.replace("STM32F103RC", "GD32F103RC"), level="warning"), [])
 
+    def test_hardware_scan(self):
+        """hardware_scan: (core/README.md "Hardware scan"): stm32f1 only; matrix: needs a matrix and
+        a row that fits the settle plus the DMA steps' gaps; analog: needs something to read."""
+        stm = (MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB") +
+               "switch_matrix:\n  - { id: sm, rows: [PA2, PA3], columns: [PB0, PB1] }\n")
+        hs = "hardware_scan:\n  matrix: { row_time: %s, settle: %s%s }\n"
+        dev, diags = load(stm + hs % ("3.5us", "3us", ""))
+        self.assertEqual([str(d) for d in diags if d.level == "error"], [])
+        self.assertEqual((dev.hw_scan, dev.hw_adc), ((3500, 3000, False), False))
+        dev, _ = load(stm + hs % ("1.5us", "1us", ", precharge: true"))
+        self.assertEqual(dev.hw_scan, (1500, 1000, True))
+        h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
+        for want in ("#define GM_HW_SCAN 1", "#define GM_HW_SCAN_ROW_NS 1500", "#define GM_HW_ADC 0",
+                     "#define GM_HW_SCAN_SETTLE_NS 1000", "#define GM_HW_SCAN_PRECHARGE 1"):
+            self.assertIn(want, h)
+        dev, _ = load(stm)
+        self.assertIn("#define GM_HW_SCAN 0", gd.generate(dev, "t.yaml")["gm_device_config.h"])
+        self.assertClean(stm + hs % ("750ns", "500ns", ""))
+        self.assertError(stm + hs % ("3.2us", "3us", ""), r"leaves no room after the 3us settle: at least 3.25us",
+                         path="hardware_scan.matrix.row_time")
+        self.assertError(stm + hs % ("1.2us", "1us", ", precharge: true"), r"at least 1.5us with precharge")
+        self.assertError(stm + hs % ("2us", "0.4us", ", precharge: true"), r"too short with precharge",
+                         path="hardware_scan.matrix.settle")
+        self.assertError(stm + "hardware_scan:\n  matrix: { settle: 3us }\n", r"is required",
+                         path="hardware_scan.matrix.row_time")
+        self.assertError(stm + hs % ("3.5", "3us", ""), r"needs a unit")
+        self.assertError(stm + "hardware_scan:\n  matrix: { row_time: 4us, settle: 3us, rows: 2 }\n",
+                         r"unknown key")
+        self.assertError(stm + "hardware_scan: { row_time: 4us }\n", r"unknown key")
+        self.assertError(MINIMAL_NUC + "switch_matrix:\n  - { id: sm, rows: [PA2, PA3], columns: [PB0, PB1] }\n" +
+                         hs % ("3.5us", "3us", ""), r"not available on nuvoton-nuc1xx")
+        stm0 = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        self.assertError(stm0 + hs % ("3.5us", "3us", ""), r"needs a key_matrix: or switch_matrix:")
+        # analog: true
+        self.assertError(stm0 + "hardware_scan: { analog: true }\n", r"needs analog: inputs or pads:")
+        dev, _ = load(stm0 + "analog:\n  - { id: v, pin: PA0, cc: 7 }\nhardware_scan: { analog: true }\n")
+        self.assertEqual((dev.hw_scan, dev.hw_adc), (None, True))
+        self.assertIn("#define GM_HW_ADC 1", gd.generate(dev, "t.yaml")["gm_device_config.h"])
+
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",
                          r"PB0 has no ADC on nuvoton-nuc1xx \(ADC pins: PA0-PA7", line=10)

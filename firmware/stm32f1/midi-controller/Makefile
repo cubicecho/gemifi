@@ -40,6 +40,8 @@ APP_SRCS := main.c \
             $(PLAT)/src/usbd.c \
             $(PLAT)/src/usb_midi.c \
             $(PLAT)/src/hal.c \
+            $(PLAT)/src/scan_dma.c \
+            $(PLAT)/src/adc_dma.c \
             $(PLAT)/src/config_store.c \
             $(CORE)/src/gsx.c \
             $(CORE)/src/params.c \

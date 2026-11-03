@@ -1,6 +1,7 @@
 # Test device for core/test/test_pads.c: velocity pads on two muxes that
 # share their select lines with a fader mux (as on the Code 61), and one pad
-# on an ADC pin with inverted:. Not a real board.
+# on an ADC pin with inverted:. Not a real board. pads-hw-test.yaml is the
+# same board with hardware_scan: { analog: true } (keep the two in step).
 gemifi: 2
 name: pads-test
 friendly_name: Pads Test

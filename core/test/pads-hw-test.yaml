@@ -1,0 +1,70 @@
+# Test device for core/test/test_pads.c built with -DHW_ADC_TEST: the board
+# of pads-test.yaml (keep the two in step) with hardware_scan: { analog: true },
+# so the test feeds ADC sweeps (gm_adc_sweep) instead of answering
+# hal_adc_read.
+gemifi: 2
+name: pads-test
+friendly_name: Pads Test
+board_id: 0x3F11
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+hardware_scan: { analog: true }
+
+cd74hc4051:
+  - id: fader_mux
+    pin_s0: { number: PC0, allow_other_uses: true }
+    pin_s1: { number: PC1, allow_other_uses: true }
+    pin_s2: { number: PC2, allow_other_uses: true }
+    common_pin: PA7
+    delay: 10us
+  - id: mux_a
+    pin_s0: { number: PC0, allow_other_uses: true }
+    pin_s1: { number: PC1, allow_other_uses: true }
+    pin_s2: { number: PC2, allow_other_uses: true }
+    common_pin: PA0
+    delay: 10us
+  - id: mux_b
+    pin_s0: { number: PC0, allow_other_uses: true }
+    pin_s1: { number: PC1, allow_other_uses: true }
+    pin_s2: { number: PC2, allow_other_uses: true }
+    common_pin: PA1
+    delay: 10us
+
+analog:
+  - { id: fader, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 20 }
+
+pads:                                  # 0..7 on mux_a, 8..15 on mux_b, 16 direct
+  - { id: pad_1,  pin: { cd74hc4051: mux_a, number: 0 }, note: 36 }
+  - { id: pad_2,  pin: { cd74hc4051: mux_a, number: 1 }, note: 37 }
+  - { id: pad_3,  pin: { cd74hc4051: mux_a, number: 2 }, note: 38 }
+  - { id: pad_4,  pin: { cd74hc4051: mux_a, number: 3 }, note: 39 }
+  - { id: pad_5,  pin: { cd74hc4051: mux_a, number: 4 }, note: 40 }
+  - { id: pad_6,  pin: { cd74hc4051: mux_a, number: 5 }, note: 41 }
+  - { id: pad_7,  pin: { cd74hc4051: mux_a, number: 6 }, note: 42 }
+  - { id: pad_8,  pin: { cd74hc4051: mux_a, number: 7 }, note: 43 }
+  - { id: pad_9,  pin: { cd74hc4051: mux_b, number: 0 }, note: 44 }
+  - { id: pad_10, pin: { cd74hc4051: mux_b, number: 1 }, note: 45 }
+  - { id: pad_11, pin: { cd74hc4051: mux_b, number: 2 }, note: 46 }
+  - { id: pad_12, pin: { cd74hc4051: mux_b, number: 3 }, note: 47 }
+  - { id: pad_13, pin: { cd74hc4051: mux_b, number: 4 }, note: 48 }
+  - { id: pad_14, pin: { cd74hc4051: mux_b, number: 5 }, note: 49 }
+  - { id: pad_15, pin: { cd74hc4051: mux_b, number: 6 }, note: 50 }
+  - { id: pad_16, pin: { cd74hc4051: mux_b, number: 7 }, note: 51 }
+  - { id: direct, pin: { number: PA2, inverted: true }, note: 60 }
+
+pad_settings:
+  channel: 10
+  threshold: 200
+  release: 100
+  full: 3000
+  window: 3ms
+  retrigger: 20ms
+
+presets:
+  list:
+    - name: Default
+    - name: Kit 2
+      pads: { pad_1: { note: 70 } }
+      pad_settings: { curve: hard, channel: 0 }

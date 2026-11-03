@@ -165,10 +165,27 @@ static int adc_channel(uint16_t pin)
     return -1;
 }
 
+/* adc_dma.c (the hardware analog scan) owns ADC1 while it runs. A weak
+ * stand-in for apps built without it. */
+__attribute__((weak)) int adc_dma_running(void)
+{
+    return 0;
+}
+
+/* The hardware scans' stops (scan_dma.c, adc_dma.c), for hal_reboot; weak
+ * stand-ins for apps built without them. */
+__attribute__((weak)) void scan_dma_stop(void)
+{
+}
+
+__attribute__((weak)) void adc_dma_stop(void)
+{
+}
+
 int32_t hal_adc_read(uint16_t pin)
 {
     int ch = adc_channel(pin);
-    if (ch < 0)
+    if (ch < 0 || adc_dma_running())
         return -1;
     static uint8_t ready;
     static uint16_t setup;
@@ -230,7 +247,22 @@ int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n)
 
 /* ---- MIDI over USB ---------------------------------------------------- */
 
-void hal_midi_send(const uint8_t *m, uint32_t n)
+/* MIDI out waits: a send finds the 64-byte packet buffer full and waits
+ * for the host to take the last packet (or a protocol reply flushes). Sends
+ * that took over 100 us, and the longest, for the scan report. */
+volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;
+
+static void midi_timed(uint32_t c0)
+{
+    uint32_t us = (DWT_CYCCNT - c0) / (sys_hclk_hz / 1000000u);
+    if (us > 100u) {
+        hal_midi_waits++;
+        if (us > hal_midi_wait_max_us)
+            hal_midi_wait_max_us = us;
+    }
+}
+
+static void midi_send(const uint8_t *m, uint32_t n)
 {
     if (!n)
         return;
@@ -242,7 +274,14 @@ void hal_midi_send(const uint8_t *m, uint32_t n)
     midi_tx_event(m[0] >> 4, m[0], n > 1 ? m[1] : 0, n > 2 ? m[2] : 0);
 }
 
-void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
+void hal_midi_send(const uint8_t *m, uint32_t n)
+{
+    uint32_t c0 = DWT_CYCCNT;
+    midi_send(m, n);
+    midi_timed(c0);
+}
+
+static void midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
 {
     if (!n)
         return;
@@ -253,6 +292,13 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
     midi_tx_event((uint8_t)(cable << 4 | m[0] >> 4), m[0], n > 1 ? m[1] : 0, n > 2 ? m[2] : 0);
 }
 
+void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
+{
+    uint32_t c0 = DWT_CYCCNT;
+    midi_send_cable(cable, m, n);
+    midi_timed(c0);
+}
+
 void hal_midi_poll(void)
 {
     midi_tx_poll();
@@ -260,7 +306,9 @@ void hal_midi_poll(void)
 
 void hal_midi_flush(uint32_t timeout_ms)
 {
+    uint32_t c0 = DWT_CYCCNT;
     midi_tx_flush(timeout_ms);
+    midi_timed(c0);
 }
 
 /* ---- identity, reboot, upload ---------------------------------------- */
@@ -280,6 +328,8 @@ void hal_reboot(int to_bootloader)
     NVIC_ICER(0) = 0xFFFFFFFFu;     /* the next stage starts with no IRQs */
     NVIC_ICER(1) = 0xFFFFFFFFu;
     TIM_CR1(TIM2_BASE) = 0;
+    scan_dma_stop();                /* the hardware scans, if running: columns back to inputs */
+    adc_dma_stop();
     sys_iwdg_kick();
     /* Update mode = the vendor bootloader's request flag (recovery.h).
      * If the flash write fails we still reset: the app just comes back. */

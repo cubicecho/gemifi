@@ -12,8 +12,9 @@
  * Shift-register hubs are refreshed/flushed from the scan tick (fast GPIO);
  * I2C hubs only from the main loop (vpin_refresh_i2c / vpin_flush_i2c),
  * because I2C can't run in an interrupt on most platforms. TM1628 hubs are
- * also written from the main loop (vpin_flush_tm1628): a whole chip takes
- * a few hundred us of bit-banging, too long for the scan tick.
+ * also written from the main loop (vpin_poll_tm1628): only the bytes that
+ * changed, a few per main-loop pass, since a whole chip takes a few hundred
+ * us of bit-banging (too long for the scan tick, or one pass).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -54,7 +55,27 @@ int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word);
  * cached hub inputs; NULL for a mux channel or without a register. */
 const volatile uint32_t *vpin_in_reg(gm_pin_t p, uint32_t *mask);
 void vpin_scan_matrices(void);     /* scan them (from the scan tick)         */
-void vpin_flush_tm1628(void);      /* TM1628 RAM (if changed)                */
+/* Hardware scan (gm_controller.h gm_scan_plan_t): add every switch matrix's
+ * rows to the plan (a row already in it is shared). 0, and the plan's rows
+ * left as they were, if one can't join (its rows have no one-store select
+ * on the plan's register, or its columns aren't bits of the plan's input
+ * register). Struct-free on purpose: the plan's fields are passed in. */
+int vpin_scan_plan(volatile uint32_t **sel_reg, uint32_t *sel_word, uint32_t *n_rows,
+                   uint32_t max_rows, const volatile uint32_t **in_reg, uint32_t *in_mask);
+/* From then on: 1 = switch matrices take their rows from vpin_scan_feed()
+ * (one frame in plan order) and vpin_scan_matrices() skips them. */
+void vpin_scan_hw(int on);
+void vpin_scan_feed(const uint16_t *frame);
+/* Pads (controller.c pads_scan): vpin_analog_peaks() once per pass, then
+ * vpin_analog_peak(p) per pad = its strongest reading (after INVERT) since
+ * the last pass, with the hardware analog scan (gm_adc_plan); otherwise just
+ * vpin_analog(p). */
+void vpin_analog_peaks(void);
+int32_t vpin_analog_peak(gm_pin_t p);
+void vpin_flush_tm1628(void);      /* TM1628 RAM: everything that changed    */
+/* The same, a few bytes per call (about 150 us at most): call it on every
+ * main-loop pass; a big change goes out over a few passes. */
+void vpin_poll_tm1628(void);
 /* RGB_SERIAL hubs: send one changed LED (at most every 5 ms) and the
  * keepalive (every 50 ms). Call it on every main-loop pass. */
 void vpin_poll_rgb_serial(uint32_t now_ms);

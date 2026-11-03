@@ -56,6 +56,8 @@ Full report with disassembly: [analysis/mushy-feel.md](analysis/mushy-feel.md). 
 
 Each fix is a change of a byte or two. Candidate patches are listed in the analysis. **Nothing has been patched or flashed yet.** The pin map, settings pages and recovery combo are in [analysis/hw-map.md](analysis/hw-map.md); gemifi's port is `platform/stm32f1/`.
 
+**Scanning speed (gemifi, 2026-11-03):** [analysis/scan-performance.md](analysis/scan-performance.md) covers what limits the scan on this board, what the STM32F103 offers, and the timer + DMA scans built for it. Keys are timed to 84 us (36 us with precharge) instead of 400 us, and the CPU does no row or ADC work.
+
 ## Velocity tables
 
 `tables/velocity_tables.csv` (kept locally, gitignored: the values come from the vendor image). There are two identical banks of 7 × 128-byte tables (curve0-3, then flat 64 / 100 / 127):

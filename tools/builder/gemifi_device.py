@@ -249,7 +249,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
-            "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
+            "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -694,6 +694,8 @@ class Device:
         self.pads = []               # Hub per pad (validate_pads), in YAML order
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.budget = None           # storage_budget(self), after validation
+        self.hw_scan = None          # (row_ns, settle_ns, precharge) from hardware_scan.matrix
+        self.hw_adc = False          # hardware_scan.analog
 
 
 class Use:
@@ -1077,6 +1079,61 @@ class _V:
                 self.err(u.path, u.line, f"{name} is already used by {first.path} (line {first.line}){hint}")
 
 
+# hardware_scan: (core/README.md "Hardware scan"): platforms whose timers and DMA can scan the
+# matrix rows by themselves. Gaps the STM32F1 needs between its DMA steps within a row: columns
+# to input after the select, and (precharge) the read before the next select.
+HW_SCAN_PLATFORMS = {"stm32f1"}
+HW_SCAN_GAP_NS = 250
+
+
+def validate_hw_scan(v, dev, data, plat):
+    if "hardware_scan" not in data:
+        return
+    line = data.line_of("hardware_scan")
+    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, ["matrix", "analog"])
+    if hs is None:
+        return
+    if plat.name not in HW_SCAN_PLATFORMS:
+        v.err("hardware_scan", line, f"not available on {plat.name} (only on: "
+                                     f"{', '.join(sorted(HW_SCAN_PLATFORMS))})")
+        return
+    if "analog" in hs:
+        dev.hw_adc = v.boolean(hs, "analog", "hardware_scan")
+        if dev.hw_adc and "analog" not in data and "pads" not in data:
+            v.err("hardware_scan.analog", hs.line_of("analog"), "needs analog: inputs or pads: to read")
+            dev.hw_adc = False
+    if "matrix" not in hs:
+        return
+    path, mline = "hardware_scan.matrix", hs.line_of("matrix")
+    mx = v.mapping(hs["matrix"], path, mline, ["row_time", "settle", "precharge"])
+    if mx is None:
+        return
+    if "key_matrix" not in data and "switch_matrix" not in data:
+        v.err(path, mline, "needs a key_matrix: or switch_matrix: to scan")
+        return
+    for k in ("row_time", "settle"):
+        if k not in mx:
+            v.err(f"{path}.{k}", mx.line, f"is required (e.g. `{k}: "
+                                          f"{'3.5us' if k == 'row_time' else '3us'}`)")
+    row = v.period(mx, "row_time", path, 0.5, 50, step_us=0.001, example="3.5us")
+    settle = v.period(mx, "settle", path, 0.25, 49.5, step_us=0.001, example="3us")
+    pre = v.boolean(mx, "precharge", path)
+    if row is None or settle is None:
+        return
+    lo = HW_SCAN_GAP_NS * (2 if pre else 1)
+    if pre and settle < 2 * HW_SCAN_GAP_NS:
+        v.err(f"{path}.settle", mx.line_of("settle"), f"{settle / 1000:g}us is too short with "
+              f"precharge: (at least {2 * HW_SCAN_GAP_NS / 1000:g}us: the columns go back to inputs "
+              f"{HW_SCAN_GAP_NS / 1000:g}us after the select)")
+        return
+    if settle + lo > row:
+        v.err(f"{path}.row_time", mx.line_of("row_time"),
+              f"{row / 1000:g}us leaves no room after the {settle / 1000:g}us settle: at least "
+              f"{(settle + lo) / 1000:g}us{' with precharge' if pre else ''}")
+        return
+    dev.hw_scan = (row, settle, pre)
+
+
 def fmt_us(us):
     if us >= 1000 and us % 100 == 0:
         return f"{us / 1000:g}ms"
@@ -1237,6 +1294,7 @@ def validate(data, file=None):
     validate_mcu(v, dev, data, tr, daw_port)
 
     dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
+    validate_hw_scan(v, dev, data, plat)
 
     # hubs (before anything that refers to them), in file order
     for key in data:
@@ -3018,7 +3076,14 @@ def generate(dev, source="device.yaml"):
          f"#define GM_HAS_MATRIX {1 if m else 0}",
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
-         f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}"]
+         f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}",
+         f"#define GM_HW_SCAN {1 if dev.hw_scan else 0} /* hardware_scan.matrix */",
+         f"#define GM_HW_ADC {1 if dev.hw_adc else 0} /* hardware_scan.analog */"]
+    if dev.hw_scan:
+        row, settle, pre = dev.hw_scan
+        h += [f"#define GM_HW_SCAN_ROW_NS {row}",
+              f"#define GM_HW_SCAN_SETTLE_NS {settle}",
+              f"#define GM_HW_SCAN_PRECHARGE {1 if pre else 0}"]
     tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
         h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")

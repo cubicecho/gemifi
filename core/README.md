@@ -177,6 +177,26 @@ pad_settings:                  # all optional; these are the param defaults
 - **Presets** may set `pads: { <id>: { note: N } }` and `pad_settings: { channel, curve, aftertouch }`; the sensing (`threshold`, `release`, `full`, `window`, `retrigger`) is the pads' calibration and the same in every preset.
 - **Generated code** (`gm_device.h` `gm_pad_t`, only with `pads:`): `GM_N_PADS` and the `GM_PAD_*_DEFAULT`s in `gm_device_config.h`, `gm_pads[GM_N_PADS]` (pin, name) and `gm_pad_note_defaults[]` in `gm_device_config.c`. A device without pads has no pad params, no "Pads" group and no pad code. RAM: about 16 bytes and one param value per pad, plus 8 values.
 
+## Hardware scan
+
+On a platform whose timers and DMA can do it (stm32f1 for now), `hardware_scan:` takes the matrix scan off the CPU: the key matrix and every switch matrix are scanned row by row by the hardware, and the core only looks at finished frames.
+
+```yaml
+hardware_scan:
+  matrix:                      # the key matrix and switch matrices
+    row_time: 3.5us            # time per row; a frame is every row once (23 rows on the Code 61, padded to 24)
+    settle: 3us                # row selected -> columns read; at least 0.25us (0.5us with precharge)
+    precharge: false           # drive the columns to their idle level between rows (below)
+  analog: true                 # analog inputs and pads: mux steps + ADC by timer + DMA (below)
+```
+
+- **What it needs.** Every row (key matrix and switch matrices) is selected by one store (decoder rows on one port with a set/reset register, `hal_pin_bsrr`), and every column is a bit of one input register. The Code 61 fits: PB3–PB7 select, PB8–PB15 read. If a device doesn't fit, the firmware logs a WARN at boot and scans in software as before. A frame is one reading of each row; an odd row count gets its last row twice, so frames are whole 32-bit words.
+- **Timing.** A key's two contacts are timed in frames (`row_time` × rows: 84 us on the Code 61 at 3.5 us), instead of the `scan_interval` tick, and velocity is worked out in microseconds, so finer timing gives finer velocities at the fast end. The scan tick keeps running for whatever else it does (shift-register hubs, encoders on MCU pins); matrices and encoders on switch matrices move to the frames. The panel's `rows_per_scan` doesn't apply: every row is in every frame.
+- **Precharge** is what the stock Code 61 firmware does. A column that a closed key pulled low has only the MCU's weak pull-up (30–50 kΩ) to come back up, which is why `settle` has to be microseconds. With `precharge: true` the columns are driven to their idle level (the level their pull-up or pull-down gives) for a moment before each row, so the read only waits for a closed key to pull its column down: `row_time: 1.5us, settle: 1us` gives 36 us frames. While a key on the row being left or entered is held, its column is briefly driven against the row (about 0.25 us per row). The stock firmware does the same, so the board takes it, but it needs a matrix with diodes or tolerant drivers. It's on in the Code 61 YAML (tried on hardware: no ghost or missing notes); leave it off on other boards until tried. With precharge, every column must be in one of the port's two config registers, set up as a pulled input, and nothing else may reconfigure those pins while the scan runs.
+- **Checks.** The builder wants `row_time` ≥ `settle` + 0.25 us (+ 0.5 us with precharge), and `settle` ≥ 0.5 us with precharge. At boot the stm32f1 logs the frame length, the longest frame-processing interrupt and how often it fell behind (a flash write stalls it; frames lost then still count as time).
+- **Analog** (`analog: true`): the analog inputs and pads are read in sweeps by the hardware. Every mux used must share the same select lines (one set/reset register), and nothing may read a mux digitally (a button on a mux). Each step of a sweep stores the select lines, waits the muxes' `delay:`, and converts every mux's common pin plus every analog input or pad on an ADC pin. The Code 61's 8 steps × PA7, PA6, PA1, PA0 take 200 us. `vpin_analog()` then returns the latest reading (an ADC pin: the mean of its readings in the sweep), the analog inputs are all read every millisecond instead of one every 2 ms, and the pads see their strongest reading of the sweeps since their last pass (about 5), so a strike's peak isn't lost between passes. The main loop does no conversions or mux settles at all.
+- **Code.** The core side is in `controller.c` (`gm_scan_plan()`, `gm_scan_frames()`, `gm_controller.h`) and `vpin.c` (`vpin_scan_plan()`, `vpin_scan_feed()`, `gm_adc_plan()`, `gm_adc_sweep()`, `vpin_analog_peak()`); the STM32F1 drivers are `platform/stm32f1/src/scan_dma.c` and `adc_dma.c`. Host tests: `core/test` `test_matrix_hw` (`matrix-hw-test.yaml`) and `test_pads_hw` (`pads-hw-test.yaml`).
+
 ## Device YAML
 
 Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: the pin schema, ids, `name`/`friendly_name`, hub components and time periods.
@@ -194,6 +214,7 @@ usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
 midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub is used
 scan_interval: 125us           # matrix/encoder scan period
+hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
 boot_combo: [pitch_down, pitch_up]  # button ids
 
 cd74hc4051:

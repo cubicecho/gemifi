@@ -3,6 +3,11 @@
  * map and switch-matrix buttons and encoders (core/test/matrix-test.yaml),
  * against a simulated 74HC138-style decoder board.
  *
+ * Built with -DHW_SCAN_TEST against matrix-hw-test.yaml (the same board with
+ * hardware_scan:), the scan is the platform's instead: each tick is one
+ * frame, built like the STM32F1's DMA does (store each plan row's select
+ * word, read the column port) and handed to gm_scan_frames().
+ *
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
@@ -136,16 +141,40 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ------------------------------------------------------------ */
 
+static uint32_t tick_ns;             /* scan_us, or a hardware-scan frame */
+#ifdef HW_SCAN_TEST
+static const gm_scan_plan_t *plan;
+static uint32_t frame[GM_SCAN_MAX_ROWS / 2u];   /* 32-bit words, as the DMA ring */
+
+static void hw_frame(uint32_t lost)
+{
+    uint16_t *f = (uint16_t *)frame;
+    for (uint32_t r = 0; r < plan->n_rows; r++) {
+        *plan->sel_reg = plan->sel_word[r];
+        apply_bsrr();
+        update_port_b();
+        f[r] = (uint16_t)*plan->in_reg;
+    }
+    gm_scan_frames(f, 1, lost);
+    gm_scan_tick();                  /* the scan tick keeps running: must not interfere */
+}
+#endif
+
 static void ticks(uint32_t n)
 {
-    while (n--)
+    while (n--) {
+#ifdef HW_SCAN_TEST
+        hw_frame(0);
+#else
         gm_scan_tick();
+#endif
+    }
 }
 
 static void run_ms(uint32_t ms)
 {
     for (uint32_t i = 0; i < ms; i++) {
-        ticks(1000u / gm_device.scan_us);
+        ticks(1000000u / tick_ns);
         now_ms++;
         gm_poll();
     }
@@ -176,7 +205,7 @@ static void press(int p, int c, uint32_t gap_us)
 {
     out_n = 0;
     closed[2 * p][c] = 1;
-    ticks(gap_us / gm_device.scan_us);
+    ticks(gap_us * 1000u / tick_ns);
     closed[2 * p + 1][c] = 1;
     run_ms(2);
 }
@@ -193,9 +222,30 @@ int main(void)
 {
     fast_cols = getenv("GM_TEST_FAST_COLS") != NULL;
     use_bsrr = getenv("GM_TEST_BSRR") != NULL;
+    tick_ns = gm_device.scan_us * 1000u;
+#ifdef HW_SCAN_TEST
+    fast_cols = use_bsrr = 1;        /* what a hardware scan needs */
+    printf("hardware scan (simulated DMA frames)\n");
+#else
     printf("decoder select: %s\n", use_bsrr ? "one set/reset store" : "pin by pin");
     printf("column reads: %s\n", fast_cols ? "one load per row" : "per pin");
+#endif
     gm_init(0x00010000u, 0);
+#ifdef HW_SCAN_TEST
+    plan = gm_scan_plan();
+    CHECK(plan != 0, "a plan for decoder rows + one column port");
+    if (!plan)
+        return 1;
+    /* 4 key rows, then the switch matrix's 2 (outputs 16, 17): 6, even. */
+    CHECK(plan->n_rows == 6, "plan rows: %u (4 key + 2 panel)", (unsigned)plan->n_rows);
+    CHECK(plan->in_mask == 0x000Fu, "column bits PB0-PB3 (got 0x%X)", (unsigned)plan->in_mask);
+    CHECK(plan->row_ns == 2000 && plan->settle_ns == 1000 && plan->precharge == 1,
+          "plan timing from hardware_scan:");
+    tick_ns = plan->n_rows * plan->row_ns;
+    CHECK(!gm_scan_hw(), "not on before the platform says so");
+    gm_scan_hw_started(tick_ns * 16u / 1000u);
+    CHECK(gm_scan_hw(), "on");
+#endif
     run_ms(2000);
     int d1, d2;
 
@@ -258,10 +308,37 @@ int main(void)
     run_ms(5);
     CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30, "encoder turn: CC 30 (got %d %d)", d1, d2);
 
+#ifdef HW_SCAN_TEST
+    /* Velocity resolution: the frames are 12 us, so 200 us apart is two
+     * velocities (the software scan's 250 us ticks can't tell them apart). */
+    press(1, 1, 3000);
+    int v3000 = last_msg(0x90, &d1, &d2) ? d2 : -1;
+    release(1, 1);
+    press(1, 1, 3200);
+    int v3200 = last_msg(0x90, &d1, &d2) ? d2 : -1;
+    release(1, 1);
+    CHECK(v3000 > v3200 && v3200 > 1, "3.0 ms = %d, 3.2 ms = %d: finer than a scan tick", v3000, v3200);
+
+    /* Frames the platform lost (an overrun) still count as time. */
+    out_n = 0;
+    closed[2][1] = 1;
+    ticks(1);
+    hw_frame(3000u * 1000u / tick_ns);      /* 3 ms of lost frames */
+    closed[3][1] = 1;
+    run_ms(2);
+    CHECK(last_msg(0x90, &d1, &d2) && d2 == v3000, "lost frames count: %d (3.0 ms = %d)", d2, v3000);
+    release(1, 1);
+
+    /* One frame stores each plan row's select once. */
+    selects = 0;
+    ticks(1);
+    CHECK(selects == (int)plan->n_rows, "one frame: %d selects (%u rows)", selects, (unsigned)plan->n_rows);
+#else
     /* the decoder only rewrites its lines when the selection changes */
     selects = 0;
     ticks(1);
     CHECK(selects > 0 && selects <= 6 * 5, "one scan pass: %d select-line writes (at most 6 rows x 5)", selects);
+#endif
 
     printf("%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;

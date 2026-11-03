@@ -4,6 +4,11 @@
  * lines with a fader mux, and one inverted pad on an ADC pin. Simulated
  * HAL: pins, a mux-aware ADC, MIDI out; RAM config store.
  *
+ * Built with -DHW_ADC_TEST against pads-hw-test.yaml (the same board with
+ * hardware_scan: { analog: true }), the readings come as the platform's ADC
+ * sweeps instead (gm_adc_sweep, 5 a millisecond), built from the same
+ * simulated mux channels.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
@@ -41,8 +46,22 @@ void hal_pin_write(uint16_t pin, int l) { level[pin] = (uint8_t)l; }
 int hal_pin_read(uint16_t pin) { return level[pin]; }
 const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask) { (void)pin; (void)mask; return 0; }
 volatile uint32_t *hal_pin_out_reg(uint16_t pin) { (void)pin; return 0; }
+#ifdef HW_ADC_TEST
+static int adc_reads;
+/* The mux select lines' set/reset register, which the hardware plan needs
+ * (the platform stores the step words there; sweep() sets the levels). */
+static volatile uint32_t bsrr_c;
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    *bit = pin & 15u;
+    return pin >= 32u && pin < 48u ? &bsrr_c : 0;
+}
+#endif
 int32_t hal_adc_read(uint16_t pin)
 {
+#ifdef HW_ADC_TEST
+    adc_reads++;
+#endif
     switch (pin) {
     case 0: return mux_a[sel()];
     case 1: return mux_b[sel()];
@@ -66,11 +85,37 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
+#ifdef HW_ADC_TEST
+#define SWEEPS_PER_MS 5u            /* the Code 61's: about 200 us a sweep */
+static const gm_adc_plan_t *aplan;
+
+/* One sweep: every plan pin at every mux step, as the DMA lays it out. */
+static void sweep(void)
+{
+    uint16_t v[GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS];
+    for (uint32_t st = 0; st < aplan->n_steps; st++) {
+        for (uint32_t k = 0; k < aplan->n_pins; k++) {
+            level[PC0] = st & 1u;
+            level[PC0 + 1] = (st >> 1) & 1u;
+            level[PC0 + 2] = (st >> 2) & 1u;
+            int32_t x = hal_adc_read(aplan->pin[k]);
+            adc_reads--;
+            v[st * aplan->n_pins + k] = (uint16_t)(x < 0 ? 0 : x);
+        }
+    }
+    gm_adc_sweep(v);
+}
+#endif
+
 static void run_ms(uint32_t ms)
 {
     for (uint32_t i = 0; i < ms; i++) {
         for (uint32_t t = 0; t < 1000u / gm_device.scan_us; t++)
             gm_scan_tick();
+#ifdef HW_ADC_TEST
+        for (uint32_t k = 0; k < SWEEPS_PER_MS; k++)
+            sweep();
+#endif
         now_ms++;
         gm_poll();
     }
@@ -150,6 +195,21 @@ int main(void)
 {
     mux_b[7] = 3000;                    /* pad 16 pressed at power-up */
     gm_init(0x00010000u, 0);
+#ifdef HW_ADC_TEST
+    printf("hardware analog scan (simulated ADC sweeps)\n");
+    aplan = gm_adc_plan();
+    CHECK(aplan != 0, "a plan: three muxes on the same select lines, one ADC pin");
+    if (!aplan)
+        return 1;
+    CHECK(aplan->n_steps == 8 && aplan->n_pins == 4 && aplan->pin[0] == 7 && aplan->pin[1] == 0 &&
+          aplan->pin[2] == 1 && aplan->pin[3] == 2, "plan: 8 steps x PA7, PA0, PA1, PA2 (%u x %u)",
+          (unsigned)aplan->n_steps, (unsigned)aplan->n_pins);
+    CHECK(aplan->settle_ns == 10000, "settle = the muxes' delay (%u ns)", (unsigned)aplan->settle_ns);
+    CHECK(!gm_adc_hw(), "off until the platform starts it");
+    gm_adc_hw_started();
+    CHECK(gm_adc_hw(), "on");
+    adc_reads = 0;
+#endif
     out_n = 0;
     run_ms(2000);
     CHECK(count(0x90) == 0 && count(0x80) == 0, "nothing at rest, pad 16 held at start-up stays silent");
@@ -243,8 +303,30 @@ int main(void)
           i >= 0 ? out[i + 2] : -1);
     settles = 0;
     run_ms(10);
+#ifdef HW_ADC_TEST
+    CHECK(settles == 0 && adc_reads == 0, "hardware scan: no mux settles (%d) or ADC reads (%d) in the core",
+          settles, adc_reads);
+
+    /* A strike that only one sweep sees, between two main-loop passes: the
+     * peak hold still catches it (a 1 ms software read would miss it). */
+    out_n = 0;
+    for (uint32_t k = 0; k < SWEEPS_PER_MS; k++) {
+        mux_a[5] = k == 2 ? 2800 : 0;
+        sweep();
+    }
+    mux_a[5] = 0;
+    now_ms++;
+    gm_poll();
+    run_ms(2);
+    i = find(0x99, 41);
+    CHECK(i >= 0 && out[i + 2] == 1 + 126 * 2600 / 2800 && find(0x89, 41) > i,
+          "one-sweep strike on pad 6: Note On 41 velocity %d, then off (got %d)", 1 + 126 * 2600 / 2800,
+          i >= 0 ? out[i + 2] : -1);
+    run_ms(25);
+#else
     CHECK(settles <= 10 * 8 + 5 * 2, "pads behind shared select lines switch them 8 times a scan (%d in 10 ms)",
           settles);
+#endif
 
     /* curves, fixed, channel from midi.channel */
     out_n = 0;

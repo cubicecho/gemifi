@@ -78,3 +78,9 @@ A release:
 - publishes the Docker image as `:X.Y.Z`, `:X.Y` and `:latest`.
 
 `npm ci && npm run release:dry` shows what the next release would be.
+
+## License and trademarks
+
+MIT, see [LICENSE](LICENSE).
+
+gemifi is an independent project, not affiliated with or endorsed by M-Audio/inMusic, Behringer, or any other hardware maker. Product names are trademarks of their owners and are used only to identify compatible hardware. Flashing gemifi replaces the stock firmware and may void your warranty.

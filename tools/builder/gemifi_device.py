@@ -227,7 +227,7 @@ HUB_KEYS = {
     "mcp23017": ["id", "address"],
     "pcf8574": ["id", "address"],
     "decoder": ["id", "address", "groups"],
-    "switch_matrix": ["id", "rows", "columns", "settle"],
+    "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
@@ -1849,6 +1849,11 @@ def validate_hub(v, dev, h, typ, p, line):
             v.err(p, line, f"{nr} rows x {nc} columns = {hub.n_pins} switches: at most 32 per switch_matrix "
                            "(split it into two)")
         hub.settle_us = v.period(h, "settle", p, 0, 255, default=1, example="2us")
+        # rows read per scan, in turn (0 = all): spreads a big panel over several scans
+        hub.rows_per_scan = v.integer(h, "rows_per_scan", p, 1, 32, default=0)
+        if hub.rows_per_scan and isinstance(nr, int) and nr and hub.rows_per_scan >= nr:
+            v.warn(f"{p}.rows_per_scan", h.line_of("rows_per_scan"), f"{hub.rows_per_scan} >= its {nr} rows: "
+                                                                      "every row is read on every scan anyway")
     else:
         hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
         hub.n_pins = 16 if typ == "mcp23017" else 8
@@ -3007,7 +3012,7 @@ def generate(dev, source="device.yaml"):
             elif hb.type == "switch_matrix" and hb.rows and hb.cols:
                 n = hb.index + 1
                 extra = [f"        .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hb.rows)}, "
-                         f".n_cols = {len(hb.cols)},"]
+                         f".n_cols = {len(hb.cols)}, .rows_per_scan = {hb.rows_per_scan or 0},"]
             c += [f"    {{ /* {hb.index + 1}: {_comment(hb.id)} ({hb.type}) */",
                   f"        .type = {HUB_ENUM[hb.type]}, .chain = {hb.chain}, .n_sel = {hb.n_sel}, "
                   f".i2c_addr = 0x{hb.addr:02X},",

@@ -92,6 +92,7 @@ typedef struct {
     uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16)     */
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
+    uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */

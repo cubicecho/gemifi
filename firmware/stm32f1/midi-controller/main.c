@@ -121,6 +121,14 @@ static void report_scan(void)
     app_log(LOG_INFO, fmt_num(a, "main loop max ", loop_max, " us"),
             fmt_num(b, ", over 1 ms ", loop_over1, ""));
     app_log(LOG_INFO, fmt_num(a, "main loop over 2 ms ", loop_over2, ""), "");
+    /* gm_poll parts (scan interrupt included): proto, keys/buttons, analog, pads,
+     * encoders, LEDs */
+    app_log(LOG_INFO, fmt_num(a, "poll proto ", gm_poll_part_max[0] / mhz, " us"),
+            fmt_num(b, ", keys/buttons ", gm_poll_part_max[1] / mhz, " us"));
+    app_log(LOG_INFO, fmt_num(a, "poll analog ", gm_poll_part_max[2] / mhz, " us"),
+            fmt_num(b, ", pads ", gm_poll_part_max[3] / mhz, " us"));
+    app_log(LOG_INFO, fmt_num(a, "poll encoders ", gm_poll_part_max[4] / mhz, " us"),
+            fmt_num(b, ", leds ", gm_poll_part_max[5] / mhz, " us"));
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));
@@ -203,6 +211,13 @@ int main(void)
         if ((reported == 0 && now >= 2500u) || (reported == 1 && now >= 10000u)) {
             reported++;
             report_scan();
+            /* The 10 s report then shows 2.5-10 s: steady state, not boot. */
+            scan_max = scan_sum = scan_n = 0;
+            loop_max = loop_over1 = loop_over2 = 0;
+            for (uint32_t i = 0; i < 3u; i++)
+                gm_scan_part_max[i] = 0;
+            for (uint32_t i = 0; i < GM_POLL_PARTS; i++)
+                gm_poll_part_max[i] = 0;
         }
     }
 }

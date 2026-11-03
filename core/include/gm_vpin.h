@@ -46,6 +46,9 @@ void vpin_refresh_i2c(void);
 void vpin_flush_i2c(void);
 int vpin_has_matrices(void);       /* any switch-matrix hub                  */
 int vpin_is_decoder(gm_pin_t p);   /* a decoder output: "off" does nothing  */
+/* A decoder output that is selected by one store: *word to *reg. 0 if p
+ * isn't one (selected pin by pin through vpin_write instead). */
+int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word);
 /* Where p's level can be read with one load: *mask's bit of the returned
  * word, electrical (apply GM_PIN_INVERT). MCU pins (hal_pin_in_reg) and
  * cached hub inputs; NULL for a mux channel or without a register. */

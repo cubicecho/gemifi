@@ -121,6 +121,11 @@ static volatile uint32_t *row_reg[FAST_ROWS];
 static uint32_t row_on;             /* level that drives row r: bit r */
 static uint8_t rows_fast;
 static uint8_t rows_dec;            /* every row is a decoder output */
+/* Rows selected by one store each (vpin_select_word): decoder rows on a port
+ * with a set/reset register. */
+static volatile uint32_t *row_sel_reg[FAST_ROWS];
+static uint32_t row_sel_word[FAST_ROWS];
+static uint8_t rows_sel;
 static uint8_t knote[NK], kchan[NK];
 #endif
 
@@ -132,6 +137,7 @@ static void mode_key(uint32_t k);
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
 volatile uint32_t gm_scan_part_max[3];
+uint32_t gm_poll_part_max[GM_POLL_PARTS];
 
 __attribute__((weak)) uint32_t hal_cycles(void)
 {
@@ -143,6 +149,14 @@ static void part_done(uint32_t i, uint32_t *t)
     uint32_t now = hal_cycles(), d = now - *t;
     if (d > gm_scan_part_max[i])
         gm_scan_part_max[i] = d;
+    *t = now;
+}
+
+static void poll_part_done(uint32_t i, uint32_t *t)
+{
+    uint32_t now = hal_cycles(), d = now - *t;
+    if (d > gm_poll_part_max[i])
+        gm_poll_part_max[i] = d;
     *t = now;
 }
 
@@ -213,7 +227,9 @@ static void matrix_scan(void)
     int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
     uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
     for (uint32_t r = 0; r < rows; r++) {
-        if (rows_fast)
+        if (rows_sel)
+            *row_sel_reg[r] = row_sel_word[r];
+        else if (rows_fast)
             *row_reg[r] = (row_on >> r) & 1u;
         else
             vpin_write(m->rows[r], 1);
@@ -1493,10 +1509,13 @@ void gm_init(uint32_t fw_version, int safe_mode)
         const gm_matrix_t *m = gm_device.matrix;
         rows_fast = m->n_rows <= FAST_ROWS;
         rows_dec = m->n_rows > 0;
+        rows_sel = m->n_rows > 0 && m->n_rows <= FAST_ROWS;
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
             if (!vpin_is_decoder(m->rows[r]))
                 rows_dec = 0;
+            if (r >= FAST_ROWS || !vpin_select_word(m->rows[r], &row_sel_reg[r], &row_sel_word[r]))
+                rows_sel = 0;
             if (on_sr_hub(m->rows[r]))
                 m_hubs = 1;
             if (r < FAST_ROWS) {
@@ -1599,10 +1618,12 @@ void gm_poll(void)
 #endif
     static uint8_t booted;
     uint32_t now = hal_millis();
+    uint32_t tc = hal_cycles();
 
     app_proto_poll();
     presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;
+    poll_part_done(0, &tc);
 
     if (has_i2c_hubs && now - t_i2c >= I2C_MS) {
         t_i2c = now;
@@ -1624,27 +1645,32 @@ void gm_poll(void)
         ramps_ms(now);
     }
 #endif
+    poll_part_done(1, &tc);
 #if GM_N_ANALOGS > 0
     if (now - t_analog >= ANALOG_MS) {
         t_analog = now;
         analog_poll();
     }
 #endif
+    poll_part_done(2, &tc);
 #if GM_N_PADS > 0
     if (now - t_pad >= PAD_MS) {
         t_pad = now;
         pads_scan(now);
     }
 #endif
+    poll_part_done(3, &tc);
 #if GM_N_ENCODERS > 0
     encoders_poll();
 #endif
+    poll_part_done(4, &tc);
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);
         if (has_tm_hubs)
             vpin_flush_tm1628();
     }
+    poll_part_done(5, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;
         app_log(LOG_INFO, gm_device.name, safe ? " up (safe mode: defaults)" : " up");

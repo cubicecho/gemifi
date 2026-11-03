@@ -294,14 +294,15 @@ static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
  * Written only when the selection changes. */
 static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n)
 {
-    if (s->channel == (int8_t)n)
-        return;
+    /* One store: always written, so a key scan that selects rows itself
+     * (vpin_select_word) never leaves this out of date. */
     int8_t slot = dec_slot[s - hs];
     if (slot >= 0 && n < DEC_OUT) {
         *dec_reg[slot] = dec_word[slot][n];
-        s->channel = (int8_t)n;
         return;
     }
+    if (s->channel == (int8_t)n)
+        return;
     uint32_t g = n >> h->n_sel;
     for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
         if (h->sel[k].hub == 0)
@@ -457,6 +458,19 @@ void vpin_flush(void)
 
 /* ---- switch matrices --------------------------------------------------- */
 
+int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word)
+{
+    const gm_hub_t *h = hub_of(p);
+    if (!h || h->type != GM_HUB_DECODER)
+        return 0;
+    int8_t slot = dec_slot[p.hub - 1];
+    if (slot < 0 || p.num >= DEC_OUT)
+        return 0;
+    *reg = dec_reg[slot];
+    *word = dec_word[slot][p.num];
+    return 1;
+}
+
 int vpin_is_decoder(gm_pin_t p)
 {
     const gm_hub_t *h = hub_of(p);
@@ -490,24 +504,33 @@ void vpin_scan_matrices(void)
         const gm_hub_t *h = &gm_device.hubs[i];
         if (h->type != GM_HUB_SWMATRIX)
             continue;
-        uint32_t v = 0, bit = 0;
+        hub_state_t *s = &hs[i];
+        uint32_t v = s->in;
         uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
-        for (uint32_t r = 0; r < h->n_rows && bit < 32u; r++) {
+        /* rows_per_scan rows per call, in turn (the cursor lives in .channel,
+         * unused by switch matrices); the other rows keep their last reading. */
+        uint32_t n = h->rows_per_scan && h->rows_per_scan < h->n_rows ? h->rows_per_scan : h->n_rows;
+        uint32_t r = (s->channel >= 0 && (uint32_t)s->channel < h->n_rows) ? (uint32_t)s->channel : 0;
+        for (uint32_t k = 0; k < n; k++, r = r + 1u < h->n_rows ? r + 1u : 0) {
+            uint32_t bit = r * h->n_cols;
+            if (bit >= 32u)
+                continue;
             vpin_write(h->rows[r], 1);
             hal_delay_us(h->settle_us ? h->settle_us : 1);
+            uint32_t row = 0;
             if (sm_reg[i]) {
-                uint32_t row = ((*sm_reg[i] >> sm_shift[i]) & all) ^ sm_inv[i];
-                v |= row << bit;
-                bit += h->n_cols;
+                row = ((*sm_reg[i] >> sm_shift[i]) & all) ^ sm_inv[i];
             } else {
-                for (uint32_t c = 0; c < h->n_cols && bit < 32; c++, bit++)
+                for (uint32_t c = 0; c < h->n_cols && bit + c < 32u; c++)
                     if (vpin_read(h->cols[c]))
-                        v |= 1u << bit;
+                        row |= 1u << c;
             }
+            v = (v & ~(all << bit)) | (row << bit);
             if (!vpin_is_decoder(h->rows[r]))
                 vpin_write(h->rows[r], 0);
         }
-        hs[i].in = v;
+        s->channel = (int8_t)r;
+        s->in = v;
     }
 }
 

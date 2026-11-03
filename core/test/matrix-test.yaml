@@ -23,6 +23,7 @@ decoder:
 switch_matrix:
   - id: panel
     rows: { decoder: rows, first: 16, count: 2 }
+    rows_per_scan: 1           # read the two rows in turn
     columns:
       - { number: PB0, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB1, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }

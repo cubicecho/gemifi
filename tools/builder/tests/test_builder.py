@@ -591,6 +591,15 @@ class TestValidation(unittest.TestCase):
         big = t.replace("first: 16, count: 2", "first: 0, count: 17")
         self.assertError(big, r"17 rows x 2 columns = 34 switches: at most 32")
         self.assertError(t.replace("number: 3 }, cc: 30", "number: 4 }, cc: 30"), r"pin 4 is out of range")
+        # rows_per_scan: generated, range-checked, and a warning when it covers every row
+        t2 = t.replace("    rows: { decoder: dec, first: 16, count: 2 }\n",
+                       "    rows: { decoder: dec, first: 16, count: 2 }\n    rows_per_scan: 1\n")
+        self.assertClean(t2)
+        dev2, _ = load(t2)
+        self.assertIn(".rows_per_scan = 1,", gd.generate(dev2, "x.yaml")["gm_device_config.c"])
+        self.assertError(t2.replace("rows_per_scan: 1", "rows_per_scan: 0"), r"out of range \(1\.\.32\)")
+        self.assertTrue(any("every row is read" in w.msg
+                            for w in self.errs(t2.replace("rows_per_scan: 1", "rows_per_scan: 2"), level="warning")))
 
     def test_matrix_hub_restrictions(self):
         hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"

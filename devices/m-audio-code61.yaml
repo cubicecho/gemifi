@@ -38,7 +38,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.9
+  version: 0.2.10
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -127,9 +127,9 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-19 are labelled from hardware scans (2026-11-03); 20-39 hold the other 18
-# buttons (b1-b9, fader mode, bank left/right, button mode, encoder mode,
-# x-mode, y-mode, x, y) in an order still to map. A switch_matrix takes at
+# 0-28 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders);
+# 29-39 hold the other 9 buttons (fader mode, bank left/right, button mode,
+# encoder mode, x-mode, y-mode, x, y) in an order still to map. A switch_matrix takes at
 # most 32 switches, so row 20 is its own.
 switch_matrix:
   - id: panel
@@ -229,15 +229,15 @@ buttons:
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
-  - { id: slot_20, name: "Slot 20", pin: { switch_matrix: panel, number: 20 }, action: none }
-  - { id: slot_21, name: "Slot 21", pin: { switch_matrix: panel, number: 21 }, action: none }
-  - { id: slot_22, name: "Slot 22", pin: { switch_matrix: panel, number: 22 }, action: none }
-  - { id: slot_23, name: "Slot 23", pin: { switch_matrix: panel, number: 23 }, action: none }
-  - { id: slot_24, name: "Slot 24", pin: { switch_matrix: panel, number: 24 }, action: none }
-  - { id: slot_25, name: "Slot 25", pin: { switch_matrix: panel, number: 25 }, action: none }
-  - { id: slot_26, name: "Slot 26", pin: { switch_matrix: panel, number: 26 }, action: none }
-  - { id: slot_27, name: "Slot 27", pin: { switch_matrix: panel, number: 27 }, action: none }
-  - { id: slot_28, name: "Slot 28", pin: { switch_matrix: panel, number: 28 }, action: none }
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85 }   # under fader 1
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86 }   # under fader 2
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87 }   # under fader 3
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88 }   # under fader 4
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89 }   # under fader 5
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90 }   # under fader 6
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91 }   # under fader 7
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92 }   # under fader 8
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93 }   # under fader 9
   - { id: slot_29, name: "Slot 29", pin: { switch_matrix: panel, number: 29 }, action: none }
   - { id: slot_30, name: "Slot 30", pin: { switch_matrix: panel, number: 30 }, action: none }
   - { id: slot_31, name: "Slot 31", pin: { switch_matrix: panel, number: 31 }, action: none }

@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.8.0](https://github.com/cubicecho/gemifi/compare/v0.7.1...v0.8.0) (2026-11-03)
+
+
+### Bug Fixes
+
+* **stm32f1:** Code 61 apps boot behind the bootloader and keep the power on ([338c61a](https://github.com/cubicecho/gemifi/commit/338c61a1ae41f573094854d7adfac8c0af731103))
+
+
+### Features
+
+* **stm32f1:** gemifi bootloader for the Code 61, updatable from the web app ([29fb394](https://github.com/cubicecho/gemifi/commit/29fb3943d4ce1de62a02392d7f5eaa041176e097))
+* **tools:** SWD helpers for the Code 61 over a Bus Pirate ([d1f64f9](https://github.com/cubicecho/gemifi/commit/d1f64f98502250d8266ab133c529a947d1818874))
+
 ## [0.7.1](https://github.com/cubicecho/gemifi/compare/v0.7.0...v0.7.1) (2026-11-03)
 
 

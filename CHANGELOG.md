@@ -2,6 +2,25 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.14.0](https://github.com/cubicecho/gemifi/compare/v0.13.0...v0.14.0) (2026-11-03)
+
+
+### Bug Fixes
+
+* **display:** draw '#' without its bottom line; Code 61 0.2.54 ([ef1235e](https://github.com/cubicecho/gemifi/commit/ef1235e7865673517bac1963f7c15407f0b9425b))
+* **updater:** Code 61 uploads survive Chrome freezing on Windows ([cbf9575](https://github.com/cubicecho/gemifi/commit/cbf957589fa8d7ba45e52f7c116331949d6f3af4))
+
+
+### Features
+
+* channel pressure from analog inputs; Code 61 aftertouch ([55087b4](https://github.com/cubicecho/gemifi/commit/55087b49a6ae57f9b0e776144b792f8e31816668))
+* pitch bend from analog inputs; Code 61 pitch and mod wheels ([e3575d4](https://github.com/cubicecho/gemifi/commit/e3575d46e8fe40ed45b23c135c17042169f0e80f))
+
+
+### Performance Improvements
+
+* **stm32f1:** scan the Code 61 by timer + DMA, cheaper LED writes ([b1509da](https://github.com/cubicecho/gemifi/commit/b1509da1dde894e92b50ea25a923b463366b0585))
+
 # [0.13.0](https://github.com/cubicecho/gemifi/compare/v0.12.0...v0.13.0) (2026-11-03)
 
 

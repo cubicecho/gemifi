@@ -38,7 +38,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.1
+  version: 0.2.5
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -141,7 +141,7 @@ switch_matrix:
       - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
-    settle: 4us            # [guess]
+    settle: 3us            # [guess]
   - id: panel_row20
     rows: { decoder: rows, first: 20, count: 1 }
     columns:
@@ -153,7 +153,7 @@ switch_matrix:
       - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
-    settle: 4us            # [guess]
+    settle: 3us            # [guess]
   # Encoders 1-4 on row 21, 5-8 on row 22: A = column 2n, B = column 2n+1 [sure, hw-map.md §2]
   - id: encoder_rows
     rows: { decoder: rows, first: 21, count: 2 }
@@ -166,7 +166,7 @@ switch_matrix:
       - { number: PB13, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
-    settle: 4us            # [guess]
+    settle: 3us            # [guess]
 
 # 61 keys, two contacts each on rows 2k / 2k+1 (same column). Key map from the
 # stock firmware's table (hw-map.md §9, [sure]): key 0 = the lowest C = note 36.
@@ -185,7 +185,7 @@ key_matrix:
     - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
   keys: 61
   first_note: 36
-  settle: 4us              # [guess] the stock scan waits ~30 loop passes per row
+  settle: 3us              # [guess] the stock scan waits ~30 loop passes per row
   key_map:
     - [55, 54, 53, 52, 51, 50, 49, 48]   # rows 0/1
     - [47, 46, 45, 44, 43, 42, 41, 40]   # rows 2/3

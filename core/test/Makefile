@@ -71,6 +71,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
 	$(BUILD)/test_matrix
+	GM_TEST_FAST_COLS=1 $(BUILD)/test_matrix
 	$(BUILD)/test_tm1628
 	$(BUILD)/test_pads
 

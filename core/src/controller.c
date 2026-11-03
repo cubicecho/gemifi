@@ -100,7 +100,7 @@ static volatile uint8_t kq_head, kq_tail;
 static uint8_t kstate[NK];
 static uint32_t kt0[NK];
 static uint32_t mprev[32];
-static uint8_t m_hubs;              /* rows or cols on a hub */
+static uint8_t m_hubs;              /* rows or cols on a shift-register hub */
 /* Fast paths (the scan runs every scan_us from an interrupt):
  * - columns all on MCU pins with an input register: a row is read as a few
  *   runs of adjacent port bits (Keystation: PB0-5, PB8, PB12 = 3 runs from
@@ -186,6 +186,16 @@ static void key_update(uint32_t k, uint32_t c)
         }
         break;
     }
+}
+
+/* A pin on a 74HC595/165 hub: the matrix scan must flush/refresh those
+ * around each row. (A decoder row is written at once; nothing to flush.) */
+static int on_sr_hub(gm_pin_t p)
+{
+    if (p.hub == 0 || p.hub > gm_device.n_hubs)
+        return 0;
+    uint8_t t = gm_device.hubs[p.hub - 1].type;
+    return t == GM_HUB_HC595 || t == GM_HUB_HC165;
 }
 
 /* Key number at matrix position pos (gm_matrix_t.key_map), or dflt without a
@@ -335,7 +345,9 @@ void gm_scan_tick(void)
         matrix_scan();
 #endif
     part_done(0, &t);
-    if (has_matrices)
+    /* Switch matrices (panel buttons, encoders) every other tick: plenty for
+     * both, and it halves their share of the scan. */
+    if (has_matrices && (ticks & 1u))
         vpin_scan_matrices();       /* before the encoders read them */
     part_done(1, &t);
 #if GM_N_ENCODERS > 0
@@ -1469,7 +1481,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
         rows_fast = m->n_rows <= FAST_ROWS;
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
-            if (m->rows[r].hub)
+            if (on_sr_hub(m->rows[r]))
                 m_hubs = 1;
             if (r < FAST_ROWS) {
                 row_reg[r] = m->rows[r].hub ? 0 : hal_pin_out_reg(m->rows[r].num);
@@ -1483,7 +1495,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
         n_runs = 0;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             vpin_input(m->cols[c]);
-            if (m->cols[c].hub)
+            if (on_sr_hub(m->cols[c]))
                 m_hubs = 1;
             if (c >= FAST_COLS)
                 continue;

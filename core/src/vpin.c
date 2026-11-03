@@ -31,6 +31,39 @@ typedef struct {
 } hub_state_t;
 
 static hub_state_t hs[N_HUBS];
+
+/* Switch matrices whose columns are adjacent bits of one input register, in
+ * order (the Code 61's PB8-PB15): one load per row instead of a read per pin.
+ * sm_reg 0 = read pin by pin. */
+static const volatile uint32_t *sm_reg[N_HUBS];
+static uint8_t sm_shift[N_HUBS];
+static uint32_t sm_inv[N_HUBS];     /* columns with GM_PIN_INVERT */
+
+static void sm_fast_init(uint32_t i, const gm_hub_t *h)
+{
+    sm_reg[i] = 0;
+    const volatile uint32_t *reg = 0;
+    uint32_t inv = 0;
+    for (uint32_t c = 0; c < h->n_cols; c++) {
+        uint32_t mask = 0;
+        const volatile uint32_t *r = h->cols[c].hub ? 0 : hal_pin_in_reg(h->cols[c].num, &mask);
+        if (!r || !mask || (mask & (mask - 1u)))
+            return;
+        uint32_t bit = (uint32_t)__builtin_ctz(mask);
+        if (c == 0) {
+            reg = r;
+            sm_shift[i] = (uint8_t)bit;
+        } else if (r != reg || bit != sm_shift[i] + c) {
+            return;
+        }
+        if (h->cols[c].flags & GM_PIN_INVERT)
+            inv |= 1u << c;
+    }
+    if (h->n_cols == 0 || sm_shift[i] + h->n_cols > 32u)
+        return;
+    sm_inv[i] = inv;
+    sm_reg[i] = reg;
+}
 #if GM_TM1628_RAM > 0
 static uint8_t tm_ram[GM_TM1628_RAM];
 #endif
@@ -104,6 +137,7 @@ void vpin_init(void)
                 vpin_input(h->cols[c]);
             for (uint32_t r = 0; r < h->n_rows; r++)
                 vpin_output(h->rows[r]);
+            sm_fast_init(i, h);
             break;
         case GM_HUB_MUX:
             for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
@@ -382,12 +416,19 @@ void vpin_scan_matrices(void)
         if (h->type != GM_HUB_SWMATRIX)
             continue;
         uint32_t v = 0, bit = 0;
-        for (uint32_t r = 0; r < h->n_rows; r++) {
+        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
+        for (uint32_t r = 0; r < h->n_rows && bit < 32u; r++) {
             vpin_write(h->rows[r], 1);
             hal_delay_us(h->settle_us ? h->settle_us : 1);
-            for (uint32_t c = 0; c < h->n_cols && bit < 32; c++, bit++)
-                if (vpin_read(h->cols[c]))
-                    v |= 1u << bit;
+            if (sm_reg[i]) {
+                uint32_t row = ((*sm_reg[i] >> sm_shift[i]) & all) ^ sm_inv[i];
+                v |= row << bit;
+                bit += h->n_cols;
+            } else {
+                for (uint32_t c = 0; c < h->n_cols && bit < 32; c++, bit++)
+                    if (vpin_read(h->cols[c]))
+                        v |= 1u << bit;
+            }
             vpin_write(h->rows[r], 0);
         }
         hs[i].in = v;

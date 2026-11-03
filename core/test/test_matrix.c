@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "gm_hal.h"
 #include "gm_controller.h"
@@ -27,11 +28,13 @@ static int selects;                  /* address/enable writes, to see the cache 
 uint32_t hal_millis(void) { return now_ms; }
 void hal_delay_us(uint32_t us) { (void)us; }
 void hal_pin_mode(uint16_t pin, uint8_t m) { (void)pin; (void)m; }
+static void update_port_b(void);
 void hal_pin_write(uint16_t pin, int l)
 {
     if (pin >= 2 && pin <= 6)
         selects++;
     level[pin] = (uint8_t)l;
+    update_port_b();
 }
 
 static int selected_row(void)
@@ -49,7 +52,28 @@ int hal_pin_read(uint16_t pin)
     }
     return level[pin];
 }
-const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask) { (void)pin; *mask = 0; return 0; }
+/* Port B input register for the one-load column reads, recomputed on every
+ * pin write (the selected row follows the address/enable pins).
+ * GM_TEST_FAST_COLS=1 turns it on, so both column paths are tested. */
+static int fast_cols;
+static volatile uint32_t port_b;
+static void update_port_b(void)
+{
+    uint32_t v = 0;
+    for (int b = 0; b < 16; b++)
+        if (hal_pin_read((uint16_t)(16 + b)))
+            v |= 1u << b;
+    port_b = v;
+}
+const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
+{
+    if (!fast_cols || pin < 16 || pin >= 32) {
+        *mask = 0;
+        return 0;
+    }
+    *mask = 1u << (pin & 15u);
+    return &port_b;
+}
 volatile uint32_t *hal_pin_out_reg(uint16_t pin) { (void)pin; return 0; }
 int32_t hal_adc_read(uint16_t pin) { (void)pin; return -1; }
 int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
@@ -129,6 +153,8 @@ static void release(int p, int c)
 
 int main(void)
 {
+    fast_cols = getenv("GM_TEST_FAST_COLS") != NULL;
+    printf("column reads: %s\n", fast_cols ? "one load per row" : "per pin");
     gm_init(0x00010000u, 0);
     run_ms(2000);
     int d1, d2;

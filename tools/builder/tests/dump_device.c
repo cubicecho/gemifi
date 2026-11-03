@@ -80,6 +80,18 @@ int main(void)
             printf("  val id=%u index=%u value=%ld\n", p->vals[j].id, p->vals[j].index,
                    (long)p->vals[j].value);
     }
+#if GM_N_PADS > 0
+    printf("pads=%d channel=%d curve=%d aftertouch=%d threshold=%d release=%d full=%d window=%d "
+           "retrigger=%d\n", GM_N_PADS, GM_PAD_CHANNEL_DEFAULT, GM_PAD_CURVE_DEFAULT,
+           GM_PAD_AFTERTOUCH_DEFAULT, GM_PAD_THRESHOLD_DEFAULT, GM_PAD_RELEASE_DEFAULT,
+           GM_PAD_FULL_DEFAULT, GM_PAD_WINDOW_DEFAULT, GM_PAD_RETRIGGER_DEFAULT);
+    for (i = 0; i < GM_N_PADS; i++) {
+        pin("pad", gm_pads[i].pin); str("name", gm_pads[i].name);
+        printf("  note=%ld\n", (long)gm_pad_note_defaults[i]);
+    }
+#else
+    printf("pads=0\n");
+#endif
 #ifdef GM_I2C_SDA
     printf("i2c sda=%d scl=%d\n", GM_I2C_SDA, GM_I2C_SCL);
 #endif

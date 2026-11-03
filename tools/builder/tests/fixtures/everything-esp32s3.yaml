@@ -116,3 +116,18 @@ key_matrix:
             { sn74hc165: cols165, number: 3 }, { sn74hc165: cols165, number: 4 }, { sn74hc165: cols165, number: 5 }]
   keys: 24
   first_note: 36
+
+pads:
+  - { id: pad_1, pin: { cd74hc4067: knobs, number: 1 }, note: 36 }
+  - { id: pad_2, name: Snare, pin: { cd74hc4067: knobs, number: 2, inverted: true }, note: 38 }
+  - { id: pad_3, pin: { cd74hc4051: faders, number: 1 }, note: 42 }
+
+pad_settings:
+  channel: 10
+  curve: soft
+  aftertouch: true
+  threshold: 300
+  release: 150
+  full: 3500
+  window: 2ms
+  retrigger: 30ms

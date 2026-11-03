@@ -75,7 +75,7 @@ CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
 CAP_FEEDBACK = 1 << 6          # sysex.md 4.1 bit 6: host feedback (GET_COMPONENT, FB_*)
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
-EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder"}
+EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder", 7: "pad"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
 
 APROM_SIZE = 32 * 1024

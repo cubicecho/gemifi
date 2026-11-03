@@ -230,6 +230,7 @@ extern const gm_device_t gm_device;
 extern const int32_t gm_button_action_defaults[];
 extern const int32_t gm_button_number_defaults[];
 extern const int32_t gm_analog_cc_defaults[];
+extern const int32_t gm_analog_mode_defaults[];   /* AN_MODE_* (gm_settings.h) */
 extern const int32_t gm_encoder_cc_defaults[];
 
 /* Feedback / MCU tables (see above), each sized by its component count. */

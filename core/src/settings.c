@@ -86,6 +86,10 @@ static const char *encoder_labels[GM_ARR(GM_N_ENCODERS)];
 static const char *pad_labels[GM_N_PADS];
 #endif
 
+#if GM_N_ANALOGS > 0
+static const char *const analog_mode_opts[] = { "CC", "Pitch bend" };
+#endif
+
 #if GM_N_ENCODERS > 0
 static const int32_t enc_mode_defs[GM_N_ENCODERS] = { 0 };
 static const char *const enc_mode_opts[] = {
@@ -155,6 +159,10 @@ static const param_def_t params[] = {
     { .id = P_ANALOG_CC, .flags = PF_PRESET, .type = PT_INT, .group = G_ANALOG, .count = GM_N_ANALOGS,
       .min = 0, .max = 127, .defs = gm_analog_cc_defaults, .index_labels = analog_labels,
       .name = "analog.cc", .label = "CC", .values = gm_cfg.analog_cc },
+    { .id = P_ANALOG_MODE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_ANALOG, .count = GM_N_ANALOGS,
+      .min = 0, .max = 1, .defs = gm_analog_mode_defaults, .options = analog_mode_opts, .option_count = 2,
+      .index_labels = analog_labels,
+      .name = "analog.mode", .label = "Mode", .values = gm_cfg.analog_mode },
 #endif
 
 #if GM_N_ENCODERS > 0

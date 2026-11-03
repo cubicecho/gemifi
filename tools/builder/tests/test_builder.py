@@ -319,6 +319,20 @@ class TestValidation(unittest.TestCase):
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
         self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
 
+    def test_analog_mode(self):
+        base = MINIMAL_NUC + "analog:\n"
+        self.assertClean(base + "  - { id: w, pin: PA0, mode: pitch_bend }\n")   # no cc: needed
+        self.assertClean(base + "  - { id: w, pin: PA0, mode: cc, cc: 1 }\n")
+        self.assertError(base + "  - { id: w, pin: PA0, mode: cc }\n", r"is required", path="analog[0].cc")
+        self.assertError(base + "  - { id: w, pin: PA0, mode: bend }\n", r"pitch_bend")
+        dev, diags = load(base + "  - { id: m, pin: PA0, cc: 1 }\n  - { id: w, pin: PA2, mode: pitch_bend }\n")
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
+        self.assertIn("gm_analog_mode_defaults[GM_N_ANALOGS] = { 0, 1 }; /* cc, pitch_bend */", c)
+        dev, _ = load(MINIMAL_NUC)
+        c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
+        self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
+
     def test_displays(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         tm = ("tm1628:\n  - { id: ta, clk_pin: PC10, dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN }, "
@@ -1234,14 +1248,30 @@ list:
         self.assertError(presets(two + "bend: { glide: 10ms }", base=nobtn), r"bend.glide doesn't exist.*no buttons")
         self.assertClean(presets(two + "velocity: { fixed: 100 }"))     # same as default: a warning only
 
+    def test_analog_mode_preset(self):
+        dev, diags = load(presets("""
+slots: 2
+list:
+  - { name: Main }
+  - { name: Bend, analog: { knob: { mode: pitch_bend } } }
+"""))
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertIn((29, 0, 1, "analog.mode[knob] = pitch_bend"), dev.presets[1].vals)
+        self.assertError(presets("""
+slots: 2
+list:
+  - { name: Main }
+  - { name: Bend, analog: { knob: { mode: wobble } } }
+"""), r"pitch_bend")
+
     def test_budget_nuc(self):
         """NUC: 6 usable pages of 512 B (one of 7 spare); records never span a page."""
         dev, diags = load(presets("slots: 4"))
         bd = dev.budget
-        # per-preset: channel, transpose, octave, curve, fixed, analog 1, buttons 3 x 2, glide, ramp,
-        # encoder 2, program = 17 values; globals: fast, slow, events, log_level, active = 5
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (17, 5))
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 34), 4 * (9 + 10)))
+        # per-preset: channel, transpose, octave, curve, fixed, analog cc + mode, buttons 3 x 2, glide,
+        # ramp, encoder 2, program = 18 values; globals: fast, slow, events, log_level, active = 5
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (18, 5))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 36), 4 * (9 + 10)))
         self.assertEqual((bd["used"], bd["capacity"], bd["unit"]), (2, 5, "pages"))   # 2 per page; globals fit
         self.assertEqual(bd["max_slots"], 10)                                          # 5 pages x 2
         self.assertEqual([d for d in diags if "presets use" in d.msg], [])
@@ -1299,22 +1329,22 @@ list:
             text = f.read()
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (133, 10))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (146, 10))
         # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
-        # (1 + 2 + 11 each), analog 9 (1 + 1 + 3), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
-        # (1 + 1 + 4) = 59 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 59), 4 * (9 + 16)))
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (372, 1024, 1024))
+        # (1 + 2 + 11 each), analog cc and mode 11 each (1 + 1 + 3 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
+        # (1 + 1 + 4) = 64 group words; + 4 header, 4 name, 1 crc
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 64), 4 * (9 + 16)))
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (392, 1024, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (3, 2))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
-        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 60), 652))  # + program
+        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 65), 692))  # + program
         self.assertFalse([d for d in self.errs(with_slots(2), level="warning") if "config page" in d.msg])
         w = [str(d) for d in self.errs(with_slots(3), level="warning") if "config page" in d.msg]
-        self.assertTrue(w and "presets use 90% of the stm32f1 config page" in w[0], w)
+        self.assertTrue(w and "presets use 96% of the stm32f1 config page" in w[0], w)
         e = self.assertError(with_slots(4), r"presets don't fit the stm32f1 config page", path="presets.slots")
-        self.assertIn("1204 of 1024 B", e.msg)
+        self.assertIn("1284 of 1024 B", e.msg)
         self.assertIn("At most 3 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
@@ -1348,7 +1378,7 @@ list:
                          ["cc_momentary", "none", "octave_down", "octave_up", "bend_down", "bend_up", "cc_ramp"])
         self.assertIn((1, 0, 10, "midi.channel = 10"), dev.presets[1].vals)
         bd = dev.budget
-        self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (220, 76, 5, 5))
+        self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (228, 76, 5, 5))
         self.assertEqual(bd["max_slots"], 9)
 
 
@@ -1623,7 +1653,7 @@ class TestPads(unittest.TestCase):
         n_preset, n_global = gd.stored_counts(dev)
         dev0, _ = load(PADS_STM.split("pads:")[0] + "analog: [{ id: k, pin: PA1, cc: 1 }]\n")
         p0, g0 = gd.stored_counts(dev0)
-        self.assertEqual((n_preset - p0, n_global - g0), (5 - 1, 5))   # analog.cc of dev0 is 1 value
+        self.assertEqual((n_preset - p0, n_global - g0), (5 - 2, 5))   # analog.cc and .mode of dev0
         _, files = self.gen(MINIMAL_NUC)
         self.assertIn("#define GM_N_PADS 0", files["gm_device_config.h"])
         self.assertNotIn("GM_PAD_", files["gm_device_config.h"])
@@ -1733,7 +1763,7 @@ class TestCli(unittest.TestCase):
         self.assertRegex(err, r"bad\.yaml:8: error: buttons\[0\]\.pin: 'PZ1'")
         rc, out, err = self.run_cli("validate", KEYSTATION, bad)      # several files: 1 if any fails
         self.assertEqual(rc, 1)
-        self.assertIn("presets: 8 slots, worst case 1836 B in 5 of 5 pages (2560 B)", out)
+        self.assertIn("presets: 8 slots, worst case 1900 B in 5 of 5 pages (2560 B)", out)
         self.assertIn("bad.yaml: 1 error", err)
 
     def test_generate(self):
@@ -1890,7 +1920,7 @@ class TestDashboard(unittest.TestCase):
             st, body = self.req("/api/validate", {"text": f.read()})
         j = json.loads(body)
         self.assertTrue(j["ok"])
-        self.assertIn("presets: 8 slots, worst case 1836 B in 5 of 5 pages", j["summary"])
+        self.assertIn("presets: 8 slots, worst case 1900 B in 5 of 5 pages", j["summary"])
         self.assertEqual([p["name"] for p in j["presets"]["slots"]][:3], ["Default", "Drums", "DAW"])
         self.assertEqual(j["presets"]["slots"][1]["changes"], 6)
         self.assertEqual(j["presets"]["storage"]["max_slots"], 9)

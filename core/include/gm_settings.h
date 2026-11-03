@@ -46,6 +46,7 @@ enum {
     P_PAD_FULL = 26,
     P_PAD_WINDOW = 27,
     P_PAD_RETRIGGER = 28,
+    P_ANALOG_MODE = 29,
 };
 
 #ifndef GM_N_PADS
@@ -53,6 +54,9 @@ enum {
 #endif
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
+
+/* analog.mode values */
+enum { AN_MODE_CC, AN_MODE_BEND };
 
 /* button.action values (core/README.md "Button actions") */
 enum {
@@ -90,6 +94,7 @@ typedef struct {
     int32_t vel_fast;                /* 0.1 ms: this fast or faster = 127 */
     int32_t vel_slow;                /* 0.1 ms: this slow or slower = 1   */
     int32_t analog_cc[GM_ARR(GM_N_ANALOGS)];
+    int32_t analog_mode[GM_ARR(GM_N_ANALOGS)];   /* AN_MODE_* */
     int32_t btn_action[GM_ARR(GM_N_BUTTONS)];
     int32_t btn_number[GM_ARR(GM_N_BUTTONS)];
     int32_t enc_cc[GM_ARR(GM_N_ENCODERS)];

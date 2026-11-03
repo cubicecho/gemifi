@@ -9,14 +9,14 @@ s = gp.parse_schema(Path(sys.argv[1]).read_bytes())
 names = [p.name for p in s.params]
 expect = ["midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "velocity.fixed",
           "velocity.fast", "velocity.slow", "button.action", "button.number", "bend.glide",
-          "ramp.time", "analog.cc", "debug.events", "debug.log_level",
+          "ramp.time", "analog.cc", "analog.mode", "debug.events", "debug.log_level",
           "preset.active", "preset.program", "preset.dirty"]
 assert names == expect, names
 # schema flags bit 5 = PRESET (per-preset param, research/core/presets-design.md §1)
 F_PRESET = 0x20
 per_preset = {p.name for p in s.params if p.flags & F_PRESET}
 assert per_preset == {"midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "velocity.fixed",
-                      "button.action", "button.number", "bend.glide", "ramp.time", "analog.cc",
+                      "button.action", "button.number", "bend.glide", "ramp.time", "analog.cc", "analog.mode",
                       "preset.program"}, per_preset
 active = next(p for p in s.params if p.name == "preset.active")
 assert (active.min, active.max) == (1, 8), active

@@ -287,7 +287,7 @@ To restore, for each slot: PRESET_RESET it; if the backup has stored edits for i
 
 ### 4.6 Host feedback (app, draft)
 
-**Status: draft (2026-11-03), not implemented.** Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
+**Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`); not yet run on hardware or in a DAW. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
 
 A script in the DAW (a Live Remote Script, a Bitwig extension) drives the device's LEDs, values and displays with these messages. It addresses everything by **component index**, not by MIDI note or CC. That way it works for any gemifi device without knowing its mapping, and a preset that changes CC numbers doesn't break it. A device with this feature sets HELLO caps bit 6.
 

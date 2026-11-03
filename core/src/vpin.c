@@ -50,10 +50,11 @@ static volatile uint32_t *dec_reg[DEC_FAST];
 static uint32_t dec_word[DEC_FAST][DEC_OUT];
 static uint8_t dec_used;
 
-__attribute__((weak)) int hal_serial_open(uint16_t tx_pin, uint32_t baud)
+__attribute__((weak)) int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
 {
     (void)tx_pin;
     (void)baud;
+    (void)flags;
     return 0;
 }
 
@@ -309,7 +310,7 @@ void vpin_init(void)
                 ram_sent[tm_off++] = 0xFFu;
             }
             if (h->data.hub == 0)
-                (void)hal_serial_open(h->data.num, 115200u);
+                (void)hal_serial_open(h->data.num, 115200u, h->dma ? HAL_UART_DMA : 0u);
             break;
 #endif
         case GM_HUB_XY:

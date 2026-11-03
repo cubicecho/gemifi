@@ -32,9 +32,9 @@
  * The raw readings hold the whole port; the core compares only the column
  * bits (gm_scan_plan_t.in_mask).
  *
- * DMA1 channels used: 2, 3, 5, 6 (TIM1_CH1, CH2, UP, CH3; RM0008 table 78).
- * Channel 7 stays free for the rgb_serial USART2, channel 1 for the ADC,
- * channel 4 for USART1 (5-pin MIDI) or TIM4.
+ * DMA1 channels used: 3, 5, and with precharge 2, 6 (TIM1_CH2, UP, CH1,
+ * CH3; RM0008 table 78). The builder hands out the channels
+ * (gemifi_device.py allocate_dma) and refuses a clash.
  *
  * SPDX-License-Identifier: MIT
  */

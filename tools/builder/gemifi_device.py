@@ -80,6 +80,11 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
 ]
+# STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() checks
+# that the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) don't share one.
+STM32F1_DMA = {"ADC1": 1, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM4_CH2": 4, "USART1_TX": 4, "TIM1_UP": 5,
+               "USART1_RX": 5, "TIM1_CH3": 6, "USART2_TX": 7}
+STM32F1_DMA_CHANNELS = 7
 # din_midi.mode (gm_din.h GM_DIN_ONLY / _PORT / _MERGE)
 DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # Params whose stored values can need 16 bits (settings.c min/max outside -128..127); every other
@@ -250,7 +255,7 @@ HUB_KEYS = {
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
-    "rgb_serial": ["id", "tx_pin", "count"],
+    "rgb_serial": ["id", "tx_pin", "count", "dma"],
     "xy_pad": ["id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
@@ -1409,9 +1414,57 @@ def validate(data, file=None):
         if not h.used:
             v.warn(h.path, h.line, f"hub '{h.id}' is not used by any component")
     v.check_uses()
+    allocate_dma(v, dev, data)
     if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix or dev.pads):
         v.warn("", data.line, "the device has no inputs (buttons, analog, encoders, pads or key_matrix)")
     return (None if errors(v.diags) else dev), v.diags
+
+
+def allocate_dma(v, dev, data):
+    """stm32f1: give each DMA user its channels (STM32F1_DMA) -> dev.dma_map [(channel, request, user)].
+    The scans claim theirs first, so a clash is reported on the optional user (a dma: switch)."""
+    dev.dma_map = []
+    if dev.platform.name != "stm32f1":
+        return
+    hs = data.get("hardware_scan") if isinstance(data.get("hardware_scan"), dict) else LDict()
+    users = []                          # (user, path, line, requests, how to free it)
+    if dev.hw_scan:
+        reqs = ["TIM1_UP", "TIM1_CH2"] + (["TIM1_CH1", "TIM1_CH3"] if dev.hw_scan[2] else [])
+        users.append(("hardware_scan.matrix", "hardware_scan.matrix", hs.line_of("matrix"), reqs, None))
+    if dev.hw_adc:
+        users.append(("hardware_scan.analog", "hardware_scan.analog", hs.line_of("analog"),
+                      ["ADC1", "TIM4_CH2"], None))
+    for h in dev.hubs:
+        if h.type == "rgb_serial" and h.dma:
+            line = h.raw.line_of("dma") if "dma" in h.raw else h.line
+            users.append((f"rgb_serial '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
+                          "set dma: false on it (interrupt-driven)"))
+    if dev.din is not None and dev.din.dma:
+        d = data["din_midi"]
+        users.append(("din_midi", "din_midi.dma", d.line_of("dma"),
+                      ["USART1_TX"] + (["USART1_RX"] if dev.din.rx is not None else []),
+                      "set din_midi dma: false (interrupt-driven, the default)"))
+    taken = {}
+    for user, path, line, reqs, how in users:
+        for r in reqs:
+            ch = STM32F1_DMA[r]
+            if ch in taken:
+                other, oreq = taken[ch]
+                v.err(path, line, f"needs DMA1 channel {ch} ({r}), which {other} uses ({oreq}): "
+                                  f"{how or 'turn one of them off'}, or turn {other} off")
+                continue
+            taken[ch] = (user, r)
+            dev.dma_map.append((ch, r, user))
+    dev.dma_map.sort()
+
+
+def dma_text(dev):
+    """'1 ADC1 (hardware_scan.analog), 3 TIM1_CH2 (...), ...; free: 2, 6' for the build output."""
+    if dev.platform.name != "stm32f1":
+        return ""
+    used = ", ".join(f"{ch} {r} ({u})" for ch, r, u in dev.dma_map) or "none"
+    free = [str(c) for c in range(1, STM32F1_DMA_CHANNELS + 1) if c not in {ch for ch, _r, _u in dev.dma_map}]
+    return f"DMA1 channels: {used}; free: {', '.join(free) or 'none'}"
 
 
 def validate_timeout(v, d, key, path, default):
@@ -1469,7 +1522,7 @@ def validate_din(v, dev, data, tr, plat):
         return
     line = data.line_of("din_midi")
     d = v.mapping(data["din_midi"], "din_midi", line, ["tx_pin", "rx_pin", "mode", "port_name", "thru",
-                                                         "controller_out", "usb_to_din"])
+                                                         "controller_out", "usb_to_din", "dma"])
     if d is None:
         return
     tx = v.pin(d.get("tx_pin"), "din_midi.tx_pin", d.line_of("tx_pin") if "tx_pin" in d else d.line, "out",
@@ -1506,7 +1559,8 @@ def validate_din(v, dev, data, tr, plat):
         v.warn("din_midi.thru", d.line_of("thru"), "there is no rx_pin (MIDI In) to pass through")
     dev.din = Hub(tx=tx or NO_PIN, rx=rx, mode=mode, port_name=name,
                   thru=v.boolean(d, "thru", "din_midi", default=False),
-                  out=v.boolean(d, "controller_out", "din_midi", default=True), usb=usb)
+                  out=v.boolean(d, "controller_out", "din_midi", default=True), usb=usb,
+                  dma=v.boolean(d, "dma", "din_midi", default=False))
 
 
 def validate_mcu(v, dev, data, tr, daw_port):
@@ -2052,7 +2106,7 @@ def validate_hub(v, dev, h, typ, p, line):
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
               common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
-              ram_bytes=0, intensity=0, grids=0, touch_min=0, touch_max=0, raw=h)
+              ram_bytes=0, intensity=0, grids=0, touch_min=0, touch_max=0, dma=False, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
@@ -2088,6 +2142,7 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.n_pins = 3 * hub.chain
         hub.ram_bytes = (hub.n_pins + 7) // 8
         hub.data = ctl("tx_pin", "out")
+        hub.dma = v.boolean(h, "dma", p, default=True)
         if hub.data.hub == 0 and h.get("tx_pin") is not None:
             why = v.plat.serial_tx(hub.data.num)
             if why:
@@ -3417,6 +3472,8 @@ def generate(dev, source="device.yaml"):
          f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}",
          f"#define GM_HW_SCAN {1 if dev.hw_scan else 0} /* hardware_scan.matrix */",
          f"#define GM_HW_ADC {1 if dev.hw_adc else 0} /* hardware_scan.analog */"]
+    if dma_text(dev):
+        h.append(f"/* {dma_text(dev)} */")
     if dev.hw_scan:
         row, settle, pre = dev.hw_scan
         h += [f"#define GM_HW_SCAN_ROW_NS {row}",
@@ -3483,7 +3540,8 @@ def generate(dev, source="device.yaml"):
                   *extra,
                   *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
                      f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
-                  *([f"        .ram_bytes = {hb.ram_bytes},"] if hb.type == "rgb_serial" else []),
+                  *([f"        .ram_bytes = {hb.ram_bytes}, .dma = {1 if hb.dma else 0},"]
+                    if hb.type == "rgb_serial" else []),
                   *([f"        .touch_min = {hb.touch_min}, .touch_max = {hb.touch_max},"]
                     if hb.type in XY_HUBS else []),
                   "    },"]
@@ -3658,7 +3716,8 @@ def feedback_defines(dev):
               f"#define GM_DIN_RX_PIN {rx} /* {din.rx.desc if din.rx is not None else 'no MIDI In'} */",
               f"#define GM_DIN_THRU_DEFAULT {1 if din.thru else 0}",
               f"#define GM_DIN_OUT_DEFAULT {1 if din.out else 0}",
-              f"#define GM_DIN_USB_DEFAULT {1 if din.usb else 0}"]
+              f"#define GM_DIN_USB_DEFAULT {1 if din.usb else 0}",
+              f"#define GM_DIN_DMA {1 if din.dma else 0} /* din_midi.dma */"]
         if din.mode == DIN_MODES.index("separate_port"):
             name = din.port_name or (dev.name + " MIDI")[:COMP_STR_MAX]
             h += ["#define GM_DIN_CABLE 1", f"#define GM_DIN_PORT_NAME {c_str(name)}"]

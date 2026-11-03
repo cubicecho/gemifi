@@ -60,10 +60,10 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* The DIN UART. dout_room: free space left in the platform's TX ring. */
 static uint16_t open_tx, open_rx;
-static uint32_t open_baud;
+static uint32_t open_baud, open_flags;
 static uint8_t dout[4096], din[4096];
 static int dout_n, din_n, din_at, dout_room = 100000;
-int hal_din_open(uint16_t tx, uint16_t rx, uint32_t baud) { open_tx = tx; open_rx = rx; open_baud = baud; return 1; }
+int hal_din_open(uint16_t tx, uint16_t rx, uint32_t baud, uint32_t flags) { open_tx = tx; open_rx = rx; open_baud = baud; open_flags = flags; return 1; }
 int hal_din_write(const uint8_t *b, uint32_t n)
 {
     if ((int)n > dout_room || dout_n + (int)n > (int)sizeof dout)
@@ -130,6 +130,7 @@ int main(void)
     gm_init(0x00010000u, 0);
     CHECK(open_tx == 9 && open_rx == 10 && open_baud == 31250, "UART opened: PA9 / PA10 at 31250 (%u %u %u)",
           open_tx, open_rx, (unsigned)open_baud);
+    CHECK(open_flags == (GM_DIN_DMA ? HAL_UART_DMA : 0u), "din_midi.dma -> HAL_UART_DMA (%u)", (unsigned)open_flags);
     run_ms(50);
 
     /* params from the YAML's defaults */

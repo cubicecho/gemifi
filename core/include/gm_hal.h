@@ -72,13 +72,18 @@ void hal_midi_flush(uint32_t timeout_ms);
  * a weak no-op). */
 void hal_midi_send_usb(const uint8_t ev[4]);
 
+/* hal_din_open / hal_serial_open flags: move the bytes by DMA rather than
+ * from an interrupt (din_midi dma:, rgb_serial dma:; the builder checks the
+ * channels are free). Platforms without DMA ignore it. */
+#define HAL_UART_DMA 1u
+
 /* 5-pin DIN MIDI (din_midi:, core/src/din.c; weak defaults there say "none").
  * hal_din_open: the UART on tx_pin / rx_pin (rx_pin 0xFFFF = no MIDI In) at
- * baud, 8N1; 0 if the platform can't. hal_din_write: queue all n bytes, or
+ * baud, 8N1, with HAL_UART_DMA flags; 0 if the platform can't. hal_din_write: queue all n bytes, or
  * none (0) if they don't fit; never waits. hal_din_read: the next received
  * byte, or -1. Interrupt- or DMA-driven: the main loop only queues and
  * takes. */
-int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud);
+int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud, uint32_t flags);
 int hal_din_write(const uint8_t *b, uint32_t n);
 int hal_din_read(void);
 
@@ -106,11 +111,12 @@ const hal_fw_ops_t *hal_fw_ops(void);
 uint16_t hal_extra_caps(void);
 
 /* A transmit-only serial port on tx_pin (8N1), for rgb_serial hubs.
- * hal_serial_open sets it up (0 if tx_pin can't be one); hal_serial_write
+ * hal_serial_open sets it up, by DMA or interrupt per HAL_UART_DMA in flags
+ * (0 if tx_pin can't be one); hal_serial_write
  * starts sending n <= 16 bytes in the background, copied, and returns 0
  * without sending if the last write is still going. Weak defaults that do
  * nothing are in core/src/vpin.c. */
-int hal_serial_open(uint16_t tx_pin, uint32_t baud);
+int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 
 /* A free-running CPU cycle counter, for timing the scan (gm_scan_part_max).

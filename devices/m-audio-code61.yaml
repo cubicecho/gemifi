@@ -38,14 +38,16 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.7
+  version: 0.2.8
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
-# The stock main loop counts in 200 us ticks. 16 key rows + 7 panel/encoder
-# rows at ~4 us each take ~100 us of every tick, so 250 us. [guess]: tune on hardware.
-scan_interval: 250us
+# Scan time on hardware (fw 0.2.6): ~170 us on average for the 16 key rows,
+# the panel/encoder rows (every other tick) and the encoders. 400 us leaves the
+# main loop (USB, pads, faders) more than half the CPU, and matches the stock
+# firmware's key timing resolution (its key timestamps advance every 400 us).
+scan_interval: 400us
 
 # Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
 # No enable line is set by the stock app. The pads use the same select lines
@@ -56,7 +58,7 @@ cd74hc4051:
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
     common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
-    delay: 10us            # [guess] the stock app waits a whole ADC frame after switching
+    delay: 4us             # [guess] the stock app waits a whole ADC frame after switching
   # Pad muxes: mux step n = pad slot n on PA0 (ADC ch0), slot n + 8 on PA1 (ch1) [sure].
   # Keep delay: the same on muxes that share select lines.
   - id: pad_mux_a
@@ -64,13 +66,13 @@ cd74hc4051:
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
     common_pin: PA0        # [sure] ADC rank 1 = ch0
-    delay: 10us            # [guess]
+    delay: 4us             # [guess]
   - id: pad_mux_b
     pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
     common_pin: PA1        # [sure] ADC rank 2 = ch1
-    delay: 10us            # [guess]
+    delay: 4us             # [guess]
 
 # LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
 # with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive

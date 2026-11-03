@@ -346,6 +346,7 @@ const CAPABILITY_NAMES: ReadonlyArray<readonly [number, string]> = [
   [Capability.Config, 'config'],
   [Capability.Log, 'log'],
   [Capability.Event, 'events'],
+  [Capability.Feedback, 'feedback'],
 ];
 
 /**

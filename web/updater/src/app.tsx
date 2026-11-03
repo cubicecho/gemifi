@@ -11,12 +11,14 @@ import { useRequest } from './builder/use-request.ts';
 import { ConfigCard } from './device/config-card.tsx';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
 import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
+import { FeedbackCard } from './device/feedback-card.tsx';
 import { FlashCard } from './device/flash-card.tsx';
 import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
 import { offersConfig } from './device/use-config.ts';
 import { useConnection } from './device/use-connection.ts';
 import { useDeviceLog } from './device/use-device-log.ts';
+import { offersFeedback } from './device/use-feedback.ts';
 import { useHello } from './device/use-hello.ts';
 import { useSerial } from './device/use-serial.ts';
 import { useSearchParam } from './navigation/use-search-param.ts';
@@ -64,7 +66,7 @@ const insecureAlert = (
 
 /**
  * The page: connection (USB MIDI or serial), device facts, firmware upload, the first install on
- * ESP chips, config and the log. Served by a gemifi builder, it also has the Devices view, where
+ * ESP chips, config, host feedback tests and the log. Served by a gemifi builder, it also has the Devices view, where
  * device files are edited and built and their images handed to the Update view.
  *
  * @returns The page.
@@ -143,6 +145,7 @@ export function App() {
       {client !== null && info !== null && offersConfig(info) && isBusy === false ? (
         <ConfigCard client={client} device={info} />
       ) : null}
+      {client !== null && offersFeedback(info) && isBusy === false ? <FeedbackCard client={client} /> : null}
       <LogCard lines={log.lines} rawLines={log.rawLines} onClear={log.clear} />
       {canInstall ? (
         <Suspense fallback={null}>

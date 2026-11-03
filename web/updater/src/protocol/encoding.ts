@@ -3,7 +3,7 @@
  * Every function here is pure and works on plain arrays of byte values.
  */
 
-import { DATA_MASK, HEX_RADIX, S32_MAX, S32_MIN, U32_LIMIT } from './wire.ts';
+import { DATA_MASK, HEX_RADIX, LSTRING_MAX, S32_MAX, S32_MIN, U32_LIMIT } from './wire.ts';
 
 /** Bits carried by one SysEx data byte. */
 const BITS_PER_BYTE = 7;
@@ -246,6 +246,29 @@ export function decodeText(bytes: ArrayLike<number>): string {
   return String.fromCharCode(...Array.from(bytes, (b) => b & DATA_MASK));
 }
 
+/** The first printable ASCII character, space (§2, string). */
+const PRINTABLE_FIRST = 0x20;
+/** The last printable ASCII character, `~` (§2, string). */
+const PRINTABLE_LAST = 0x7e;
+
+/**
+ * Encodes an lstring (§2): `u8 len` (0..31), then that many bytes of printable ASCII.
+ *
+ * @param text - Printable ASCII, at most 31 characters.
+ * @returns The length byte and the characters.
+ */
+export function encodeLstring(text: string): number[] {
+  if (text.length > LSTRING_MAX) {
+    throw new RangeError(`"${text}" is ${text.length} characters; an lstring holds at most ${LSTRING_MAX}`);
+  }
+  const codes = Array.from(text, (c) => c.charCodeAt(0));
+  const isPrintable = codes.every((code) => code >= PRINTABLE_FIRST && code <= PRINTABLE_LAST);
+  if (isPrintable === false) {
+    throw new RangeError(`"${text}" is not all printable ASCII`);
+  }
+  return [codes.length, ...codes];
+}
+
 /**
  * Formats bytes as spaced upper-case hex, for the raw SysEx view.
  *
@@ -306,6 +329,20 @@ export class PayloadReader {
     const value = decodeS32(this.#bytes, this.#offset);
     this.#offset += U32_BYTES;
     return value;
+  }
+
+  /** @returns An lstring (§2): `u8 len` (0..31), then the characters. */
+  lstring(): string {
+    const length = this.byte();
+    if (length > LSTRING_MAX) {
+      throw new DecodeError(`lstring length ${length} is over ${LSTRING_MAX}`);
+    }
+    if (length > this.remaining) {
+      throw new DecodeError(`lstring of ${length} bytes runs past the payload (${this.remaining} left)`);
+    }
+    const slice = Array.from(this.#bytes).slice(this.#offset, this.#offset + length);
+    this.#offset += length;
+    return decodeText(slice);
   }
 
   /** @returns Everything left, as it is. */

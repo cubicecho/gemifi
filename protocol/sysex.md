@@ -286,9 +286,9 @@ To restore, for each slot: PRESET_RESET it; if the backup has stored edits for i
 
 **Button actions.** Presets add three `button.action` values: 13 `preset_next`, 14 `preset_prev`, 15 `preset_select` (`button.number` = the slot). Mackie Control (on devices with a DAW port) moves from 13 to **16**. A profile stored before this change with an MCU button needs that button set again. Editors take the values from the schema's option labels, so nothing else changes for them.
 
-### 4.6 Host feedback (app, draft)
+### 4.6 Host feedback (app)
 
-**Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`); not yet run on hardware or in a DAW. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
+**Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`, `hosts/bitwig`); not yet run on hardware or in a DAW. **Writing a DAW script?** [`daw-scripts.md`](daw-scripts.md) is the guide built on this section. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
 
 A script in the DAW (a Live Remote Script, a Bitwig extension) drives the device's LEDs, values and displays with these messages. It addresses everything by **component index**, not by MIDI note or CC. That way it works for any gemifi device without knowing its mapping, and a preset that changes CC numbers doesn't break it. A device with this feature sets HELLO caps bit 6.
 

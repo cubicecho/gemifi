@@ -127,9 +127,9 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-28 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders);
-# 29-39 hold the other 9 buttons (fader mode, bank left/right, button mode,
-# encoder mode, x-mode, y-mode, x, y) in an order still to map. A switch_matrix takes at
+# 0-28 and 30-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the
+# faders). "Button mode" gives no event on any slot: slots 29, 38 and 39 are
+# the unused ones left (kept as placeholders for now). A switch_matrix takes at
 # most 32 switches, so row 20 is its own.
 switch_matrix:
   - id: panel
@@ -239,14 +239,14 @@ buttons:
   - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92 }   # under fader 8
   - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93 }   # under fader 9
   - { id: slot_29, name: "Slot 29", pin: { switch_matrix: panel, number: 29 }, action: none }
-  - { id: slot_30, name: "Slot 30", pin: { switch_matrix: panel, number: 30 }, action: none }
-  - { id: slot_31, name: "Slot 31", pin: { switch_matrix: panel, number: 31 }, action: none }
-  - { id: slot_32, name: "Slot 32", pin: { switch_matrix: panel_row20, number: 0 }, action: none }
-  - { id: slot_33, name: "Slot 33", pin: { switch_matrix: panel_row20, number: 1 }, action: none }
-  - { id: slot_34, name: "Slot 34", pin: { switch_matrix: panel_row20, number: 2 }, action: none }
-  - { id: slot_35, name: "Slot 35", pin: { switch_matrix: panel_row20, number: 3 }, action: none }
-  - { id: slot_36, name: "Slot 36", pin: { switch_matrix: panel_row20, number: 4 }, action: none }
-  - { id: slot_37, name: "Slot 37", pin: { switch_matrix: panel_row20, number: 5 }, action: none }
+  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94 }
+  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95 }
+  - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96 }
+  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }
+  - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98 }
+  - { id: x_button, name: "X", pin: { switch_matrix: panel_row20, number: 3 }, action: cc_momentary, cc: 99 }
+  - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100 }
+  - { id: y_button, name: "Y", pin: { switch_matrix: panel_row20, number: 5 }, action: cc_momentary, cc: 101 }
   - { id: slot_38, name: "Slot 38", pin: { switch_matrix: panel_row20, number: 6 }, action: none }
   - { id: slot_39, name: "Slot 39", pin: { switch_matrix: panel_row20, number: 7 }, action: none }
 

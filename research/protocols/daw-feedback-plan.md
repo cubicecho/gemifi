@@ -30,7 +30,7 @@ The issue's "Still open" list predates the implementation. These are settled unl
 | D1 | **Order:** more feedback layers before the merged ones have run in a DAW? | **No.** Run #7's DAW feedback checks in Live first (an hour with the Keystation). Everything below builds on the dispatcher and LED ownership, so a bug there is cheaper to find now. Phase A can go ahead in parallel because it's docs and spec |
 | D2 | **Bicolour and RGB LED levels** | Keep 0/1/2..127 for single-colour LEDs. For bicolour: 0 off, 1 blink colour 1, 2..63 colour 1, 64..127 colour 2. RGB: a palette (index → colour) in the YAML, not a fixed vendor one. Decide this only when a device with such LEDs exists |
 | D3 | **`led_timeout` default** (2 s, from the DAW-feedback PR's questions) | Keep 2 s, and recheck it in Live during #7. In Live, momentary-button LEDs go back to local 2 s after the host lit them, even while Live still says "on" |
-| D4 | **F3 at all, and when** | **Not now.** MCU already gives Live, Bitwig, REAPER and Logic transport, track buttons, faders and V-Pots with no script to maintain. F3 is worth it only for something MCU can't do (RGB pads, a clip grid, track colours). Revisit when a device needs one. It also needs the paid SysEx ID (#3), since custom SysEx under 0x7D can't be released |
+| D4 | **F3 at all, and when** | **Decided 2026-11-03: now**, straight after finishing F2's protocol work (#19, rest in #18). Spec draft: `protocol/sysex.md` §4.6 (#20). Uses `0x7D` as a placeholder ID until #3 |
 | D5 | **Fire-and-forget host → device SysEx** (only matters for F3) | When F3 happens: a separate command range that never replies, written into `protocol/sysex.md` as an exception to "every request gets a reply". A script streaming LED states can't wait for acks |
 | D6 | **F4 (MIDI-CI) priority** | Low. Today it gets you a device name and controls shown in MIDI 2.0-aware OS tools, and no DAW uses it for feedback. Do it after F2, on ESP32-S3 only (the NUC120's 4 KB of RAM is tight for it) |
 | D7 | **Zynthian** (4th target host) | A short research task: find out what Zynthian sends to a generic controller and whether a small `ctrldev` driver would help. No code before that |
@@ -62,8 +62,8 @@ The issue's "Still open" list predates the implementation. These are settled unl
 11. Discovery (MUID, reply to Discovery Inquiry) and Property Exchange `DeviceInfo` under 0x7C, built from the YAML (`friendly_name`, node name, version). ESP32-S3 first, behind a `midi_ci: {}` YAML key.
 12. Then possibly `ChCtrlList` / `AllCtrlList` from the YAML's controls, and our web updater as the first thing that reads them.
 
-### Not planned: F3
-F3 stays parked until a device needs something MCU can't carry (D4). When it does: #3 (the paid ID) first, a fire-and-forget command range (D5), FB_LED / FB_VALUE / FB_TEXT / FB_RELEASE as in `host-feedback.md` §5.3 with new numbers, then the Live Remote Script, written from scratch (MIT) with no decompiled Ableton code.
+### F3 (decided: now)
+Spec first (`protocol/sysex.md` §4.6, #20): GET_COMPONENT so a script learns the device's controls and their `daw:` roles, EVENT messages for presses by index, and fire-and-forget FB_* notifications (D5) for LEDs, RGB, values, rings and text. Then the core, the host tool, the web updater, and the Live Remote Script (written from scratch, MIT), then Bitwig. The SysEx ID stays `0x7D` until #3.
 
 ## 5. Size and effort
 
@@ -76,6 +76,6 @@ F3 stays parked until a device needs something MCU can't carry (D4). When it doe
 | Display component + TM1628 driver | ~0.5–1 KB | medium; needs the Code 61 on hardware |
 | MCU timecode/assignment on it | ~200 B | small, after the display |
 | MIDI-CI Discovery + DeviceInfo (ESP32-S3) | 2–4 KB | medium |
-| F3 + Live script | 300–500 B device, a Python script to maintain | large; parked |
+| F3 + Live script | ~0.5–1 KB device (+ component names), a Python script to maintain | large; in progress (#20) |
 
 Device numbers are estimates in the style of `host-feedback.md` §5.4, not measurements.

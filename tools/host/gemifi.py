@@ -32,6 +32,17 @@ Presets (sysex.md 4.5; HELLO caps bit 5):
   gemifi.py preset rename N|NAME NEWNAME         ("" = back to the firmware's name)
   flash takes --backup FILE / --no-backup and --keep-presets / --use-firmware-presets (see tools/README.md)
 
+Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY are an index or a component id:
+  gemifi.py components [--json]       list the device's components: kind, index, id, name, role, extras
+  gemifi.py fb led LED LEVEL          LEVEL 0..127 (0 off, 1 blink, 2..127 on) or off/blink/on
+  gemifi.py fb rgb LED R G B [--blink]
+  gemifi.py fb leds FIRST LEVEL...    several LEDs from FIRST on
+  gemifi.py fb value analog|encoder INDEX VALUE      VALUE 0..16383
+  gemifi.py fb ring ENCODER dot|boost|wrap|spread VALUE [--center]
+  gemifi.py fb text DISPLAY ROW COL TEXT
+  gemifi.py fb release [all|leds|values|text]        hand the states back to the device
+  fb commands are notifications: sent once, never answered, so they return at once.
+
 Backends: python-rtmidi, then mido, then raw ALSA /dev/snd/midiC*D* (Linux, no dependencies).
 Choose one with --backend. --port picks a port by substring instead of the "gemifi" name match.
 --serial /dev/ttyUSB0 [--baud 115200] talks raw MIDI bytes over a serial port instead (classic ESP32 and
@@ -90,6 +101,8 @@ class Session:
         return self.seq
 
     def request(self, cmd, payload=b"", retries=None):
+        if gp.is_notification(cmd):
+            raise ValueError(f"0x{cmd:02x} is a notification (never answered): use notify()")
         seq = self.next_seq()
         frame = gp.build_frame(cmd, seq, payload)
         tries = (self.retries if retries is None else retries) + 1
@@ -135,6 +148,14 @@ class Session:
                 if resend:
                     break
         raise NoReply(f"no reply to {gp.CMD_NAMES.get(cmd, hex(cmd))} after {tries} tries")
+
+    def notify(self, cmd, payload=b""):
+        """Send a host -> device notification (0x20-0x3F, sysex.md 4.6.2) once, without waiting: the device
+        never replies, `seq` is ignored (0 is sent), and there are no retries. Only for a device with HELLO
+        caps bit 6 (older firmware would answer BAD_CMD in the unsolicited range)."""
+        if not gp.is_notification(cmd):
+            raise ValueError(f"0x{cmd:02x} is not a notification (0x20-0x3F): use request()")
+        self.port.send(gp.build_frame(cmd, 0, payload))
 
     def reboot(self, mode):
         """REBOOT(mode). The reply may be lost as the device resets, so a timeout counts as success
@@ -257,6 +278,36 @@ class Session:
 
     def preset_name(self, slot, name):
         expect_ok(self.request(gp.PRESET_NAME, gp.req_preset_name(slot, name)), f"PRESET_NAME {slot}")
+
+
+    # -- host feedback (sysex.md 4.6) --
+
+    def get_component(self, kind, index):
+        """GET_COMPONENT -> Component, or None when the device replies BAD_PARAM (past the end, or none of
+        this kind)."""
+        what = f"GET_COMPONENT {gp.KIND_NAMES.get(kind, kind)} {index}"
+        f = self.request(gp.GET_COMPONENT, gp.req_get_component(kind, index))
+        if f.status == gp.BAD_PARAM:
+            return None
+        c = gp.parse_component(expect_ok(f, what).payload)
+        if (c.kind, c.index) != (kind, index):
+            raise GemifiError(f"{what}: reply is for {c.kind_name} {c.index}")
+        return c
+
+    def components(self, kinds=gp.KINDS):
+        """Every component of each kind: index 0 gives `count`, then 1..count-1."""
+        out = []
+        for kind in kinds:
+            first = self.get_component(kind, 0)
+            if first is None:
+                continue
+            out.append(first)
+            for i in range(1, first.count):
+                c = self.get_component(kind, i)
+                if c is None:
+                    raise GemifiError(f"GET_COMPONENT {first.kind_name} {i}: BAD_PARAM, but count is {first.count}")
+                out.append(c)
+        return out
 
 
 def expect_ok(f, what):
@@ -418,7 +469,8 @@ def print_hello(name, h):
     print(f"  fw_version  {gp.fmt_version(h.fw_version)}")
     print(f"  protocol    {h.proto_version}")
     caps = [n for b, n in ((gp.CAP_FW, "fw-upload"), (gp.CAP_CONFIG, "config"), (gp.CAP_LOG, "log"),
-                           (gp.CAP_EVENT, "event"), (gp.CAP_PRESETS, "presets")) if h.caps & b]
+                           (gp.CAP_EVENT, "event"), (gp.CAP_PRESETS, "presets"),
+                           (gp.CAP_FEEDBACK, "feedback")) if h.caps & b]
     print(f"  caps        0x{h.caps:04x} {' '.join(caps)}")
     print(f"  max_chunk   {h.max_chunk}")
     print(f"  uid         {h.uid_hex}")
@@ -1383,6 +1435,156 @@ def send_vendor(a, backend_factory, recs, version, stock=False):
     return 0
 
 
+# ---------------- host feedback (sysex.md 4.6) ----------------
+
+def feedback_session(a, backend):
+    """Open the app port and check it has host feedback (HELLO caps bit 6). Returns (name, port, session,
+    hello); the caller closes the port. Notifications are never sent to a device without the bit (4.6.2)."""
+    name, port, s = open_session(a, backend, "app")
+    try:
+        h = s.hello()
+        if h.role != gp.ROLE_APP:
+            raise GemifiError(f"{name} is the bootloader; host feedback needs the app (gemifi.py reboot app)")
+        if not h.caps & gp.CAP_FEEDBACK:
+            raise GemifiError(f"{name}: this firmware has no host feedback (HELLO caps 0x{h.caps:04x}, "
+                              "bit 6 not set); nothing sent")
+    except BaseException:
+        port.close()
+        raise
+    return name, port, s, h
+
+
+def print_components(comps):
+    rows = [(c.kind_name, str(c.index), c.id, c.name, c.role, c.extras_text()) for c in comps]
+    head = ("kind", "index", "id", "name", "role", "extras")
+    w = [max(len(r[i]) for r in rows + [head]) for i in range(len(head))]
+
+    def line(cells):
+        print("  " + "  ".join(c.rjust(w[i]) if i == 1 else c.ljust(w[i]) for i, c in enumerate(cells)).rstrip())
+    line(head)
+    for r in rows:
+        line(r)
+
+
+def cmd_components(a, backend):
+    name, port, s, h = feedback_session(a, backend)
+    with port:
+        comps = s.components()
+    if a.json:
+        print(json.dumps([c.to_json() for c in comps], indent=1))
+        return 0
+    print(name)
+    if not comps:
+        print("  (no components)")
+        return 0
+    print_components(comps)
+    return 0
+
+
+class Resolver:
+    """Turns a command-line reference into a component index: a number is taken as the index; anything else
+    is a component id (YAML `id:`, any case), looked up with GET_COMPONENT on first use."""
+
+    def __init__(self, s):
+        self.s, self.cache = s, {}
+
+    def comps(self, kind):
+        if kind not in self.cache:
+            self.cache[kind] = self.s.components((kind,))
+        return self.cache[kind]
+
+    def by_id(self, kind, ref):
+        return next((c for c in self.comps(kind) if c.id.lower() == ref.lower()), None)
+
+    def index(self, kind, ref):
+        t = ref.strip()
+        if t.isdigit():
+            return int(t)
+        c = self.by_id(kind, t)
+        if c is None:
+            raise GemifiError(f"no {gp.KIND_NAMES[kind]} with id {ref!r} (gemifi.py components lists them)")
+        return c.index
+
+    def led(self, ref):
+        """An LED by index or id; a button's id means its LED (an encoder's id: its centre LED)."""
+        t = ref.strip()
+        if t.isdigit():
+            return int(t)
+        c = self.by_id(gp.KIND_LED, t)
+        if c is not None:
+            return c.index
+        for kind, attr in ((gp.KIND_BUTTON, "led"), (gp.KIND_ENCODER, "center")):
+            c = self.by_id(kind, t)
+            if c is not None:
+                if getattr(c, attr) == gp.NONE_INDEX:
+                    raise GemifiError(f"{c.kind_name} {c.id!r} has no LED")
+                return getattr(c, attr)
+        raise GemifiError(f"no LED, button or encoder with id {ref!r} (gemifi.py components lists them)")
+
+
+LEVEL_WORDS = {"off": 0, "blink": 1, "on": 127}
+
+
+def level_arg(text):
+    """An LED level: 0..127, or off / blink / on."""
+    t = text.strip().lower()
+    if t in LEVEL_WORDS:
+        return LEVEL_WORDS[t]
+    try:
+        return gp._int(t)
+    except ValueError:
+        raise GemifiError(f"level {text!r}: a number 0..127 or off, blink, on") from None
+
+
+def int_arg(text, what):
+    try:
+        return gp._int(text.strip())
+    except ValueError:
+        raise GemifiError(f"{what} {text!r} is not a number") from None
+
+
+def fb_payload(a, r):
+    """(cmd, payload, description) for `gemifi.py fb ...`; resolves ids through `r` (a Resolver)."""
+    w = a.fb_cmd
+    if w == "led":
+        led, level = r.led(a.led), level_arg(a.level)
+        return gp.FB_LED, gp.fb_led(led, level), f"LED {led} = {level}"
+    if w == "rgb":
+        led = r.led(a.led)
+        rgb = [int_arg(x, n) for x, n in ((a.r, "r"), (a.g, "g"), (a.b, "b"))]
+        return (gp.FB_LED_RGB, gp.fb_led_rgb(led, *rgb, blink=a.blink),
+                f"LED {led} = rgb({', '.join(map(str, rgb))})" + (" blinking" if a.blink else ""))
+    if w == "leds":
+        first, levels = r.led(a.first), [level_arg(x) for x in a.levels]
+        return gp.FB_LEDS, gp.fb_leds(first, levels), f"LEDs {first}..{first + len(levels) - 1} = {levels}"
+    if w == "value":
+        kind = gp.KIND_ANALOG if a.kind == "analog" else gp.KIND_ENCODER
+        i, v = r.index(kind, a.index), int_arg(a.value, "value")
+        return gp.FB_VALUE, gp.fb_value(kind, i, v), f"{a.kind} {i} value = {v}"
+    if w == "ring":
+        i, v = r.index(gp.KIND_ENCODER, a.encoder), int_arg(a.value, "value")
+        return (gp.FB_RING, gp.fb_ring(i, gp.RING_MODES[a.mode], v, a.center),
+                f"encoder {i} ring {a.mode} = {v}" + (" + centre" if a.center else ""))
+    if w == "text":
+        i = r.index(gp.KIND_DISPLAY, a.display)
+        row, col = int_arg(a.row, "row"), int_arg(a.col, "col")
+        return gp.FB_TEXT, gp.fb_text(i, row, col, a.text), f"display {i} ({row}, {col}) = {a.text!r}"
+    what = a.what or "all"
+    return gp.FB_RELEASE, gp.fb_release(gp.RELEASE_WHAT[what]), f"release {what}"
+
+
+def cmd_fb(a, backend):
+    name, port, s, h = feedback_session(a, backend)
+    with port:
+        try:
+            cmd, payload, desc = fb_payload(a, Resolver(s))
+        except ValueError as e:
+            raise GemifiError(str(e)) from None
+        s.notify(cmd, payload)          # never answered: nothing to wait for
+    print(f"{name}: {gp.CMD_NAMES[cmd]} {desc}")
+    return 0
+
+
 def add_vendor_options(p):
     mu.add_sender_options(p, wait=False)
     p.add_argument("--after-wait", type=float, default=20.0,
@@ -1470,12 +1672,44 @@ def build_parser():
     x = ps.add_parser("rename", help="give a preset a new name (\"\" = back to the firmware's name)")
     x.add_argument("slot", metavar="N|NAME")
     x.add_argument("name", metavar="NAME", help=f"0..{gp.PRESET_NAME_MAX} printable ASCII characters")
+    c = sub.add_parser("components", help="list the device's components (host feedback, caps bit 6)")
+    c.add_argument("--json", action="store_true", help="print them as JSON")
+    c = sub.add_parser("fb", help="send a host feedback notification (LEDs, values, rings, text)")
+    fs = c.add_subparsers(dest="fb_cmd", required=True)
+    x = fs.add_parser("led", help="set one LED's level")
+    x.add_argument("led", metavar="LED", help="LED index, or the id of an LED, a button or an encoder (centre)")
+    x.add_argument("level", metavar="LEVEL", help="0..127 (0 off, 1 blink, 2..127 on) or off/blink/on")
+    x = fs.add_parser("rgb", help="set one LED's colour")
+    x.add_argument("led", metavar="LED")
+    for n in ("r", "g", "b"):
+        x.add_argument(n, metavar=n.upper(), help="0..127")
+    x.add_argument("--blink", action="store_true")
+    x = fs.add_parser("leds", help="set several LEDs from FIRST on")
+    x.add_argument("first", metavar="FIRST")
+    x.add_argument("levels", nargs="+", metavar="LEVEL")
+    x = fs.add_parser("value", help="set an analog input's pick-up target or an encoder's value")
+    x.add_argument("kind", choices=["analog", "encoder"])
+    x.add_argument("index", metavar="INDEX", help="index or component id")
+    x.add_argument("value", metavar="VALUE", help="0..16383")
+    x = fs.add_parser("ring", help="show a value on an encoder's LED ring")
+    x.add_argument("encoder", metavar="ENCODER", help="index or component id")
+    x.add_argument("mode", choices=list(gp.RING_MODES))
+    x.add_argument("value", metavar="VALUE", help="0..16383")
+    x.add_argument("--center", action="store_true", help="also light the centre LED")
+    x = fs.add_parser("text", help="write text into a display")
+    x.add_argument("display", metavar="DISPLAY", help="index or component id")
+    x.add_argument("row", metavar="ROW")
+    x.add_argument("col", metavar="COL")
+    x.add_argument("text", metavar="TEXT", help=f"0..{gp.FB_TEXT_MAX} printable ASCII characters")
+    x = fs.add_parser("release", help="hand feedback states back to the device")
+    x.add_argument("what", nargs="?", choices=list(gp.RELEASE_WHAT), help="default all")
     return ap
 
 
 COMMANDS = {"ports": cmd_ports, "hello": cmd_hello, "log": cmd_log, "reboot": cmd_reboot, "schema": cmd_schema,
             "get": cmd_get, "set": cmd_set, "commit": cmd_commit, "factory-reset": cmd_factory_reset,
-            "backup": cmd_backup, "restore": cmd_restore, "presets": cmd_presets, "preset": cmd_preset}
+            "backup": cmd_backup, "restore": cmd_restore, "presets": cmd_presets, "preset": cmd_preset,
+            "components": cmd_components, "fb": cmd_fb}
 
 
 def main(argv=None):

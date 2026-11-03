@@ -23,7 +23,7 @@ assert (active.min, active.max) == (1, 8), active
 dirty = next(p for p in s.params if p.name == "preset.dirty")
 assert dirty.read_only and dirty.volatile, dirty
 act = next(p for p in s.params if p.name == "button.action")
-assert act.count == 7 and act.index_labels[4] == "Pitch down" and act.defaults == [1, 2, 5, 6, 9, 10, 3], act
+assert act.count == 7 and act.index_labels[4] == "Pitch down" and act.defaults == [1, 0, 5, 6, 9, 10, 3], act   # Edit (index 1) is the mode button: no action
 assert act.options[13:] == ["Preset next", "Preset previous", "Preset select"] and act.max == 15, act.options
 assert next(p for p in s.params if p.name == "bend.glide").unit == "ms"
 print(f"schema ok: {len(names)} params, {len(sys.argv[1]) and Path(sys.argv[1]).stat().st_size} bytes")

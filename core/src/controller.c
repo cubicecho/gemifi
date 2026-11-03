@@ -7,7 +7,7 @@
  *     shift-register hub refresh/flush. Key changes go to the main loop
  *     through a small queue.
  *   gm_poll() (main loop): everything that sends MIDI, buttons, analog
- *     inputs, ramps, LEDs, I2C hubs, the protocol.
+ *     inputs, ramps, LEDs, I2C and TM1628 hubs, the protocol.
  * Host feedback (gm_fb_msg, from midi_in.c) also runs in the main loop: the
  * platform feeds received MIDI from its main loop.
  *
@@ -49,6 +49,7 @@ static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
 static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
 static uint8_t has_i2c_hubs;
+static uint8_t has_tm_hubs;         /* TM1628: written after each LED update */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
@@ -854,8 +855,11 @@ static void encoders_poll(void)
 #endif
 
 /* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
- * (bicolour). LV_BLINK | level: that level, blinking (host feedback). */
+ * (bicolour). LV_BLINK | level: that level, blinking (host feedback).
+ * RGB LEDs: LV_RGB | colour (bit 0 red, 1 green, 2 blue), from FB_LED_RGB;
+ * any other level > 0 is white. */
 #define LV_BLINK 0x80u
+#define LV_RGB 0x40u
 
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
@@ -865,6 +869,13 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 #endif
     if (vpin_is_none(l->pin2)) {
         vpin_write(l->pin, level > 0);
+        return;
+    }
+    if (!vpin_is_none(l->pin3)) {
+        uint32_t c = level == 0 ? 0 : (level & LV_RGB) ? level & 7u : 7u;
+        vpin_write(l->pin, c & 1u);
+        vpin_write(l->pin2, (c >> 1) & 1u);
+        vpin_write(l->pin3, (c >> 2) & 1u);
         return;
     }
     vpin_write(l->pin, level == 1 || level == 2);
@@ -894,7 +905,7 @@ void gm_led_host(uint32_t led, uint32_t value)
 #if GM_HOST_FB
 static int bicolour(uint32_t led)
 {
-    return !vpin_is_none(gm_device.leds[led].pin2);
+    return !vpin_is_none(gm_device.leds[led].pin2) && vpin_is_none(gm_device.leds[led].pin3);
 }
 
 static void led_script_set(uint32_t led, uint32_t level)
@@ -918,9 +929,16 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
 {
     if (led >= gm_device.n_leds)
         return;
-    uint32_t lv = 0;
-    if (r || g || b)
+    uint32_t lv = 0, m = r > g ? r : g;
+    if (b > m)
+        m = b;
+    if (!vpin_is_none(gm_device.leds[led].pin3)) {
+        /* on/off per channel: lit if at least half the brightest one */
+        if (m)
+            lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
+    } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
+    }
     led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
 }
 #endif
@@ -1242,6 +1260,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
             has_i2c_hubs = 1;
         if (t == GM_HUB_SWMATRIX)
             has_matrices = 1;
+        if (t == GM_HUB_TM1628)
+            has_tm_hubs = 1;
     }
     vpin_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
@@ -1250,6 +1270,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
         vpin_output(gm_device.leds[i].pin);
         if (!vpin_is_none(gm_device.leds[i].pin2))
             vpin_output(gm_device.leds[i].pin2);
+        if (!vpin_is_none(gm_device.leds[i].pin3))
+            vpin_output(gm_device.leds[i].pin3);
     }
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
@@ -1341,11 +1363,13 @@ void gm_init(uint32_t fw_version, int safe_mode)
         led_show(&gm_device.leds[i], 2, 1);
     vpin_flush();
     vpin_flush_i2c();
+    vpin_flush_tm1628();
     hal_delay_us(200000);
     for (uint32_t i = 0; i < gm_device.n_leds; i++)
         led_show(&gm_device.leds[i], 0, 0);
     vpin_flush();
     vpin_flush_i2c();
+    vpin_flush_tm1628();
 }
 
 void gm_poll(void)
@@ -1396,6 +1420,8 @@ void gm_poll(void)
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);
+        if (has_tm_hubs)
+            vpin_flush_tm1628();
     }
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;

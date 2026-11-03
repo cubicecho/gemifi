@@ -133,11 +133,26 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("#define GM_MIDI_TRANSPORT GM_MIDI_USB", h)
         self.assertIn("#define GM_HAS_I2C 1", h)
         self.assertIn('name=Everything "S3" ?? test', out)
-        self.assertIn("hubs=8 (ptr)", out)
+        self.assertIn("hubs=10 (ptr)", out)
         types = re.findall(r" hub \d+ type=(\d+) chain=(\d+) n_sel=(\d+) addr=0x(\w+)", out)
         self.assertEqual(types, [("1", "2", "0", "00"), ("1", "1", "0", "00"), ("2", "1", "0", "00"),
                                  ("2", "1", "0", "00"), ("3", "0", "3", "00"), ("3", "0", "4", "00"),
-                                 ("4", "0", "0", "21"), ("5", "0", "0", "38")])
+                                 ("4", "0", "0", "21"), ("5", "0", "0", "38"), ("7", "0", "0", "00"),
+                                 ("7", "0", "0", "00")])
+        # tm1628: RAM size, intensity, grids; CLK/DIO shared, DIO open-drain (flag 8), own STB
+        self.assertIn("#define GM_TM1628_RAM 20", h)
+        hub8 = out.split(" hub 8 ")[1].split(" hub 9 ")[0]
+        hub9 = out.split(" hub 9 ")[1].split("buttons=")[0]
+        self.assertIn("ram=14 bright=2 grids=6", hub8)
+        self.assertIn("ram=6 bright=7 grids=0", hub9)
+        for hb, stb in ((hub8, 37), (hub9, 0)):
+            self.assertIn("data hub=0 flags=8 num=36", hb)
+            self.assertIn("clock hub=0 flags=0 num=35", hb)
+            self.assertIn(f"latch hub=0 flags=0 num={stb}", hb)
+        self.assertIn("pin hub=9 flags=0 num=37", out)
+        self.assertIn("pin hub=10 flags=1 num=47", out)
+        self.assertIn("pin hub=9 flags=0 num=0\n  pin2 hub=9 flags=0 num=1\n  pin3 hub=9 flags=0 num=8", out)
+        self.assertIn("pin2 hub=7 flags=0 num=15\n  pin3 hub=255", out)   # bicolour: no pin3
         # unused hub pins are GM_NO_PIN (hub 255), never MCU pin 0
         hub0 = out.split(" hub 0 ")[1].split(" hub 1 ")[0]
         self.assertEqual(hub0.count("sel hub=255"), 4)
@@ -272,6 +287,52 @@ class TestValidation(unittest.TestCase):
                          r"sn74hc595, which can't be an input")
         self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
+    def test_tm1628(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        share = "{ number: %s, allow_other_uses: true }"
+        dio = "{ number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }"
+
+        def dev(extra_a="", extra_b="", stb_b="PC12", leds="", clk=share % "PC10"):
+            return (stm + "tm1628:\n"
+                    f"  - {{ id: ta, clk_pin: {clk}, dio_pin: {dio}, stb_pin: PB12{extra_a} }}\n"
+                    f"  - {{ id: tb, clk_pin: {share % 'PC10'}, dio_pin: {dio}, stb_pin: {stb_b}{extra_b} }}\n"
+                    "leds:\n  - { id: la, pin: { tm1628: ta, number: 111 } }\n"
+                    "  - { id: lb, pin: { tm1628: tb, number: 47, inverted: true } }\n" + leds)
+
+        self.assertClean(dev())
+        # pin = byte * 8 + bit, up to ram_bytes * 8 - 1
+        self.assertError(dev(leds="  - { id: lc, pin: { tm1628: ta, number: 112 } }\n"),
+                         r"pin 112 is out of range for hub 'ta' \(tm1628 \(14 RAM bytes x 8; pin = byte \* 8 "
+                         r"\+ bit\): 0\.\.111\)")
+        self.assertClean(dev(extra_b=", ram_bytes: 16", leds="  - { id: lc, pin: { tm1628: tb, number: 127 } }\n"))
+        self.assertError(dev(extra_b=", ram_bytes: 5"), r"pin 47 is out of range for hub 'tb'")
+        self.assertError(dev(extra_a=", ram_bytes: 17"), r"17 is out of range \(1\.\.16\)")
+        self.assertError(dev(extra_a=", intensity: 8"), r"8 is out of range \(0\.\.7\)")
+        self.assertError(dev(extra_a=", grids: 3"), r"3 is out of range \(4\.\.7\)")
+        self.assertClean(dev(extra_a=", intensity: 0, grids: 7"))
+        # outputs only
+        self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),
+                         r"tm1628, which can't be an input")
+        # CLK/DIO shared only with allow_other_uses; STB never
+        self.assertError(dev(clk="PC10"), r"PC10 is already used")
+        self.assertError(dev(stb_b="PB12"), r"PB12 is already used")
+        self.assertError(dev(stb_b=share % "PB12").replace("stb_pin: PB12", "stb_pin: " + share % "PB12"),
+                         r"each needs its own stb_pin", path="tm1628[1].stb_pin")
+        # a TM1628 line can't double as a shift register's clock
+        self.assertError(dev() + f"sn74hc595:\n  - {{ id: s, data_pin: PB0, clock_pin: {share % 'PC10'}, "
+                                 "latch_pin: PB1 }\n", r"PC10 is already used.*same control line")
+        # open-drain only on dio_pin
+        self.assertError(dev(clk="{ number: PC10, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }"),
+                         r"open_drain is only supported on a tm1628 dio_pin")
+        self.assertError(dev().replace("mode: OUTPUT_OPEN_DRAIN", "mode: INPUT"),
+                         r"use mode: OUTPUT or OUTPUT_OPEN_DRAIN")
+        # RGB LED: pin red, pin2 green, pin3 blue; pin3 needs pin2
+        rgb = "  - { id: rgb, pin: { tm1628: ta, number: 0 }, pin2: { tm1628: ta, number: 1 }%s }\n"
+        self.assertClean(dev(leds=rgb % ", pin3: { tm1628: ta, number: 2 }"))
+        self.assertError(dev(leds=rgb.replace(", pin2: { tm1628: ta, number: 1 }", "") %
+                             ", pin3: { tm1628: ta, number: 2 }"), r"an RGB LED needs pin2 too")
+        self.assertError(dev(leds=rgb % ", pin3: { tm1628: ta, number: 1 }"), r"ta\.1 is already used")
+
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
         an = "analog:\n  - { id: k, pin: { cd74hc4051: m, number: %d }, cc: 1 }\n"
@@ -333,11 +394,12 @@ class TestValidation(unittest.TestCase):
         self.assertError(btn % "OUTPUT", r"this pin is an input: mode can't include output")
         self.assertError(btn % "INPUT_PULUP", r"unknown mode 'INPUT_PULUP'.*did you mean INPUT_PULLUP")
         self.assertError(btn % "{ input: true, pullup: true, pulldown: true }", r"pullup and pulldown")
-        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain isn't supported")
+        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
         self.assertError(btn % "{ input: true, pulup: true }", r"unknown key \(did you mean 'pullup'")
         led = MINIMAL_NUC + "leds:\n  - { id: l, pin: { number: PA2, mode: %s } }\n"
         self.assertClean(led % "OUTPUT")
         self.assertError(led % "INPUT_PULLUP", r"this pin is an output: use mode: OUTPUT")
+        self.assertError(led % "OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
         an = MINIMAL_NUC + "analog:\n  - { id: v, pin: { number: PA0, mode: %s }, cc: 7 }\n"
         self.assertClean(an % "ANALOG")
         self.assertError(an % "INPUT_PULLUP", r"analog input takes mode ANALOG or INPUT")

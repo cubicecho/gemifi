@@ -1,0 +1,41 @@
+# Test device for core/test/test_tm1628.c: two TM1628-class LED drivers
+# sharing CLK and DIO, each with its own STB (as on the Code 61). Not a real
+# board; the pins only need to be distinct for the simulated HAL.
+gemifi: 2
+name: tm1628-test
+friendly_name: TM1628 Test
+board_id: 0x3F11
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+tm1628:
+  - id: leds_a
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PA15
+    intensity: 3
+    grids: 7
+  - id: leds_b
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PC12
+    ram_bytes: 6
+
+buttons:
+  - { id: btn, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: btn_led }
+
+leds:
+  - { id: btn_led, pin: { tm1628: leds_a, number: 37 } }                       # byte 4, bit 5
+  - { id: fb_led,  pin: { tm1628: leds_b, number: 47 }, feedback: { note: 40 } }   # byte 5, bit 7
+  - { id: inv_led, pin: { tm1628: leds_b, number: 0, inverted: true } }        # lit = bit 0 clear
+  - id: rgb_led                # RGB on A byte 13: red bit 0, green bit 1, blue bit 2
+    pin: { tm1628: leds_a, number: 104 }
+    pin2: { tm1628: leds_a, number: 105 }
+    pin3: { tm1628: leds_a, number: 106 }
+
+# An analog input only because a device with host feedback and no analog
+# inputs doesn't link yet (gm_analog_host is under GM_N_ANALOGS > 0).
+analog:
+  - { id: knob, pin: PA0, cc: 7 }

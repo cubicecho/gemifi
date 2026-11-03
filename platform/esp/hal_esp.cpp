@@ -53,6 +53,9 @@ void hal_pin_mode(uint16_t pin, uint8_t mode)
     case HAL_OUT:
         pinMode(pin, OUTPUT);
         break;
+    case HAL_OUT_OD:
+        pinMode(pin, OUTPUT_OPEN_DRAIN);
+        break;
     default:
         pinMode(pin, INPUT);
     }

@@ -15,8 +15,11 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - LEDs and the 6-character display: two TM1628-class serial LED drivers
-#     (CLK PC10, DIO PC11 open-drain, STB PA15 / PC12). There's no driver for them.
+#   - LEDs: the two TM1628-class drivers are declared (tm1628: below), but
+#     which RAM bit lights which LED is unknown, so there are no leds: yet.
+#     Map them on hardware (core/README.md "TM1628 LED drivers").
+#   - The 6-character 7-segment display (on the same two chips): no display
+#     component yet.
 #   - 16 pads: two 8:1 mux channels on ADC ch0 (PA0) and ch1 (PA1), select
 #     PC0-PC2, through the slot table at 0x08014C08. They need pad velocity
 #     from pressure, which the core doesn't have.
@@ -55,6 +58,33 @@ cd74hc4051:
     pin_s2: PC2            # [sure]
     common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
     delay: 10us            # [guess] the stock app waits a whole ADC frame after switching
+
+# LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
+# with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive
+# every LED and the 6-character display. A pin on them is a RAM bit:
+# number = byte * 8 + bit. PA15 is a JTAG pin at reset; the board config
+# turns JTAG off (BOARD_SWJ_NOJTAG, SWD stays on).
+# The stock app never sends a display-mode command (no grids:), and its
+# brightness is unknown (intensity: 7 = the default). [guess]
+tm1628:
+  - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PA15
+    ram_bytes: 14
+  - id: leds_b             # the stock app writes 6 bytes [sure]
+    clk_pin: { number: PC10, allow_other_uses: true }
+    dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
+    stb_pin: PC12
+    ram_bytes: 6
+# No leds: yet: the bit map is unknown. Once mapped, for example:
+# leds:
+#   - { id: shift_led, pin: { tm1628: leds_a, number: 37 } }      # byte 4, bit 5
+#   - id: pad_1_led                                               # RGB: red, green, blue bits
+#     pin: { tm1628: leds_b, number: 0 }
+#     pin2: { tm1628: leds_b, number: 1 }
+#     pin3: { tm1628: leds_b, number: 2 }
+#     feedback: { note: 36 }
 
 # Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
 # used as the range. [likely] Which slot is which physical fader is [guess]:

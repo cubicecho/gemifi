@@ -543,7 +543,8 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         break;
     }
     case GSX_KIND_LED:
-        gsx_put(t, vpin_is_none(gm_device.leds[index].pin2) ? 1 : 2);
+        gsx_put(t, !vpin_is_none(gm_device.leds[index].pin3) ? 3 :
+                   vpin_is_none(gm_device.leds[index].pin2) ? 1 : 2);
 #if GM_LED_FB
         gsx_put(t, gm_led_fb[index].owner);            /* as led_level() in controller.c */
 #else

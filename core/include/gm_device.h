@@ -4,7 +4,8 @@
  * A device is a list of components (buttons, LEDs, analog inputs, encoders,
  * a key matrix) whose pins are *virtual pins*: either a pin of the MCU
  * itself (hub 0) or a pin of an expander hub (74HC595 outputs, 74HC165
- * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 over I2C). The core
+ * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 over I2C, TM1628
+ * LED drivers). The core
  * drives the hubs; the platform HAL only knows its own pins.
  *
  * The tables are generated from a device YAML by tools/builder (see
@@ -27,6 +28,7 @@ extern "C" {
 /* hub 0 = MCU pin (num = platform pin number: NUC1xx port * 16 + bit, e.g.
  * PB12 = 0x1C; ESP32/ESP8266 GPIO number). hub n >= 1 = gm_device.hubs[n-1],
  * num = that hub's pin / channel (chained chips continue: 8..15 = 2nd chip).
+ * TM1628 hubs: num = display RAM bit, byte * 8 + bit (37 = byte 4, bit 5).
  * GM_PIN_INVERT: the signal is active-low (pressed / lit = electrical 0). */
 typedef struct {
     uint8_t hub;
@@ -38,6 +40,7 @@ typedef struct {
 #define GM_PIN_INVERT   (1u << 0)
 #define GM_PIN_PULLUP   (1u << 1)    /* MCU pins: enable the internal pull-up   */
 #define GM_PIN_PULLDOWN (1u << 2)    /* MCU pins: enable the internal pull-down */
+#define GM_PIN_OPEN_DRAIN (1u << 3)  /* MCU outputs: open-drain (TM1628 DIO)     */
 #define GM_NO_PIN       { GM_HUB_NONE, 0, 0 }
 
 /* ---- hubs (pin expanders) --------------------------------------------- */
@@ -54,6 +57,8 @@ enum {
                              lines = n % 2^n_sel, enable lines = group
                              n / 2^n_sel's levels. "Off" leaves it as is: the
                              next row's select replaces it                 */
+    GM_HUB_TM1628 = 7,    /* TM1628-class LED driver: display RAM bits,
+                             outputs; written from the main loop          */
     GM_HUB_SWMATRIX = 8,  /* switch matrix scanned from the scan interrupt:
                              inputs only. Pin n = row n / n_cols, column
                              n % n_cols; reads 1 = closed                   */
@@ -64,9 +69,10 @@ typedef struct {
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each) */
     uint8_t n_sel;        /* MUX: select lines (3 = 4051, 4 = 4067)        */
     uint8_t i2c_addr;     /* MCP23017 / PCF8574                            */
-    gm_pin_t data;        /* HC595 SER, HC165 QH                           */
-    gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK                        */
-    gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low)       */
+    gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO               */
+    gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK, TM1628 CLK            */
+    gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low),
+                             TM1628 STB                                    */
     gm_pin_t sel[4];      /* MUX S0..S3                                    */
     gm_pin_t common;      /* MUX common pin (an MCU pin; ADC for analog)   */
     gm_pin_t enable;      /* MUX /E, HC595 /OE (optional)                  */
@@ -83,6 +89,9 @@ typedef struct {
     const gm_pin_t *cols;
     uint8_t n_rows;
     uint8_t n_cols;
+    uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16)     */
+    uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
+    uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */
@@ -95,11 +104,14 @@ typedef struct {
     int8_t led;           /* index into leds, or -1                        */
 } gm_button_t;
 
-/* An LED with one or two pins. Two pins = a bicolour LED shown with
- * levels: 1 = pin, 2 = both, 3 = pin2, 4 = pin2 blinking. */
+/* An LED with one, two or three pins. Two pins = a bicolour LED shown with
+ * levels: 1 = pin, 2 = both, 3 = pin2, 4 = pin2 blinking. Three pins = an
+ * RGB LED (pin red, pin2 green, pin3 blue): any level is white, except the
+ * colours FB_LED_RGB sets (controller.c LV_RGB). */
 typedef struct {
     gm_pin_t pin;
     gm_pin_t pin2;        /* LEDs have no name: nothing shows it */
+    gm_pin_t pin3;        /* RGB: blue; GM_NO_PIN otherwise */
 } gm_led_t;
 
 typedef struct {

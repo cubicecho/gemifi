@@ -191,7 +191,8 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
 HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc4051": "GM_HUB_MUX",
             "cd74hc4067": "GM_HUB_MUX", "mcp23017": "GM_HUB_MCP23017", "pcf8574": "GM_HUB_PCF8574",
-            "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX"}
+            "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX",
+            "tm1628": "GM_HUB_TM1628"}
 HUB_TYPES = list(HUB_ENUM)
 HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
@@ -199,7 +200,10 @@ I2C_HUBS = {"mcp23017", "pcf8574"}
 SHIFT_HUBS = {"sn74hc595", "sn74hc165"}
 MUX_HUBS = {"cd74hc4051", "cd74hc4067"}
 MUX_SELECT = {"cd74hc4051": 3, "cd74hc4067": 4}
-OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574"}
+# TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
+TM_HUBS = {"tm1628"}
+TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
+OUT_HUBS = {"sn74hc595", "mcp23017", "pcf8574", "tm1628"}
 IN_HUBS = {"sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "switch_matrix"}
 # A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
 ROW_HUBS = {"decoder"}
@@ -212,11 +216,14 @@ HUB_KEYS = {
     "pcf8574": ["id", "address"],
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle"],
+    "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
 CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data",
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
-             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
+             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3",
+             # TM1628 lines only pair with each other: they're bit-banged from the main loop
+             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
@@ -286,7 +293,7 @@ typename union unsigned using virtual void volatile wchar_t while xor xor_eq""".
 # read y/n as booleans. An id must read the same everywhere, so these are refused even when quoted.
 YAML_WORDS = {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
 
-INVERT, PULLUP, PULLDOWN = 1, 2, 4
+INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
 MIDI_TRANSPORT_MACRO = {"usb": "GM_MIDI_USB", "serial": "GM_MIDI_SERIAL", "ble": "GM_MIDI_BLE"}
 DEFAULT_USB = (0x1209, 0x0002)   # pid.codes test PID (protocol/sysex.md section 7)
 
@@ -623,7 +630,7 @@ class Pin:
         if self.hub == 0xFF:
             return "GM_NO_PIN"
         fl = [n for b, n in ((INVERT, "GM_PIN_INVERT"), (PULLUP, "GM_PIN_PULLUP"),
-                             (PULLDOWN, "GM_PIN_PULLDOWN")) if self.flags & b]
+                             (PULLDOWN, "GM_PIN_PULLDOWN"), (OPEN_DRAIN, "GM_PIN_OPEN_DRAIN")) if self.flags & b]
         return f"{{ {self.hub}, {' | '.join(fl) or '0'}, {self.num} }}"
 
 
@@ -846,9 +853,9 @@ class _V:
 
     # -- pins --
 
-    def mode(self, v, path, role):
+    def mode(self, v, path, role, open_drain=False):
         """ESPHome pin mode (string or mapping) -> set of flags, checked against the role.
-        Returns None after an error."""
+        open_drain: the pin may be an open-drain output. Returns None after an error."""
         if "mode" not in v or v["mode"] is None:
             return set()
         m, line = v["mode"], v.line_of("mode")
@@ -868,12 +875,13 @@ class _V:
                                            f"{{ input: true, pullup: true }} (got {type_name(m)})")
             return None
         bad = None
-        if "open_drain" in flags:
-            bad = "open_drain isn't supported by gemifi's pin drivers"
+        if "open_drain" in flags and not (open_drain and role == "out"):
+            bad = "open_drain is only supported on a tm1628 dio_pin"
         elif "pullup" in flags and "pulldown" in flags:
             bad = "pullup and pulldown are both set"
-        elif role == "out" and flags - {"output"}:
-            bad = f"this pin is {ROLE_TEXT[role]}: use mode: OUTPUT (or leave mode out)"
+        elif role == "out" and flags - {"output", "open_drain"}:
+            bad = f"this pin is {ROLE_TEXT[role]}: use mode: OUTPUT" + \
+                  (" or OUTPUT_OPEN_DRAIN" if open_drain else "") + " (or leave mode out)"
         elif role in ("in", "common") and "output" in flags:
             bad = f"this pin is {ROLE_TEXT[role]}: mode can't include output"
         elif role == "in" and "analog" in flags:
@@ -885,7 +893,8 @@ class _V:
             return None
         return flags
 
-    def pin(self, v, path, line, role, allow_hub=True, line_kind=None, owner=None, hubs=None, why=None):
+    def pin(self, v, path, line, role, allow_hub=True, line_kind=None, owner=None, hubs=None, why=None,
+            open_drain=False):
         """Resolve a pin (ESPHome pin schema: `PA1` or { number, inverted, mode, allow_other_uses },
         on a hub { <chip>: <hub id>, number }). role: 'in' | 'out' | 'analog' | 'common'.
         line_kind: the hub control line this is (for allow_other_uses). Returns Pin or None."""
@@ -902,10 +911,11 @@ class _V:
                 return None        # format 1 pin: already reported
             if self.boolean(v, "inverted", path):
                 flags |= INVERT
-            mode = self.mode(v, path, role)
+            mode = self.mode(v, path, role, open_drain)
             if mode is None:
                 return None
             flags |= (PULLUP if "pullup" in mode else 0) | (PULLDOWN if "pulldown" in mode else 0)
+            flags |= OPEN_DRAIN if "open_drain" in mode else 0
             share = self.boolean(v, "allow_other_uses", path)
             if share and line_kind is None:
                 self.err(f"{path}.allow_other_uses", v.line_of("allow_other_uses"),
@@ -1000,7 +1010,8 @@ class _V:
             return None
         if not 0 <= n < hub.n_pins:
             what = "channel" if hub.type in MUX_HUBS else "pin"
-            extra = f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)" if hub.type in SHIFT_HUBS else ""
+            extra = f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)" if hub.type in SHIFT_HUBS else \
+                f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)" if hub.type in TM_HUBS else ""
             self.err(path, line, f"{what} {n} is out of range for hub '{hub.id}' ({hub.type}{extra}: "
                                  f"0..{hub.n_pins - 1})")
             return None
@@ -1224,6 +1235,14 @@ def validate(data, file=None):
                 v.err(f"{h.path}.address", h.line, f"I2C address 0x{h.addr:02X} is already used by hub "
                                                    f"'{addrs[h.addr]}'")
             addrs[h.addr] = h.id
+    stbs = {}
+    for h in dev.hubs:
+        if h.type in TM_HUBS and h.latch.hub == 0:
+            if h.latch.num in stbs:
+                v.err(f"{h.path}.stb_pin", h.line, f"{h.latch.desc} is already the stb_pin of hub "
+                                                   f"'{stbs[h.latch.num]}': chips can share clk_pin and "
+                                                   "dio_pin, but each needs its own stb_pin")
+            stbs.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
     validate_components(v, dev, data)
@@ -1376,7 +1395,8 @@ def validate_components(v, dev, data):
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "feedback", "owner", "timeout", "daw"],
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "pin3", "feedback", "owner", "timeout",
+                                                     "daw"],
                       renamed=RENAMED_ID)
         if d is None:
             continue
@@ -1384,13 +1404,17 @@ def validate_components(v, dev, data):
         name = v.display_name(d, p, ident)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
         pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
+        pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
+        if d.get("pin3") is not None and d.get("pin2") is None:
+            v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
         src = validate_led_source(v, dev, d, p)
         owner = validate_owner(v, d, p)
         timeout = validate_timeout(v, d, "timeout", p, None)
         if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
         led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
-        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN, source=src,
+        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
+                            pin3=pin3 or NO_PIN, source=src,
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
                             daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
@@ -1753,18 +1777,18 @@ def validate_hub(v, dev, h, typ, p, line):
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
               common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
-              raw=h)
+              ram_bytes=0, intensity=0, grids=0, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
 
-    def ctl(key, role, required=True):
+    def ctl(key, role, required=True, open_drain=False):
         if h.get(key) is None:
             if required:
                 v.err(f"{p}.{key}", h.line, "is required")
             return NO_PIN
         return v.pin(h[key], f"{p}.{key}", h.line_of(key), role, allow_hub=False, line_kind=CTRL_LINE[key],
-                     owner=index) or NO_PIN
+                     owner=index, open_drain=open_drain) or NO_PIN
 
     if typ in SHIFT_HUBS:
         hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
@@ -1776,6 +1800,14 @@ def validate_hub(v, dev, h, typ, p, line):
             hub.enable = ctl("oe_pin", "out", required=False)
         else:
             hub.latch = ctl("load_pin", "out")
+    elif typ in TM_HUBS:
+        hub.ram_bytes = v.integer(h, "ram_bytes", p, 1, TM_RAM_MAX, default=14)
+        hub.n_pins = 8 * hub.ram_bytes
+        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
+        hub.grids = v.integer(h, "grids", p, 4, 7, default=0)   # 0: no display-mode command
+        hub.clock = ctl("clk_pin", "out")
+        hub.data = ctl("dio_pin", "out", open_drain=True)
+        hub.latch = ctl("stb_pin", "out")
     elif typ in MUX_HUBS:
         hub.n_sel = MUX_SELECT[typ]
         hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
@@ -2833,6 +2865,9 @@ def generate(dev, source="device.yaml"):
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
          f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}"]
+    tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in TM_HUBS)
+    if tm_ram:
+        h.append(f"#define GM_TM1628_RAM {tm_ram} /* display RAM bytes of all tm1628 hubs */")
     if m and getattr(m, "vel_fast", None) is not None:
         h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
     if m and getattr(m, "vel_slow", None) is not None:
@@ -2887,6 +2922,8 @@ def generate(dev, source="device.yaml"):
                   f"        .common = {(hb.common or NO_PIN).c()}, .enable = {hb.enable.c()},",
                   f"        .settle_us = {hb.settle_us},",
                   *extra,
+                  *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
+                     f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
                   "    },"]
         c += ["};", ""]
     if dev.buttons:
@@ -2896,7 +2933,7 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
               for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:

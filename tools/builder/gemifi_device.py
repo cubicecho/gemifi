@@ -99,7 +99,7 @@ def stored_counts(dev):
 # enum's YAML names in value order.
 CURVES = ["normal", "soft", "hard", "fixed"]
 ENC_MODES = ["absolute", "relative_twos", "relative_offset"]
-ANALOG_MODES = ["cc", "pitch_bend"]    # analog.mode (gm_settings.h AN_MODE_*)
+ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure"]    # analog.mode (gm_settings.h AN_MODE_*)
 PRESET_GLOBALS = {
     "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
              "transpose": ("midi.transpose", 0, "int", -24, 24),
@@ -1501,9 +1501,9 @@ def validate_components(v, dev, data):
         if "mode" in d:
             mode = enum_value(v, d, "mode", f"{p}.mode", ANALOG_MODES)
             mode = 0 if mode is None else mode
-        if mode == 1 and fader is not None:
+        if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
-                                                  "drop mode: pitch_bend or mcu:")
+                                                  f"drop mode: {ANALOG_MODES[mode]} or mcu:")
         cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None and mode == 0)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)

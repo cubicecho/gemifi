@@ -325,6 +325,7 @@ class TestValidation(unittest.TestCase):
         self.assertClean(base + "  - { id: w, pin: PA0, mode: cc, cc: 1 }\n")
         self.assertError(base + "  - { id: w, pin: PA0, mode: cc }\n", r"is required", path="analog[0].cc")
         self.assertError(base + "  - { id: w, pin: PA0, mode: bend }\n", r"pitch_bend")
+        self.assertClean(base + "  - { id: at, pin: PA0, mode: channel_pressure }\n")   # no cc: either
         dev, diags = load(base + "  - { id: m, pin: PA0, cc: 1 }\n  - { id: w, pin: PA2, mode: pitch_bend }\n")
         self.assertIsNotNone(dev, [str(d) for d in diags])
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
@@ -1329,9 +1330,9 @@ list:
             text = f.read()
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (146, 10))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (148, 10))
         # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
-        # (1 + 2 + 11 each), analog cc and mode 11 each (1 + 1 + 3 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
+        # (1 + 2 + 11 each), analog cc and mode 12 each (1 + 1 + 3 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 64 group words; + 4 header, 4 name, 1 crc
         self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 64), 4 * (9 + 16)))
         self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (392, 1024, 1024))

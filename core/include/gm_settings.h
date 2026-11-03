@@ -56,7 +56,7 @@ enum {
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
 
 /* analog.mode values */
-enum { AN_MODE_CC, AN_MODE_BEND };
+enum { AN_MODE_CC, AN_MODE_BEND, AN_MODE_PRESSURE };
 
 /* button.action values (core/README.md "Button actions") */
 enum {

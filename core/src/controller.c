@@ -72,7 +72,7 @@ static void midi3(uint8_t status, uint32_t a, uint32_t b)
     gm_display_midi(m[0], m[1], m[2]);
 }
 
-#if GM_N_BUTTONS > 0
+#if GM_N_BUTTONS > 0 || GM_N_ANALOGS > 0
 static void midi2(uint8_t status, uint32_t a)
 {
     uint8_t m[2] = { status, (uint8_t)(a & 0x7F) };
@@ -916,21 +916,25 @@ static void analog_read(uint32_t i)
                 gm_mcu_fader(gm_analog_mcu[i], (uint32_t)pos << 2);
             else
 #endif
+            if (gm_cfg.analog_mode[i] == AN_MODE_PRESSURE)
+                midi2(0xD0 | chan(), (uint32_t)q);   /* channel pressure (aftertouch) */
+            else
                 cc((uint32_t)gm_cfg.analog_cc[i], (uint32_t)q);
             event(EV_ANALOG, i, (uint32_t)pos << 2);
         }
     }
 }
 
-/* One input per ANALOG_MS in turn, and every pitch-bend input each time
- * as well, so a wheel follows quickly however many inputs there are. */
+/* One input per ANALOG_MS in turn, and every pitch-bend and pressure
+ * input each time as well, so a wheel or a pressure strip follows quickly
+ * however many inputs there are. */
 static void analog_poll(void)
 {
     uint32_t i = a_next;
     a_next = (uint8_t)((a_next + 1u) % GM_N_ANALOGS);
     analog_read(i);
     for (uint32_t k = 0; k < GM_N_ANALOGS; k++)
-        if (k != i && gm_cfg.analog_mode[k] == AN_MODE_BEND)
+        if (k != i && gm_cfg.analog_mode[k] != AN_MODE_CC)
             analog_read(k);
 }
 #endif
@@ -1518,7 +1522,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
         if (gm_analog_mcu[i] != GM_MCU_NONE)
             continue;                       /* an MCU fader follows pitch bend */
 #endif
-        if ((uint32_t)gm_cfg.analog_cc[i] == num)
+        if (gm_cfg.analog_mode[i] == AN_MODE_CC && (uint32_t)gm_cfg.analog_cc[i] == num)
             gm_analog_host(i, v);
     }
 #endif

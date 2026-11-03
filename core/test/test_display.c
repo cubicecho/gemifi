@@ -62,6 +62,8 @@ int main(void)
     CHECK(gm_seg14_glyph('8') == 0x00FF, "8 = a..f + g1 g2 (%04X)", gm_seg14_glyph('8'));
     CHECK(gm_seg14_glyph('1') == (0x0002 | 0x0004 | 0x0400), "1 = b c j (%04X)", gm_seg14_glyph('1'));
     CHECK(gm_seg14_glyph('T') == (0x0001 | 0x0200 | 0x1000), "T = a i l (%04X)", gm_seg14_glyph('T'));
+    CHECK(gm_seg14_glyph('#') == (0x0002 | 0x0004 | 0x0040 | 0x0080 | 0x0200 | 0x1000),
+          "# = b c g1 g2 i l, no bottom line (%04X)", gm_seg14_glyph('#'));
     CHECK(gm_seg14_glyph('x') == gm_seg14_glyph('X'), "lower case shows as upper case");
     CHECK(gm_seg14_glyph(' ') == 0 && gm_seg14_glyph('~') == 0 && gm_seg14_glyph('\n') == 0,
           "blank, and no glyph = blank");

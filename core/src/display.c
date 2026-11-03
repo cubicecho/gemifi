@@ -35,7 +35,7 @@ static const uint16_t font[64] = {
     0,                                  /* ' ' */
     SB | SC | SDOT,                     /* !   */
     SF | SI,                            /* "   */
-    SB | SC | SD | SG | SI | SL,        /* #   */
+    SB | SC | SG | SI | SL,             /* #: two bars, middle line */
     SA | SC | SD | SF | SG | SI | SL,   /* $   */
     SC | SF | SG | SJ | SM,             /* %   */
     SA | SD | SE | SG1 | SH | SJ | SK,  /* &   */

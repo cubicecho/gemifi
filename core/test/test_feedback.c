@@ -180,6 +180,41 @@ static void turn(int e, int n)
     run_ms(2);
 }
 
+/* A gemifi request on the main port; returns the reply's status (or -1) and
+ * points *pl at the reply payload after the status, *pn at its length. */
+static int gsx_request(uint8_t cmd, const uint8_t *p, int n, const uint8_t **pl, int *pn)
+{
+    static uint8_t buf[256];
+    static uint8_t seq = 20;
+    gsx_tx_t t;
+    seq = (uint8_t)((seq + 1) & 0x7F);
+    gsx_tx_begin(&t, buf, cmd, seq);    /* a new seq each time: a repeat would be a resend */
+    for (int i = 0; i < n; i++)
+        gsx_put(&t, p[i]);
+    uint16_t len = gsx_tx_end(&t);
+    out_n = 0;
+    usb_sysex(0, buf, len);
+    for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++)
+        if (out[i] == 0xF0 && out[i + 1] == 0x7D && out[i + 1 + GSX_OFF_CMD] == (cmd | GSX_REPLY)) {
+            const uint8_t *b = out + i + 1;
+            int plen = b[GSX_OFF_LEN] | b[GSX_OFF_LEN + 1] << 7;
+            if (pl)
+                *pl = b + GSX_OFF_PAYLOAD + 1;
+            if (pn)
+                *pn = plen - 1;
+            return b[GSX_OFF_PAYLOAD];
+        }
+    return -1;
+}
+
+/* An lstring at *p: compare with want, move past it. */
+static int lstr_is(const uint8_t **p, const char *want)
+{
+    int n = (*p)[0], ok = n == (int)strlen(want) && memcmp(*p + 1, want, (size_t)n) == 0;
+    *p += 1 + n;
+    return ok;
+}
+
 static void knob(int pin, int raw)
 {
     adc[pin] = raw;
@@ -459,6 +494,119 @@ int main(void)
         usb_sysex(1, m, sizeof m);
         run_ms(20);
         CHECK(!ring_led(5) && !ring_led(2), "62: ring and centre off");
+    }
+
+    /* -- DAW-script messages (sysex.md 4.6) -------------------------------- */
+    {
+        const uint8_t *r;
+        int rn;
+        uint8_t q[3] = { GSX_KIND_BUTTON, 1, 0 };
+        CHECK(gsx_request(GSX_CMD_GET_COMPONENT, q, 3, &r, &rn) == GSX_OK, "GET_COMPONENT button 1");
+        CHECK(r[0] == 1 && gsx_get_u(r + 1, 2) == 1 && gsx_get_u(r + 3, 2) == 4, "kind 1, index 1, count 4");
+        r += 5;
+        CHECK(lstr_is(&r, "toggle"), "id toggle");
+        r += 1 + r[0];                          /* name */
+        CHECK(lstr_is(&r, "track_mute"), "role from daw:");
+        CHECK(gsx_get_u(r, 2) == 1, "its LED is LED 1");
+
+        q[1] = 0;
+        gsx_request(GSX_CMD_GET_COMPONENT, q, 3, &r, &rn);
+        r += 5;
+        r += 1 + r[0];
+        r += 1 + r[0];
+        CHECK(lstr_is(&r, "play"), "role falls back to the mcu: name");
+
+        uint8_t qe[3] = { GSX_KIND_ENCODER, 2, 0 };
+        CHECK(gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn) == GSX_OK, "GET_COMPONENT encoder 2");
+        r += 5;
+        CHECK(lstr_is(&r, "dial"), "id dial");
+        r += 1 + r[0];
+        CHECK(lstr_is(&r, "device_param_1"), "role device_param_1");
+        CHECK(r[0] == 3 && gsx_get_u(r + 1, 2) == GSX_NONE_INDEX, "ring of 3, no centre");
+        qe[1] = 1;
+        gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
+        r += 5;
+        r += 1 + r[0];
+        r += 1 + r[0];
+        CHECK(lstr_is(&r, "vpot_1") && r[0] == 5 && gsx_get_u(r + 1, 2) == 14, "pan: vpot_1, ring 5, centre 14");
+
+        uint8_t ql[3] = { GSX_KIND_LED, 15, 0 };
+        CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK, "GET_COMPONENT LED 15");
+        r += 5;
+        CHECK(lstr_is(&r, "bi") && lstr_is(&r, "Bicolour"), "id bi, name Bicolour");
+        r += 1 + r[0];
+        CHECK(r[0] == 2, "two colours");
+
+        uint8_t qa[3] = { GSX_KIND_ANALOG, 1, 0 };
+        gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
+        r += 5;
+        r += 1 + r[0];
+        r += 1 + r[0];
+        CHECK(lstr_is(&r, "fader_1"), "fader role fader_1");
+
+        uint8_t bad[][3] = { { GSX_KIND_BUTTON, 4, 0 }, { GSX_KIND_MATRIX, 0, 0 }, { GSX_KIND_DISPLAY, 0, 0 },
+                             { 9, 0, 0 } };
+        for (int k = 0; k < 4; k++)
+            CHECK(gsx_request(GSX_CMD_GET_COMPONENT, bad[k], 3, 0, 0) == GSX_BAD_PARAM, "BAD_PARAM %d", k);
+        CHECK(gsx_request(GSX_CMD_GET_COMPONENT, q, 2, 0, 0) == GSX_BAD_LEN, "BAD_LEN");
+
+        /* FB_LED: lit, no reply, and no timeout (led_timeout is 1 s here) */
+        uint8_t m[8] = { MOM, 0, 127 };
+        CHECK(gsx_request(GSX_FB_LED, m, 3, 0, 0) == -1 && out_n == 0, "FB_LED: no reply at all");
+        run_ms(20);
+        CHECK(led(MOM) == 1, "FB_LED lights the momentary LED");
+        run_ms(1500);
+        CHECK(led(MOM) == 1, "still lit after the 1 s timeout: script states don't time out");
+        uint8_t rel[1] = { 1 };
+        gsx_request(GSX_FB_RELEASE, rel, 1, 0, 0);
+        run_ms(20);
+        CHECK(led(MOM) == 0 && out_n == 0, "FB_RELEASE 1: back to local");
+
+        /* bicolour: 2..63 colour 1 (PC9), 64..127 colour 2 (PC10) */
+        uint8_t b1[3] = { 15, 0, 30 };
+        gsx_request(GSX_FB_LED, b1, 3, 0, 0);
+        run_ms(20);
+        CHECK(led(9) == 1 && led(10) == 0, "level 30: colour 1");
+        b1[2] = 100;
+        gsx_request(GSX_FB_LED, b1, 3, 0, 0);
+        run_ms(20);
+        CHECK(led(9) == 0 && led(10) == 1, "level 100: colour 2");
+        uint8_t rgb[6] = { 15, 0, 100, 0, 0, 0 };
+        gsx_request(GSX_FB_LED_RGB, rgb, 6, 0, 0);
+        run_ms(20);
+        CHECK(led(9) == 1 && led(10) == 0, "RGB red: colour 1");
+        uint8_t leds[6] = { 16, 0, 3, 127, 0, 127 };
+        gsx_request(GSX_FB_LEDS, leds, 6, 0, 0);
+        run_ms(20);
+        CHECK(ring_led(6) && !ring_led(7) && ring_led(8), "FB_LEDS: 3 LEDs at once");
+
+        /* FB_RING on an encoder without Mackie Control */
+        uint8_t ring[6] = { 2, 0, 2, 0x7F, 0x7F, 0 };   /* wrap, full */
+        gsx_request(GSX_FB_RING, ring, 6, 0, 0);
+        run_ms(20);
+        CHECK(ring_led(6) && ring_led(7) && ring_led(8), "FB_RING wrap full: all 3");
+        uint8_t dot[6] = { 2, 0, 0, 0, 0, 0 };
+        gsx_request(GSX_FB_RING, dot, 6, 0, 0);
+        run_ms(20);
+        CHECK(ring_led(6) && !ring_led(7) && !ring_led(8), "FB_RING dot at 0: first LED");
+
+        /* FB_VALUE: an absolute encoder carries on from the host's value */
+        uint8_t val[5] = { GSX_KIND_ENCODER, 2, 0, 0, 64 };   /* 64 << 7 */
+        gsx_request(GSX_FB_VALUE, val, 5, 0, 0);
+        out_n = 0;
+        turn(2, 1);
+        CHECK(find(0, 0xB0, 31) >= 0 && out[find(0, 0xB0, 31) + 2] == 65, "encoder continues at 65");
+
+        /* a broken notification: still no reply */
+        uint8_t buf[32];
+        gsx_tx_t t;
+        gsx_tx_begin(&t, buf, GSX_FB_LED, 1);
+        gsx_put(&t, 0);
+        uint16_t len = gsx_tx_end(&t);
+        buf[len - 2] ^= 1;                      /* checksum */
+        out_n = 0;
+        usb_sysex(0, buf, len);
+        CHECK(out_n == 0, "bad checksum on a notification: no reply");
     }
 
     printf("%d checks, %d failures\n", checks, fails);

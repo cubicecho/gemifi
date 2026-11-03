@@ -106,11 +106,11 @@ PRESET_NOT_HERE = {
 }
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
-    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu"], ["id", "name", "pin", "led"]),
+    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu"], ["id", "name", "pin", "led", "daw"]),
     "analog": ("analog input", "analog inputs", ["cc"],
-               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu"]),
+               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
-                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center"]),
+                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw"]),
 }
 PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]
@@ -171,6 +171,20 @@ MCU_NOTES.update({"master_touch": 0x70, "smpte_led": 0x71, "beats_led": 0x72, "r
                   "relay": 0x76})
 MCU_FADERS = {**{f"fader_{i + 1}": i for i in range(8)}, "master": 8}     # pitch bend channel
 MCU_VPOTS = {f"vpot_{i + 1}": i for i in range(8)}                        # CC 0x10 + n / ring 0x30 + n
+
+# daw: roles the gemifi DAW scripts understand (hosts/README.md "Roles"); x_<anything> is free.
+DAW_ROLES = {
+    "play", "stop", "record", "loop", "metronome", "overdub", "session_record", "automation_arm", "tap_tempo",
+    "undo", "redo", "rewind", "fast_forward",
+    "track_prev", "track_next", "track_mute", "track_solo", "track_arm",
+    "track_volume", "track_pan", "send_a", "send_b",
+    *(f"{r}_{i}" for r in ("mute", "solo", "arm", "select", "volume", "pan", "device_param") for i in range(1, 9)),
+    "bank_prev", "bank_next", "master_volume", "cue_volume", "crossfader", "tempo",
+    "device_prev", "device_next", "device_bank_prev", "device_bank_next", "device_on",
+    "scene_launch", "scene_prev", "scene_next", "stop_all_clips",
+}
+DAW_ROLE_RE = re.compile(r"x_[a-z0-9_]{1,29}")
+COMP_STR_MAX = 31               # sysex.md lstring
 
 # Hubs (I/O expanders), declared ESPHome style: one top-level list per chip, named like the
 # ESPHome component where there is one. A pin on a hub names the hub by its chip key:
@@ -623,6 +637,7 @@ class Device:
         self.i2c = None
         self.feedback = True
         self.led_owner, self.led_timeout = 0, DEFAULT_LED_TIMEOUT_MS // 10
+        self.host_fb = True          # feedback.script: GET_COMPONENT and FB_* (sysex.md 4.6)
         self.mcu = None              # Hub(extender=bool, cable=0|1) when mcu: is given
         self.daw_port = False
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
@@ -1269,13 +1284,16 @@ def validate_owner(v, d, path):
 
 
 def validate_feedback(v, dev, data):
-    """feedback: { enabled, led_owner, led_timeout } (all optional): F1 host feedback on the main port."""
+    """feedback: { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback on the main
+    port, and (script) the DAW-script messages of sysex.md 4.6."""
     if data.get("feedback") is None:
         return
-    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), ["enabled", "led_owner", "led_timeout"])
+    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"),
+                   ["enabled", "script", "led_owner", "led_timeout"])
     if fb is None:
         return
     dev.feedback = v.boolean(fb, "enabled", "feedback", default=True)
+    dev.host_fb = dev.feedback and v.boolean(fb, "script", "feedback", default=True)
     if fb.get("led_owner") is not None:
         o = LED_OWNERS.get(fb["led_owner"])
         if o is None:
@@ -1347,7 +1365,7 @@ def validate_components(v, dev, data):
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "feedback", "owner", "timeout"],
+        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "feedback", "owner", "timeout", "daw"],
                       renamed=RENAMED_ID)
         if d is None:
             continue
@@ -1361,13 +1379,14 @@ def validate_components(v, dev, data):
         if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
         dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN, source=src,
-                            owner=owner, timeout=timeout, path=p, line=d.line, used_by=[]))
+                            owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
+                            daw=daw_role(v, dev, d, p)))
 
     buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
     for i, d in enumerate(buttons):
         p = f"buttons[{i}]"
         d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "preset", "led",
-                                                 "mcu"],
+                                                 "mcu", "daw"],
                       renamed=RENAMED_BUTTON)
         if d is None:
             continue
@@ -1387,13 +1406,13 @@ def validate_components(v, dev, data):
         if led >= 0:
             dev.leds[led].used_by.append(("button", act))
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
-                               action_name=act, number=num, led=led))
+                               action_name=act, number=num, led=led, daw=daw_role(v, dev, d, p)))
 
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
     for i, d in enumerate(analogs):
         p = f"analog[{i}]"
         d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "adc_min", "adc_max", "takeover",
-                                                 "mcu"], renamed=RENAMED_ANALOG)
+                                                 "mcu", "daw"], renamed=RENAMED_ANALOG)
         if d is None:
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
@@ -1408,13 +1427,13 @@ def validate_components(v, dev, data):
             v.err(p, d.line, f"adc_min and adc_max are both {lo}")
         pickup = validate_takeover(v, dev, d, p, fader)
         dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, raw_min=lo, raw_max=hi,
-                               pickup=pickup, mcu=fader))
+                               pickup=pickup, mcu=fader, daw=daw_role(v, dev, d, p)))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
     for i, d in enumerate(encs):
         p = f"encoders[{i}]"
         d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
-                                              "ring", "ring_center"], renamed=RENAMED_ENCODER)
+                                              "ring", "ring_center", "daw"], renamed=RENAMED_ENCODER)
         if d is None:
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
@@ -1438,7 +1457,8 @@ def validate_components(v, dev, data):
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)
         dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
-                                cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center))
+                                cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center,
+                                daw=daw_role(v, dev, d, p)))
     check_mcu_unique(v, dev, data)
 
 
@@ -1507,9 +1527,10 @@ def encoder_ring(v, dev, d, p, vpot):
     if d.get("ring") is None:
         return []
     line = d.line_of("ring")
-    if vpot is None:
+    if vpot is None and not dev.host_fb:
         if dev.mcu is not None or "mcu" not in d:
-            v.err(f"{p}.ring", line, "ring: shows an MCU V-Pot ring: give the encoder `mcu: vpot_N`")
+            v.err(f"{p}.ring", line, "ring: is driven by Mackie Control or a DAW script: give the encoder "
+                                     "`mcu: vpot_N`, or leave feedback.script on")
         return []
     lst = v.seq(d["ring"], f"{p}.ring", line)
     if not 1 <= len(lst) <= 16:
@@ -1528,14 +1549,32 @@ def ring_center(v, dev, d, p, vpot):
     if d.get("ring_center") is None:
         return None
     line = d.line_of("ring_center")
-    if vpot is None:
+    if vpot is None and not dev.host_fb:
         if dev.mcu is not None or "mcu" not in d:
-            v.err(f"{p}.ring_center", line, "ring_center: belongs to an MCU V-Pot: give the encoder `mcu: vpot_N`")
+            v.err(f"{p}.ring_center", line, "ring_center: is driven by Mackie Control or a DAW script: give the "
+                                            "encoder `mcu: vpot_N`, or leave feedback.script on")
         return None
     idx = v.ref(d, "ring_center", f"{p}.ring_center", line, "LED", "LEDs")
     if idx is not None:
         dev.leds[idx].used_by.append(("ring", None))
     return idx
+
+
+def daw_role(v, dev, d, p):
+    """daw: a role for the DAW scripts (hosts/README.md) -> the string, or None."""
+    if d.get("daw") is None:
+        return None
+    raw, line = d.raw_of("daw"), d.line_of("daw")
+    role = d["daw"]
+    if not isinstance(role, str) or not (role in DAW_ROLES or DAW_ROLE_RE.fullmatch(role)):
+        close = difflib.get_close_matches(str(raw), sorted(DAW_ROLES), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(f"{p}.daw", line, f"unknown DAW role '{raw}' ({hint}roles: hosts/README.md; or x_<name> for "
+                                "your own)")
+        return None
+    if not dev.host_fb:
+        v.warn(f"{p}.daw", line, "daw: is only read by DAW scripts, and feedback.script is off")
+    return role
 
 
 def check_mcu_unique(v, dev, data):
@@ -1770,7 +1809,7 @@ def validate_version(v, data):
 
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
-    d = v.mapping(d, p, line, ["type", "rows", "columns", "keys", "first_note", "settle", "velocity"],
+    d = v.mapping(d, p, line, ["type", "rows", "columns", "keys", "first_note", "settle", "velocity", "daw"],
                   renamed=RENAMED_MATRIX)
     if d is None:
         return
@@ -1807,7 +1846,8 @@ def validate_matrix(v, dev, d, line):
     settle = v.period(d, "settle", p, 0, 255, default=1, example="1us")
     vel_fast, vel_slow = validate_velocity(v, d, p, kind)
     dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["columns"], keys=keys or 0,
-                     first_note=first or 0, settle_us=settle, vel_fast=vel_fast, vel_slow=vel_slow)
+                     first_note=first or 0, settle_us=settle, vel_fast=vel_fast, vel_slow=vel_slow,
+                     daw=daw_role(v, dev, d, p))
 
 
 # Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
@@ -2338,6 +2378,8 @@ def feedback_defines(dev):
          f"#define GM_LED_TIMEOUT {dev.led_timeout} /* {fmt_timeout(dev.led_timeout)}, 10 ms units */",
          f"#define GM_ANALOG_PICKUP {1 if pickup else 0}",
          f"#define GM_MCU {1 if mcu else 0}",
+         f"#define GM_HOST_FB {1 if dev.host_fb else 0} /* DAW-script messages (sysex.md 4.6) */",
+         f"#define GM_RINGS {1 if mcu or dev.host_fb else 0}",
          f"#define GM_USB_DAW_PORT {1 if dev.daw_port else 0}"]
     if mcu:
         h += [f"#define GM_MCU_CABLE {mcu.cable} /* {'the DAW port' if mcu.cable else 'the only port'} */",
@@ -2368,6 +2410,8 @@ def feedback_tables(dev):
                  f"{{ {mcu_arr(dev.analogs)} }};")
         c.append(f"const uint8_t gm_encoder_mcu[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
                  f"{{ {mcu_arr(dev.encoders)} }};")
+        c.append("")
+    if dev.mcu or dev.host_fb:
         rings = []
         for i, e in enumerate(dev.encoders):
             center = "GM_RING_NO_CENTER" if getattr(e, "ring_center", None) is None else str(e.ring_center)
@@ -2380,6 +2424,48 @@ def feedback_tables(dev):
         c.append(f"const gm_ring_t gm_encoder_ring[{'GM_N_ENCODERS' if dev.encoders else '1'}] = "
                  f"{{ {', '.join(rings) or '{ 0, 0, GM_RING_NO_CENTER }'} }};")
         c.append("")
+    if dev.host_fb:
+        c += component_tables(dev)
+    return c
+
+
+MCU_NOTE_NAMES = {n: k for k, n in MCU_NOTES.items()}
+MCU_FADER_NAMES = {n: k for k, n in MCU_FADERS.items()}
+MCU_VPOT_NAMES = {n: k for k, n in MCU_VPOTS.items()}
+
+
+def comp_role(x, mcu_name=None):
+    """A component's role for GET_COMPONENT: daw:, else its mcu: name, else empty (sysex.md 4.6.1)."""
+    return getattr(x, "daw", None) or mcu_name or ""
+
+
+def comp_str(s):
+    return c_str(str(s)[:COMP_STR_MAX])
+
+
+def component_tables(dev):
+    """GET_COMPONENT's id / name / role per component (sysex.md 4.6.1)."""
+    c = ["/* DAW-script component descriptions: { id, name, role } (sysex.md 4.6.1) */"]
+
+    def table(cname, count, rows):
+        body = ", ".join(f"{{ {comp_str(i)}, {comp_str(n)}, {comp_str(r)} }}" for i, n, r in rows) \
+            or '{ "", "", "" }'
+        c.append(f"const gm_comp_t {cname}[{count if rows else '1'}] = {{ {body} }};")
+
+    table("gm_comp_buttons", "GM_N_BUTTONS",
+          [(b.id, b.name, comp_role(b, MCU_NOTE_NAMES.get(b.number) if b.action_name == "mcu" else None))
+           for b in dev.buttons])
+    table("gm_comp_analogs", "GM_N_ANALOGS",
+          [(a.id, a.name, comp_role(a, MCU_FADER_NAMES.get(a.mcu))) for a in dev.analogs])
+    table("gm_comp_encoders", "GM_N_ENCODERS",
+          [(e.id, e.name, comp_role(e, MCU_VPOT_NAMES.get(e.mcu))) for e in dev.encoders])
+    table("gm_comp_leds", "GM_N_LEDS",
+          [(x.id, x.name, comp_role(x, MCU_NOTE_NAMES.get(x.source[1])
+                                    if x.source and x.source[0] == LED_SOURCES["mcu"] else None))
+           for x in dev.leds])
+    m = dev.matrix
+    table("gm_comp_matrix", "1", [("keys", "Keys", comp_role(m))] if m else [])
+    c.append("")
     return c
 
 

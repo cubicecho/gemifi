@@ -185,7 +185,20 @@ extern const gm_led_fb_t gm_led_fb[];        /* GM_LED_FB: per LED            */
 extern const uint8_t gm_analog_pickup[];     /* GM_ANALOG_PICKUP: 1 = pick-up */
 extern const uint8_t gm_analog_mcu[];        /* GM_MCU: fader 0..7, master 8, or GM_MCU_NONE */
 extern const uint8_t gm_encoder_mcu[];       /* GM_MCU: V-Pot 0..7, or GM_MCU_NONE */
-extern const gm_ring_t gm_encoder_ring[];    /* GM_MCU: ring LEDs per encoder */
+extern const gm_ring_t gm_encoder_ring[];    /* GM_RINGS: ring LEDs per encoder */
+
+/* GET_COMPONENT descriptions (GM_HOST_FB, sysex.md 4.6.1): the YAML id, the
+ * display name and the DAW role (daw:, else the mcu: name, else ""). */
+typedef struct {
+    const char *id;
+    const char *name;
+    const char *role;
+} gm_comp_t;
+extern const gm_comp_t gm_comp_buttons[];
+extern const gm_comp_t gm_comp_analogs[];
+extern const gm_comp_t gm_comp_encoders[];
+extern const gm_comp_t gm_comp_leds[];
+extern const gm_comp_t gm_comp_matrix[];     /* one entry: the key matrix */
 
 /* Presets (research/core/presets-design.md §2, §10.1). Always generated:
  * GM_N_PRESETS (>= 1) slots and GM_PRESETS_REVISION in gm_device_config.h.

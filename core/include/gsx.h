@@ -48,6 +48,28 @@ extern "C" {
 #define GSX_CMD_PRESET_SAVE  0x0C
 #define GSX_CMD_PRESET_RESET 0x0D
 #define GSX_CMD_PRESET_NAME  0x0E
+#define GSX_CMD_GET_COMPONENT 0x11
+
+/* Host -> device notifications (section 4.6.2): never answered */
+#define GSX_NOTIFY_FIRST 0x20
+#define GSX_NOTIFY_LAST  0x3F
+#define GSX_FB_LED       0x20
+#define GSX_FB_LED_RGB   0x21
+#define GSX_FB_LEDS      0x22
+#define GSX_FB_VALUE     0x23
+#define GSX_FB_RING      0x24
+#define GSX_FB_TEXT      0x25
+#define GSX_FB_RELEASE   0x26
+
+/* GET_COMPONENT kinds (section 4.6.1) */
+#define GSX_KIND_BUTTON  1
+#define GSX_KIND_MATRIX  2
+#define GSX_KIND_ANALOG  3
+#define GSX_KIND_ENCODER 4
+#define GSX_KIND_LED     5
+#define GSX_KIND_DISPLAY 6
+#define GSX_NONE_INDEX   0x3FFFu
+#define GSX_LSTRING_MAX  31u
 #define GSX_CMD_FACTORY_RESET 0x08
 #define GSX_CMD_REBOOT     0x10
 #define GSX_CMD_FW_BEGIN   0x18
@@ -80,6 +102,7 @@ extern "C" {
 #define GSX_CAP_LOG       (1u << 2)
 #define GSX_CAP_EVENT     (1u << 3)
 #define GSX_CAP_PRESETS   (1u << 5)
+#define GSX_CAP_FEEDBACK  (1u << 6)
 
 /* HELLO `node`: longest node name (section 4.1.1) */
 #define GSX_NODE_NAME_MAX 31u

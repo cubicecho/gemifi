@@ -313,13 +313,13 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 | 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB) |
 | 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
 
-An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind replies BAD_PARAM for index 0.
+An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 7 and up), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields.
 
 **`role`** is the YAML `daw:` value of the component (the names gemifi's scripts understand are listed in `hosts/README.md`) (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
 
 #### 4.6.2 Notifications (host → device, 0x20–0x3F)
 
-Framed like requests, but the device **never replies**, not even with an error. A malformed or unknown notification is dropped. `seq` is ignored, so the host can send them as fast as the link carries them, with no retries. A host that needs to know they arrived can read the state back (GET_PARAM) or watch the device; the feedback itself is idempotent, so the next update fixes a lost one.
+Framed like requests, but the device **never replies**, not even with an error. A malformed or unknown notification is dropped. `seq` is ignored (hosts may send 0), and a notification doesn't count as a request for spotting resends (§1), so it can't make the device skip the next real request. The host can send them as fast as the link carries them, with no retries. A host that needs to know they arrived can read the state back (GET_PARAM) or watch the device; the feedback itself is idempotent, so the next update fixes a lost one.
 
 Notifications don't take part in stop-and-wait (§1): the host may send them while a request is waiting for its reply. **Hosts send them only to a device with caps bit 6.** Older firmware answers an unknown command with BAD_CMD as `cmd | 0x40`, which for `0x20–0x3F` lands in the unsolicited range (`0x60–0x7F`) and would read as a LOG or EVENT.
 
@@ -333,15 +333,19 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 | 0x25 | FB_TEXT | `display` u14, `row` (1 byte), `col` (1 byte), text (7-bit ASCII, ≤ 64 bytes) |
 | 0x26 | FB_RELEASE | `what` (1 byte: 0 everything, 1 LEDs, 2 values, 3 text) |
 
-**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED it shows colour 1 if `r` ≥ `g`, else colour 2 (black = off). No current device has RGB LEDs, so `colours` 3 is reserved for when one does.
+**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. It's on/off only, not a brightness. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2, and 1 blinks colour 1. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED it shows colour 1 if `r` ≥ `g`, else colour 2 (black = off). No current device has RGB LEDs, so `colours` 3 is reserved for when one does.
 
 **Ownership.** FB_* states are host states, like plain feedback (`owner:` in `core/README.md`), with one difference: they don't time out (`led_timeout` doesn't apply), because the script is the authority while it runs. An LED with `owner: local` ignores them. FB_RELEASE hands the chosen states back to local, as if the host had never set them.
 
-**FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`). For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them.
+**FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`; otherwise it's ignored). For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there; in a relative mode it's ignored. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them (a device that sends 7-bit CCs uses the top 7 bits).
 
-**FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution.
+**FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution. 0 is the first LED and 16383 the last. Boost/cut fills from the ring's middle LED to the position, so 8192 is "centre". Spread fills both ways from the middle, `value` setting the width (16383 = every LED). `flags` bit 0 lights the centre LED; on an encoder without one it's ignored.
 
-**FB_TEXT** writes characters into a display from (`row`, `col`), clipped at its edge. Characters a display can't show (a 7-segment one) show as blank.
+**FB_TEXT** writes characters into a display from (`row`, `col`). Text is printable ASCII (0x20–0x7E); other bytes show as blank. It's clipped at the end of the row (it doesn't wrap), and a `row` or `col` outside the display drops the message. Nothing else on the row changes, so a host clears old text by sending spaces. Characters a display can't show (a 7-segment one) show as blank.
+
+**Out of range:** an index past the last LED, encoder or analog input is ignored. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
+
+**Buffer:** a device with caps bit 6 accepts notification payloads of at least 72 bytes (FB_LEDS with 64 LEDs, FB_TEXT with 64 characters). A longer one is dropped, silently like any other bad notification, so hosts keep within these limits.
 
 ## 5. Image format (`.gfw`)
 

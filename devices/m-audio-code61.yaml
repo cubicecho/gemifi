@@ -15,7 +15,6 @@
 # contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
 # TODO: hardware the core can't describe yet, so it is left out here:
-#   - LEDs still unmapped: shift (leds: below has the rest).
 #   - The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
 #     2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
 #     segments a b c d e f g1 g2 h i j k l m (a top, b/c right, d bottom,
@@ -110,8 +109,9 @@ rgb_serial:
 # (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display
 # (see the TODO at the top); bits 96-102 are single-colour button LEDs.
 # Chip B bit n (0-15) is an RGB LED's blue, n+16 its green, n+32 its red.
-# Not found yet: the shift LED (not on a_103-a_111 or bit 15 of a display
-# character, and not chip B bytes 6-13).
+# Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
+# LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
+# the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
   - { id: edit_led, name: "Edit", pin: { tm1628: leds_a, number: 97 } }

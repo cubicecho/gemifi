@@ -5,6 +5,7 @@ Scripts that run inside a DAW and drive gemifi devices with the host feedback pr
 | Directory | Host |
 |---|---|
 | `ableton-live/` | Ableton Live 11/12 Remote Script (Python 3). Unit-tested, not yet tried in Live; see its README |
+| `bitwig/` | Bitwig Studio 5+ controller extension (Java 17, Maven, `extension-api` 25). Unit-tested, not yet tried in Bitwig; see its README |
 
 ## Roles
 

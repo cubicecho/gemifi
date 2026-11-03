@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>gemifi</groupId>
+    <artifactId>gemifi-bitwig</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+    <name>gemifi for Bitwig Studio</name>
+    <description>Bitwig Studio controller extension for gemifi host feedback (protocol/sysex.md 4.6)</description>
+
+    <licenses>
+        <license>
+            <name>MIT</name>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <bitwig.api.version>25</bitwig.api.version>
+        <junit.version>5.11.4</junit.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>bitwig</id>
+            <name>Bitwig Maven Repository</name>
+            <url>https://maven.bitwig.com</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <!-- Bitwig's public controller API. Provided by Bitwig Studio at run time; never bundled. -->
+        <dependency>
+            <groupId>com.bitwig</groupId>
+            <artifactId>extension-api</artifactId>
+            <version>${bitwig.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Only to read protocol/test-vectors.json in the tests. -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>gemifi</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <gemifi.testVectors>${project.basedir}/../../protocol/test-vectors.json</gemifi.testVectors>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <!-- A .bwextension is the jar under another name: target/gemifi.bwextension. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>bwextension</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy file="${project.build.directory}/${project.build.finalName}.jar"
+                                      tofile="${project.build.directory}/gemifi.bwextension"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -177,12 +177,13 @@ int32_t hal_adc_read(uint16_t pin)
         RCC_APB2ENR |= RCC_APB2_ADC1;
         RCC_APB2RSTR |= RCC_APB2_ADC1;
         RCC_APB2RSTR &= ~RCC_APB2_ADC1;
-        /* 55.5 cycles sample time on every channel (field value 5). */
+        /* 41.5 cycles sample time on every channel (field value 4), as the
+         * stock Code 61 firmware uses: 4.5 us per conversion at 12 MHz. */
         uint32_t s1 = 0, s2 = 0;
         for (uint32_t i = 0; i < 10u; i++)
-            s2 |= 5u << (3u * i);
+            s2 |= 4u << (3u * i);
         for (uint32_t i = 0; i < 8u; i++)
-            s1 |= 5u << (3u * i);
+            s1 |= 4u << (3u * i);
         ADC1_SMPR1 = s1;
         ADC1_SMPR2 = s2;
         ADC1_SQR1 = 0;                       /* one conversion */

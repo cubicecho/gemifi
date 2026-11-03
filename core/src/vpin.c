@@ -145,6 +145,8 @@ static void mcu_out(gm_pin_t p, int level)
     }
 }
 
+static void mux_shared_init(void);
+
 void vpin_init(void)
 {
 #if GM_TM1628_RAM > 0
@@ -217,6 +219,7 @@ void vpin_init(void)
             break;
         }
     }
+    mux_shared_init();
 }
 
 void vpin_input(gm_pin_t p)
@@ -260,21 +263,64 @@ void vpin_output(gm_pin_t p)
 /* Muxes may share select lines (allow_other_uses): switching one switches
  * the others. One with the same lines is now on the same channel; one that
  * shares only some must switch again. */
+/* Which muxes share select lines with which, worked out once (mux_shared_init):
+ * bit j of mux_same[i] = hub j has exactly hub i's lines (so it is now on the
+ * same channel), of mux_some[i] = it shares only some (so it must switch
+ * again). Masks cover hubs 0-31; a device with more falls back to the loop. */
+static uint32_t mux_same[N_HUBS], mux_some[N_HUBS];
+static uint8_t mux_masks;
+
+static void mux_pair(const gm_hub_t *h, const gm_hub_t *o, int *any, int *same)
+{
+    uint32_t n = 0;
+    *any = 0;
+    for (uint32_t k = 0; k < o->n_sel && k < 4; k++)
+        for (uint32_t j = 0; j < h->n_sel && j < 4; j++)
+            if (o->sel[k].hub == 0 && h->sel[j].hub == 0 && o->sel[k].num == h->sel[j].num) {
+                *any = 1;
+                n += j == k;
+            }
+    *same = n == o->n_sel && o->n_sel == h->n_sel;
+}
+
+static void mux_shared_init(void)
+{
+    mux_masks = gm_device.n_hubs <= 32u;
+    for (uint32_t i = 0; mux_masks && i < gm_device.n_hubs; i++) {
+        mux_same[i] = mux_some[i] = 0;
+        const gm_hub_t *h = &gm_device.hubs[i];
+        if (h->type != GM_HUB_MUX)
+            continue;
+        for (uint32_t j = 0; j < gm_device.n_hubs; j++) {
+            const gm_hub_t *o = &gm_device.hubs[j];
+            int any, same;
+            if (j == i || o->type != GM_HUB_MUX)
+                continue;
+            mux_pair(h, o, &any, &same);
+            if (any)
+                *(same ? &mux_same[i] : &mux_some[i]) |= 1u << j;
+        }
+    }
+}
+
 static void mux_shared(const gm_hub_t *h, uint32_t ch)
 {
-    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
-        const gm_hub_t *o = &gm_device.hubs[i];
+    uint32_t i = (uint32_t)(h - gm_device.hubs);
+    if (mux_masks) {
+        for (uint32_t m = mux_same[i]; m; m &= m - 1u)
+            hs[__builtin_ctz(m)].channel = (int8_t)ch;
+        for (uint32_t m = mux_some[i]; m; m &= m - 1u)
+            hs[__builtin_ctz(m)].channel = -1;
+        return;
+    }
+    for (uint32_t j = 0; j < gm_device.n_hubs; j++) {
+        const gm_hub_t *o = &gm_device.hubs[j];
+        int any, same;
         if (o == h || o->type != GM_HUB_MUX)
             continue;
-        uint32_t same = 0, any = 0;
-        for (uint32_t k = 0; k < o->n_sel && k < 4; k++)
-            for (uint32_t j = 0; j < h->n_sel && j < 4; j++)
-                if (o->sel[k].hub == 0 && h->sel[j].hub == 0 && o->sel[k].num == h->sel[j].num) {
-                    any = 1;
-                    same += j == k;
-                }
+        mux_pair(h, o, &any, &same);
         if (any)
-            hs[i].channel = (int8_t)(same == o->n_sel && o->n_sel == h->n_sel ? (int32_t)ch : -1);
+            hs[j].channel = (int8_t)(same ? (int32_t)ch : -1);
     }
 }
 

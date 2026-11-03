@@ -1,0 +1,142 @@
+/*
+ * test_display.c: core/src/display.c on its own: the 14-segment font, text
+ * layout (dots, padding, cutting), what an outgoing MIDI message shows, and
+ * that only changed segments are written. A fake vpin_write records the pins;
+ * the display is 6 characters on hub 1, scattered like the Code 61's.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+#include <stdio.h>
+#include <string.h>
+#include "gm_display.h"
+#include "gm_vpin.h"
+
+static int fails, checks;
+#define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+
+static const gm_pin_t chars[6] = { { 1, 0, 48 }, { 1, 0, 64 }, { 1, 0, 80 }, { 1, 0, 0 }, { 1, 0, 16 }, { 1, 0, 32 } };
+const gm_display_t gm_displays[1] = { { GM_DISPLAY_SEG14, 6, chars } };
+
+static uint8_t pin[112];
+static int writes;
+
+void vpin_write(gm_pin_t p, int active)
+{
+    if (p.hub == 1 && p.num < sizeof pin)
+        pin[p.num] = (uint8_t)(active != 0);
+    writes++;
+}
+
+/* Segment bits shown on character i (0 = leftmost), from the fake pins. */
+static uint16_t shown(int i)
+{
+    uint16_t v = 0;
+    for (int s = 0; s < 15; s++)
+        if (pin[chars[i].num + s])
+            v |= (uint16_t)(1u << s);
+    return v;
+}
+
+#define DOT 0x4000u
+
+/* The display shows text t (with '.' as the previous char's dot). */
+static int shows(const char *t)
+{
+    uint16_t want[6] = { 0 };
+    int i = 0;
+    for (; *t; t++) {
+        if (*t == '.' && i > 0)
+            want[i - 1] |= DOT;
+        else if (i < 6)
+            want[i++] = gm_seg14_glyph(*t);
+    }
+    for (int k = 0; k < 6; k++)
+        if (shown(k) != want[k])
+            return 0;
+    return 1;
+}
+
+int main(void)
+{
+    /* font */
+    CHECK(gm_seg14_glyph('8') == 0x00FF, "8 = a..f + g1 g2 (%04X)", gm_seg14_glyph('8'));
+    CHECK(gm_seg14_glyph('1') == (0x0002 | 0x0004 | 0x0400), "1 = b c j (%04X)", gm_seg14_glyph('1'));
+    CHECK(gm_seg14_glyph('T') == (0x0001 | 0x0200 | 0x1000), "T = a i l (%04X)", gm_seg14_glyph('T'));
+    CHECK(gm_seg14_glyph('x') == gm_seg14_glyph('X'), "lower case shows as upper case");
+    CHECK(gm_seg14_glyph(' ') == 0 && gm_seg14_glyph('~') == 0 && gm_seg14_glyph('\n') == 0,
+          "blank, and no glyph = blank");
+    int blank = 0;
+    for (char c = '0'; c <= 'Z'; c++)
+        if ((c <= '9' || c >= 'A') && gm_seg14_glyph(c) == 0)
+            blank++;
+    CHECK(blank == 0, "every digit and letter has a glyph (%d blank)", blank);
+
+    /* boot text, every segment written once */
+    gm_display_poll();
+    CHECK(shows("GEMIFI"), "boot: GEMIFI");
+    CHECK(writes == 6 * 15, "first poll writes every segment (%d)", writes);
+    CHECK(pin[48] == 1 && pin[48 + 7] == 1 && pin[48 + 1] == 0, "G on char 1 at bit 48: a, g2 on, b off");
+
+    /* only changes are written; nothing when nothing changes */
+    writes = 0;
+    gm_display_poll();
+    CHECK(writes == 0, "no writes while nothing changes (%d)", writes);
+    gm_display_text(0, "GEMIFX");
+    gm_display_poll();
+    uint16_t d = (uint16_t)(gm_seg14_glyph('I') ^ gm_seg14_glyph('X'));
+    int bits = 0;
+    for (int s = 0; s < 15; s++)
+        bits += (d >> s) & 1;
+    CHECK(writes == bits, "one changed character: %d segment writes (%d)", bits, writes);
+
+    /* layout: dots, padding, cutting */
+    gm_display_text(0, "A.B");
+    gm_display_poll();
+    CHECK(shows("A.B") && shown(0) == (gm_seg14_glyph('A') | DOT) && shown(2) == 0, "dot joins A; padded");
+    gm_display_text(0, "1234567");
+    gm_display_poll();
+    CHECK(shows("123456"), "long text is cut to 6");
+    gm_display_text(0, "123456.");
+    gm_display_poll();
+    CHECK(shown(5) == (gm_seg14_glyph('6') | DOT), "a dot after the last character still shows");
+    gm_display_text(0, "..");
+    gm_display_poll();
+    CHECK(shown(0) == DOT && shown(1) == DOT, "a leading dot takes a place (%04X %04X)", shown(0), shown(1));
+
+    /* MIDI */
+    gm_display_midi(0xB0, 74, 127);
+    gm_display_poll();
+    CHECK(shows("74 127"), "CC 74 = 127");
+    gm_display_midi(0xB3, 102, 5);
+    gm_display_poll();
+    CHECK(shows("102  5"), "CC 102 = 5, any channel");
+    gm_display_midi(0xB0, 100, 100);
+    gm_display_poll();
+    CHECK(shows("100.100"), "no gap left: a dot separates them");
+    gm_display_midi(0x90, 60, 100);
+    gm_display_poll();
+    CHECK(shows("C4 100"), "note 60 velocity 100 = C4");
+    gm_display_midi(0x99, 61, 127);
+    gm_display_poll();
+    CHECK(shows("C#4.127"), "note 61 = C#4");
+    gm_display_midi(0x90, 1, 9);
+    gm_display_poll();
+    CHECK(shows("C#-1 9"), "note 1 = C#-1");
+    gm_display_midi(0x90, 62, 0);
+    gm_display_poll();
+    CHECK(shows("C#-1 9"), "Note On velocity 0 (a note off) leaves it");
+    gm_display_midi(0x80, 62, 0);
+    gm_display_midi(0xE0, 0, 64);
+    gm_display_poll();
+    CHECK(shows("C#-1 9"), "Note Off and pitch bend leave it");
+    gm_display_midi(0xC0, 12, 0);
+    gm_display_poll();
+    CHECK(shows("PG  12"), "program change 12");
+    gm_display_midi(0xB0, 7, 0);
+    gm_display_midi(0xB0, 7, 1);
+    gm_display_poll();
+    CHECK(shows("7    1"), "two messages before a poll: the last shows");
+
+    printf("test_display: %d checks, %d failed\n", checks, fails);
+    return fails != 0;
+}

@@ -33,6 +33,12 @@ FW_VERSION ?= $(or $(DEVICE_FW_VERSION),0.1.0)
 
 CFLAGS += -I$(DEVICE_DIR)
 
+# Diagnostic: `make LED_WALK=500` lights one LED at a time for 500 ms each,
+# in leds: order, and logs "walk LED <n>" (core/src/controller.c).
+ifdef LED_WALK
+CFLAGS += -DGM_LED_WALK_MS=$(LED_WALK)
+endif
+
 APP_SRCS := main.c \
             $(PLAT)/src/sys.c \
             $(PLAT)/src/flash.c \
@@ -48,6 +54,7 @@ APP_SRCS := main.c \
             $(CORE)/src/app_proto.c \
             $(CORE)/src/settings.c \
             $(CORE)/src/vpin.c \
+            $(CORE)/src/display.c \
             $(CORE)/src/controller.c \
             $(CORE)/src/midi_in.c \
             $(CORE)/src/mcu.c \

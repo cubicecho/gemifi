@@ -121,6 +121,10 @@ pads:
 
 Colours are on or off for now: an RGB LED shows white from its pad or button, or the colour a DAW script picks (FB_LED_RGB).
 
+### LED walk (finding LEDs)
+
+To find which output drives which LED on new hardware, list every candidate output under `leds:` and build with `GM_LED_WALK_MS` set (stm32f1: `make LED_WALK=100`). Each LED then lights on its own for that many milliseconds, in `leds:` order, and the device log shows `walk LED <n>`. Holding any button pauses the walk. Normal LED behaviour is off in such a build; without the define the code isn't built at all.
+
 ## Components
 
 Every component has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.
@@ -196,6 +200,26 @@ hardware_scan:
 - **Checks.** The builder wants `row_time` ≥ `settle` + 0.25 us (+ 0.5 us with precharge), and `settle` ≥ 0.5 us with precharge. At boot the stm32f1 logs the frame length, the longest frame-processing interrupt and how often it fell behind (a flash write stalls it; frames lost then still count as time).
 - **Analog** (`analog: true`): the analog inputs and pads are read in sweeps by the hardware. Every mux used must share the same select lines (one set/reset register), and nothing may read a mux digitally (a button on a mux). Each step of a sweep stores the select lines, waits the muxes' `delay:`, and converts every mux's common pin plus every analog input or pad on an ADC pin. The Code 61's 8 steps × PA7, PA6, PA1, PA0 take 200 us. `vpin_analog()` then returns the latest reading (an ADC pin: the mean of its readings in the sweep), the analog inputs are all read every millisecond instead of one every 2 ms, and the pads see their strongest reading of the sweeps since their last pass (about 5), so a strike's peak isn't lost between passes. The main loop does no conversions or mux settles at all.
 - **Code.** The core side is in `controller.c` (`gm_scan_plan()`, `gm_scan_frames()`, `gm_controller.h`) and `vpin.c` (`vpin_scan_plan()`, `vpin_scan_feed()`, `gm_adc_plan()`, `gm_adc_sweep()`, `vpin_analog_peak()`); the STM32F1 drivers are `platform/stm32f1/src/scan_dma.c` and `adc_dma.c`. Host tests: `core/test` `test_matrix_hw` (`matrix-hw-test.yaml`) and `test_pads_hw` (`pads-hw-test.yaml`).
+
+## Displays
+
+A 14-segment character display (like the Code 61's 6-character one) is a row of characters on output pins of a hub, usually a TM1628. Each character is 15 pins in a row from its first one: segments a b c d e f g1 g2 h i j k l m, then the dot (the layout is drawn in `core/include/gm_display.h`). `chars:` lists each character's first pin, left to right, so characters can sit anywhere on the hub.
+
+```yaml
+displays:
+  - id: display
+    type: segment14            # the only type so far (the default)
+    chars:                     # left to right: each character's segment a
+      - { tm1628: leds_a, number: 48 }
+      - { tm1628: leds_a, number: 64 }
+      - { tm1628: leds_a, number: 0 }
+```
+
+- **What it shows.** "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`. Note Offs, pitch bend and pressure leave it as it is. When the two parts would touch, a dot separates them.
+- **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
+- **Timing.** Messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
+- **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
+- **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
 ## Device YAML
 

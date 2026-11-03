@@ -7,6 +7,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
+#include "gm_display.h"
 #include "gm_presets.h"
 #include "gm_settings.h"
 #include "gm_device.h"
@@ -187,6 +188,7 @@ static void do_select(uint32_t slot, int from_host)
         uint8_t m[2] = { (uint8_t)(0xC0 | ((gm_cfg.channel - 1) & 0x0F)),
                          (uint8_t)(gm_cfg.preset_program & 0x7F) };
         hal_midi_send(m, 2);
+        gm_display_midi(m[0], m[1], 0);
     }
     if (!from_host)
         app_param_changed(P_PRESET_ACTIVE, 0);   /* the host knows its own SETs */

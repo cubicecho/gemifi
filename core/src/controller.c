@@ -27,6 +27,7 @@
 #include "gm_presets.h"
 #include "gm_feedback.h"
 #include "gm_mcu.h"
+#include "gm_display.h"
 
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
@@ -74,6 +75,7 @@ static void midi3(uint8_t status, uint32_t a, uint32_t b)
 {
     uint8_t m[3] = { status, (uint8_t)(a & 0x7F), (uint8_t)(b & 0x7F) };
     hal_midi_send(m, 3);
+    gm_display_midi(m[0], m[1], m[2]);
 }
 
 #if GM_N_BUTTONS > 0
@@ -81,6 +83,7 @@ static void midi2(uint8_t status, uint32_t a)
 {
     uint8_t m[2] = { status, (uint8_t)(a & 0x7F) };
     hal_midi_send(m, 2);
+    gm_display_midi(m[0], m[1], 0);
 }
 #endif
 
@@ -1463,8 +1466,47 @@ static uint8_t led_next = 0xFFu;    /* next LED to show, 0xFF = none */
 static uint32_t led_now;
 #endif
 
+/* Diagnostic LED walk (GM_LED_WALK_MS, e.g. `make LED_WALK=500`): one LED
+ * on at a time, each for GM_LED_WALK_MS, in leds: order, logging "walk LED
+ * <n>". Holding any button pauses it. Normal LED behaviour is off. */
+#ifndef GM_LED_WALK_MS
+#define GM_LED_WALK_MS 0
+#endif
+#if GM_LED_WALK_MS
+static void leds_walk(uint32_t now)
+{
+    static uint32_t step = 0xFFFFFFFFu, t_step;
+    int paused = 0;
+#if GM_N_BUTTONS > 0
+    paused = btn_stable != 0;
+#endif
+    if (gm_device.n_leds == 0)
+        return;
+    if (step == 0xFFFFFFFFu || (!paused && now - t_step >= GM_LED_WALK_MS)) {
+        step = step + 1u >= gm_device.n_leds ? 0 : step + 1u;
+        t_step = now;
+        char msg[16] = "LED ";
+        char d[10];
+        uint32_t n = step, k = 0, j = 4;
+        do { d[k++] = (char)('0' + n % 10u); n /= 10u; } while (n);
+        while (k)
+            msg[j++] = d[--k];
+        msg[j] = 0;
+        app_log(LOG_INFO, "walk ", msg);
+    }
+    if (paused)
+        t_step = now;
+    for (uint32_t i = 0; i < gm_device.n_leds; i++)
+        led_show(&gm_device.leds[i], i == step ? 2u : 0u, 1);
+}
+#endif
+
 static void leds_update(uint32_t now)
 {
+#if GM_LED_WALK_MS
+    leds_walk(now);
+    return;
+#endif
     int blink_on = (now / 500u) & 1u;
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
@@ -1965,6 +2007,7 @@ void gm_poll(void)
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);           /* the buttons' and pads' levels */
+        gm_display_poll();          /* the display's segments: written with the LEDs */
         led_pass = 1;
     } else {
         leds_apply();               /* then the LEDs, a few per pass */

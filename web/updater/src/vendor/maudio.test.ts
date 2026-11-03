@@ -7,6 +7,7 @@ import {
   buildUpdateStream,
   CHECK_PAGE,
   IMAGE_CHECKSUM_ADDRESS,
+  isMaudioBootloaderName,
   MAX_APP_BYTES,
   negatedSum16,
   type ProbePort,
@@ -216,6 +217,7 @@ describe('vendor upload', () => {
     ];
     const phases: VendorProgress['phase'][] = [];
     let releasedAtPowerCycle: string[] = [];
+    const saved: VendorProgress['phase'][] = [];
     const bootloader = new FakePort();
     let isRecordEnd = 0;
     bootloader.answer = (m) => {
@@ -230,6 +232,9 @@ describe('vendor upload', () => {
       records,
       ports: () => ports,
       settings: FAST,
+      beforeVanish: async () => {
+        saved.push(must(phases.at(-1)));
+      },
       onProgress: (p) => {
         if (phases.at(-1) !== p.phase) {
           phases.push(p.phase);
@@ -244,8 +249,10 @@ describe('vendor upload', () => {
         }
       },
     });
-    await expect(done).resolves.toBe('Code 61');
+    await expect(done).resolves.toEqual({ kind: 'done', portName: 'Code 61' });
     expect(phases).toEqual(['waiting-for-bootloader', 'power-cycle', 'writing', 'done']);
+    // The upload is stored before the power-cycle phase is reported.
+    expect(saved).toEqual(['waiting-for-bootloader']);
     expect(other.received.length).toBe(0);
     expect(keyboard.received.length).toBe(1);
     // The keyboard's port is closed before the user is asked to switch it off; others are left alone.
@@ -284,5 +291,97 @@ describe('vendor upload', () => {
     const ports = [{ id: 'boot', name: 'boot', selected: true, transport: bootloader }];
     await vendorUpdate({ records, ports: () => ports, settings: FAST, onLog: (line) => log.push(line) });
     expect(log.some((line) => line.includes('sending it again'))).toBe(true);
+  });
+});
+
+describe('update mode on Windows and after a reload', () => {
+  const records = buildUpdateStream(makeApp(100)).slice(-2);
+
+  /** A bootloader that acks the start message and every record's last chunk. */
+  function bootloaderPort(): FakePort {
+    const port = new FakePort();
+    port.answer = (m) => (isStart(m) || m.length < 24 ? 0x45 : null);
+    return port;
+  }
+
+  it('recognises the bootloader by its port name', () => {
+    expect(isMaudioBootloaderName('Code updater')).toBe(true);
+    expect(isMaudioBootloaderName('Code updater MIDI 1')).toBe(true);
+    expect(isMaudioBootloaderName('Code 61 MIDI 1')).toBe(false);
+    expect(isMaudioBootloaderName('gemifi (code61)')).toBe(false);
+  });
+
+  it('stops cleanly once the stock app accepts the request, with the upload stored first', async () => {
+    const keyboard = new FakePort();
+    keyboard.answer = (m) => (isStart(m) ? 0x15 : null);
+    const events: string[] = [];
+    const ports: ProbePort[] = [
+      { id: 'Code 61', name: 'Code 61', selected: true, transport: keyboard, release: () => events.push('release') },
+    ];
+    const outcome = await vendorUpdate({
+      records,
+      ports: () => ports,
+      settings: FAST,
+      stopForPowerCycle: true,
+      beforeVanish: async () => {
+        events.push('save');
+      },
+      onProgress: (p) => events.push(p.phase),
+    });
+    expect(outcome).toEqual({ kind: 'power-cycle', portName: 'Code 61' });
+    expect(events).toEqual(['waiting-for-bootloader', 'release', 'save']);
+    expect(keyboard.received.length).toBe(1);
+  });
+
+  it('stores the upload before REBOOT(1) to a gemifi app, then carries on as before', async () => {
+    const events: string[] = [];
+    let ports: ProbePort[] = [{ id: 'gemifi', name: 'gemifi (code61)', selected: true, transport: new FakePort() }];
+    const outcome = await vendorUpdate({
+      records,
+      ports: () => ports,
+      settings: FAST,
+      stopForPowerCycle: true,
+      beforeVanish: async () => {
+        events.push('save');
+      },
+      request: async () => {
+        events.push('request');
+        ports = [{ id: 'Code updater', name: 'Code updater', selected: false, transport: bootloaderPort() }];
+      },
+    });
+    expect(events).toEqual(['save', 'request']);
+    expect(outcome).toEqual({ kind: 'done', portName: 'Code updater' });
+  });
+
+  it('finds a bootloader that was there before the run, unselected', async () => {
+    const bootloader = bootloaderPort();
+    const other = new FakePort();
+    const ports: ProbePort[] = [
+      { id: 'Synth', name: 'Synth', selected: false, transport: other },
+      { id: 'Code updater', name: 'Code updater', selected: false, transport: bootloader },
+    ];
+    const outcome = await vendorUpdate({ records, ports: () => ports, settings: FAST, stopForPowerCycle: true });
+    expect(outcome).toEqual({ kind: 'done', portName: 'Code updater' });
+    expect(other.received.length).toBe(0);
+    expect(decodeRecords(bootloader.received)).toEqual(join(records));
+  });
+
+  it('carries on when storing the upload fails', async () => {
+    const log: string[] = [];
+    let ports: ProbePort[] = [{ id: 'gemifi', name: 'gemifi (code61)', selected: true, transport: new FakePort() }];
+    const outcome = await vendorUpdate({
+      records,
+      ports: () => ports,
+      settings: FAST,
+      onLog: (line) => log.push(line),
+      beforeVanish: async () => {
+        throw new Error('quota');
+      },
+      request: async () => {
+        ports = [{ id: 'Code updater', name: 'Code updater', selected: false, transport: bootloaderPort() }];
+      },
+    });
+    expect(outcome.kind).toBe('done');
+    expect(log.some((line) => line.includes('quota'))).toBe(true);
   });
 });

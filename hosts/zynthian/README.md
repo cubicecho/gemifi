@@ -1,6 +1,6 @@
 # gemifi driver for Zynthian: notes
 
-Status: **notes only, no implementation yet** (2026-11-03). The Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
+Status: **implemented** (2026-11-03) in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui), branch `ui-modernize`: `zyngine/ctrldev/zynthian_ctrldev_gemifi.py` plus `zyngine/ctrldev/gemifi/` (this repo's MIT protocol, device and mapping code, a Zynthian adapter, and tests that need no hardware). Unit-tested, not yet tried on a Zynthian with a device. These notes are the Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
 
 The driver does in Zynthian what the Ableton Live script ([`../ableton-live/`](../ableton-live/)) and the Bitwig extension ([`../bitwig/`](../bitwig/)) do in those DAWs. It finds a gemifi device, asks it which controls it has and what each one is for, hears presses and moves, and drives the device's LEDs, knob pick-up and encoder rings from Zynthian's state.
 
@@ -43,7 +43,7 @@ Checked against zynthian-ui `main` on 2026-11-03: `zyngine/zynthian_ctrldev_mana
 
 ### 3.1 Where the file goes, and naming
 - One Python module per driver. The manager scans **`zyngine/ctrldev_user/*.py` first**, then `zyngine/ctrldev/*.py`, and imports `zyngine.<dir>.<module>`.
-- The class name must equal the module name: **`zyngine/ctrldev_user/zynthian_ctrldev_gemifi.py`** defining **`class zynthian_ctrldev_gemifi`**.
+- The class name must equal the module name: **`zynthian_ctrldev_gemifi.py`** defining **`class zynthian_ctrldev_gemifi`**. The implementation lives in `zyngine/ctrldev/` (next to the Mackie Control driver), with its support package in `zyngine/ctrldev/gemifi/`. Dropping both into `zyngine/ctrldev_user/` instead also works, for a Zynthian that doesn't run the fork.
 - `driver_name` defaults to the class name minus the `zynthian_ctrldev_` prefix (`gemifi`). Set `driver_description`, e.g. `"gemifi controllers (host feedback)"`.
 - Setting `DRIVER_DEVELOPMENT = True` in the manager reloads the driver modules on every load, which is handy while writing it.
 
@@ -133,7 +133,7 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 **Without hardware:** a fake device that answers HELLO, GET_COMPONENT, SET_PARAM and GET_PARAM per daw-scripts.md §4, records FB_\* and can send EVENT and BOOTED. The Live script's [`tests/fakes.py`](../ableton-live/tests/fakes.py) is one to port. Cross-check the codec against `protocol/test-vectors.json` (`frames`, and the `feedback` section).
 
 **With a device:**
-- **Setup:** flash a gemifi device. The Keystation Mini 32 default YAML has roles via `daw:` on some buttons once you add them; an ESP32-S3 fader box with `daw: volume_N` is the most useful. Then on the Zynthian: copy the driver to `zyngine/ctrldev_user/`, restart the UI, select the "gemifi" driver for the device's port.
+- **Setup:** flash a gemifi device. The Keystation Mini 32 default YAML has roles via `daw:` on some buttons once you add them; an ESP32-S3 fader box with `daw: volume_N` is the most useful. Then on the Zynthian: check out the fork's `ui-modernize` branch (or copy `zynthian_ctrldev_gemifi.py` and `gemifi/` into `zyngine/ctrldev/` or `zyngine/ctrldev_user/`), restart the UI, select the "gemifi" driver for the device's port. The driver's own tests run with `python3 -m pytest zyngine/ctrldev/gemifi/tests`.
 - **Checklist:**
   - [ ] the log shows the dev_id (§3.3) and "gemifi: N components";
   - [ ] keys still play the active chain (`unroute_from_chains = False`);

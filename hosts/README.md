@@ -8,7 +8,7 @@ Scripts that run inside a DAW and drive gemifi devices with the host feedback pr
 |---|---|
 | `ableton-live/` | Ableton Live 11/12 Remote Script (Python 3). Unit-tested, not yet tried in Live; see its README |
 | `bitwig/` | Bitwig Studio 5+ controller extension (Java 17, Maven, `extension-api` 25). Unit-tested, not yet tried in Bitwig; see its README |
-| `zynthian/` | Notes for a Zynthian "ctrldev" driver (GPL, so it lives in a zynthian-ui fork). No code here |
+| `zynthian/` | Notes for the Zynthian "ctrldev" driver. The driver is GPL, so it lives in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui) (`ui-modernize`). Unit-tested, not yet tried on a device. No code here |
 
 ## Roles
 

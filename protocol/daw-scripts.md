@@ -2,7 +2,7 @@
 
 **The base for every gemifi DAW integration:** the Ableton Live script, the Bitwig extension, a Zynthian driver, and any new one. It describes everything a script needs to find a gemifi device, learn its controls, hear them, and drive its LEDs, knobs and rings, without reading the rest of the gemifi codebase.
 
-- **Status:** protocol v1, host feedback as merged (2026-11-03). Implemented by the firmware, `tools/host`, `web/updater`, [`hosts/ableton-live`](../hosts/ableton-live/) and [`hosts/bitwig`](../hosts/bitwig/). Not yet run on hardware or in a DAW (gemifi #26).
+- **Status:** protocol v1, host feedback as merged (2026-11-03). Implemented by the firmware, `tools/host`, `web/updater`, [`hosts/ableton-live`](../hosts/ableton-live/), [`hosts/bitwig`](../hosts/bitwig/) and the Zynthian driver ([`hosts/zynthian`](../hosts/zynthian/), code in a zynthian-ui fork). Not yet run on hardware or in a DAW (gemifi #26).
 - **Normative source:** [`sysex.md`](sysex.md), mostly §1–§3 and §4.6. This guide restates the parts a script needs, in the order a script uses them. If the two ever disagree, `sysex.md` wins; please report it.
 - **Plain MIDI feedback and Mackie Control** (what a device does *without* a script) are in [`host-feedback.md`](host-feedback.md). A script doesn't need them.
 

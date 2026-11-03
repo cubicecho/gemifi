@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.7.0](https://github.com/cubicecho/gemifi/compare/v0.6.0...v0.7.0) (2026-11-03)
+
+
+### Features
+
+* **hosts:** Bitwig uses the added GET_COMPONENT fields and BOOTED ([272510d](https://github.com/cubicecho/gemifi/commit/272510de390494a14371c38fe55783f47d35aa61)), closes [#30](https://github.com/cubicecho/gemifi/issues/30)
+
 # [0.6.0](https://github.com/cubicecho/gemifi/compare/v0.5.0...v0.6.0) (2026-11-03)
 
 

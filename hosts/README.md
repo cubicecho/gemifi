@@ -2,10 +2,13 @@
 
 Scripts that run inside a DAW and drive gemifi devices with the host feedback protocol (`protocol/sysex.md` §4.6): they find a device, read its components with GET_COMPONENT, hear presses through EVENT messages, and drive LEDs, values, rings and text with the FB_* notifications.
 
+**Writing a new one?** Start from [`protocol/daw-scripts.md`](../protocol/daw-scripts.md): the base for every gemifi DAW integration (the session, every message with example frames, the behaviour rules, a checklist). Put host-specific notes and code in a directory here.
+
 | Directory | Host |
 |---|---|
 | `ableton-live/` | Ableton Live 11/12 Remote Script (Python 3). Unit-tested, not yet tried in Live; see its README |
 | `bitwig/` | Bitwig Studio 5+ controller extension (Java 17, Maven, `extension-api` 25). Unit-tested, not yet tried in Bitwig; see its README |
+| `zynthian/` | Notes for a Zynthian "ctrldev" driver (GPL, so it lives in a zynthian-ui fork). No code here |
 
 ## Roles
 

@@ -737,8 +737,9 @@ class TestFeedback(unittest.TestCase):
         self.assertIn("#define GM_LED_FB 1", h)
         _, c = self.header(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_1, ring_center: l1 }]\n")
         self.assertIn("{ 0, 0, 0 }", c)                                            # centre LED only
-        self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring_center: l1 }]\n",
-                         r"ring_center: belongs to an MCU V-Pot")
+        self.assertError(base + "feedback: { script: false }\n"
+                         "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring_center: l1 }]\n",
+                         r"ring_center: is driven by Mackie Control or a DAW script")
         btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
         self.assertError(btn % "mcu: play", r"needs an `mcu:` section")
         self.assertError(btn % "action: mcu" + "mcu: {}\n", r"action mcu needs mcu:")
@@ -749,10 +750,38 @@ class TestFeedback(unittest.TestCase):
         self.assertError(base + "analog: [{ id: f, pin: PA0 }]\n", r"is required", path="analog[0].cc")
         self.assertError(base + "analog: [{ id: f, pin: PA0, mcu: fader_1 }, { id: g, pin: PA1, mcu: fader_1 }]\n",
                          r"'fader_1' is already used by analog\[0\]")
-        self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring: [l1] }]\n",
+        self.assertError(base + "feedback: { script: false }\n"
+                         "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring: [l1] }]\n",
                          r"give the encoder `mcu: vpot_N`")
         self.assertError(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, mcu: vpot_1, ring: [nope] }]\n",
                          r"no LED with id 'nope'")
+
+    def test_daw_roles_and_components(self):
+        base = FB_NUC
+        h, c = self.header(base.replace("action: cc_momentary, cc: 1", "action: cc_momentary, cc: 1, daw: play"))
+        self.assertIn("#define GM_HOST_FB 1", h)
+        self.assertIn("#define GM_RINGS 1", h)
+        self.assertIn('const gm_comp_t gm_comp_buttons[GM_N_BUTTONS] = { { "a", "A", "play" } };', c)
+        self.assertIn('gm_comp_matrix[1] = { { "", "", "" } };', c)
+        h, c = self.header(base + "feedback: { script: false }\n")
+        self.assertIn("#define GM_HOST_FB 0", h)
+        self.assertNotIn("gm_comp_buttons", c)
+        h, _ = self.header(base + "feedback: { enabled: false }\n")
+        self.assertIn("#define GM_HOST_FB 0", h)
+        btn = base.replace("action: cc_momentary, cc: 1", "action: cc_momentary, cc: 1, daw: %s")
+        self.assertError(btn % "plya", r"unknown DAW role 'plya' \(did you mean 'play'")
+        self.assertError(btn % "volume_9", r"unknown DAW role")
+        self.header(btn % "x_my_thing")                                           # free x_ names
+        w = self.warns(btn % "play" + "feedback: { script: false }\n")
+        self.assertTrue(any("feedback.script is off" in x for x in w), w)
+        # a ring without Mackie Control, for a DAW script
+        _, c = self.header(base + "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, daw: device_param_1, "
+                                  "ring: [l1], ring_center: l2 }]\n")
+        self.assertIn("{ ring_0, 1, 1 }", c)
+        self.assertIn('{ "e", "E", "device_param_1" }', c)
+        self.assertError(base + "feedback: { script: false }\n"
+                         "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring: [l1] }]\n",
+                         r"leave feedback.script on")
 
     def test_feedback_test_device(self):
         """core/test's feedback device validates cleanly (test_feedback.c runs on it)."""

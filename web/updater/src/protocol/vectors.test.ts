@@ -17,6 +17,7 @@ import {
   pack,
   unpack,
 } from './encoding.ts';
+import { parseComponent } from './feedback.ts';
 import { checksum, decodeFrame, encodeFrame, FrameProblem } from './frame.ts';
 import { planChunks, readHeader, validateImage } from './image.ts';
 import {
@@ -34,7 +35,7 @@ import {
   setParamsPayload,
 } from './messages.ts';
 import { type ParamSpec, parseSchema, SchemaError } from './schema.ts';
-import { Command, ParamFlag, REPLY_FLAG, Status, Unsolicited } from './wire.ts';
+import { Command, NOTIFICATION_FIRST, NOTIFICATION_LAST, ParamFlag, REPLY_FLAG, Status, Unsolicited } from './wire.ts';
 
 const VECTORS_URL = new URL('../../../../protocol/test-vectors.json', import.meta.url);
 
@@ -80,8 +81,18 @@ interface ConfigVectors {
   bad_schemas: { desc: string; raw: string; error: string }[];
   frames: { desc: string; cmd: number; seq: number; payload: string; frame: string; fields?: ConfigFields }[];
 }
+/** One frame as the vectors write it. */
+interface VectorFrame {
+  desc: string;
+  cmd: number;
+  seq: number;
+  payload: string;
+  frame: string;
+}
 interface Vectors {
   config?: ConfigVectors;
+  /** Host feedback (§4.6): a list of frames, or an object holding one as `frames`. */
+  feedback?: VectorFrame[] | { frames: VectorFrame[] };
   u14: IntVector[];
   u28: IntVector[];
   u32: IntVector[];
@@ -328,6 +339,26 @@ describe.runIf(vectors.config !== undefined)('protocol/test-vectors.json config'
         default:
           throw new Error(`no check for ${desc} (cmd ${cmd})`);
       }
+    }
+  });
+});
+
+describe.runIf(vectors.feedback !== undefined)('protocol/test-vectors.json feedback', () => {
+  const section = vectors.feedback;
+  const frames = Array.isArray(section) ? section : (section?.frames ?? []);
+
+  it('frames', () => {
+    for (const { desc, cmd, seq, payload, frame } of frames) {
+      const body = bytesOf(payload);
+      expect(Array.from(encodeFrame(cmd, seq, body)), desc).toEqual(bytesOf(frame));
+      expect(decodeFrame(bytesOf(frame)), desc).toEqual({ ok: true, frame: { version: 1, cmd, seq, payload: body } });
+      const isOkComponentReply = cmd === (Command.GetComponent | REPLY_FLAG) && body[0] === Status.Ok;
+      if (isOkComponentReply) {
+        expect(() => parseComponent(body.slice(1)), desc).not.toThrow();
+      }
+      const isNotification = cmd >= NOTIFICATION_FIRST && cmd <= NOTIFICATION_LAST;
+      const isKnown = isNotification || cmd === Command.GetComponent || cmd === (Command.GetComponent | REPLY_FLAG);
+      expect(isKnown, desc).toBe(true);
     }
   });
 });

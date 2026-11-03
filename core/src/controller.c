@@ -232,6 +232,20 @@ static int8_t enc_acc[NE];
 static volatile int16_t enc_delta[NE];
 static uint8_t enc_i2c[NE];
 static int16_t enc_value[NE];
+#endif
+
+void gm_encoder_host(uint32_t i, uint32_t value)
+{
+#if GM_N_ENCODERS > 0
+    if (i < GM_N_ENCODERS && gm_cfg.enc_mode[i] == ENC_ABSOLUTE)
+        enc_value[i] = (int16_t)(value > 127 ? 127 : value);
+#else
+    (void)i;
+    (void)value;
+#endif
+}
+
+#if GM_N_ENCODERS > 0
 
 static void encoder_step(uint32_t i)
 {
@@ -658,6 +672,9 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 #define HOST_NONE 0xFFu
 static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
 static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
+#if GM_HOST_FB
+static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout       */
+#endif
 
 void gm_led_host(uint32_t led, uint32_t value)
 {
@@ -665,6 +682,59 @@ void gm_led_host(uint32_t led, uint32_t value)
         return;
     led_host_lv[led] = (uint8_t)(value == 0 ? 0 : value == 1 ? (LV_BLINK | 1u) : 1u);
     led_host_t[led] = hal_millis();
+#if GM_HOST_FB
+    led_host_hold[led] = 0;
+#endif
+}
+
+#if GM_HOST_FB
+static int bicolour(uint32_t led)
+{
+    return !vpin_is_none(gm_device.leds[led].pin2);
+}
+
+static void led_script_set(uint32_t led, uint32_t level)
+{
+    led_host_lv[led] = (uint8_t)level;
+    led_host_t[led] = hal_millis();
+    led_host_hold[led] = 1;
+}
+
+/* FB_LED levels (sysex.md 4.6.2): 0 off, 1 blink, 2..127 on; on a bicolour
+ * LED 2..63 is colour 1 (level 1, its pin) and 64..127 colour 2 (level 3). */
+void gm_led_script(uint32_t led, uint32_t level)
+{
+    if (led >= gm_device.n_leds)
+        return;
+    uint32_t lv = level == 0 ? 0 : level == 1 ? (LV_BLINK | 1u) : level >= 64 && bicolour(led) ? 3u : 1u;
+    led_script_set(led, lv);
+}
+
+void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int blink)
+{
+    if (led >= gm_device.n_leds)
+        return;
+    uint32_t lv = 0;
+    if (r || g || b)
+        lv = bicolour(led) && g > r ? 3u : 1u;
+    led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
+}
+#endif
+
+void gm_host_release(uint32_t what)
+{
+    if (what == 0 || what == 1)
+        for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+            led_host_lv[i] = HOST_NONE;
+#if GM_HOST_FB
+            led_host_hold[i] = 0;
+#endif
+        }
+#if GM_N_ANALOGS > 0 && GM_ANALOG_PICKUP
+    if (what == 0 || what == 2)
+        for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+            a_pick[i] = -1;
+#endif
 }
 
 /* Who drives LED i (core/README.md "LED ownership"). local = the device's
@@ -682,6 +752,10 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
         return local;
     if (owner == GM_OWNER_HOST || !has_local)
         return h == HOST_NONE ? 0 : h;
+#if GM_HOST_FB
+    if (led_host_hold[i])
+        timeout = GM_TIMEOUT_NEVER;         /* a DAW script's state stays until released */
+#endif
     if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && now - led_host_t[i] >= timeout * 10u)
         led_host_lv[i] = (uint8_t)(h = HOST_NONE);   /* host went quiet: local again */
     return h == HOST_NONE ? local : h;
@@ -741,6 +815,54 @@ static void leds_update(uint32_t now)
         led_show(&gm_device.leds[i], led_level(i, local[i], has_local[i], now), blink_on);
 #endif
 }
+
+/* ---- encoder rings (MCU V-Pots, DAW scripts) ----------------------------- */
+
+#if GM_RINGS && GM_N_ENCODERS > 0
+void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center)
+{
+    const gm_ring_t *r = &gm_encoder_ring[e];
+    int32_t n = r->n;
+    if (r->center != GM_RING_NO_CENTER)
+        gm_led_host(r->center, center ? 127 : 0);
+    if (!n)
+        return;
+    if (frac > 16383)
+        frac = 16383;
+    int32_t p = frac < 0 ? -1 : (frac * (n - 1) + 8191) / 16383;   /* LED index of the position */
+    int32_t c = (n - 1) / 2;
+    for (int32_t k = 0; k < n; k++) {
+        int on = 0;
+        if (frac >= 0) {
+            switch (mode & 3u) {
+            case 0:
+                on = k == p;
+                break;
+            case 1:
+                on = (k >= c && k <= p) || (k <= c && k >= p);
+                break;
+            case 2:
+                on = k <= p;
+                break;
+            default: {
+                int32_t w = frac * (n / 2) / 16383;                /* width either side */
+                on = k >= c - w && k <= c + w;
+                break;
+            }
+            }
+        }
+        gm_led_host(r->leds[k], on ? 127 : 0);
+    }
+}
+#else
+void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center)
+{
+    (void)e;
+    (void)mode;
+    (void)frac;
+    (void)center;
+}
+#endif
 
 /* ---- host feedback (F1) ------------------------------------------------ */
 

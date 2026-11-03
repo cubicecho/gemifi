@@ -216,6 +216,78 @@ def preset_vectors():
     }
 
 
+def feedback_vectors():
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    def comp(desc, seq, c):
+        j = c.to_json()
+        del j["kind_name"]          # not on the wire
+        fr(desc, gp.GET_COMPONENT | gp.REPLY, seq, gp.build_component_reply(c), status=gp.OK, **j)
+
+    C = gp.Component
+    fr("GET_COMPONENT request kind 1 (button) index 0", gp.GET_COMPONENT, 80, gp.req_get_component(gp.KIND_BUTTON, 0),
+       kind=gp.KIND_BUTTON, index=0)
+    comp("GET_COMPONENT reply: button 0 of 2, id 'play', name 'Play', role 'play', LED 3", 80,
+         C(gp.KIND_BUTTON, 0, 2, "play", "Play", "play", led=3))
+    comp("GET_COMPONENT reply: button 1 of 2, no LED (0x3FFF), empty role", 81,
+         C(gp.KIND_BUTTON, 1, 2, "shift", "Shift", "", led=gp.NONE_INDEX))
+    fr("GET_COMPONENT request kind 2 (key matrix) index 0", gp.GET_COMPONENT, 82, gp.req_get_component(gp.KIND_KEYS, 0),
+       kind=gp.KIND_KEYS, index=0)
+    comp("GET_COMPONENT reply: key matrix 0 of 1, 61 keys from note 36", 82,
+         C(gp.KIND_KEYS, 0, 1, "keys", "Keys", "", keys=61, first_note=36))
+    comp("GET_COMPONENT reply: analog 8 of 9, role 'track_volume'", 83,
+         C(gp.KIND_ANALOG, 8, 9, "fader9", "Master", "track_volume"))
+    comp("GET_COMPONENT reply: encoder 0 of 8, ring of 11 LEDs, centre LED 200, role 'device_param_1'", 84,
+         C(gp.KIND_ENCODER, 0, 8, "enc1", "Encoder 1", "device_param_1", ring=11, center=200))
+    comp("GET_COMPONENT reply: LED 4 of 5, bicolour", 85, C(gp.KIND_LED, 4, 5, "rec_led", "Record LED", "", colours=2))
+    comp("GET_COMPONENT reply: display 0 of 1, 16x2 characters", 86,
+         C(gp.KIND_DISPLAY, 0, 1, "lcd", "LCD", "track_name", cols=16, rows=2, display_type=1))
+    comp("GET_COMPONENT reply: analog with 31-character id, name and role (the lstring maximum)", 87,
+         C(gp.KIND_ANALOG, 0, 1, "a" * 31, "B" * 31, "c" * 31))
+    fr("GET_COMPONENT request kind 6 (display) index 0", gp.GET_COMPONENT, 88, gp.req_get_component(gp.KIND_DISPLAY, 0),
+       kind=gp.KIND_DISPLAY, index=0)
+    fr("GET_COMPONENT reply BAD_PARAM (no display, or index past the end)", gp.GET_COMPONENT | gp.REPLY, 88,
+       bytes([gp.BAD_PARAM]), status=gp.BAD_PARAM)
+    fr("FB_LED led 3 level 127 (on)", gp.FB_LED, 0, gp.fb_led(3, 127), led=3, level=127)
+    fr("FB_LED led 200 level 1 (blink)", gp.FB_LED, 0, gp.fb_led(200, 1), led=200, level=1)
+    fr("FB_LED_RGB led 4 r 127 g 64 b 0, blink", gp.FB_LED_RGB, 0, gp.fb_led_rgb(4, 127, 64, 0, blink=True),
+       led=4, r=127, g=64, b=0, flags=1)
+    fr("FB_LEDS first 8, 4 levels: off, blink, colour 1 (2), colour 2 (127)", gp.FB_LEDS, 0, gp.fb_leds(8, [0, 1, 2, 127]),
+       first=8, n=4, levels=[0, 1, 2, 127])
+    fr("FB_VALUE analog 2 value 16383", gp.FB_VALUE, 0, gp.fb_value(gp.KIND_ANALOG, 2, 16383), kind=gp.KIND_ANALOG,
+       index=2, value=16383)
+    fr("FB_VALUE encoder 130 value 8192", gp.FB_VALUE, 0, gp.fb_value(gp.KIND_ENCODER, 130, 8192), kind=gp.KIND_ENCODER,
+       index=130, value=8192)
+    fr("FB_RING encoder 1 mode 1 (boost/cut) value 4096, centre LED on", gp.FB_RING, 0,
+       gp.fb_ring(1, gp.RING_BOOST, 4096, center=True), encoder=1, mode=gp.RING_BOOST, value=4096, flags=1)
+    fr("FB_RING encoder 0 ring off (flags bit 1)", gp.FB_RING, 0,
+       gp.fb_ring(0, gp.RING_WRAP, 0, off=True), encoder=0, mode=gp.RING_WRAP, value=0, flags=2)
+    fr("FB_TEXT display 0 row 1 col 4 'Track 1'", gp.FB_TEXT, 0, gp.fb_text(0, 1, 4, "Track 1"), display=0, row=1,
+       col=4, text="Track 1")
+    fr("FB_RELEASE what 0 (everything)", gp.FB_RELEASE, 0, gp.fb_release(gp.REL_ALL), what=gp.REL_ALL)
+    fr("FB_RELEASE what 1 (LEDs)", gp.FB_RELEASE, 0, gp.fb_release(gp.REL_LEDS), what=gp.REL_LEDS)
+    return {
+        "_comment": [
+            "Host feedback (sysex.md 4.6): GET_COMPONENT 0x11 (HELLO caps bit 6 = 64); notifications 0x20-0x3F",
+            "(FB_LED 0x20, FB_LED_RGB 0x21, FB_LEDS 0x22, FB_VALUE 0x23, FB_RING 0x24, FB_TEXT 0x25, FB_RELEASE 0x26)",
+            "are never answered; seq is ignored (the host tool sends 0).",
+            "GET_COMPONENT reply: status, kind, index u14, count u14, id, name, role (lstring: u8 len 0..31 + ASCII),",
+            "then by kind: 1 button led u14 | 2 keys keys u14, first_note | 3 analog - | 4 encoder ring, center u14 |",
+            "5 LED colours | 6 display cols, rows, type. 0x3FFF = no LED (fields show it as null).",
+        ],
+        "cap_feedback": gp.CAP_FEEDBACK,
+        "none_index": gp.NONE_INDEX,
+        "kinds": {v: k for k, v in gp.KIND_NAMES.items()},
+        "frames": frames,
+    }
+
+
 def build():
     v = {"_comment": [
         "gemifi SysEx protocol v1 test vectors, generated by tools/host/make_test_vectors.py from the",
@@ -288,6 +360,7 @@ def build():
     }
     v["config"] = config_vectors()
     v["presets"] = preset_vectors()
+    v["feedback"] = feedback_vectors()
     return v
 
 

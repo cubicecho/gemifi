@@ -117,44 +117,18 @@ void gm_mcu_vpot(uint32_t vpot, int32_t delta)
 /* ---- host -> device ----------------------------------------------------- */
 
 #if GM_N_ENCODERS > 0
-/* Show ring value v on the encoder's ring LEDs. Position 1..11 is spread
- * over however many LEDs the ring has. Modes: 0 dot, 1 boost/cut (from the
- * centre), 2 wrap (fill from the left), 3 spread (both ways from the
- * centre). Bit 6 lights the centre LED (`ring_center:`), if there is one. */
+/* Show MCU ring value v (0 c mm pppp) on the encoder's ring: position 1..11
+ * along the ring (0 = all off), spread uses positions 1..6 for its width. */
 static void ring_show(uint32_t e, uint32_t v)
 {
-    const gm_ring_t *r = &gm_encoder_ring[e];
-    int32_t n = r->n, pos = (int32_t)(v & 0x0Fu), mode = (int32_t)((v >> 4) & 3u);
-    if (r->center != GM_RING_NO_CENTER)
-        gm_led_host(r->center, (v & 0x40u) ? 127 : 0);
-    if (!n)
-        return;
+    int32_t pos = (int32_t)(v & 0x0Fu), mode = (int32_t)((v >> 4) & 3u);
     if (pos > 11)
         pos = 11;
-    int32_t p = pos ? (pos - 1) * (n - 1) / 10 : -1;  /* LED index of the position */
-    int32_t c = (n - 1) / 2;
-    for (int32_t k = 0; k < n; k++) {
-        int on = 0;
-        if (pos) {
-            switch (mode) {
-            case 0:
-                on = k == p;
-                break;
-            case 1:
-                on = (k >= c && k <= p) || (k <= c && k >= p);
-                break;
-            case 2:
-                on = k <= p;
-                break;
-            default: {
-                int32_t w = (pos - 1) * (n / 2) / 5;    /* pos 1..6 = width 0..n/2 */
-                on = (k >= c - w && k <= c + w);
-                break;
-            }
-            }
-        }
-        gm_led_host(r->leds[k], on ? 127 : 0);
-    }
+    int32_t frac = -1;
+    if (pos)
+        frac = mode == 3 ? ((pos - 1) * 16383 / 5 > 16383 ? 16383 : (pos - 1) * 16383 / 5)
+                         : (pos - 1) * 16383 / 10;
+    gm_ring_draw(e, (uint32_t)mode, frac, (v & 0x40u) != 0);
 }
 #endif
 

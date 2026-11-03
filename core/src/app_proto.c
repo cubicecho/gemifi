@@ -10,6 +10,8 @@
 #include "params.h"
 #include "gm_presets.h"
 #include "gm_settings.h"
+#include "gm_feedback.h"
+#include "gm_vpin.h"
 
 #define REBOOT_DELAY_MS 50u
 #define SCHEMA_WINDOW   64u
@@ -26,7 +28,12 @@ static uint8_t fw_active;
 static uint8_t data_buf[256];        /* unpacked FW_DATA chunk */
 static uint8_t rx_buf[GSX_OVERHEAD + 4 + 300];   /* FW_DATA: 256 B packed */
 static gsx_rx_t rx;
-static uint8_t tx_buf[GSX_OVERHEAD + 1 + 6 + PARAMS_RUN * 5 + 8];
+/* The largest reply: GET_PARAMS (6 + 16 values), or GET_COMPONENT (kind,
+ * index, count, three lstrings, up to 3 bytes of extras). */
+#define REPLY_PARAMS    (6u + PARAMS_RUN * 5u + 8u)
+#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 3u)
+#define REPLY_MAX       (REPLY_PARAMS > REPLY_COMPONENT ? REPLY_PARAMS : REPLY_COMPONENT)
+static uint8_t tx_buf[GSX_OVERHEAD + 1 + REPLY_MAX];
 static uint16_t tx_len;
 static uint32_t last_req;            /* 0x10000 | seq << 8 | cmd, 0 = none */
 static uint8_t uid[12];
@@ -66,6 +73,10 @@ static uint16_t caps(void)
     uint16_t c = GSX_CAP_LOG | GSX_CAP_EVENT;
     if (has_config)
         c |= GSX_CAP_CONFIG | GSX_CAP_PRESETS;
+#if GM_HOST_FB
+    if (has_config)
+        c |= GSX_CAP_FEEDBACK;
+#endif
     if (fw)
         c |= GSX_CAP_FW_UPLOAD;
     return c;
@@ -409,6 +420,144 @@ static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
     }
 }
 
+/* ---- DAW-script messages (sysex.md 4.6) ---------------------------------- */
+
+#if GM_HOST_FB
+static void put_lstring(gsx_tx_t *t, const char *s)
+{
+    uint32_t n = 0;
+    while (s && s[n] && n < GSX_LSTRING_MAX)
+        n++;
+    gsx_put(t, (uint8_t)n);
+    for (uint32_t i = 0; i < n; i++)
+        gsx_put(t, (uint8_t)s[i]);
+}
+
+static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
+{
+    if (f->len != 3)
+        return GSX_BAD_LEN;
+    uint32_t kind = f->payload[0], index = gsx_get_u(f->payload + 1, 2), count = 0;
+    const gm_comp_t *c = 0;
+    switch (kind) {
+    case GSX_KIND_BUTTON:
+        count = gm_device.n_buttons;
+        c = gm_comp_buttons;
+        break;
+    case GSX_KIND_MATRIX:
+        count = gm_device.matrix ? 1u : 0u;
+        c = gm_comp_matrix;
+        break;
+    case GSX_KIND_ANALOG:
+        count = gm_device.n_analogs;
+        c = gm_comp_analogs;
+        break;
+    case GSX_KIND_ENCODER:
+        count = gm_device.n_encoders;
+        c = gm_comp_encoders;
+        break;
+    case GSX_KIND_LED:
+        count = gm_device.n_leds;
+        c = gm_comp_leds;
+        break;
+    default:                                /* displays: none yet */
+        break;
+    }
+    if (index >= count)
+        return GSX_BAD_PARAM;
+    c += index;
+    gsx_put(t, (uint8_t)kind);
+    gsx_put_u(t, index, 2);
+    gsx_put_u(t, count, 2);
+    put_lstring(t, c->id);
+    put_lstring(t, c->name);
+    put_lstring(t, c->role);
+    switch (kind) {
+    case GSX_KIND_BUTTON: {
+        int8_t led = gm_device.buttons[index].led;
+        gsx_put_u(t, led >= 0 ? (uint32_t)led : GSX_NONE_INDEX, 2);
+        break;
+    }
+    case GSX_KIND_MATRIX:
+        gsx_put_u(t, gm_device.matrix->n_keys, 2);
+        gsx_put(t, gm_device.matrix->first_note);
+        break;
+    case GSX_KIND_ENCODER: {
+#if GM_RINGS
+        const gm_ring_t *r = &gm_encoder_ring[index];
+        gsx_put(t, r->n);
+        gsx_put_u(t, r->center == GM_RING_NO_CENTER ? GSX_NONE_INDEX : r->center, 2);
+#else
+        gsx_put(t, 0);
+        gsx_put_u(t, GSX_NONE_INDEX, 2);
+#endif
+        break;
+    }
+    case GSX_KIND_LED:
+        gsx_put(t, vpin_is_none(gm_device.leds[index].pin2) ? 1 : 2);
+        break;
+    default:
+        break;
+    }
+    return GSX_OK;
+}
+
+/* A notification: no reply, whatever happens (sysex.md 4.6.2). */
+static void notify(const gsx_frame_t *f)
+{
+    const uint8_t *p = f->payload;
+    uint32_t n = f->len;
+    switch (f->cmd) {
+    case GSX_FB_LED:
+        if (n == 3)
+            gm_led_script(gsx_get_u(p, 2), p[2]);
+        break;
+    case GSX_FB_LED_RGB:
+        if (n == 6)
+            gm_led_script_rgb(gsx_get_u(p, 2), p[2], p[3], p[4], p[5] & 1u);
+        break;
+    case GSX_FB_LEDS:
+        if (n >= 4 && p[2] >= 1 && p[2] <= 64 && n == 3u + p[2])
+            for (uint32_t i = 0; i < p[2]; i++)
+                gm_led_script(gsx_get_u(p, 2) + i, p[3 + i]);
+        break;
+    case GSX_FB_VALUE:
+        if (n == 5) {
+            uint32_t i = gsx_get_u(p + 1, 2), v = gsx_get_u(p + 3, 2) >> 7;
+            if (p[0] == GSX_KIND_ANALOG && i < gm_device.n_analogs)
+                gm_analog_host(i, v);
+            else if (p[0] == GSX_KIND_ENCODER)
+                gm_encoder_host(i, v);
+        }
+        break;
+    case GSX_FB_RING:
+        if (n == 6 && p[2] <= 3 && gsx_get_u(p, 2) < gm_device.n_encoders)
+            gm_ring_draw(gsx_get_u(p, 2), p[2], (p[5] & 2u) ? -1 : (int32_t)gsx_get_u(p + 3, 2), p[5] & 1u);
+        break;
+    case GSX_FB_TEXT:
+        if (n >= 4)
+            gm_host_on_text(gsx_get_u(p, 2), p[2], p[3], p + 4, n - 4u);
+        break;
+    case GSX_FB_RELEASE:
+        if (n == 1)
+            gm_host_release(p[0]);
+        break;
+    default:
+        break;
+    }
+}
+#endif
+
+__attribute__((weak)) void gm_host_on_text(uint32_t display, uint32_t row, uint32_t col,
+                                           const uint8_t *text, uint32_t n)
+{
+    (void)display;
+    (void)row;
+    (void)col;
+    (void)text;
+    (void)n;
+}
+
 static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
 {
     switch (f->cmd) {
@@ -457,6 +606,10 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_PRESET_RESET:
     case GSX_CMD_PRESET_NAME:
         return cmd_preset(f, t);
+#if GM_HOST_FB
+    case GSX_CMD_GET_COMPONENT:
+        return cmd_get_component(f, t);
+#endif
     }
     return GSX_BAD_CMD;
 }
@@ -480,6 +633,13 @@ static void handle_frame(void)
     int pst = gsx_parse(&rx, &f);
     if (pst == GSX_NOT_OURS)
         return;
+#if GM_HOST_FB
+    if (f.cmd >= GSX_NOTIFY_FIRST && f.cmd <= GSX_NOTIFY_LAST) {
+        if (pst == GSX_OK && has_config)
+            notify(&f);
+        return;                             /* never answered, not even an error */
+    }
+#endif
     if (pst != GSX_OK) {
         uint8_t err[GSX_OVERHEAD + 4];
         gsx_tx_t t;

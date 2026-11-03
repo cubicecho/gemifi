@@ -13,7 +13,8 @@ SIGNATURE = bytes([0x67, 0x6D])     # 'g' 'm'
 HEADER = bytes([0xF0]) + MANUFACTURER + SIGNATURE
 PROTO_VERSION = 1
 
-# Requests 0x00-0x1F; replies are cmd | 0x40 (0x40-0x5F); unsolicited 0x60-0x7F. No overlap.
+# Requests 0x00-0x1F; replies are cmd | 0x40 (0x40-0x5F); host -> device notifications 0x20-0x3F (never
+# answered, sysex.md 4.6.2); unsolicited 0x60-0x7F. No overlap.
 # (FW_* were 0x20-0x23 before the 2026-10-30 renumbering.)
 HELLO = 0x01
 REBOOT = 0x10
@@ -34,6 +35,16 @@ PRESET_INFO = 0x0B
 PRESET_SAVE = 0x0C
 PRESET_RESET = 0x0D
 PRESET_NAME = 0x0E
+# Host feedback (app only, sysex.md 4.6)
+GET_COMPONENT = 0x11
+NOTIFY_FIRST, NOTIFY_LAST = 0x20, 0x3F
+FB_LED = 0x20
+FB_LED_RGB = 0x21
+FB_LEDS = 0x22
+FB_VALUE = 0x23
+FB_RING = 0x24
+FB_TEXT = 0x25
+FB_RELEASE = 0x26
 REPLY = 0x40
 UNSOLICITED_FIRST = 0x60
 # Unsolicited device -> host
@@ -48,7 +59,9 @@ CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "F
              SET_PARAMS: "SET_PARAMS", COMMIT: "COMMIT", FACTORY_RESET: "FACTORY_RESET", LOG: "LOG",
              EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED", PRESET_INFO: "PRESET_INFO",
              PRESET_SAVE: "PRESET_SAVE", PRESET_RESET: "PRESET_RESET", PRESET_NAME: "PRESET_NAME",
-             PRESET_CHANGED: "PRESET_CHANGED"}
+             PRESET_CHANGED: "PRESET_CHANGED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
+             FB_LED_RGB: "FB_LED_RGB", FB_LEDS: "FB_LEDS", FB_VALUE: "FB_VALUE", FB_RING: "FB_RING",
+             FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE"}
 
 STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE", 5: "BAD_ADDR",
           6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE"}
@@ -59,6 +72,7 @@ ROLE_APP, ROLE_BOOT = 0, 1
 REBOOT_APP, REBOOT_BOOT = 0, 1
 CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
+CAP_FEEDBACK = 1 << 6          # sysex.md 4.1 bit 6: host feedback (GET_COMPONENT, FB_*)
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
 EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
@@ -209,6 +223,11 @@ class Frame:
         return REPLY <= self.cmd < UNSOLICITED_FIRST
 
     @property
+    def is_notification(self):
+        """Host -> device notification (0x20-0x3F, sysex.md 4.6.2): never answered."""
+        return NOTIFY_FIRST <= self.cmd <= NOTIFY_LAST
+
+    @property
     def is_unsolicited(self):
         return self.cmd >= UNSOLICITED_FIRST
 
@@ -220,7 +239,13 @@ class Frame:
 # Reply payload lengths when status is OK (None = any). A non-OK reply is the status byte only (sysex.md 3).
 REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_ABORT: 1,
                 GET_SCHEMA: None, GET_PARAM: 10, SET_PARAM: 10, GET_PARAMS: None, SET_PARAMS: 7,
-                COMMIT: 1, FACTORY_RESET: 1, PRESET_INFO: None, PRESET_SAVE: 1, PRESET_RESET: 1, PRESET_NAME: 1}
+                COMMIT: 1, FACTORY_RESET: 1, PRESET_INFO: None, PRESET_SAVE: 1, PRESET_RESET: 1, PRESET_NAME: 1,
+                GET_COMPONENT: None}
+
+
+def is_notification(cmd):
+    """0x20-0x3F: host -> device, never answered; send without waiting (sysex.md 4.6.2)."""
+    return NOTIFY_FIRST <= cmd <= NOTIFY_LAST
 
 
 def reply_matches(frame, cmd, seq):
@@ -647,6 +672,327 @@ def parse_preset_changed(payload):
 
 def build_preset_changed(slot, dirty):
     return u14(slot) + bytes([1 if dirty else 0])
+
+
+# ---- host feedback (sysex.md 4.6) ----
+
+# Component kinds (GET_COMPONENT `kind`, 4.6.1): 1..4 are the EVENT type numbers.
+KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY = 1, 2, 3, 4, 5, 6
+KINDS = (KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY)
+KIND_NAMES = {KIND_BUTTON: "button", KIND_KEYS: "keys", KIND_ANALOG: "analog", KIND_ENCODER: "encoder",
+              KIND_LED: "led", KIND_DISPLAY: "display"}
+NONE_INDEX = 0x3FFF            # "no LED" in a button's `led` and an encoder's `center`
+LSTRING_MAX = 31               # sysex.md 2: lstring = u8 len (0..31) + ASCII
+COLOURS = {1: "single", 2: "bicolour", 3: "RGB"}
+DISPLAY_TYPES = {1: "characters", 2: "segments"}
+RING_DOT, RING_BOOST, RING_WRAP, RING_SPREAD = 0, 1, 2, 3
+RING_MODES = {"dot": RING_DOT, "boost": RING_BOOST, "wrap": RING_WRAP, "spread": RING_SPREAD}
+REL_ALL, REL_LEDS, REL_VALUES, REL_TEXT = 0, 1, 2, 3
+RELEASE_WHAT = {"all": REL_ALL, "leds": REL_LEDS, "values": REL_VALUES, "text": REL_TEXT}
+FB_LEDS_MAX = 64               # FB_LEDS `n` is 1..64
+FB_TEXT_MAX = 64               # FB_TEXT text is <= 64 bytes
+VALUE_MAX = 0x3FFF             # FB_VALUE / FB_RING `value` is 0..16383
+
+
+def enc_lstring(s, what="lstring"):
+    """'lstring' (sysex.md 2): u8 len (0..31) + printable ASCII. The host refuses anything longer (only the
+    device cuts, see lstring_cut). Raises ValueError."""
+    try:
+        b = s.encode("ascii")
+    except UnicodeEncodeError:
+        b = None
+    if b is None or len(b) > LSTRING_MAX or any(not 0x20 <= c <= 0x7E for c in b):
+        raise ValueError(f"{what} {s!r}: 0..{LSTRING_MAX} printable ASCII characters")
+    return bytes([len(b)]) + b
+
+
+def lstring_cut(s):
+    """What the device sends for a longer string: its first 31 characters (sysex.md 4.6.1 "cut")."""
+    return s[:LSTRING_MAX]
+
+
+def dec_lstring(data, what="lstring"):
+    """'lstring' at the start of data -> (str, bytes used). Accepts len 0..31. Raises ProtocolError."""
+    if not data:
+        raise ProtocolError(f"{what}: missing length byte")
+    n = data[0]
+    if n > LSTRING_MAX:
+        raise ProtocolError(f"{what}: length {n} > {LSTRING_MAX}")
+    if len(data) < 1 + n:
+        raise ProtocolError(f"{what}: length {n} but {len(data) - 1} bytes follow")
+    if any(c & 0x80 for c in data[1:1 + n]):
+        raise ProtocolError(f"{what}: byte with bit 7 set")
+    return bytes(data[1:1 + n]).decode("ascii"), 1 + n
+
+
+def _check_index(v, what):
+    """A component index to address: u14, but not 0x3FFF (that means "none")."""
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v < NONE_INDEX:
+        raise ValueError(f"{what} {v!r} is outside 0..{NONE_INDEX - 1}")
+
+
+def _check_byte(v, what, hi=0x7F):
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+        raise ValueError(f"{what} {v!r} is outside 0..{hi}")
+
+
+def req_get_component(kind, index):
+    """GET_COMPONENT request: kind (1 byte), index u14."""
+    _check_byte(kind, "kind")
+    return bytes([kind]) + u14(index)
+
+
+@dataclass
+class Component:
+    """One GET_COMPONENT reply (sysex.md 4.6.1). Only the fields of its kind are on the wire; the others keep
+    their defaults. `extra` holds the bytes after the common fields for a kind this tool doesn't know."""
+    kind: int
+    index: int
+    count: int
+    id: str
+    name: str = ""
+    role: str = ""
+    led: int = NONE_INDEX          # button: its LED's index
+    keys: int = 0                  # key matrix: number of keys
+    first_note: int = 0            # key matrix: note of the first key
+    ring: int = 0                  # encoder: LEDs in its ring (0 = none)
+    center: int = NONE_INDEX       # encoder: centre LED index
+    colours: int = 1               # LED: 1 single, 2 bicolour, 3 RGB
+    cols: int = 0                  # display
+    rows: int = 0                  # display
+    display_type: int = 0          # display: 1 characters, 2 segments (the spec's `type`)
+    extra: bytes = b""
+
+    @property
+    def kind_name(self):
+        return KIND_NAMES.get(self.kind, f"kind{self.kind}")
+
+    def extras_text(self):
+        """The kind's extra fields in words, for tables."""
+        k = self.kind
+        if k == KIND_BUTTON:
+            return "no LED" if self.led == NONE_INDEX else f"LED {self.led}"
+        if k == KIND_KEYS:
+            return f"{self.keys} keys from {note_name(self.first_note)} ({self.first_note})"
+        if k == KIND_ENCODER:
+            ring = f"ring of {self.ring}" if self.ring else "no ring"
+            return ring + ("" if self.center == NONE_INDEX else f", centre LED {self.center}")
+        if k == KIND_LED:
+            return COLOURS.get(self.colours, f"colours {self.colours}")
+        if k == KIND_DISPLAY:
+            return f"{self.cols}x{self.rows} " + DISPLAY_TYPES.get(self.display_type, f"type {self.display_type}")
+        return self.extra.hex(" ") if self.extra else ""
+
+    def to_json(self):
+        j = {"kind": self.kind, "kind_name": self.kind_name, "index": self.index, "count": self.count,
+             "id": self.id, "name": self.name, "role": self.role}
+        k = self.kind
+        if k == KIND_BUTTON:
+            j["led"] = None if self.led == NONE_INDEX else self.led
+        elif k == KIND_KEYS:
+            j.update(keys=self.keys, first_note=self.first_note)
+        elif k == KIND_ENCODER:
+            j.update(ring=self.ring, center=None if self.center == NONE_INDEX else self.center)
+        elif k == KIND_LED:
+            j["colours"] = self.colours
+        elif k == KIND_DISPLAY:
+            j.update(cols=self.cols, rows=self.rows, type=self.display_type)
+        elif self.extra:
+            j["extra"] = self.extra.hex(" ")
+        return j
+
+
+# Bytes of each kind's extra fields after `role` (sysex.md 4.6.1 table).
+COMPONENT_EXTRA_LEN = {KIND_BUTTON: 2, KIND_KEYS: 3, KIND_ANALOG: 0, KIND_ENCODER: 3, KIND_LED: 1, KIND_DISPLAY: 3}
+
+
+def parse_component(payload):
+    """GET_COMPONENT reply payload (status OK) -> Component. Bytes after a known kind's fields are ignored
+    (room for later fields, as for HELLO). Raises ProtocolError."""
+    if len(payload) < 6 or payload[0] != OK:
+        raise ProtocolError("GET_COMPONENT reply too short or not OK")
+    kind, index, count = payload[1], dec_u14(payload[2:4]), dec_u14(payload[4:6])
+    pos = 6
+    strs = []
+    for what in ("id", "name", "role"):
+        s, used = dec_lstring(payload[pos:], f"GET_COMPONENT {what}")
+        strs.append(s)
+        pos += used
+    c = Component(kind, index, count, *strs)
+    rest = bytes(payload[pos:])
+    need = COMPONENT_EXTRA_LEN.get(kind)
+    if need is None:
+        c.extra = rest
+        return c
+    if len(rest) < need:
+        raise ProtocolError(f"GET_COMPONENT {c.kind_name}: {len(rest)} bytes of fields, need {need}")
+    if any(b & 0x80 for b in rest):
+        raise ProtocolError("byte with bit 7 set inside SysEx")
+    if kind == KIND_BUTTON:
+        c.led = dec_u14(rest[0:2])
+    elif kind == KIND_KEYS:
+        c.keys, c.first_note = dec_u14(rest[0:2]), rest[2]
+    elif kind == KIND_ENCODER:
+        c.ring, c.center = rest[0], dec_u14(rest[1:3])
+    elif kind == KIND_LED:
+        c.colours = rest[0]
+    elif kind == KIND_DISPLAY:
+        c.cols, c.rows, c.display_type = rest[0], rest[1], rest[2]
+    return c
+
+
+def build_component_reply(c, status=OK):
+    """Device side (tests, the simulator, the vectors). Strings over 31 characters are cut, as the device does."""
+    if status != OK:
+        return bytes([status])
+    out = bytes([OK, c.kind]) + u14(c.index) + u14(c.count)
+    for what, s in (("id", c.id), ("name", c.name), ("role", c.role)):
+        out += enc_lstring(lstring_cut(s), what)
+    k = c.kind
+    if k == KIND_BUTTON:
+        out += u14(c.led)
+    elif k == KIND_KEYS:
+        _check_byte(c.first_note, "first_note")
+        out += u14(c.keys) + bytes([c.first_note])
+    elif k == KIND_ENCODER:
+        _check_byte(c.ring, "ring")
+        out += bytes([c.ring]) + u14(c.center)
+    elif k == KIND_LED:
+        _check_byte(c.colours, "colours")
+        out += bytes([c.colours])
+    elif k == KIND_DISPLAY:
+        for v, what in ((c.cols, "cols"), (c.rows, "rows"), (c.display_type, "type")):
+            _check_byte(v, what)
+        out += bytes([c.cols, c.rows, c.display_type])
+    elif k != KIND_ANALOG:
+        out += bytes(c.extra)
+    return out
+
+
+# -- notifications (sysex.md 4.6.2): payload builders; send them with Session.notify, which never waits --
+
+def fb_led(led, level):
+    """FB_LED: led u14, level (0 off, 1 blink, 2..127 on; bicolour 2..63 colour 1, 64..127 colour 2)."""
+    _check_index(led, "led")
+    _check_byte(level, "level")
+    return u14(led) + bytes([level])
+
+
+def fb_led_rgb(led, r, g, b, blink=False):
+    """FB_LED_RGB: led u14, r, g, b (0..127 each), flags (bit 0 blink)."""
+    _check_index(led, "led")
+    for v, what in ((r, "r"), (g, "g"), (b, "b")):
+        _check_byte(v, what)
+    return u14(led) + bytes([r, g, b, 1 if blink else 0])
+
+
+def fb_leds(first, levels):
+    """FB_LEDS: first u14, n (1..64), then n levels (LEDs first .. first+n-1)."""
+    levels = list(levels)
+    _check_index(first, "first")
+    if not 1 <= len(levels) <= FB_LEDS_MAX:
+        raise ValueError(f"FB_LEDS takes 1..{FB_LEDS_MAX} levels, got {len(levels)}")
+    _check_index(first + len(levels) - 1, "last LED")
+    for v in levels:
+        _check_byte(v, "level")
+    return u14(first) + bytes([len(levels)] + levels)
+
+
+def fb_value(kind, index, value):
+    """FB_VALUE: kind (3 analog, 4 encoder), index u14, value u14 (0..16383)."""
+    if kind not in (KIND_ANALOG, KIND_ENCODER):
+        raise ValueError(f"FB_VALUE kind must be {KIND_ANALOG} (analog) or {KIND_ENCODER} (encoder), got {kind!r}")
+    _check_index(index, "index")
+    _check_byte(value, "value", VALUE_MAX)
+    return bytes([kind]) + u14(index) + u14(value)
+
+
+def fb_ring(encoder, mode, value, center=False, off=False):
+    """FB_RING: encoder u14, mode (0 dot, 1 boost/cut, 2 wrap, 3 spread), value u14, flags (bit 0 centre LED,
+    bit 1 ring off)."""
+    _check_index(encoder, "encoder")
+    if mode not in RING_MODES.values():
+        raise ValueError(f"ring mode {mode!r}: 0 dot, 1 boost/cut, 2 wrap, 3 spread")
+    _check_byte(value, "value", VALUE_MAX)
+    return u14(encoder) + bytes([mode]) + u14(value) + bytes([(1 if center else 0) | (2 if off else 0)])
+
+
+def fb_text(display, row, col, text):
+    """FB_TEXT: display u14, row, col (1 byte each), text (0..64 bytes of printable ASCII, no length byte)."""
+    _check_index(display, "display")
+    _check_byte(row, "row")
+    _check_byte(col, "col")
+    try:
+        b = text.encode("ascii")
+    except UnicodeEncodeError:
+        b = None
+    if b is None or len(b) > FB_TEXT_MAX or any(not 0x20 <= c <= 0x7E for c in b):
+        raise ValueError(f"FB_TEXT text {text!r}: 0..{FB_TEXT_MAX} printable ASCII characters")
+    return u14(display) + bytes([row, col]) + b
+
+
+def fb_release(what=REL_ALL):
+    """FB_RELEASE: what (0 everything, 1 LEDs, 2 values, 3 text)."""
+    if what not in RELEASE_WHAT.values():
+        raise ValueError(f"FB_RELEASE what {what!r}: 0 all, 1 LEDs, 2 values, 3 text")
+    return bytes([what])
+
+
+@dataclass
+class Notification:
+    """A decoded FB_* notification (device side: the simulator and tests)."""
+    cmd: int
+    fields: dict
+
+    @property
+    def name(self):
+        return CMD_NAMES.get(self.cmd, f"0x{self.cmd:02x}")
+
+
+def parse_notification(cmd, payload):
+    """FB_* payload -> Notification. Raises ProtocolError for a malformed or unknown one (the device drops
+    those without a reply, sysex.md 4.6.2)."""
+    p = bytes(payload)
+    if any(b & 0x80 for b in p):
+        raise ProtocolError("byte with bit 7 set inside SysEx")
+
+    def need(n):
+        if len(p) != n:
+            raise ProtocolError(f"{CMD_NAMES.get(cmd, hex(cmd))} payload must be {n} bytes, got {len(p)}")
+
+    if cmd == FB_LED:
+        need(3)
+        f = {"led": dec_u14(p[0:2]), "level": p[2]}
+    elif cmd == FB_LED_RGB:
+        need(6)
+        f = {"led": dec_u14(p[0:2]), "r": p[2], "g": p[3], "b": p[4], "blink": p[5] & 1}
+    elif cmd == FB_LEDS:
+        if len(p) < 4 or not 1 <= p[2] <= FB_LEDS_MAX:
+            raise ProtocolError("FB_LEDS needs first u14, n 1..64 and n levels")
+        need(3 + p[2])
+        f = {"first": dec_u14(p[0:2]), "levels": list(p[3:])}
+    elif cmd == FB_VALUE:
+        need(5)
+        if p[0] not in (KIND_ANALOG, KIND_ENCODER):
+            raise ProtocolError(f"FB_VALUE kind {p[0]}")
+        f = {"kind": p[0], "index": dec_u14(p[1:3]), "value": dec_u14(p[3:5])}
+    elif cmd == FB_RING:
+        need(6)
+        if p[2] > RING_SPREAD:
+            raise ProtocolError(f"FB_RING mode {p[2]}")
+        f = {"encoder": dec_u14(p[0:2]), "mode": p[2], "value": dec_u14(p[3:5]), "center": p[5] & 1}
+    elif cmd == FB_TEXT:
+        if not 4 <= len(p) <= 4 + FB_TEXT_MAX:
+            raise ProtocolError("FB_TEXT needs display u14, row, col and 0..64 text bytes")
+        f = {"display": dec_u14(p[0:2]), "row": p[2], "col": p[3], "text": p[4:].decode("ascii")}
+    elif cmd == FB_RELEASE:
+        need(1)
+        if p[0] > REL_TEXT:
+            raise ProtocolError(f"FB_RELEASE what {p[0]}")
+        f = {"what": p[0]}
+    else:
+        raise ProtocolError(f"unknown notification 0x{cmd:02x}")
+    return Notification(cmd, f)
 
 
 # ---- schema (sysex.md 4.4) ----

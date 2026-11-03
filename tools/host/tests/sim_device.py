@@ -9,7 +9,13 @@ empty) it also simulates presets (sysex.md 4.5, research/core/presets-design.md 
 PRESET flag live per slot, preset.active (17) switches, preset.dirty (19) follows host SET_PARAMs, COMMIT and
 PRESET_SAVE store the per-slot diff against the slot's YAML values, PRESET_RESET / PRESET_NAME, PRESET_CHANGED
 in `outbox`. `next_revision` is the presets revision the A/B image booted by REBOOT(0) reports (a firmware
-update that changes the YAML presets); stored edits survive it."""
+update that changes the YAML presets); stored edits survive it.
+With `components` (a list of gemifi_proto.Component, or True for FEEDBACK_COMPONENTS) it is an app with host
+feedback (sysex.md 4.6): HELLO caps bit 6, GET_COMPONENT per kind (BAD_PARAM past the end, `count` filled in),
+and FB_* notifications (0x20-0x3F) are never answered: each one goes into `notifications` as
+(gemifi_proto.Notification, seq), a malformed one into `dropped`. Without `components` it behaves like older
+firmware: BAD_CMD as cmd | 0x40, which lands in the unsolicited range."""
+import dataclasses
 import os
 import zlib
 import sys
@@ -20,11 +26,25 @@ import gemifi_proto as gp  # noqa: E402
 
 PAGE = gp.PAGE_SIZE
 
+C = gp.Component
+# A small feedback-capable app: 2 buttons with LEDs, a key matrix, 1 fader, 1 encoder with a 5-LED ring and
+# a centre LED, 3 LEDs (one bicolour), no display. Index fields are set from the list order.
+FEEDBACK_COMPONENTS = [
+    C(gp.KIND_BUTTON, 0, 0, "play", "Play", "play", led=0),
+    C(gp.KIND_BUTTON, 0, 0, "rec", "Record", "record", led=1),
+    C(gp.KIND_KEYS, 0, 0, "keys", "Keys", "", keys=32, first_note=48),
+    C(gp.KIND_ANALOG, 0, 0, "fader1", "Fader 1", "track_volume"),
+    C(gp.KIND_ENCODER, 0, 0, "enc1", "Encoder 1", "device_param_1", ring=5, center=2),
+    C(gp.KIND_LED, 0, 0, "play_led", "Play LED", "", colours=1),
+    C(gp.KIND_LED, 0, 0, "rec_led", "Record LED", "", colours=2),
+    C(gp.KIND_LED, 0, 0, "enc1_centre", "Encoder 1 centre", "", colours=1),
+]
+
 
 class SimDevice:
     def __init__(self, role=gp.ROLE_BOOT, board_id=1, max_chunk=256, drop_replies=(), drop_requests=(),
                  busy_on=(), schema=None, bulk=True, ab=False, fw_version=0x00010000, presets=None, slots=None,
-                 revision=0, next_revision=None):
+                 revision=0, next_revision=None, components=None):
         self.ab = ab
         if ab:
             role = gp.ROLE_APP
@@ -54,6 +74,16 @@ class SimDevice:
         if presets is not None:
             self.setup_presets(presets, slots, revision)
         self.next_revision = next_revision
+        if components is True:
+            components = FEEDBACK_COMPONENTS
+        self.components = None    # kind -> [Component], index = position
+        if components is not None:
+            self.components = {}
+            for c in components:
+                lst = self.components.setdefault(c.kind, [])
+                lst.append(dataclasses.replace(c, index=len(lst)))
+        self.notifications = []   # (Notification, seq) of every FB_* received, in order
+        self.dropped = []         # malformed or unknown notifications (raw frames), dropped without a reply
 
     # -- transport side --
     def handle(self, msg):
@@ -64,6 +94,12 @@ class SimDevice:
         try:
             f = gp.parse_frame(msg)
         except gp.ProtocolError:
+            return None
+        if f.is_notification and self.components is not None:
+            try:                                     # sysex.md 4.6.2: never answered, not even with an error
+                self.notifications.append((gp.parse_notification(f.cmd, f.payload), f.seq))
+            except gp.ProtocolError:
+                self.dropped.append(bytes(msg))
             return None
         if self.last and self.last[0] == bytes(msg):
             reply = self.last[1]                     # duplicate seq: reply again, don't redo the work
@@ -84,7 +120,8 @@ class SimDevice:
         p = f.payload
         if f.cmd == gp.HELLO:
             app_caps = (gp.CAP_LOG | gp.CAP_EVENT | (gp.CAP_CONFIG if self.schema else 0) | (gp.CAP_FW if self.ab else 0)
-                        | (gp.CAP_PRESETS if self.presets is not None else 0))
+                        | (gp.CAP_PRESETS if self.presets is not None else 0)
+                        | (gp.CAP_FEEDBACK if self.components is not None else 0))
             h = gp.Hello(self.role, self.board_id, self.fw_version, 1,
                          self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
                          gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
@@ -99,6 +136,16 @@ class SimDevice:
             if self.role != gp.ROLE_APP or self.presets is None:
                 return bytes([gp.BAD_CMD])
             return self.preset_cmd(f.cmd, p)
+        if f.cmd == gp.GET_COMPONENT:
+            if self.role != gp.ROLE_APP or self.components is None:
+                return bytes([gp.BAD_CMD])
+            if len(p) != 3:
+                return bytes([gp.BAD_LEN])
+            lst = self.components.get(p[0], [])
+            idx = gp.dec_u14(p[1:3])
+            if idx >= len(lst):
+                return bytes([gp.BAD_PARAM])
+            return gp.build_component_reply(dataclasses.replace(lst[idx], count=len(lst)))
         if f.cmd == gp.REBOOT:
             self.reboot_to = p[0]
             self.reboots.append(p[0])

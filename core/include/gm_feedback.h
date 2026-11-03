@@ -12,6 +12,9 @@
  *   GM_LED_TIMEOUT    default host_then_local timeout, 10 ms units
  *   GM_ANALOG_PICKUP  gm_analog_pickup[] (analog takeover: pickup)
  *   GM_MCU            Mackie Control (gm_mcu.h, src/mcu.c)
+ *   GM_HOST_FB        DAW-script messages: GET_COMPONENT and the FB_*
+ *                     notifications (sysex.md 4.6, src/app_proto.c)
+ *   GM_RINGS          gm_encoder_ring[] (MCU V-Pots, or rings for scripts)
  *   GM_MCU_CABLE      the cable MCU lives on: 1 = DAW port, 0 = the only port
  *   GM_USB_DAW_PORT   USB descriptor has a second cable "<name> DAW"
  *
@@ -47,9 +50,15 @@
 #ifndef GM_USB_DAW_PORT
 #define GM_USB_DAW_PORT 0
 #endif
+#ifndef GM_HOST_FB
+#define GM_HOST_FB 0
+#endif
+#ifndef GM_RINGS
+#define GM_RINGS GM_MCU
+#endif
 
 /* LEDs keep a host level when anything can drive them from the host. */
-#define GM_HOST_LEDS (GM_FEEDBACK || GM_MCU)
+#define GM_HOST_LEDS (GM_FEEDBACK || GM_MCU || GM_HOST_FB)
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,6 +74,22 @@ void gm_led_host(uint32_t led, uint32_t value);
 
 /* controller.c: the host's value (0..127) of analog input i (pick-up). */
 void gm_analog_host(uint32_t i, uint32_t value);
+
+/* controller.c: draw a ring on encoder e's ring LEDs (GM_RINGS). mode: 0 dot,
+ * 1 boost/cut, 2 wrap, 3 spread; frac 0..16383 along the ring, or -1 for
+ * all off; center: the centre LED, if the encoder has one. */
+void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center);
+
+/* controller.c, for the DAW-script messages (GM_HOST_FB, sysex.md 4.6.2).
+ * Script states are host states that don't time out. */
+void gm_led_script(uint32_t led, uint32_t level);              /* 0 off, 1 blink, 2..127 on */
+void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int blink);
+void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..127, absolute mode */
+void gm_host_release(uint32_t what);                           /* FB_RELEASE: 0 all, 1 LEDs, 2 values */
+
+/* app_proto.c: optional hook (weak, does nothing) for FB_TEXT, until there
+ * are display components. */
+void gm_host_on_text(uint32_t display, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n);
 
 #ifdef __cplusplus
 }

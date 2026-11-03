@@ -17,7 +17,7 @@ mcu: {}                      # Mackie Control on the "Feedback Test DAW" port
 
 buttons:
   - { id: play,   pin: { number: PB0, inverted: true }, mcu: play, led: play_led }
-  - { id: toggle, pin: { number: PB1, inverted: true }, action: cc_toggle, cc: 80, led: toggle_led }
+  - { id: toggle, pin: { number: PB1, inverted: true }, action: cc_toggle, cc: 80, led: toggle_led, daw: track_mute }
   - { id: mom,    pin: { number: PB2, inverted: true }, action: cc_momentary, cc: 64, led: mom_led }
   - { id: pad,    pin: { number: PB3, inverted: true }, action: note, note: 36, led: pad_led }
 
@@ -37,6 +37,10 @@ leds:
   - { id: r3, pin: PD3 }
   - { id: r4, pin: PD4 }
   - { id: rc, pin: PD5 }                         # the V-Pot's centre LED
+  - { id: bi, name: Bicolour, pin: PC9, pin2: PC10 }   # LED 15: two colours (DAW-script tests)
+  - { id: d0, pin: PD6 }                         # LEDs 16-18: a ring without Mackie Control
+  - { id: d1, pin: PD7 }
+  - { id: d2, pin: PD8 }
 
 analog:
   - { id: knob,  pin: PA0, cc: 7, takeover: pickup }
@@ -45,3 +49,4 @@ analog:
 encoders:
   - { id: enc, pin_a: PB4, pin_b: PB5, cc: 30 }    # absolute (encoder.mode 0)
   - { id: pan, pin_a: PB6, pin_b: PB7, mcu: vpot_1, ring: [r0, r1, r2, r3, r4], ring_center: rc }
+  - { id: dial, pin_a: PB8, pin_b: PB9, cc: 31, daw: device_param_1, ring: [d0, d1, d2] }   # a DAW script's ring

@@ -531,8 +531,8 @@ static void notify(const gsx_frame_t *f)
         }
         break;
     case GSX_FB_RING:
-        if (n == 6 && gsx_get_u(p, 2) < gm_device.n_encoders)
-            gm_ring_draw(gsx_get_u(p, 2), p[2] & 3u, (int32_t)gsx_get_u(p + 3, 2), p[5] & 1u);
+        if (n == 6 && p[2] <= 3 && gsx_get_u(p, 2) < gm_device.n_encoders)
+            gm_ring_draw(gsx_get_u(p, 2), p[2], (int32_t)gsx_get_u(p + 3, 2), p[5] & 1u);
         break;
     case GSX_FB_TEXT:
         if (n >= 4)

@@ -42,7 +42,7 @@ The flow itself is stop-and-wait. The host sends one request and waits for its r
 - **Packed binary (8→7):** each group of up to 7 input bytes becomes 1 + n output bytes. The first output byte holds the MSBs: bit *i* = bit 7 of input byte *i*. The next *n* bytes are the inputs with bit 7 cleared. A final group of n < 7 bytes produces n + 1 bytes. (This is the Korg/Elektron scheme.)
 - **Text:** 7-bit ASCII, unpacked, no terminator. The length comes from the frame.
 - **string:** `u8 len` (0..16), then `len` bytes of printable ASCII (0x20–0x7E), unpacked. Used for preset names (§4.5). It is not the schema's string (§4.4), which is inside packed data and allows 63 bytes.
-- **lstring:** the same with `len` 0..31. Used for component ids, names and roles (§4.6.1).
+- **lstring:** the same with `len` 0..31 (printable ASCII, unpacked). Used for component ids, names and roles (§4.6.1). The device cuts longer strings at 31.
 
 ## 3. Replies and status codes
 
@@ -313,7 +313,7 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 | 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB) |
 | 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
 
-An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 7 and up), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields.
+An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 7 and up), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields. A request that isn't 3 bytes replies BAD_LEN. The reply echoes the request's `kind` and `index`. A host ignores bytes after the fields it knows for a kind, so fields can be added later. The LEDs of an encoder's ring (and its centre LED) are ordinary LEDs: they're in the kind-5 list, and FB_LED can set them too.
 
 **`role`** is the YAML `daw:` value of the component (the names gemifi's scripts understand are listed in `hosts/README.md`) (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
 
@@ -343,7 +343,9 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **FB_TEXT** writes characters into a display from (`row`, `col`). Text is printable ASCII (0x20–0x7E); other bytes show as blank. It's clipped at the end of the row (it doesn't wrap), and a `row` or `col` outside the display drops the message. Nothing else on the row changes, so a host clears old text by sending spaces. Characters a display can't show (a 7-segment one) show as blank.
 
-**Out of range:** an index past the last LED, encoder or analog input is ignored. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
+**Out of range:** an index past the last LED, encoder or analog input is ignored. A `kind`, ring `mode` or release `what` the device doesn't know drops the message. Unused `flags` bits are sent as 0 and ignored.
+
+**FB_RELEASE:** 1 (LEDs) covers every LED state a host set, rings included. 2 (values) drops the pick-up targets, so analog inputs send at once again; encoder values stay where they are. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
 
 **Buffer:** a device with caps bit 6 accepts notification payloads of at least 72 bytes (FB_LEDS with 64 LEDs, FB_TEXT with 64 characters). A longer one is dropped, silently like any other bad notification, so hosts keep within these limits.
 

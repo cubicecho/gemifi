@@ -28,18 +28,26 @@ GET_PARAMS = 0x09
 SET_PARAMS = 0x0A
 COMMIT = 0x07
 FACTORY_RESET = 0x08
+# Presets (app only, sysex.md 4.5)
+PRESET_INFO = 0x0B
+PRESET_SAVE = 0x0C
+PRESET_RESET = 0x0D
+PRESET_NAME = 0x0E
 REPLY = 0x40
 UNSOLICITED_FIRST = 0x60
 # Unsolicited device -> host
 LOG = 0x60
 EVENT = 0x61
 PARAM_CHANGED = 0x62
+PRESET_CHANGED = 0x63
 
 CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "FW_DATA",
              FW_END: "FW_END", FW_ABORT: "FW_ABORT", GET_SCHEMA: "GET_SCHEMA", GET_PARAM: "GET_PARAM",
              SET_PARAM: "SET_PARAM", GET_PARAMS: "GET_PARAMS",
              SET_PARAMS: "SET_PARAMS", COMMIT: "COMMIT", FACTORY_RESET: "FACTORY_RESET", LOG: "LOG",
-             EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED"}
+             EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED", PRESET_INFO: "PRESET_INFO",
+             PRESET_SAVE: "PRESET_SAVE", PRESET_RESET: "PRESET_RESET", PRESET_NAME: "PRESET_NAME",
+             PRESET_CHANGED: "PRESET_CHANGED"}
 
 STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE", 5: "BAD_ADDR",
           6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE"}
@@ -49,6 +57,7 @@ STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE"
 ROLE_APP, ROLE_BOOT = 0, 1
 REBOOT_APP, REBOOT_BOOT = 0, 1
 CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
+CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
 EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
@@ -56,8 +65,8 @@ EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
 APROM_SIZE = 32 * 1024
 PAGE_SIZE = 512
 REPLY_TIMEOUT_S = 0.200
-LONG_REPLY_TIMEOUT_S = 2.000   # sysex.md 1: FW_BEGIN, FW_END, COMMIT, FACTORY_RESET (erase/program flash)
-LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END, COMMIT, FACTORY_RESET)
+LONG_REPLY_TIMEOUT_S = 2.000   # sysex.md 1: FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE/RESET/NAME
+LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME)
 MAX_RESENDS = 5                # sysex.md 1: up to 5 resends of the same seq, so 6 sends in all
 MAX_TRIES = MAX_RESENDS + 1
 
@@ -210,7 +219,7 @@ class Frame:
 # Reply payload lengths when status is OK (None = any). A non-OK reply is the status byte only (sysex.md 3).
 REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_ABORT: 1,
                 GET_SCHEMA: None, GET_PARAM: 10, SET_PARAM: 10, GET_PARAMS: None, SET_PARAMS: 7,
-                COMMIT: 1, FACTORY_RESET: 1}
+                COMMIT: 1, FACTORY_RESET: 1, PRESET_INFO: None, PRESET_SAVE: 1, PRESET_RESET: 1, PRESET_NAME: 1}
 
 
 def reply_matches(frame, cmd, seq):
@@ -485,14 +494,156 @@ def build_schema_reply(schema_bytes, offset, max_bytes):
     return bytes([OK]) + u28(len(schema_bytes)) + u28(offset) + pack7(data)
 
 
+# ---- presets (sysex.md 4.5) ----
+
+P_PRESET_ACTIVE, P_PRESET_PROGRAM, P_PRESET_DIRTY = 17, 18, 19   # fixed param ids
+PRESET_NAME_MAX = 16
+PI_STORED, PI_DIRTY, PI_YAML = 1, 2, 4      # PRESET_INFO flags
+PRESET_ALL = 0                              # PRESET_RESET slot 0 = every slot; PRESET_INFO slot 0 = the active one
+
+
+def check_preset_name(name):
+    """A preset name: 0..16 printable ASCII characters (0x20..0x7E). Returns the bytes; raises ValueError."""
+    try:
+        b = name.encode("ascii")
+    except UnicodeEncodeError:
+        b = None
+    if b is None or len(b) > PRESET_NAME_MAX or any(not 0x20 <= c <= 0x7E for c in b):
+        raise ValueError(f"preset name {name!r}: 0..{PRESET_NAME_MAX} printable ASCII characters")
+    return b
+
+
+def enc_preset_name(name):
+    """'string' (sysex.md 2): u8 len (0..16) + 7-bit ASCII."""
+    b = check_preset_name(name)
+    return bytes([len(b)]) + b
+
+
+def dec_preset_name(data, what="name"):
+    """'string' at the start of data -> (str, bytes used). Raises ProtocolError (length only; the device
+    checks the characters)."""
+    if not data:
+        raise ProtocolError(f"{what}: missing length byte")
+    n = data[0]
+    if n > PRESET_NAME_MAX:
+        raise ProtocolError(f"{what}: length {n} > {PRESET_NAME_MAX}")
+    if len(data) < 1 + n:
+        raise ProtocolError(f"{what}: length {n} but {len(data) - 1} bytes follow")
+    if any(c & 0x80 for c in data[1:1 + n]):
+        raise ProtocolError(f"{what}: byte with bit 7 set")
+    return bytes(data[1:1 + n]).decode("ascii"), 1 + n
+
+
+def req_preset_info(slot=0):
+    return u14(slot)
+
+
+def req_preset_save(slot):
+    return u14(slot)
+
+
+def req_preset_reset(slot=PRESET_ALL):
+    return u14(slot)
+
+
+def req_preset_name(slot, name):
+    return u14(slot) + enc_preset_name(name)
+
+
+def dec_preset_name_req(payload):
+    """Device side: PRESET_NAME request -> (slot, name). Raises ProtocolError on a bad layout."""
+    if len(payload) < 3:
+        raise ProtocolError("PRESET_NAME request too short")
+    name, used = dec_preset_name(payload[2:])
+    if 2 + used != len(payload):
+        raise ProtocolError("PRESET_NAME request has bytes after the name")
+    return dec_u14(payload[0:2]), name
+
+
+@dataclass
+class PresetInfo:
+    slot: int
+    count: int
+    active: int
+    flags: int
+    revision: int            # the firmware's presets revision
+    stored_revision: int     # the revision the slot's stored edits were saved under (0 = none stored)
+    program: int             # Program Change sent on select, -1 = none
+    name: str
+
+    @property
+    def stored(self):
+        return bool(self.flags & PI_STORED)
+
+    @property
+    def dirty(self):
+        return bool(self.flags & PI_DIRTY)
+
+    @property
+    def yaml(self):
+        return bool(self.flags & PI_YAML)
+
+    @property
+    def is_active(self):
+        return self.slot == self.active
+
+    @property
+    def stale(self):
+        """Stored edits made under another presets revision (sysex.md 4.5, after an upload)."""
+        return self.stored and self.stored_revision != self.revision
+
+
+PRESET_INFO_FIXED = 1 + 2 + 2 + 2 + 1 + 2 + 2 + 5    # status .. program; the name follows
+
+
+def parse_preset_info(payload):
+    """PRESET_INFO reply payload (status OK) -> PresetInfo."""
+    if len(payload) < PRESET_INFO_FIXED + 1 or payload[0] != OK:
+        raise ProtocolError("PRESET_INFO reply too short or not OK")
+    p = payload
+    name, used = dec_preset_name(p[PRESET_INFO_FIXED:], "PRESET_INFO name")
+    if PRESET_INFO_FIXED + used != len(p):
+        raise ProtocolError("PRESET_INFO reply has bytes after the name")
+    return PresetInfo(slot=dec_u14(p[1:3]), count=dec_u14(p[3:5]), active=dec_u14(p[5:7]), flags=p[7],
+                      revision=dec_u14(p[8:10]), stored_revision=dec_u14(p[10:12]), program=dec_s32(p[12:17]),
+                      name=name)
+
+
+def build_preset_info_reply(info, status=OK):
+    """Device side; used by tests, the simulator and the vectors."""
+    if status != OK:
+        return bytes([status])
+    return (bytes([OK]) + u14(info.slot) + u14(info.count) + u14(info.active) + bytes([info.flags]) +
+            u14(info.revision) + u14(info.stored_revision) + s32(info.program) + enc_preset_name(info.name))
+
+
+@dataclass
+class PresetChanged:
+    slot: int
+    dirty: int
+
+    def __str__(self):
+        return f"PRESET_CHANGED preset {self.slot}" + (" (unsaved edits)" if self.dirty else "")
+
+
+def parse_preset_changed(payload):
+    if len(payload) != 3:
+        raise ProtocolError(f"PRESET_CHANGED payload must be 3 bytes, got {len(payload)}")
+    return PresetChanged(dec_u14(payload[0:2]), payload[2])
+
+
+def build_preset_changed(slot, dirty):
+    return u14(slot) + bytes([1 if dirty else 0])
+
+
 # ---- schema (sysex.md 4.4) ----
 
 SCHEMA_VERSION = 1
 T_INT, T_BOOL, T_ENUM, T_NOTE = 0, 1, 2, 3
 TYPE_NAMES = {T_INT: "int", T_BOOL: "bool", T_ENUM: "enum", T_NOTE: "note"}
-F_READ_ONLY, F_VOLATILE, F_PER_INDEX_DEFAULT, F_INDEX_LABELS, F_HAS_UNIT = 1, 2, 4, 8, 16
+F_READ_ONLY, F_VOLATILE, F_PER_INDEX_DEFAULT, F_INDEX_LABELS, F_HAS_UNIT, F_PRESET = 1, 2, 4, 8, 16, 32
 FLAG_NAMES = ((F_READ_ONLY, "read-only"), (F_VOLATILE, "volatile"), (F_PER_INDEX_DEFAULT, "per-index-default"),
-              (F_INDEX_LABELS, "index-labels"), (F_HAS_UNIT, "unit"))
+              (F_INDEX_LABELS, "index-labels"), (F_HAS_UNIT, "unit"), (F_PRESET, "preset"))
 MAX_COUNT = 0xFFFF
 MAX_STRING = 63
 
@@ -525,6 +676,11 @@ class Param:
     @property
     def volatile(self):
         return bool(self.flags & F_VOLATILE)
+
+    @property
+    def per_preset(self):
+        """PRESET flag (sysex.md 4.4 bit 5): one value per preset; GET/SET_PARAM reach the active one."""
+        return bool(self.flags & F_PRESET)
 
     def default(self, index=0):
         return self.defaults[index] if len(self.defaults) > 1 else self.defaults[0]

@@ -2,6 +2,10 @@
  * settings.c: the controller's param table (the schema an editor reads,
  * protocol/sysex.md 4.4).
  *
+ * Scope (research/core/presets-design.md §1): PF_PRESET marks what each
+ * preset has its own value of, the mapping (what a control sends). The rest
+ * is global: the hardware side (velocity calibration), debug, preset.active.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_settings.h"
@@ -19,9 +23,9 @@ gm_settings_t gm_cfg;
 #define GM_VEL_SLOW_DEFAULT 1200
 #endif
 
-enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG };
+enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS };
 static const char *const groups[] = {
-    "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug",
+    "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug", "Presets",
 };
 
 #if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
@@ -37,6 +41,7 @@ static const char *const action_opts[N_ACTIONS] = {
     "None", "CC momentary", "CC toggle", "CC ramp", "Note",
     "Octave down", "Octave up", "Transpose down", "Transpose up",
     "Pitch bend down", "Pitch bend up", "Program next", "Program previous",
+    "Preset next", "Preset previous", "Preset select",
 #if GM_MCU
     "Mackie Control",
 #endif
@@ -66,22 +71,22 @@ void gm_settings_init(void)
 }
 
 static const param_def_t params[] = {
-    { .id = P_CHANNEL, .type = PT_INT, .group = G_MIDI, .count = 1,
+    { .id = P_CHANNEL, .flags = PF_PRESET, .type = PT_INT, .group = G_MIDI, .count = 1,
       .min = 1, .max = 16, .def = 1,
       .name = "midi.channel", .label = "MIDI channel", .values = &gm_cfg.channel },
-    { .id = P_TRANSPOSE, .type = PT_INT, .group = G_MIDI, .count = 1,
+    { .id = P_TRANSPOSE, .flags = PF_PRESET, .type = PT_INT, .group = G_MIDI, .count = 1,
       .min = -24, .max = 24, .def = 0, .unit = "semitones",
       .name = "midi.transpose", .label = "Transpose", .values = &gm_cfg.transpose },
-    { .id = P_OCTAVE, .type = PT_INT, .group = G_MIDI, .count = 1,
+    { .id = P_OCTAVE, .flags = PF_PRESET, .type = PT_INT, .group = G_MIDI, .count = 1,
       .min = -4, .max = 4, .def = 0,
       .name = "midi.octave", .label = "Octave", .values = &gm_cfg.octave },
 
 #if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
-    { .id = P_VEL_CURVE, .type = PT_ENUM, .group = G_VELOCITY, .count = 1,
+    { .id = P_VEL_CURVE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_VELOCITY, .count = 1,
       .min = 0, .max = 3, .def = CURVE_NORMAL, .options = curve_opts, .option_count = 4,
       .name = "velocity.curve", .label = "Velocity curve", .values = &gm_cfg.vel_curve },
 #endif
-    { .id = P_VEL_FIXED, .type = PT_INT, .group = G_VELOCITY, .count = 1,
+    { .id = P_VEL_FIXED, .flags = PF_PRESET, .type = PT_INT, .group = G_VELOCITY, .count = 1,
       .min = 1, .max = 127, .def = 100,
       .name = "velocity.fixed", .label = "Fixed velocity", .values = &gm_cfg.vel_fixed },
 #if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
@@ -94,32 +99,32 @@ static const param_def_t params[] = {
 #endif
 
 #if GM_N_BUTTONS > 0
-    { .id = P_BTN_ACTION, .type = PT_ENUM, .group = G_BUTTONS, .count = GM_N_BUTTONS,
+    { .id = P_BTN_ACTION, .flags = PF_PRESET, .type = PT_ENUM, .group = G_BUTTONS, .count = GM_N_BUTTONS,
       .min = 0, .max = N_ACTIONS - 1, .defs = gm_button_action_defaults,
       .options = action_opts, .option_count = N_ACTIONS, .index_labels = button_labels,
       .name = "button.action", .label = "Action", .values = gm_cfg.btn_action },
-    { .id = P_BTN_NUMBER, .type = PT_INT, .group = G_BUTTONS, .count = GM_N_BUTTONS,
+    { .id = P_BTN_NUMBER, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = GM_N_BUTTONS,
       .min = 0, .max = 127, .defs = gm_button_number_defaults, .index_labels = button_labels,
       .name = "button.number", .label = "CC / note number", .values = gm_cfg.btn_number },
-    { .id = P_BEND_GLIDE, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+    { .id = P_BEND_GLIDE, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 0, .max = 2000, .def = 80, .unit = "ms",
       .name = "bend.glide", .label = "Pitch bend glide", .values = &gm_cfg.bend_glide },
-    { .id = P_RAMP_TIME, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+    { .id = P_RAMP_TIME, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 0, .max = 5000, .def = 300, .unit = "ms",
       .name = "ramp.time", .label = "CC ramp time", .values = &gm_cfg.ramp_time },
 #endif
 
 #if GM_N_ANALOGS > 0
-    { .id = P_ANALOG_CC, .type = PT_INT, .group = G_ANALOG, .count = GM_N_ANALOGS,
+    { .id = P_ANALOG_CC, .flags = PF_PRESET, .type = PT_INT, .group = G_ANALOG, .count = GM_N_ANALOGS,
       .min = 0, .max = 127, .defs = gm_analog_cc_defaults, .index_labels = analog_labels,
       .name = "analog.cc", .label = "CC", .values = gm_cfg.analog_cc },
 #endif
 
 #if GM_N_ENCODERS > 0
-    { .id = P_ENC_CC, .type = PT_INT, .group = G_ENCODERS, .count = GM_N_ENCODERS,
+    { .id = P_ENC_CC, .flags = PF_PRESET, .type = PT_INT, .group = G_ENCODERS, .count = GM_N_ENCODERS,
       .min = 0, .max = 127, .defs = gm_encoder_cc_defaults, .index_labels = encoder_labels,
       .name = "encoder.cc", .label = "CC", .values = gm_cfg.enc_cc },
-    { .id = P_ENC_MODE, .type = PT_ENUM, .group = G_ENCODERS, .count = GM_N_ENCODERS,
+    { .id = P_ENC_MODE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_ENCODERS, .count = GM_N_ENCODERS,
       .min = 0, .max = 2, .defs = enc_mode_defs, .options = enc_mode_opts, .option_count = 3,
       .index_labels = encoder_labels,
       .name = "encoder.mode", .label = "Mode", .values = gm_cfg.enc_mode },
@@ -131,6 +136,19 @@ static const param_def_t params[] = {
     { .id = P_LOG_LEVEL, .type = PT_ENUM, .group = G_DEBUG, .count = 1,
       .min = 0, .max = 4, .def = 3, .options = log_opts, .option_count = 5,
       .name = "debug.log_level", .label = "Log level", .values = &gm_cfg.log_level },
+
+    { .id = P_PRESET_ACTIVE, .type = PT_INT, .group = G_PRESETS, .count = 1,
+      .min = 1, .max = GM_N_PRESETS, .def = 1,
+      .name = "preset.active", .label = "Active preset", .values = &gm_cfg.preset_active },
+#if GM_N_PRESETS > 1
+    { .id = P_PRESET_PROGRAM, .flags = PF_PRESET, .type = PT_INT, .group = G_PRESETS, .count = 1,
+      .min = -1, .max = 127, .def = -1,
+      .name = "preset.program", .label = "Program Change on select (-1 = none)",
+      .values = &gm_cfg.preset_program },
+    { .id = P_PRESET_DIRTY, .flags = PF_VOLATILE | PF_READ_ONLY, .type = PT_BOOL,
+      .group = G_PRESETS, .count = 1, .min = 0, .max = 1, .def = 0,
+      .name = "preset.dirty", .label = "Unsaved changes", .values = &gm_cfg.preset_dirty },
+#endif
 };
 
 const param_table_t app_params = {

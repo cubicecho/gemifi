@@ -133,6 +133,89 @@ def config_vectors():
     }
 
 
+def example_preset_schema():
+    """A small app schema with presets (sysex.md 4.4 flag bit 5 PRESET, 4.5 params 17..19): two buttons,
+    channel and button actions per preset, the velocity calibration global."""
+    mp = gp.make_param
+    P = gp.F_PRESET
+    labels = ["Sustain", "Edit"]
+    actions = BUTTON_ACTIONS + ["Preset next", "Preset previous", "Preset select"]   # 13, 14, 15 (MCU = 16)
+    return gp.Schema(gp.SCHEMA_VERSION, ["MIDI", "Buttons", "Presets"], [
+        mp(1, "midi.channel", gp.T_INT, 0, 1, 16, 1, "MIDI channel", flags=P),
+        mp(6, "velocity.fast", gp.T_INT, 0, 1, 1000, 20, "Velocity fast", unit="0.1 ms"),
+        mp(9, "button.action", gp.T_ENUM, 1, 0, None, [1, 13], "Button action", count=2, index_labels=labels,
+           options=actions, flags=P),
+        mp(10, "button.number", gp.T_INT, 1, 0, 127, [64, 0], "Button CC/note number", count=2,
+           index_labels=labels, flags=P),
+        mp(gp.P_PRESET_ACTIVE, "preset.active", gp.T_INT, 2, 1, 8, 1, "Active preset"),
+        mp(gp.P_PRESET_PROGRAM, "preset.program", gp.T_INT, 2, -1, 127, -1, "Program Change", flags=P),
+        mp(gp.P_PRESET_DIRTY, "preset.dirty", gp.T_BOOL, 2, 0, 1, 0, "Unsaved edits",
+           flags=gp.F_VOLATILE | gp.F_READ_ONLY),
+    ])
+
+
+def preset_vectors():
+    schema = example_preset_schema()
+    raw = gp.build_schema(schema)
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    def info(desc, seq, i):
+        fr(desc, gp.PRESET_INFO | gp.REPLY, seq, gp.build_preset_info_reply(i), status=gp.OK, slot=i.slot,
+           count=i.count, active=i.active, flags=i.flags, revision=i.revision, stored_revision=i.stored_revision,
+           program=i.program, name=i.name)
+
+    fr("PRESET_INFO request slot 0 (the active one)", gp.PRESET_INFO, 50, gp.req_preset_info(0), slot=0)
+    info("PRESET_INFO reply: slot 2 of 8, active, unsaved and stored edits, YAML preset, revision 3, "
+         "stored under 2, program 5, 'Drums'", 50,
+         gp.PresetInfo(2, 8, 2, gp.PI_STORED | gp.PI_DIRTY | gp.PI_YAML, 3, 2, 5, "Drums"))
+    fr("PRESET_INFO request slot 8", gp.PRESET_INFO, 51, gp.req_preset_info(8), slot=8)
+    info("PRESET_INFO reply: slot 8, empty slot, no stored edits, no program, 'Preset 8'", 51,
+         gp.PresetInfo(8, 8, 2, 0, 3, 0, -1, "Preset 8"))
+    info("PRESET_INFO reply: 16-character name", 52,
+         gp.PresetInfo(1, 1, 1, gp.PI_YAML, 0, 0, 127, "ABCDEFGHIJKLMNOP"))
+    info("PRESET_INFO reply: empty name", 53, gp.PresetInfo(1, 1, 1, gp.PI_STORED, 16383, 16383, 0, ""))
+    fr("PRESET_INFO reply BAD_PARAM (slot > count)", gp.PRESET_INFO | gp.REPLY, 54, bytes([gp.BAD_PARAM]),
+       status=gp.BAD_PARAM)
+    fr("SET_PARAM request preset.active (id 17) = 3: select preset 3", gp.SET_PARAM, 55,
+       gp.req_set_param(gp.P_PRESET_ACTIVE, 0, 3), id=gp.P_PRESET_ACTIVE, index=0, value=3)
+    fr("PRESET_SAVE request slot 4 (save-as)", gp.PRESET_SAVE, 56, gp.req_preset_save(4), slot=4)
+    fr("PRESET_SAVE reply OK", gp.PRESET_SAVE | gp.REPLY, 56, bytes([gp.OK]), status=gp.OK)
+    fr("PRESET_RESET request slot 0 (all)", gp.PRESET_RESET, 57, gp.req_preset_reset(0), slot=0)
+    fr("PRESET_RESET reply OK", gp.PRESET_RESET | gp.REPLY, 57, bytes([gp.OK]), status=gp.OK)
+    fr("PRESET_RESET request slot 200", gp.PRESET_RESET, 58, gp.req_preset_reset(200), slot=200)
+    fr("PRESET_RESET reply BAD_PARAM", gp.PRESET_RESET | gp.REPLY, 58, bytes([gp.BAD_PARAM]), status=gp.BAD_PARAM)
+    fr("PRESET_NAME request slot 2 'Live set'", gp.PRESET_NAME, 59, gp.req_preset_name(2, "Live set"), slot=2,
+       name="Live set")
+    fr("PRESET_NAME reply OK", gp.PRESET_NAME | gp.REPLY, 59, bytes([gp.OK]), status=gp.OK)
+    fr("PRESET_NAME request slot 2 '' (back to the YAML name)", gp.PRESET_NAME, 60, gp.req_preset_name(2, ""),
+       slot=2, name="")
+    fr("PRESET_NAME request slot 2, 17 characters (device replies BAD_VALUE)", gp.PRESET_NAME, 61,
+       gp.u14(2) + bytes([17]) + b"ABCDEFGHIJKLMNOPQ", slot=2, name="ABCDEFGHIJKLMNOPQ")
+    fr("PRESET_NAME reply BAD_VALUE", gp.PRESET_NAME | gp.REPLY, 61, bytes([gp.BAD_VALUE]), status=gp.BAD_VALUE)
+    fr("PRESET_CHANGED slot 3, clean", gp.PRESET_CHANGED, 70, gp.build_preset_changed(3, 0), slot=3, dirty=0)
+    fr("PRESET_CHANGED slot 3, unsaved edits", gp.PRESET_CHANGED, 71, gp.build_preset_changed(3, 1), slot=3, dirty=1)
+    return {
+        "_comment": [
+            "Presets (sysex.md 4.5): PRESET_INFO 0x0B, PRESET_SAVE 0x0C, PRESET_RESET 0x0D, PRESET_NAME 0x0E,",
+            "PRESET_CHANGED 0x63; select = SET_PARAM preset.active (id 17). HELLO caps bit 5 = presets.",
+            "PRESET_INFO reply: status, slot u14, count u14, active u14, flags (1 stored edits, 2 dirty, 4 YAML),",
+            "revision u14, stored_revision u14, program s32 (-1 = none), name string (u8 len 0..16 + ASCII).",
+            "schema: an example with the PRESET flag (bit 5 = 32) on per-preset params, and params 17..19.",
+        ],
+        "cap_presets": gp.CAP_PRESETS,
+        "flag_preset": gp.F_PRESET,
+        "schema": {"desc": "example app schema with presets (v1)", "raw": hx(raw), "size": len(raw),
+                   "parsed": schema.to_json()},
+        "frames": frames,
+    }
+
+
 def build():
     v = {"_comment": [
         "gemifi SysEx protocol v1 test vectors, generated by tools/host/make_test_vectors.py from the",
@@ -198,6 +281,7 @@ def build():
                    "proto_version": h.proto_version, "reserved": [h.reserved0, h.reserved1]},
     }
     v["config"] = config_vectors()
+    v["presets"] = preset_vectors()
     return v
 
 

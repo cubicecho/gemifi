@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gemifi builder: device YAML -> generated C tables -> firmware image (ESPHome style).
 
-  gemifi_build.py validate <device.yaml>
+  gemifi_build.py validate <device.yaml> [<device.yaml> ...]
   gemifi_build.py generate <device.yaml> -o <dir>
   gemifi_build.py build <device.yaml> [-o <out dir>]     (default build/devices/<name>/)
   gemifi_build.py presets
@@ -72,6 +72,8 @@ def summary(dev):
             parts.append(f"{len(lst)} {n}{'s' if len(lst) != 1 and n != 'analog' else ''}")
     if dev.matrix:
         parts.append(f"{dev.matrix.keys}-key {dev.matrix.kind} matrix")
+    if dev.presets_given and dev.budget:
+        parts.append("presets: " + gd.budget_text(dev.budget))
     return ", ".join(parts)
 
 
@@ -291,8 +293,8 @@ def new_device(name, preset, directory, force=False):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("validate", help="check a device YAML")
-    s.add_argument("device")
+    s = sub.add_parser("validate", help="check device YAMLs")
+    s.add_argument("device", nargs="+")
     s = sub.add_parser("generate", help="write gm_device_config.h/.c")
     s.add_argument("device")
     s.add_argument("-o", "--out", required=True, help="output directory")
@@ -329,7 +331,8 @@ def main(argv=None):
     need_yaml()
 
     if a.cmd == "validate":
-        return 0 if check(a.device) else 1
+        bad = [p for p in a.device if check(p) is None]
+        return 1 if bad else 0
     if a.cmd == "generate":
         dev = check(a.device)
         if dev is None:

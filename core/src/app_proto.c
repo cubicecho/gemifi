@@ -8,11 +8,14 @@
 #include "gm_device.h"
 #include "gsx.h"
 #include "params.h"
-#include "config_store.h"
+#include "gm_presets.h"
+#include "gm_settings.h"
 
 #define REBOOT_DELAY_MS 50u
 #define SCHEMA_WINDOW   64u
 #define PARAMS_RUN      16u
+/* A whole frame with an n-byte payload: F0, body, F7. */
+#define FRAME(n)        (GSX_OVERHEAD + 2u + (n))
 
 uint8_t app_log_limit = LOG_DEBUG + 1;
 
@@ -62,7 +65,7 @@ static uint16_t caps(void)
 {
     uint16_t c = GSX_CAP_LOG | GSX_CAP_EVENT;
     if (has_config)
-        c |= GSX_CAP_CONFIG;
+        c |= GSX_CAP_CONFIG | GSX_CAP_PRESETS;
     if (fw)
         c |= GSX_CAP_FW_UPLOAD;
     return c;
@@ -74,7 +77,7 @@ void app_log(uint8_t level, const char *a, const char *b)
 {
     if (level >= app_log_limit)
         return;
-    uint8_t buf[GSX_OVERHEAD + 1 + 4 + 64];
+    uint8_t buf[FRAME(1 + 4 + 64)];
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_LOG, unsol_seq++ & 0x7F);
     gsx_put(&t, level);
@@ -99,7 +102,7 @@ void app_log_hex(uint8_t level, const char *a, uint32_t v)
 
 void app_event(uint8_t type, uint32_t index, uint32_t value)
 {
-    uint8_t buf[GSX_OVERHEAD + 1 + 2 + 2 + 4];
+    uint8_t buf[FRAME(1 + 2 + 2 + 4)];
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_EVENT, unsol_seq++ & 0x7F);
     gsx_put(&t, type);
@@ -114,12 +117,22 @@ void app_param_changed(uint16_t id, uint16_t index)
     int32_t v;
     if (params_get(id, index, &v) != GSX_OK)
         return;
-    uint8_t buf[GSX_OVERHEAD + 2 + 2 + 5];
+    uint8_t buf[FRAME(2 + 2 + 5)];
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_PARAM_CHANGED, unsol_seq++ & 0x7F);
     gsx_put_u(&t, id, 2);
     gsx_put_u(&t, index, 2);
     gsx_put_u(&t, (uint32_t)v, 5);
+    hal_midi_send(buf, gsx_tx_end(&t));
+}
+
+void app_preset_changed(uint32_t slot, uint32_t dirty)
+{
+    uint8_t buf[FRAME(2 + 1)];
+    gsx_tx_t t;
+    gsx_tx_begin(&t, buf, GSX_MSG_PRESET_CHANGED, unsol_seq++ & 0x7F);
+    gsx_put_u(&t, slot, 2);
+    gsx_put(&t, (uint8_t)(dirty ? 1 : 0));
     hal_midi_send(buf, gsx_tx_end(&t));
 }
 
@@ -196,6 +209,7 @@ static int cmd_set_param(const gsx_frame_t *f, gsx_tx_t *t)
     int st = params_set(id, index, v, 1);
     if (st != GSX_OK)
         return st;
+    presets_host_set(id, index);
     app_on_param_set(id, index);
     gsx_put_u(t, id, 2);
     gsx_put_u(t, index, 2);
@@ -261,12 +275,64 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
     }
     for (uint32_t i = 0; i < n; i++) {
         d->values[index + i] = (int32_t)gsx_get_u(vp + 5 * i, 5);
+        presets_host_set(id, (uint16_t)(index + i));
         app_on_param_set(id, (uint16_t)(index + i));
     }
     gsx_put_u(t, id, 2);
     gsx_put_u(t, index, 2);
     gsx_put_u(t, n, 2);
     return GSX_OK;
+}
+
+/* ---- presets (research/core/presets-design.md §10.4) -------------------- */
+
+static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
+{
+    if (f->len < 2)
+        return GSX_BAD_LEN;
+    uint32_t slot = gsx_get_u(f->payload, 2);
+    switch (f->cmd) {
+    case GSX_CMD_PRESET_INFO: {
+        if (f->len != 2)
+            return GSX_BAD_LEN;
+        preset_info_t in;
+        int st = presets_info(slot, &in);
+        if (st != GSX_OK)
+            return st;
+        gsx_put_u(t, in.slot, 2);
+        gsx_put_u(t, GM_N_PRESETS, 2);
+        gsx_put_u(t, presets_active(), 2);
+        gsx_put(t, in.flags);
+        gsx_put_u(t, GM_PRESETS_REVISION, 2);
+        gsx_put_u(t, in.stored_revision, 2);
+        gsx_put_u(t, (uint32_t)in.program, 5);
+        uint32_t n = 0;
+        while (in.name[n])
+            n++;
+        gsx_put(t, (uint8_t)n);
+        for (uint32_t i = 0; i < n; i++)
+            gsx_put(t, (uint8_t)in.name[i]);
+        return GSX_OK;
+    }
+    case GSX_CMD_PRESET_SAVE:
+        if (f->len != 2)
+            return GSX_BAD_LEN;
+        return slot ? presets_save(slot) : GSX_BAD_PARAM;
+    case GSX_CMD_PRESET_RESET:
+        if (f->len != 2)
+            return GSX_BAD_LEN;
+        return presets_reset(slot);
+    default: {                              /* PRESET_NAME */
+        if (f->len < 3)
+            return GSX_BAD_LEN;
+        uint32_t n = f->payload[2];
+        if (f->len != 3u + n)
+            return GSX_BAD_LEN;
+        if (slot < 1u || slot > GM_N_PRESETS)
+            return GSX_BAD_PARAM;
+        return presets_rename(slot, (const char *)f->payload + 3, n);
+    }
+    }
 }
 
 /* ---- firmware upload in the app (A/B platforms) ----------------------- */
@@ -360,14 +426,19 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_COMMIT:
         if (f->len != 0)
             return GSX_BAD_LEN;
-        return config_store_commit();
+        return presets_commit();
     case GSX_CMD_FACTORY_RESET: {
         if (f->len != 0)
             return GSX_BAD_LEN;
-        params_defaults();
+        int st = presets_factory_reset();
         app_on_param_set(0, 0);
-        return config_store_erase();
+        return st;
     }
+    case GSX_CMD_PRESET_INFO:
+    case GSX_CMD_PRESET_SAVE:
+    case GSX_CMD_PRESET_RESET:
+    case GSX_CMD_PRESET_NAME:
+        return cmd_preset(f, t);
     }
     return GSX_BAD_CMD;
 }

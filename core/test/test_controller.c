@@ -1,8 +1,8 @@
 /*
  * test_controller.c: host test of the core runtime (controller, params,
- * app_proto, settings, vpin) with the Keystation device config, a simulated
- * HAL (pins, key matrix, ADC, MIDI out) and the NUC1xx data-flash profile
- * store running on simulated flash.
+ * app_proto, settings, vpin, presets) with the Keystation device config
+ * (and its presets), a simulated HAL (pins, key matrix, ADC, MIDI out) and a
+ * RAM config store (fake_config_store.c).
  *
  * Writes the schema blob to argv[1] (if given) so the Python and web
  * parsers can be checked against the firmware's own serializer.
@@ -20,9 +20,9 @@
 #include "app_proto.h"
 #include "params.h"
 #include "config_store.h"
-#include "fmc.h"
+#include "gm_presets.h"
+#include "fake_config_store.h"
 #include "gsx.h"
-#include "nuc1xx.h"
 
 static int fails, checks;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -103,38 +103,6 @@ static jmp_buf reboot_jb;
 static int reboot_to;
 void hal_reboot(int to_bootloader) { reboot_to = to_bootloader; longjmp(reboot_jb, 1); }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
-
-/* data flash, for platform/nuvoton-nuc1xx/src/config_store.c */
-static uint8_t dflash[FLASH_DATA_SIZE];
-static int erases;
-void fmc_open(void) {}
-uint32_t fmc_read(uint32_t a)
-{
-    uint32_t w;
-    if (a < FLASH_DATA_BASE || a + 4 > FLASH_DATA_BASE + FLASH_DATA_SIZE)
-        return 0xFFFFFFFFu;
-    memcpy(&w, dflash + (a - FLASH_DATA_BASE), 4);
-    return w;
-}
-int fmc_erase_page(uint32_t a)
-{
-    if (a < FLASH_DATA_BASE || a >= FLASH_DATA_BASE + FLASH_DATA_SIZE || (a & 511))
-        return -1;
-    memset(dflash + (a - FLASH_DATA_BASE), 0xFF, 512);
-    erases++;
-    return 0;
-}
-int fmc_program(uint32_t a, uint32_t w)
-{
-    if (a < FLASH_DATA_BASE || a + 4 > FLASH_DATA_BASE + FLASH_DATA_SIZE || (a & 3))
-        return -1;
-    uint32_t o;
-    memcpy(&o, dflash + (a - FLASH_DATA_BASE), 4);
-    o &= w;                          /* flash can only clear bits */
-    memcpy(dflash + (a - FLASH_DATA_BASE), &o, 4);
-    return 0;
-}
-int fmc_read_uid(uint32_t u[3]) { uint8_t b[12]; hal_uid(b); memcpy(u, b, 12); return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -290,11 +258,290 @@ static void boot(void)
     out_n = 0;
 }
 
+/* ---- presets ------------------------------------------------------------ */
+
+static int preset_cmd(uint8_t cmd, uint32_t slot, int *pl)
+{
+    uint8_t p[2];
+    put_u(p, slot, 2);
+    return request(cmd, p, 2, pl);
+}
+
+static int preset_name(uint32_t slot, const char *name)
+{
+    uint8_t p[64];
+    int n = put_u(p, slot, 2);
+    int len = (int)strlen(name);
+    p[n++] = (uint8_t)len;
+    memcpy(p + n, name, (size_t)len);
+    return request(GSX_CMD_PRESET_NAME, p, n + len, 0);
+}
+
+typedef struct {
+    int slot, count, active, flags, revision, stored_revision, program;
+    char name[20];
+} pinfo_t;
+
+static int preset_info(uint32_t slot, pinfo_t *in)
+{
+    int pl;
+    int st = preset_cmd(GSX_CMD_PRESET_INFO, slot, &pl);
+    if (st != GSX_OK)
+        return st;
+    const uint8_t *q = out + pl;
+    in->slot = (int)gsx_get_u(q, 2);
+    in->count = (int)gsx_get_u(q + 2, 2);
+    in->active = (int)gsx_get_u(q + 4, 2);
+    in->flags = q[6];
+    in->revision = (int)gsx_get_u(q + 7, 2);
+    in->stored_revision = (int)gsx_get_u(q + 9, 2);
+    in->program = (int32_t)gsx_get_u(q + 11, 5);
+    int n = q[16];
+    memcpy(in->name, q + 17, (size_t)n);
+    in->name[n] = 0;
+    return GSX_OK;
+}
+
+/* PRESET_CHANGED in the output: 1 and its slot/dirty. */
+static int preset_changed_msg(int *slot, int *dirty)
+{
+    int p = find_sysex(GSX_MSG_PRESET_CHANGED, 0);
+    if (p < 0)
+        return 0;
+    *slot = (int)gsx_get_u(out + p, 2);
+    *dirty = out[p + 2];
+    return 1;
+}
+
+static int has_bytes(const uint8_t *b, int n)
+{
+    for (int i = 0; i + n <= out_n; i++)
+        if (!memcmp(out + i, b, (size_t)n))
+            return 1;
+    return 0;
+}
+
+static void test_presets(void)
+{
+    int d1, d2, slot, dirty;
+    int32_t v;
+    const param_def_t *act = params_find(P_BTN_ACTION);
+
+    /* schema: actions 0..15 on a device without mcu:, scope flags */
+    CHECK(act->option_count == 16 && act->max == 15 && ACT_PRESET_SELECT == 15 && ACT_MCU == 16,
+          "button.action options 0..15 (got %d)", act->option_count);
+    CHECK((act->flags & PF_PRESET) && (params_find(P_CHANNEL)->flags & PF_PRESET) &&
+          (params_find(P_PRESET_PROGRAM)->flags & PF_PRESET) &&
+          !(params_find(P_VEL_FAST)->flags & PF_PRESET) &&
+          !(params_find(P_PRESET_ACTIVE)->flags & PF_PRESET) &&
+          !(params_find(P_LOG_LEVEL)->flags & PF_PRESET), "PF_PRESET scope");
+    CHECK(params_find(P_PRESET_ACTIVE)->max == GM_N_PRESETS && GM_N_PRESETS == 8, "preset.active 1..8");
+    CHECK(set_param(P_PRESET_DIRTY, 0, 1) == GSX_BAD_PARAM, "preset.dirty is read-only");
+    CHECK(gm_cfg.preset_active == 1 && fake_cs_count(0) == -1, "slot 1 after reset, nothing stored");
+
+    /* switch releases held notes, CC-momentary, then loads slot 2 (Drums) */
+    press_key(0, 500);
+    button(0, 1);                    /* sustain held: CC 64 127 */
+    out_n = 0;
+    CHECK(set_param(P_PRESET_ACTIVE, 0, 2) == GSX_OK, "SET preset.active 2");
+    CHECK(find_msg(0x80, &d1, 0) && d1 == 48, "switch: note off 48");
+    CHECK(find_msg(0xB0, &d1, &d2) && d1 == 64 && d2 == 0, "switch: sustain released");
+    CHECK(gm_cfg.channel == 10 && gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_action[0] == ACT_NOTE &&
+          gm_cfg.btn_number[0] == 36 && gm_cfg.btn_number[1] == 38, "slot 2 YAML values");
+    CHECK(preset_changed_msg(&slot, &dirty) && slot == 2 && dirty == 0, "PRESET_CHANGED 2");
+    CHECK(find_sysex(GSX_MSG_PARAM_CHANGED, 0) < 0, "no PARAM_CHANGED for the host's own switch");
+    CHECK(count_msgs(0xC0) == 0, "no program change (none set)");
+    release_key(0);
+    CHECK(count_msgs(0x80) == 0, "held key's release: nothing more");
+    out_n = 0;
+    button(0, 0);
+    CHECK(out_n == 0 || (count_msgs(0x80) == 0 && count_msgs(0x90) == 0 && count_msgs(0xB0) == 0),
+          "held sustain's release after the switch is silent");
+    out_n = 0;
+    button(0, 1);
+    CHECK(find_msg(0x99, &d1, 0) && d1 == 36, "sustain now plays note 36 on channel 10");
+    button(0, 0);
+    CHECK(find_msg(0x89, &d1, 0) && d1 == 36, "and its note off");
+    CHECK(set_param(P_PRESET_ACTIVE, 0, 9) == GSX_BAD_VALUE, "preset.active 9 -> BAD_VALUE");
+    set_param(P_CHANNEL, 0, 4);
+    out_n = 0;
+    CHECK(set_param(P_PRESET_ACTIVE, 0, 2) == GSX_OK && gm_cfg.channel == 10 && gm_cfg.preset_dirty == 0 &&
+          preset_changed_msg(&slot, &dirty) && slot == 2 && dirty == 0,
+          "selecting the active slot reloads it (edits dropped)");
+
+    /* octave: live value, reset by the switch to the preset's value */
+    button(3, 1); button(3, 0);
+    CHECK(gm_cfg.octave == 1 && gm_cfg.preset_dirty == 0, "oct+ on slot 2 (not a host edit)");
+    out_n = 0;
+    set_param(P_PRESET_ACTIVE, 0, 1);
+    CHECK(gm_cfg.octave == 0 && gm_cfg.channel == 1 && gm_cfg.btn_action[0] == ACT_CC_MOMENTARY,
+          "back to slot 1: octave 0, defaults");
+
+    /* dirty: host edits of per-preset params only */
+    CHECK(set_param(P_VEL_FAST, 0, 30) == GSX_OK && gm_cfg.preset_dirty == 0, "global edit: not dirty");
+    out_n = 0;
+    CHECK(set_param(P_CHANNEL, 0, 3) == GSX_OK && gm_cfg.preset_dirty == 1, "channel edit: dirty");
+    CHECK(preset_changed_msg(&slot, &dirty) && slot == 1 && dirty == 1, "PRESET_CHANGED dirty");
+    CHECK(get_param(P_PRESET_DIRTY, 0, &v) == GSX_OK && v == 1, "GET preset.dirty");
+    out_n = 0;
+    set_param(P_BTN_NUMBER, 6, 21);
+    CHECK(find_sysex(GSX_MSG_PRESET_CHANGED, 0) < 0, "dirty already set: no second PRESET_CHANGED");
+
+    /* COMMIT: globals in slot 0, slot 1's diff vs its YAML values */
+    out_n = 0;
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && gm_cfg.preset_dirty == 0, "COMMIT clears dirty");
+    CHECK(fake_cs_count(1) == 2 && fake_cs_get(1, P_CHANNEL, 0, &v) && v == 3 &&
+          fake_cs_get(1, P_BTN_NUMBER, 6, &v) && v == 21, "slot 1 record = 2 changed values (%d)",
+          fake_cs_count(1));
+    CHECK(fake_cs_get(0, P_VEL_FAST, 0, &v) && v == 30 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) &&
+          v == 1 && !fake_cs_get(0, P_CHANNEL, 0, 0) && !fake_cs_get(0, P_PRESET_DIRTY, 0, 0),
+          "slot 0 = globals (incl. preset.active, not dirty)");
+    CHECK(fake_cs_revision(1) == GM_PRESETS_REVISION, "record revision");
+
+    /* slot 2: a value equal to its YAML value is not stored */
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    set_param(P_CHANNEL, 0, 5);
+    set_param(P_BTN_NUMBER, 0, 40);
+    set_param(P_PRESET_PROGRAM, 0, 5);
+    set_param(P_CHANNEL, 0, 10);     /* back to the YAML value */
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "COMMIT slot 2");
+    CHECK(fake_cs_count(2) == 2 && fake_cs_get(2, P_BTN_NUMBER, 0, &v) && v == 40 &&
+          fake_cs_get(2, P_PRESET_PROGRAM, 0, &v) && v == 5 && !fake_cs_get(2, P_CHANNEL, 0, 0),
+          "slot 2 record: button.number[0], preset.program (got %d)", fake_cs_count(2));
+
+    /* boot: globals, then defaults -> YAML -> stored for the active slot */
+    gm_cfg.vel_fast = 99;
+    boot();
+    CHECK(gm_cfg.preset_active == 2 && gm_cfg.vel_fast == 30 && gm_cfg.channel == 10 &&
+          gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_number[0] == 40 && gm_cfg.btn_number[1] == 38 &&
+          gm_cfg.btn_number[6] == 1 && gm_cfg.preset_program == 5 && gm_cfg.preset_dirty == 0,
+          "boot loads slot 2: YAML + stored, globals");
+    CHECK(count_msgs(0xC0) == 0, "no program change at boot");
+    gm_init(0x00010000u, 1);         /* safe mode: store ignored */
+    CHECK(gm_cfg.preset_active == 1 && gm_cfg.vel_fast == GM_VEL_FAST_DEFAULT && gm_cfg.channel == 1,
+          "safe mode: defaults, slot 1");
+    boot();
+
+    /* unsaved edits are dropped by a switch; Program Change on select */
+    set_param(P_BTN_NUMBER, 0, 50);
+    set_param(P_PRESET_ACTIVE, 0, 1);
+    CHECK(gm_cfg.channel == 3 && gm_cfg.btn_number[6] == 21, "slot 1 with its stored values");
+    out_n = 0;
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    CHECK(gm_cfg.btn_number[0] == 40, "slot 2 edit discarded");
+    CHECK(has_bytes((const uint8_t[]){ 0xC9, 5 }, 2), "program change 5 on channel 10");
+
+    /* actions 13-15 from buttons; PARAM_CHANGED, debounced preset.active */
+    set_param(P_BTN_ACTION, 1, ACT_PRESET_NEXT);     /* edit button */
+    out_n = 0;
+    int w0 = fake_cs_writes;
+    button(1, 1);
+    CHECK(gm_cfg.preset_active == 3 && gm_cfg.btn_action[1] == ACT_CC_MOMENTARY && gm_cfg.analog_cc[0] == 11,
+          "preset_next -> slot 3 (DAW)");
+    CHECK(find_sysex(GSX_MSG_PARAM_CHANGED, 0) >= 0 && preset_changed_msg(&slot, &dirty) && slot == 3,
+          "PARAM_CHANGED + PRESET_CHANGED from the device");
+    out_n = 0;
+    button(1, 0);
+    CHECK(count_msgs(0xB0) == 0, "held preset button's release: no CC 81");
+    run_ms(5000);
+    CHECK(fake_cs_writes == w0, "preset.active not written yet");
+    run_ms(5100);
+    CHECK(fake_cs_writes == w0 + 1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 3 &&
+          fake_cs_get(0, P_VEL_FAST, 0, &v) && v == 30, "preset.active stored after 10 s (globals kept)");
+    run_ms(11000);
+    CHECK(fake_cs_writes == w0 + 1, "written once");
+    set_param(P_BTN_ACTION, 2, ACT_PRESET_PREV);
+    set_param(P_BTN_ACTION, 3, ACT_PRESET_SELECT);
+    set_param(P_BTN_NUMBER, 3, 1);
+    button(2, 1); button(2, 0);
+    CHECK(gm_cfg.preset_active == 2, "preset_prev -> 2");
+    set_param(P_PRESET_ACTIVE, 0, 1);
+    set_param(P_BTN_ACTION, 2, ACT_PRESET_PREV);
+    button(2, 1); button(2, 0);
+    CHECK(gm_cfg.preset_active == 8, "preset_prev wraps 1 -> 8");
+    set_param(P_BTN_ACTION, 3, ACT_PRESET_SELECT);
+    set_param(P_BTN_NUMBER, 3, 2);
+    button(3, 1); button(3, 0);
+    CHECK(gm_cfg.preset_active == 2, "preset_select 2");
+    set_param(P_PRESET_ACTIVE, 0, 8);
+    set_param(P_BTN_ACTION, 0, ACT_PRESET_SELECT);
+    set_param(P_BTN_NUMBER, 0, 9);
+    button(0, 1); button(0, 0);
+    CHECK(gm_cfg.preset_active == 8, "preset_select 9: ignored");
+    set_param(P_BTN_ACTION, 0, ACT_PRESET_NEXT);
+    button(0, 1); button(0, 0);
+    CHECK(gm_cfg.preset_active == 1, "preset_next wraps 8 -> 1");
+
+    /* PRESET_INFO */
+    pinfo_t in;
+    CHECK(preset_info(0, &in) == GSX_OK && in.slot == 1 && in.count == 8 && in.active == 1 &&
+          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML) && !strcmp(in.name, "Default") &&
+          in.program == -1, "PRESET_INFO 0 = active (flags %d, %s)", in.flags, in.name);
+    CHECK(preset_info(2, &in) == GSX_OK && in.program == 5 && !strcmp(in.name, "Drums") &&
+          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML), "PRESET_INFO 2");
+    CHECK(preset_info(4, &in) == GSX_OK && in.flags == 0 && !strcmp(in.name, "Preset 4") &&
+          in.stored_revision == 0, "PRESET_INFO 4: empty slot (flags %d)", in.flags);
+    CHECK(preset_info(9, &in) == GSX_BAD_PARAM, "PRESET_INFO 9 -> BAD_PARAM");
+    set_param(P_CHANNEL, 0, 4);
+    CHECK(preset_info(1, &in) == GSX_OK && (in.flags & PRESET_INFO_DIRTY), "dirty flag");
+
+    /* PRESET_NAME */
+    CHECK(preset_name(4, "Lead") == GSX_OK && preset_info(4, &in) == GSX_OK && !strcmp(in.name, "Lead") &&
+          in.flags == PRESET_INFO_STORED && fake_cs_count(4) == 0, "rename slot 4");
+    CHECK(preset_name(2, "Kit") == GSX_OK && fake_cs_count(2) == 2 && !strcmp(fake_cs_name(2), "Kit"),
+          "rename keeps the stored values");
+    CHECK(preset_name(4, "seventeen chars!!") == GSX_BAD_VALUE, "name > 16 -> BAD_VALUE");
+    CHECK(preset_name(4, "~Pad 2!") == GSX_OK, "printable ASCII");
+    {
+        uint8_t p[8];
+        int n = put_u(p, 4, 2);
+        p[n++] = 1;
+        p[n++] = 0x09;
+        CHECK(request(GSX_CMD_PRESET_NAME, p, n, 0) == GSX_BAD_VALUE, "control char -> BAD_VALUE");
+        p[2] = 3;
+        CHECK(request(GSX_CMD_PRESET_NAME, p, n, 0) == GSX_BAD_LEN, "name length mismatch -> BAD_LEN");
+    }
+    CHECK(preset_name(0, "x") == GSX_BAD_PARAM && preset_name(9, "x") == GSX_BAD_PARAM, "bad slot");
+    CHECK(preset_name(4, "") == GSX_OK && fake_cs_count(4) == -1 && preset_info(4, &in) == GSX_OK &&
+          !strcmp(in.name, "Preset 4"), "empty name: back to the YAML name");
+
+    /* PRESET_SAVE (save as) from slot 3 with edits */
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    set_param(P_ANALOG_CC, 0, 12);
+    out_n = 0;
+    CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 5, 0) == GSX_OK, "PRESET_SAVE 5");
+    CHECK(gm_cfg.preset_active == 5 && gm_cfg.preset_dirty == 0 && preset_changed_msg(&slot, &dirty) &&
+          slot == 5 && dirty == 0, "now on slot 5, clean");
+    CHECK(fake_cs_get(5, P_ANALOG_CC, 0, &v) && v == 12 && fake_cs_get(5, P_BTN_ACTION, 1, &v) &&
+          v == ACT_CC_MOMENTARY && fake_cs_count(3) == -1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 5,
+          "slot 5 = DAW + edit as a diff vs defaults; slot 3 untouched; active stored");
+    CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 0, 0) == GSX_BAD_PARAM &&
+          preset_cmd(GSX_CMD_PRESET_SAVE, 9, 0) == GSX_BAD_PARAM, "PRESET_SAVE bad slot");
+
+    /* PRESET_RESET */
+    out_n = 0;
+    CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 5, 0) == GSX_OK && fake_cs_count(5) == -1, "PRESET_RESET 5");
+    CHECK(gm_cfg.analog_cc[0] == 7 && gm_cfg.btn_action[1] == ACT_CC_TOGGLE, "active slot 5 reloaded");
+    CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 9, 0) == GSX_BAD_PARAM, "PRESET_RESET 9");
+    CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 0, 0) == GSX_OK && fake_cs_count(1) == -1 &&
+          fake_cs_count(2) == -1 && fake_cs_count(0) >= 0, "PRESET_RESET 0: all presets, not the globals");
+
+    /* FACTORY_RESET: store erased, slot 1 */
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.preset_active == 1 &&
+          gm_cfg.vel_fast == GM_VEL_FAST_DEFAULT && fake_cs_count(0) == -1, "FACTORY_RESET");
+
+    /* a failing store: COMMIT reports it, dirty stays */
+    set_param(P_CHANNEL, 0, 2);
+    fake_cs_fail = 1;
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_FLASH_ERR && gm_cfg.preset_dirty == 1, "COMMIT flash error");
+    fake_cs_fail = 0;
+    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+}
+
 /* ---- tests ------------------------------------------------------------ */
 
 int main(int argc, char **argv)
 {
-    memset(dflash, 0xFF, sizeof dflash);
     slow_cols = getenv("GM_TEST_SLOW_COLS") != NULL;
     printf("matrix scan: %s column path\n", slow_cols ? "per-pin" : "fast (port runs)");
     for (int i = 1; i <= 7; i++)
@@ -529,38 +776,13 @@ int main(int argc, char **argv)
         CHECK(gm_cfg.octave == 0 && find_sysex(GSX_CMD_SET_PARAM | GSX_REPLY, 0) >= 0, "duplicate seq replayed");
     }
 
-    /* COMMIT, reboot, load; many commits wrap the journal */
-    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "COMMIT");
-    params_defaults();
-    CHECK(gm_cfg.channel == 1, "defaults again");
-    CHECK(config_store_load() == 1 && gm_cfg.channel == 2 && gm_cfg.transpose == -3 &&
-          gm_cfg.btn_number[6] == 21, "profile loaded");
-    for (int i = 0; i < 60; i++) {
-        set_param(P_VEL_FIXED, 0, 10 + i);
-        CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "COMMIT %d", i);
-    }
-    CHECK(erases > 8, "journal wrapped (%d erases)", erases);
-    params_defaults();
-    CHECK(config_store_load() == 1 && gm_cfg.vel_fixed == 69, "newest record wins (got %d)", (int)gm_cfg.vel_fixed);
-    /* torn write after the newest record: still loads it */
-    {
-        uint32_t a;
-        for (a = FLASH_DATA_BASE; a < FLASH_DATA_BASE + FLASH_DATA_SIZE; a += 4)
-            if (fmc_read(a) == 0xFFFFFFFFu && fmc_read(a - 4) != 0xFFFFFFFFu)
-                break;
-        fmc_program(a, CONFIG_STORE_MAGIC);
-        fmc_program(a + 4, 12345);
-        params_defaults();
-        CHECK(config_store_load() == 1 && gm_cfg.vel_fixed == 69, "torn record ignored");
-        set_param(P_VEL_FIXED, 0, 77);
-        CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "COMMIT after a torn record");
-        params_defaults();
-        CHECK(config_store_load() == 1 && gm_cfg.vel_fixed == 77, "and it loads");
-    }
-
+    /* the rest of the old config test, now via presets */
+    CHECK(gm_cfg.preset_dirty == 1, "host edits made preset 1 dirty");
     CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK, "FACTORY_RESET");
-    CHECK(gm_cfg.channel == 1 && gm_cfg.vel_fixed == 100, "defaults after reset");
-    CHECK(config_store_load() == 0, "nothing stored after reset");
+    CHECK(gm_cfg.channel == 1 && gm_cfg.vel_fixed == 100 && gm_cfg.preset_dirty == 0,
+          "defaults after reset");
+
+    test_presets();
 
     /* HELLO, FW_* in the app, REBOOT */
     {
@@ -568,7 +790,7 @@ int main(int argc, char **argv)
         CHECK(request(GSX_CMD_HELLO, 0, 0, &pl) == GSX_OK, "HELLO");
         CHECK(out[pl] == 0 && gsx_get_u(out + pl + 1, 2) == 1, "role app, board 1");
         uint32_t caps = gsx_get_u(out + pl + 1 + 2 + 5 + 1 + 2, 2);
-        CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT), "caps 0x%x", caps);
+        CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS), "caps 0x%x", caps);
         CHECK(request(GSX_CMD_FW_END, 0, 0, 0) == GSX_BAD_STATE, "FW_* -> BAD_STATE on NUC");
         uint8_t m = 1;
         CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1)");

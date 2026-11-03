@@ -4,7 +4,7 @@
  * The platform's main():
  *
  *     platform init (clocks, USB/serial MIDI, timer)
- *     gm_init(fw_version);
+ *     gm_init(fw_version, safe_mode);   (loads the stored presets, gm_presets.h)
  *     start a periodic timer calling gm_scan_tick() every gm_device.scan_us
  *     for (;;) { platform polling (USB); gm_poll(); }
  *
@@ -46,6 +46,13 @@ void gm_midi_rx_usb(const uint8_t ev[4]);
 /* Buttons held right now (bit = button index), for the boot combo check
  * before gm_init (reads the pins directly). */
 uint32_t gm_buttons_now(void);
+
+/* Core internal (src/presets.c, before a preset switch): Note Off for every
+ * sounding key and note button, CC 0 for held CC-momentary buttons and
+ * raised CC ramps, Mackie Control buttons up, pitch bend back to centre,
+ * toggles and analog pick-up reset. Buttons held now stay silent until
+ * released. Sends on the current (old) channel. */
+void gm_release_all(void);
 
 #ifdef __cplusplus
 }

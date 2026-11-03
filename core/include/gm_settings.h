@@ -33,6 +33,9 @@ enum {
     P_LOG_LEVEL = 14,
     P_ENC_CC = 15,
     P_ENC_MODE = 16,
+    P_PRESET_ACTIVE = 17,
+    P_PRESET_PROGRAM = 18,
+    P_PRESET_DIRTY = 19,
 };
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
@@ -52,10 +55,14 @@ enum {
     ACT_BEND_UP,
     ACT_PROGRAM_NEXT,
     ACT_PROGRAM_PREV,
+    ACT_PRESET_NEXT,                 /* 13 */
+    ACT_PRESET_PREV,                 /* 14 */
+    ACT_PRESET_SELECT,               /* 15: button.number = slot 1..GM_N_PRESETS */
     ACT_COUNT
 };
-/* Mackie Control button (button.number = its MCU note). Only on devices with
- * mcu: (GM_MCU), where it is offered as one more action. */
+/* Mackie Control button (button.number = its MCU note), 16. Only on devices
+ * with mcu: (GM_MCU), where it is offered as one more action (the option
+ * list stays contiguous: it ends at 15 elsewhere). Was 13 before presets. */
 #define ACT_MCU ACT_COUNT
 
 enum { ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET };
@@ -77,6 +84,9 @@ typedef struct {
     int32_t ramp_time;               /* ms, 0 = jump */
     int32_t events;
     int32_t log_level;               /* 0 off .. 4 debug */
+    int32_t preset_active;           /* 1..GM_N_PRESETS (global)       */
+    int32_t preset_program;          /* -1 none, 0..127 (per preset)   */
+    int32_t preset_dirty;            /* volatile: unsaved host edits   */
 } gm_settings_t;
 
 extern gm_settings_t gm_cfg;

@@ -6,7 +6,8 @@
  * Outputs are push-pull (HAL_OUT_OD: open-drain), 10 MHz. Writes go through BSRR (or the ODR
  * bit-band alias), so the scan interrupt and the main loop can't clobber
  * each other's pins.
- * ADC1: PA0..PA7 = ch0..7, PB0/PB1 = ch8/9, PC0..PC5 = ch10..15.
+ * ADC2 (hal_adc_read; ADC1 is the hardware analog scan's): PA0..PA7 =
+ * ch0..7, PB0/PB1 = ch8/9, PC0..PC5 = ch10..15.
  * No I2C yet (I2C hubs are unsupported here, as on the NUC).
  *
  * SPDX-License-Identifier: MIT
@@ -113,6 +114,9 @@ void hal_pin_mode(uint16_t pin, uint8_t mode)
         GPIO_BRR(port) = m;         /* ODR = 0: pull-down */
         pin_cfg(pin, GPIO_CFG_PULL);
         break;
+    case HAL_ANALOG:
+        pin_cfg(pin, GPIO_CFG_ANALOG);
+        break;
     default:
         pin_cfg(pin, GPIO_CFG_FLOAT);
         break;
@@ -152,7 +156,7 @@ volatile uint32_t *hal_pin_out_reg(uint16_t pin)
     return &BITBAND_PERIPH(GPIO_BASE(PIN_PORT(pin)) + 0x0Cu, PIN_BIT(pin));
 }
 
-/* ---- ADC1 ------------------------------------------------------------- */
+/* ---- ADC2 ------------------------------------------------------------- */
 
 static int adc_channel(uint16_t pin)
 {
@@ -163,13 +167,6 @@ static int adc_channel(uint16_t pin)
     if (pin >= 32u && pin <= 37u)
         return pin - 32 + 10;               /* PC0..PC5 */
     return -1;
-}
-
-/* adc_dma.c (the hardware analog scan) owns ADC1 while it runs. A weak
- * stand-in for apps built without it. */
-__attribute__((weak)) int adc_dma_running(void)
-{
-    return 0;
 }
 
 /* The hardware scans' stops (scan_dma.c, adc_dma.c), for hal_reboot; weak
@@ -185,15 +182,15 @@ __attribute__((weak)) void adc_dma_stop(void)
 int32_t hal_adc_read(uint16_t pin)
 {
     int ch = adc_channel(pin);
-    if (ch < 0 || adc_dma_running())
+    if (ch < 0)
         return -1;
     static uint8_t ready;
     static uint16_t setup;
     if (!ready) {
         /* ADC clock = PCLK2 / 6 (sys.c: 12 MHz at 72 MHz, <= 14 MHz). */
-        RCC_APB2ENR |= RCC_APB2_ADC1;
-        RCC_APB2RSTR |= RCC_APB2_ADC1;
-        RCC_APB2RSTR &= ~RCC_APB2_ADC1;
+        RCC_APB2ENR |= RCC_APB2_ADC2;
+        RCC_APB2RSTR |= RCC_APB2_ADC2;
+        RCC_APB2RSTR &= ~RCC_APB2_ADC2;
         /* 41.5 cycles sample time on every channel (field value 4), as the
          * stock Code 61 firmware uses: 4.5 us per conversion at 12 MHz. */
         uint32_t s1 = 0, s2 = 0;
@@ -201,18 +198,18 @@ int32_t hal_adc_read(uint16_t pin)
             s2 |= 4u << (3u * i);
         for (uint32_t i = 0; i < 8u; i++)
             s1 |= 4u << (3u * i);
-        ADC1_SMPR1 = s1;
-        ADC1_SMPR2 = s2;
-        ADC1_SQR1 = 0;                       /* one conversion */
-        ADC1_CR2 = ADC_CR2_ADON | ADC_CR2_EXTSEL_SWSTART | ADC_CR2_EXTTRIG;
+        ADC2_SMPR1 = s1;
+        ADC2_SMPR2 = s2;
+        ADC2_SQR1 = 0;                       /* one conversion */
+        ADC2_CR2 = ADC_CR2_ADON | ADC_CR2_EXTSEL_SWSTART | ADC_CR2_EXTTRIG;
         hal_delay_us(5);                    /* tSTAB (1 us) */
         /* RM0008 11.4: calibrate once after power-up, ADON = 1 for >= 2
          * ADC clock cycles first. */
-        ADC1_CR2 |= ADC_CR2_RSTCAL;
-        for (uint32_t i = 0; (ADC1_CR2 & ADC_CR2_RSTCAL) && i < 100000u; i++) {
+        ADC2_CR2 |= ADC_CR2_RSTCAL;
+        for (uint32_t i = 0; (ADC2_CR2 & ADC_CR2_RSTCAL) && i < 100000u; i++) {
         }
-        ADC1_CR2 |= ADC_CR2_CAL;
-        for (uint32_t i = 0; (ADC1_CR2 & ADC_CR2_CAL) && i < 100000u; i++) {
+        ADC2_CR2 |= ADC_CR2_CAL;
+        for (uint32_t i = 0; (ADC2_CR2 & ADC_CR2_CAL) && i < 100000u; i++) {
         }
         ready = 1;
     }
@@ -220,13 +217,13 @@ int32_t hal_adc_read(uint16_t pin)
         pin_cfg(pin, GPIO_CFG_ANALOG);
         setup |= (uint16_t)(1u << ch);
     }
-    ADC1_SQR3 = (uint32_t)ch;
-    (void)ADC1_DR;                          /* clears a stale EOC */
-    ADC1_CR2 |= ADC_CR2_SWSTART;
-    for (uint32_t i = 0; !(ADC1_SR & ADC_SR_EOC); i++)
+    ADC2_SQR3 = (uint32_t)ch;
+    (void)ADC2_DR;                          /* clears a stale EOC */
+    ADC2_CR2 |= ADC_CR2_SWSTART;
+    for (uint32_t i = 0; !(ADC2_SR & ADC_SR_EOC); i++)
         if (i > 20000u)
             return -1;
-    return (int32_t)(ADC1_DR & 0xFFFu);
+    return (int32_t)(ADC2_DR & 0xFFFu);
 }
 
 int hal_i2c_write(uint8_t addr, const uint8_t *p, uint32_t n)

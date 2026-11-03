@@ -62,6 +62,7 @@
 #define RCC_APB2_IOPA   (1u << 2)          /* IOPx = 1 << (2 + port) */
 #define RCC_APB2_IOP(port) (1u << (2u + (port)))
 #define RCC_APB2_ADC1   (1u << 9)
+#define RCC_APB2_ADC2   (1u << 10)
 #define RCC_APB2_TIM1   (1u << 11)
 #define RCC_APB2_USART1 (1u << 14)
 /* APB1ENR / APB1RSTR */
@@ -167,6 +168,16 @@
 #define ADC1_SQR2       REG32(ADC1_BASE + 0x30u)
 #define ADC1_SQR3       REG32(ADC1_BASE + 0x34u)
 #define ADC1_DR         REG32(ADC1_BASE + 0x4Cu)
+/* ADC2: the same registers 0x400 further on. hal_adc_read uses it, so the
+ * hardware analog scan (adc_dma.c) can keep ADC1. */
+#define ADC2_BASE       0x40012800u
+#define ADC2_SR         REG32(ADC2_BASE + 0x00u)
+#define ADC2_CR2        REG32(ADC2_BASE + 0x08u)
+#define ADC2_SMPR1      REG32(ADC2_BASE + 0x0Cu)
+#define ADC2_SMPR2      REG32(ADC2_BASE + 0x10u)
+#define ADC2_SQR1       REG32(ADC2_BASE + 0x2Cu)
+#define ADC2_SQR3       REG32(ADC2_BASE + 0x34u)
+#define ADC2_DR         REG32(ADC2_BASE + 0x4Cu)
 #define ADC_SR_EOC      (1u << 1)
 #define ADC_CR2_ADON    (1u << 0)
 #define ADC_CR2_CAL     (1u << 2)

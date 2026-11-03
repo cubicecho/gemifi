@@ -1,6 +1,6 @@
 # cs-test: the STM32F1 config_store (platform/stm32f1/src/config_store.c) on
-# simulated flash, with host gcc: reads, page swaps, tombstones, and a power
-# cut at every halfword of a write.
+# simulated flash, with host gcc: packed records, reads, page swaps, tombstones,
+# old v2 records, and a power cut at every halfword of a run of writes.
 #
 #   make test
 #   make clean

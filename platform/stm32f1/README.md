@@ -36,7 +36,7 @@ The linker checks that the image starts at 0x08002400, that the header sits at 0
 | `src/sys.c` | JTAG-off remap (`BOARD_SWJ_NOJTAG`); clocks: HSI, RCC reset, HSE×9 = 72 MHz with 2 wait states and prefetch, APB1 /2, USB /1.5. If HSE fails it falls back to HSI/2×12 = 48 MHz. Also the polled SysTick ms counter, IWDG and reset |
 | `src/flash.c` | unlock, 1 KB page erase (verified blank afterwards), halfword/word program |
 | `src/hal.c` | `gm_hal.h`. GPIO through CRL/CRH/BSRR. `hal_pin_out_reg` uses the ODR bit-band alias. ADC1 (ch0–15). DWT `hal_delay_us`. UID from 0x1FFFF7E8 |
-| `src/config_store.c` | per-slot settings records (config_store.h v2) on two halfword-programmed 1 KB pages that swap on a rewrite; every slot must fit one page (about 5 presets, #13). Test: `make -C test/cs-test test` (host gcc) |
+| `src/config_store.c` | per-slot settings records on two halfword-programmed 1 KB pages that swap on a rewrite; every slot's newest record must fit one page together. Records are packed (v3, this platform only): one group per param id, values as int8/int16/int32 with a bitmap of the stored indices, so the Code 61's worst-case preset (134 values) is 276 B and 3 presets + the globals fit (912 of 1024 B; the builder warns from 3, errors from 4). Old v2 records still load. A third page would add no room (a swap needs one erased page per live page). Test: `make -C test/cs-test test` (host gcc) |
 | `src/usb_midi.c`, `crc32.c`, `mini_libc.c` | copied from the NUC platform. Keep them in sync |
 | `src/usbd.c` | USB FS device driver (separate owner) |
 

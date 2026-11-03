@@ -1226,6 +1226,53 @@ list:
         for plat in ("esp32s2", "esp32s3"):
             self.assertEqual(gd.STORE_BUDGETS[plat], gd.STORE_BUDGETS["esp32"])
 
+    def test_budget_stm32f1(self):
+        """STM32F1: packed (v3) records, all slots in one 1 KB page. The Code 61's worst case is the
+        one platform/stm32f1/test/cs-test writes: 60 group words a preset, 16 for the globals."""
+        path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        dev, diags = gd.load_device(path, text)
+        bd = dev.budget
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (133, 10))
+        # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
+        # (1 + 2 + 11 each), analog 9 (1 + 1 + 3), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
+        # (1 + 1 + 4) = 59 group words; + 4 header, 4 name, 1 crc
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 59), 4 * (9 + 16)))
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (372, 1024, 1024))
+        self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
+        self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (3, 2))
+        with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
+        dev2, _ = load(with_slots(2))
+        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 60), 652))  # + program
+        self.assertFalse([d for d in self.errs(with_slots(2), level="warning") if "config page" in d.msg])
+        w = [str(d) for d in self.errs(with_slots(3), level="warning") if "config page" in d.msg]
+        self.assertTrue(w and "presets use 90% of the stm32f1 config page" in w[0], w)
+        e = self.assertError(with_slots(4), r"presets don't fit the stm32f1 config page", path="presets.slots")
+        self.assertIn("1204 of 1024 B", e.msg)
+        self.assertIn("At most 3 slots fit", e.msg)
+        # the NUC keeps its 2-word entries
+        self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
+
+    def test_wide_params(self):
+        """WIDE_PARAMS (the packed record's int16 values) are exactly the stored params whose range in
+        core/src/settings.c leaves -128..127."""
+        with open(os.path.join(CORE_SRC, "settings.c"), encoding="utf-8") as f:
+            src = f.read()
+        wide, names = set(), set()
+        for body in re.findall(r"\{ \.id = P_\w+,(.*?)\},", src, re.S):
+            name = re.search(r'\.name = "([^"]+)"', body).group(1)
+            names.add(name)
+            lo, hi = (re.search(rf"\.{k} = ([^,]+),", body).group(1).strip() for k in ("min", "max"))
+            # symbolic bounds: N_ACTIONS - 1 (< 20) and GM_N_PRESETS (<= MAX_PRESETS) fit a byte
+            num = lambda x: int(x) if re.fullmatch(r"-?\d+", x) else 0   # noqa: E731
+            self.assertLessEqual(gd.MAX_PRESETS, 127)
+            if not (-128 <= num(lo) <= 127 and -128 <= num(hi) <= 127):
+                wide.add(name)
+        self.assertEqual(names, set(gd.PARAM_ID))
+        stored = {n for n, _i, s, _c in gd.PARAMS if s != gd.VOLATILE}
+        self.assertEqual(wide & stored, gd.WIDE_PARAMS)
+
     def test_keystation_presets(self):
         dev, diags = gd.load_device(KEYSTATION)
         self.assertFalse(gd.errors(diags), [str(d) for d in diags])

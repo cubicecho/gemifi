@@ -32,6 +32,15 @@ const CHANGELOG_URL = 'https://cubicecho.github.io/gemifi/changelog/';
 /** Without a builder there is no device list to ask for. */
 const noDevices = async (): Promise<DeviceListing> => ({ devices: [], userDir: '' });
 
+/** The non-affiliation notice (issue #2), also in the README and the site footer. */
+const disclaimer = (
+  <p className="max-w-3xl text-foreground/60 text-xs">
+    {
+      'gemifi is an independent project, not affiliated with or endorsed by M-Audio/inMusic, Behringer, or any other hardware maker. Product names are trademarks of their owners and are used only to identify compatible hardware. Flashing gemifi replaces the stock firmware and may void your warranty.'
+    }
+  </p>
+);
+
 /** The page's two views, when a builder serves it. */
 const AppView = { Devices: 'devices', Update: 'update' } as const;
 type AppView = (typeof AppView)[keyof typeof AppView];
@@ -163,6 +172,7 @@ export function App() {
           <>
             {isSecure ? null : insecureAlert}
             {updateCards}
+            {disclaimer}
           </>
         }
       />
@@ -221,6 +231,7 @@ export function App() {
           <div hidden={view !== AppView.Update} className="flex min-w-0 flex-col gap-4">
             {updateCards}
           </div>
+          {disclaimer}
         </>
       }
     />

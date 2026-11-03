@@ -42,8 +42,8 @@ The extension passes every channel message from the device (notes, CCs, bend, pr
 1. On `init()`, it sends HELLO. If nothing answers, it tries again about every 3 s. A device without caps bit 6 (older firmware, or the bootloader) gets no further messages.
 2. It sends GET_COMPONENT for each kind (button, keys, analog, encoder, LED, display), from index 0 up to `count`. BAD_PARAM at index 0 means the device has none of that kind.
 3. It reads `debug.events` (param 13), then sets it to 1.
-4. Once ready, on every `flush()` (Bitwig calls it after observed values change) and on a 100 ms tick (`host.scheduleTask`), it compares the project's state with what it last sent and sends only the differences: FB_LED, FB_LEDS for runs of neighbouring LEDs, FB_VALUE and FB_RING.
-5. About every 5 s it reads `debug.events` back. That param is VOLATILE, so a timeout or a 0 means the device was unplugged or restarted. Its FB_* states are then gone, so the extension starts again from HELLO.
+4. Once ready, on every `flush()` (Bitwig calls it after observed values change) and on a 100 ms tick (`host.scheduleTask`), it compares the project's state with what it last sent and sends only the differences: FB_LED, FB_LEDS for runs of neighbouring LEDs, FB_VALUE and FB_RING. FB_VALUE goes only to analog inputs with `takeover` pick-up and to absolute encoders, and LEDs with `owner` local get nothing (GET_COMPONENT's added fields, §4.6.1; firmware without them gets everything, as before).
+5. When the device sends BOOTED (§4.6.3: it restarted, so its FB_* states are gone), the extension starts again from HELLO and re-sends everything. As a fallback it reads `debug.events` back: about every 5 s from firmware without BOOTED, about every 30 s from firmware with it (BOOTED can be missed if the port opens late). That param is volatile (never stored), so a timeout or a 0 means the device was unplugged or restarted, and the extension starts again from HELLO.
 6. On `exit()` (the controller is removed or disabled, or Bitwig quits), it sends FB_RELEASE 0 and sets `debug.events` back to what it was.
 
 Requests follow §1's stop-and-wait rules:
@@ -104,8 +104,8 @@ Continuous roles work on analog inputs (absolute, 0..16383) and encoders (signed
 | `device_param_N` | remote control N of the selected device's current page (`CursorRemoteControlsPage` of 8) |
 | `cue_volume` | **not supported**: Bitwig's API has no cue / pre-listen volume. Logged and ignored |
 
-- **Analog inputs** use pick-up. After the target changes in Bitwig (mouse, automation, a bank switch), the knob does nothing until it comes within 3 % of the value or crosses it. The extension also sends the value as FB_VALUE, so a device with `takeover: pickup` does the same for its own MIDI. Values are set as `value / 16383` normalised. After a knob move, the extension ignores the parameter's reported value for ~300 ms, because Bitwig applies `set()` asynchronously and would otherwise look like a change from elsewhere.
-- **Encoders** move a parameter with `inc(delta, 128)`: 1/128 of its range per detent. On Bitwig 5.2+ (API 20), a quantized parameter (`discreteValueCount()` > 1) moves one value per detent. Encoders get FB_VALUE (for absolute mode) and, if they have a ring, FB_RING:
+- **Analog inputs** use pick-up. After the target changes in Bitwig (mouse, automation, a bank switch), the knob does nothing until it comes within 3 % of the value or crosses it. The extension also sends the value as FB_VALUE to an input with `takeover: pickup`, so the device does the same for its own MIDI; an input with `takeover: none` gets no FB_VALUE (the extension's own pick-up still applies). Values are set as `value / 16383` normalised. After a knob move, the extension ignores the parameter's reported value for ~300 ms, because Bitwig applies `set()` asynchronously and would otherwise look like a change from elsewhere.
+- **Encoders** move a parameter with `inc(delta, 128)`: 1/128 of its range per detent. On Bitwig 5.2+ (API 20), a quantized parameter (`discreteValueCount()` > 1) moves one value per detent. Encoders in absolute mode get FB_VALUE; relative ones (`mode` 1, 2, 3 or any later value) don't. Either way, an encoder with a ring gets FB_RING:
   - **Boost/cut** with the centre LED for bipolar parameters: pan, the crossfader, and on API 20+ any remote control whose origin (`getOrigin()`) is in the middle.
   - **Wrap** otherwise.
   - **Ring off** (flags bit 1) when the encoder has no target, e.g. no device or an empty remote-control slot.
@@ -119,8 +119,8 @@ Continuous roles work on analog inputs (absolute, 0..16383) and encoders (signed
 | `src/main/java/gemifi/bitwig/GemifiExtensionDefinition.java` | name / vendor / model "gemifi", one MIDI in/out pair, required API 18 |
 | `src/main/java/gemifi/bitwig/GemifiExtension.java` | `init()` / `flush()` / `exit()`, SysEx in/out, the 100 ms tick |
 | `src/main/java/gemifi/bitwig/BitwigModel.java` | the abstract model on Bitwig's Transport, CursorTrack, TrackBank, remote controls, master and scene bank |
-| `src/main/java/gemifi/bitwig/core/Protocol.java` | SysEx codec: frames, 7-bit encodings, packing, lstring, HELLO, GET_COMPONENT, EVENT, FB_* |
-| `src/main/java/gemifi/bitwig/core/Device.java` | device state machine: HELLO, enumeration, `debug.events`, retries, keep-alive |
+| `src/main/java/gemifi/bitwig/core/Protocol.java` | SysEx codec: frames, 7-bit encodings, packing, lstring, HELLO, GET_COMPONENT, EVENT, BOOTED, FB_* |
+| `src/main/java/gemifi/bitwig/core/Device.java` | device state machine: HELLO, enumeration, `debug.events`, retries, BOOTED, keep-alive |
 | `src/main/java/gemifi/bitwig/core/Roles.java` | `mcu:` → role mapping |
 | `src/main/java/gemifi/bitwig/core/Model.java` | the DAW as the mapping sees it (interfaces) |
 | `src/main/java/gemifi/bitwig/core/Mapping.java` | roles → actions and change-only feedback, pick-up |
@@ -134,10 +134,10 @@ Nothing in `core/` imports Bitwig; a test checks that.
 cd hosts/bitwig && mvn test
 ```
 
-You don't need Bitwig to run them. 55 tests:
-- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies and all FB_* frames), the integer encodings, packing, the checksum and the bad frames.
-- **Device:** a fake device answering per §4.6, covering a lost reply, BUSY, silence and rescan, the bootloader, a restart caught by the keep-alive, PARAM_CHANGED turning events off, and release.
-- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, and the mcu: names.
+You don't need Bitwig to run them. 66 tests:
+- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies, with and without the added fields, BOOTED and all FB_* frames), the integer encodings, packing, the checksum and the bad frames.
+- **Device:** a fake device answering per §4.6, covering a lost reply, BUSY, silence and rescan, the bootloader, a restart caught by BOOTED or by the keep-alive, the two keep-alive intervals, PARAM_CHANGED turning events off, and release.
+- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, the mcu: names, the added fields (no FB_VALUE to relative encoders or non-pick-up inputs, nothing to `owner: local` LEDs) and the re-send after BOOTED.
 - **Packaging:** the service file loads the definition, and `core/` stays free of Bitwig imports.
 
 ## Bitwig API notes (and how sure)
@@ -175,4 +175,5 @@ The extension compiles against `com.bitwig:extension-api:25`, from Bitwig's publ
 - Spec points in `protocol/sysex.md` §4.6 the extension had to guess at, the same ones as the Live script:
   - A button's `led` is taken to be an index in the kind-5 (LED) list.
   - Encoder deltas are taken to be in detents without acceleration.
-  - GET_COMPONENT doesn't report `takeover`, an encoder's mode or an LED's `owner`, so the extension sends FB_VALUE to every analog input and encoder and lets the device ignore it.
+  - An encoder's `mode` can change while the extension runs (SET_PARAM `encoder.mode`, a preset change); the extension reads it once, at connect.
+  - A device restart drops the FB_* states; the extension hears BOOTED, or (older firmware, or a BOOTED sent before the port was open) notices by polling `debug.events`.

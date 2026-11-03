@@ -20,8 +20,16 @@ class DeviceTest {
     int lost;
 
     Device connect(FakeDevice fake) {
+        return connect(fake, new Device(fake::wire));
+    }
+
+    /** Keep-alive every 5 ticks, or every 20 once the device is known to send BOOTED. */
+    Device connectFastKeepalive(FakeDevice fake) {
+        return connect(fake, new Device(fake::wire, Device.TIMEOUT_TICKS, Device.MAX_TRIES, Device.RESCAN_TICKS, 5, 20));
+    }
+
+    Device connect(FakeDevice fake, Device d) {
         Device[] holder = new Device[1];
-        Device d = new Device(fake::wire);
         holder[0] = d;
         fake.out = msg -> holder[0].receive(msg);
         d.setListener(new Device.Listener() {
@@ -266,5 +274,93 @@ class DeviceTest {
         d.start();
         assertEquals(1, d.allComponents().size());
         assertEquals(State.READY, d.state());
+    }
+
+    @Test
+    void bootedResyncs() {
+        FakeDevice fake = new FakeDevice();
+        Device d = connect(fake);
+        d.start();
+        assertEquals(State.READY, d.state());
+        assertEquals(1, (int) fake.params.get(Protocol.PARAM_DEBUG_EVENTS));
+        int hellos = fake.count(Protocol.HELLO);
+        int comps = fake.count(Protocol.GET_COMPONENT);
+        fake.boot();
+        assertEquals(1, lost);
+        assertEquals(hellos + 1, fake.count(Protocol.HELLO));
+        assertEquals(2 * comps, fake.count(Protocol.GET_COMPONENT));        // enumerated again
+        assertEquals(State.READY, d.state());
+        assertEquals(2, ready);
+        assertEquals(1, (int) fake.params.get(Protocol.PARAM_DEBUG_EVENTS)); // events back on
+        assertTrue(d.sendsBooted());
+    }
+
+    @Test
+    void bootedBeforeStartOrAfterReleaseIsIgnored() {
+        FakeDevice fake = new FakeDevice();
+        Device d = connect(fake);
+        fake.boot();                                                        // not started yet
+        assertEquals(State.IDLE, d.state());
+        assertTrue(fake.requests.isEmpty());
+        d.start();
+        d.release();
+        int n = fake.requests.size();
+        fake.boot();
+        assertEquals(State.IDLE, d.state());
+        assertEquals(n, fake.requests.size());
+    }
+
+    @Test
+    void badBootedIsDropped() {
+        FakeDevice fake = new FakeDevice();
+        Device d = connect(fake);
+        d.start();
+        assertTrue(d.receive(Protocol.buildFrame(Protocol.BOOTED, 0, Protocol.bytes(0, 1, 2))));
+        assertEquals(State.READY, d.state());
+        assertEquals(0, lost);
+    }
+
+    @Test
+    void keepaliveSlowsDownWithAddedFields() {
+        // Firmware without the added fields (and without BOOTED): poll every 5 ticks.
+        FakeDevice old = new FakeDevice();
+        Device d = connectFastKeepalive(old);
+        d.start();
+        assertFalse(d.sendsBooted());
+        ticks(d, 5);
+        assertEquals(2, old.count(Protocol.GET_PARAM));                     // enabling + one keep-alive
+
+        // Firmware with them also sends BOOTED: poll every 20.
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.led("", Protocol.OWNER_HOST));
+        FakeDevice fresh = new FakeDevice(comps, Protocol.CAP_FEEDBACK);
+        d = connectFastKeepalive(fresh);
+        d.start();
+        assertTrue(d.sendsBooted());
+        ticks(d, 19);
+        assertEquals(1, fresh.count(Protocol.GET_PARAM));
+        d.tick();
+        assertEquals(2, fresh.count(Protocol.GET_PARAM));
+    }
+
+    @Test
+    void keepaliveSlowsDownAfterBooted() {
+        FakeDevice fake = new FakeDevice();                                 // no added fields
+        Device d = connectFastKeepalive(fake);
+        d.start();
+        assertFalse(d.sendsBooted());
+        fake.boot();
+        assertTrue(d.sendsBooted());
+        int gets = fake.count(Protocol.GET_PARAM);
+        ticks(d, 19);
+        assertEquals(gets, fake.count(Protocol.GET_PARAM));
+        d.tick();
+        assertEquals(gets + 1, fake.count(Protocol.GET_PARAM));
+    }
+
+    @Test
+    void defaultKeepaliveIntervals() {
+        assertEquals(50, Device.KEEPALIVE_TICKS);                           // ~5 s
+        assertEquals(300, Device.KEEPALIVE_BOOTED_TICKS);                   // ~30 s
     }
 }

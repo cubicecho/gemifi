@@ -8,7 +8,17 @@ import { REQUEST_DEFAULTS, type RequestSettings } from './defaults.ts';
 import { toHex } from './encoding.ts';
 import { decodeFrame, encodeFrame, type Frame } from './frame.ts';
 import { type DeviceMessage, parseDeviceMessage } from './messages.ts';
-import { Command, MAX_SEQ, REPLY_FLAG, STATUS_MEANINGS, STATUS_NAMES, Status, UNSOLICITED_FIRST } from './wire.ts';
+import {
+  Command,
+  MAX_SEQ,
+  NOTIFICATION_FIRST,
+  NOTIFICATION_LAST,
+  REPLY_FLAG,
+  STATUS_MEANINGS,
+  STATUS_NAMES,
+  Status,
+  UNSOLICITED_FIRST,
+} from './wire.ts';
 
 /** A link that carries whole SysEx messages, F0 to F7. */
 export interface Transport {
@@ -88,6 +98,9 @@ const SLOW_COMMANDS: ReadonlySet<number> = new Set([
 /** Statuses after which the same request is worth sending again. */
 const RETRYABLE: ReadonlySet<number> = new Set([Status.BadChecksum, Status.Busy]);
 
+/** The `seq` notifications carry: the device ignores it (§4.6.2). */
+const NOTIFICATION_SEQ = 0;
+
 /** Options for one request. */
 export interface RequestOptions {
   /** Stops waiting and fails the request with `aborted`. */
@@ -159,6 +172,24 @@ export class SysexClient {
     const run = this.#queue.then(() => this.#exchange(cmd, payload, options));
     this.#queue = run.catch(() => undefined);
     return run;
+  }
+
+  /**
+   * Sends a host → device notification (0x20–0x3F, §4.6.2) at once: no reply is awaited, nothing
+   * is retried, and it does not queue behind a request that is waiting for its reply. The device
+   * ignores `seq`, so notifications send 0 and leave the requests' sequence alone. Send them only
+   * to a device with HELLO caps bit 6.
+   *
+   * @param cmd - The notification command, 0x20–0x3F.
+   * @param payload - Its 7-bit payload.
+   */
+  notify(cmd: number, payload: number[] = []): void {
+    const isNotification = cmd >= NOTIFICATION_FIRST && cmd <= NOTIFICATION_LAST;
+    if (isNotification === false) {
+      throw new RangeError(`${toHex([cmd])} is not a notification command (0x20–0x3F)`);
+    }
+    this.#throwIfStopped(undefined);
+    this.#write(encodeFrame(cmd, NOTIFICATION_SEQ, payload));
   }
 
   /**

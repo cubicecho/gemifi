@@ -35,6 +35,10 @@ export const MAX_PAYLOAD_BYTES = 0x3fff;
 export const REQUEST_LAST = 0x1f;
 /** Added to a request's `cmd` to make its reply's (§1). */
 export const REPLY_FLAG = 0x40;
+/** Host → device notifications start here (§1, §4.6.2); they are never answered. */
+export const NOTIFICATION_FIRST = 0x20;
+/** The last notification `cmd` (§1). */
+export const NOTIFICATION_LAST = 0x3f;
 /** Unsolicited device → host messages start here (§1). */
 export const UNSOLICITED_FIRST = 0x60;
 
@@ -49,12 +53,25 @@ export const Command = {
   GetParams: 0x09,
   SetParams: 0x0a,
   Reboot: 0x10,
+  GetComponent: 0x11,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,
   FwAbort: 0x1b,
 } as const;
 export type Command = (typeof Command)[keyof typeof Command];
+
+/** Host → device notifications (§4.6.2): framed like requests, never answered. */
+export const Notification = {
+  FbLed: 0x20,
+  FbLedRgb: 0x21,
+  FbLeds: 0x22,
+  FbValue: 0x23,
+  FbRing: 0x24,
+  FbText: 0x25,
+  FbRelease: 0x26,
+} as const;
+export type Notification = (typeof Notification)[keyof typeof Notification];
 
 /** Unsolicited device → host messages (§4). */
 export const Unsolicited = {
@@ -135,8 +152,43 @@ export const Capability = {
   Config: 1 << 1,
   Log: 1 << 2,
   Event: 1 << 3,
+  Feedback: 1 << 6,
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
+
+/** GET_COMPONENT's `kind` (§4.6.1): the EVENT type numbers where they overlap, then LED and display. */
+export const ComponentKind = { Button: 1, KeyMatrix: 2, Analog: 3, Encoder: 4, Led: 5, Display: 6 } as const;
+export type ComponentKind = (typeof ComponentKind)[keyof typeof ComponentKind];
+
+/** A component index field's "none" (§4.6.1): a button without an LED, an encoder without a centre LED. */
+export const NONE_INDEX = 0x3fff;
+/** The longest lstring (§2). */
+export const LSTRING_MAX = 31;
+
+/** An LED's `colours` (§4.6.1). */
+export const LedColours = { Single: 1, Bicolour: 2, Rgb: 3 } as const;
+export type LedColours = (typeof LedColours)[keyof typeof LedColours];
+
+/** A display's `type` (§4.6.1). */
+export const DisplayType = { Characters: 1, Segments: 2 } as const;
+export type DisplayType = (typeof DisplayType)[keyof typeof DisplayType];
+
+/** FB_LED / FB_LEDS `level`s (§4.6.2): 0 off, 1 blink, 2..127 on; on a bicolour LED 2..63 is colour 1, 64..127 colour 2. */
+export const LedLevel = { Off: 0, Blink: 1, OnFirst: 2, Colour1Last: 63, Colour2First: 64, On: 127 } as const;
+export type LedLevel = (typeof LedLevel)[keyof typeof LedLevel];
+
+/** FB_RING's `mode` (§4.6.2), as Mackie Control's rings. */
+export const RingMode = { Dot: 0, BoostCut: 1, Wrap: 2, Spread: 3 } as const;
+export type RingMode = (typeof RingMode)[keyof typeof RingMode];
+
+/** FB_RELEASE's `what` (§4.6.2). */
+export const ReleaseWhat = { Everything: 0, Leds: 1, Values: 2, Text: 3 } as const;
+export type ReleaseWhat = (typeof ReleaseWhat)[keyof typeof ReleaseWhat];
+
+/** The most levels one FB_LEDS carries (§4.6.2). */
+export const FB_LEDS_MAX = 64;
+/** The most text bytes one FB_TEXT carries (§4.6.2). */
+export const FB_TEXT_MAX = 64;
 
 /** Flash page size the upload rules are written against (§4.2). */
 export const PAGE_BYTES = 512;

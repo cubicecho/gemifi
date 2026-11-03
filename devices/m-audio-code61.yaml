@@ -27,7 +27,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.58
+  version: 0.2.59
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -149,6 +149,12 @@ displays:
 # Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
 # LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
 # the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
+# Looks (core/README.md "LED looks"), the user's request (2026-11-03): every
+# LED lit while idle so the panel is easy to see, and changed while active.
+# RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
+# (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
+# LED with idle: / active:.
+led_defaults: { idle: blue, active: white }
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
   - { id: edit_led, name: "Edit", pin: { tm1628: leds_a, number: 97 } }

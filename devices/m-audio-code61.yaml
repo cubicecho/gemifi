@@ -29,7 +29,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
 project:
-  version: 0.2.35
+  version: 0.2.55
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -39,6 +39,28 @@ usb: { vid: 0x1209, pid: 0x0002 }
 # main loop (USB, pads, faders) more than half the CPU, and matches the stock
 # firmware's key timing resolution (its key timestamps advance every 400 us).
 scan_interval: 400us
+# hardware_scan: (core/README.md "Hardware scan"): timers + DMA do the
+# scanning, the CPU only looks at the results.
+# matrix: keys, panel buttons and encoders (23 decoder rows on the PB8-PB15
+# columns), by TIM1 + DMA: no CPU per row, and a key's two contacts are
+# timed to the frame (23 rows, padded to 24, x row_time = 36 us), not the
+# 400 us tick above. precharge drives the columns high between rows like
+# the stock firmware, so the read only waits for a closed key to pull a
+# column down: 1 us is enough (tried 2026-11-03, builds 44-48: no ghost or
+# missing notes with chords and fast runs). Without precharge the columns
+# need about 3 us to come back up: `row_time: 3.5us, settle: 3us` (84 us).
+# Remove a part to go back to the software scan for it.
+# analog: faders and pads, by TIM4 + ADC1 + DMA: TIM4 steps the three muxes'
+# shared select lines (PC0-PC2) and, after their 4 us delay, starts ADC1 on
+# PA7, PA6, PA1 and PA0; a sweep of all 8 steps takes 200 us. Pads see
+# their strongest reading since the last pass, faders are read every 1 ms
+# (each was every 18 ms), and the main loop does no ADC work at all.
+hardware_scan:
+  matrix:
+    row_time: 1.5us
+    settle: 1us
+    precharge: true
+  analog: true
 
 # Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
 # No enable line is set by the stock app. The pads use the same select lines

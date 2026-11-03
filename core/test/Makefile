@@ -10,6 +10,10 @@
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
 # test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml)
 # test_pads:       velocity pads on shared-select muxes (pads-test.yaml)
+# test_matrix_hw:  test_matrix.c with the hardware scan's frames
+#                  (matrix-hw-test.yaml)
+# test_pads_hw:    test_pads.c with the hardware analog scan's sweeps
+#                  (pads-hw-test.yaml)
 # test_display:    core/src/display.c alone (display-cfg/, fake pins)
 
 ROOT  := ../..
@@ -23,10 +27,14 @@ FB_DEVICE := feedback-test.yaml
 FB_DEV    := $(BUILD)/device-feedback
 MX_DEVICE := matrix-test.yaml
 MX_DEV    := $(BUILD)/device-matrix
+HW_DEVICE := matrix-hw-test.yaml
+HW_DEV    := $(BUILD)/device-matrix-hw
 TM_DEVICE := tm1628-test.yaml
 TM_DEV    := $(BUILD)/device-tm1628
 PAD_DEVICE := pads-test.yaml
 PAD_DEV    := $(BUILD)/device-pads
+PADHW_DEVICE := pads-hw-test.yaml
+PADHW_DEV    := $(BUILD)/device-pads-hw
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -39,6 +47,10 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(MX_D
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(MX_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(HW_DEVICE) -o $(HW_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(HW_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TM_DEVICE) -o $(TM_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(TM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -47,6 +59,10 @@ endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(PAD_DEVICE) -o $(PAD_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(PAD_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(PADHW_DEVICE) -o $(PADHW_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(PADHW_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
@@ -62,11 +78,13 @@ SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
 FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 
 MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c
+HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c
 TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
 PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
+PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_display
+test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
@@ -74,8 +92,10 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	$(BUILD)/test_matrix
 	GM_TEST_FAST_COLS=1 $(BUILD)/test_matrix
 	GM_TEST_FAST_COLS=1 GM_TEST_BSRR=1 $(BUILD)/test_matrix
+	$(BUILD)/test_matrix_hw
 	$(BUILD)/test_tm1628
 	$(BUILD)/test_pads
+	$(BUILD)/test_pads_hw
 	$(BUILD)/test_display
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
@@ -90,6 +110,10 @@ $(BUILD)/test_matrix: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MX_DEV)/
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MX_DEV) $(MX_SRCS) -o $@
 
+$(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(HW_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DHW_SCAN_TEST -I$(HW_DEV) $(HW_SRCS) -o $@
+
 $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(TM_DEV) $(TM_SRCS) -o $@
@@ -97,6 +121,10 @@ $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/
 $(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(PAD_DEV) $(PAD_SRCS) -o $@
+
+$(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PADHW_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DHW_ADC_TEST -I$(PADHW_DEV) $(PADHW_SRCS) -o $@
 
 $(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
 	mkdir -p $(BUILD)

@@ -6,6 +6,9 @@
  *   gm_scan_tick() (timer interrupt): key matrix, encoders not on I2C hubs,
  *     shift-register hub refresh/flush. Key changes go to the main loop
  *     through a small queue.
+ *   gm_scan_frames() (the platform's DMA interrupt, same level), with a
+ *     hardware scan instead: the matrices and their encoders from finished
+ *     frames; the scan tick then leaves those alone.
  *   gm_poll() (main loop): everything that sends MIDI, buttons, analog
  *     inputs and pads, ramps, LEDs, I2C and TM1628 hubs, the protocol.
  * Host feedback (gm_fb_msg, from midi_in.c) also runs in the main loop: the
@@ -46,6 +49,9 @@
 
 #ifndef GM_N_MODES
 #define GM_N_MODES 0                /* a config generated before modes */
+#endif
+#ifndef GM_HW_SCAN
+#define GM_HW_SCAN 0                /* a config generated before hardware_scan: */
 #endif
 #if GM_N_MODES > 0 && (!GM_HAS_MATRIX || GM_N_BUTTONS == 0)
 #error "modes need a key matrix and a toggle button (the builder checks this)"
@@ -229,6 +235,69 @@ static uint32_t key_at(const gm_matrix_t *m, uint32_t pos, uint32_t dflt)
     return m->key_map ? m->key_map[pos] : dflt;
 }
 
+#if GM_HW_SCAN
+/* Columns of one row from a reading of the (single) column register. */
+static uint32_t cols_of(uint32_t v)
+{
+    uint32_t s = 0;
+    for (uint32_t i = 0; i < n_runs; i++) {
+        const col_run_t *k = &col_run[i];
+        s |= ((v >> k->src) & k->mask) << k->dst;
+    }
+    return s ^ col_inv;
+}
+#endif
+
+/* One row's reading s (bit c = column c closed): key changes to the queue.
+ * *even carries a row-pair matrix's first row of the pair to the second. */
+static void matrix_row(const gm_matrix_t *m, uint32_t r, uint32_t s, uint32_t rows, int by_rows,
+                       uint32_t *even)
+{
+    if (by_rows) {
+        /* Contacts on rows 2p and 2p+1, same column: handle the pair once
+         * both rows of this pass have been read. */
+        if (!(r & 1u)) {
+            *even = s;
+            return;
+        }
+        uint32_t diff = (*even ^ mprev[r - 1u]) | (s ^ mprev[r]);
+        if (!diff)
+            return;
+        mprev[r - 1u] = *even;
+        mprev[r] = s;
+        uint32_t pair = r / 2u;
+        for (uint32_t c = 0; c < m->n_cols; c++) {
+            if (!((diff >> c) & 1u))
+                continue;
+            uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
+            if (k < m->n_keys)
+                key_update(k, ((*even >> c) & 1u) | (((s >> c) & 1u) << 1));
+        }
+        return;
+    }
+    uint32_t diff = s ^ mprev[r];
+    if (!diff)
+        return;
+    mprev[r] = s;
+    if (m->kind == GM_MATRIX_KIND_VELOCITY) {
+        for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
+            if (!((diff >> (2u * p)) & 3u))
+                continue;
+            uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
+            if (k < m->n_keys)
+                key_update(k, (s >> (2u * p)) & 3u);
+        }
+    } else {
+        for (uint32_t c = 0; c < m->n_cols; c++) {
+            if (!((diff >> c) & 1u))
+                continue;
+            uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
+            if (k < m->n_keys)
+                kq_push(k, (s >> c) & 1u, 0);
+        }
+    }
+}
+
 static void matrix_scan(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
@@ -270,49 +339,7 @@ static void matrix_scan(void)
             *row_reg[r] = ((row_on >> r) & 1u) ^ 1u;
         else if (!rows_dec)
             vpin_write(m->rows[r], 0);  /* a decoder row: the next select replaces it */
-        if (by_rows) {
-            /* Contacts on rows 2p and 2p+1, same column: handle the pair once
-             * both rows of this pass have been read. */
-            if (!(r & 1u)) {
-                even = s;
-                continue;
-            }
-            uint32_t diff = (even ^ mprev[r - 1u]) | (s ^ mprev[r]);
-            if (!diff)
-                continue;
-            mprev[r - 1u] = even;
-            mprev[r] = s;
-            uint32_t pair = r / 2u;
-            for (uint32_t c = 0; c < m->n_cols; c++) {
-                if (!((diff >> c) & 1u))
-                    continue;
-                uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
-                if (k < m->n_keys)
-                    key_update(k, ((even >> c) & 1u) | (((s >> c) & 1u) << 1));
-            }
-            continue;
-        }
-        uint32_t diff = s ^ mprev[r];
-        if (!diff)
-            continue;
-        mprev[r] = s;
-        if (m->kind == GM_MATRIX_KIND_VELOCITY) {
-            for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
-                if (!((diff >> (2u * p)) & 3u))
-                    continue;
-                uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
-                if (k < m->n_keys)
-                    key_update(k, (s >> (2u * p)) & 3u);
-            }
-        } else {
-            for (uint32_t c = 0; c < m->n_cols; c++) {
-                if (!((diff >> c) & 1u))
-                    continue;
-                uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
-                if (k < m->n_keys)
-                    kq_push(k, (s >> c) & 1u, 0);
-            }
-        }
+        matrix_row(m, r, s, rows, by_rows, &even);
     }
     if (m_hubs)
         vpin_flush();
@@ -370,26 +397,183 @@ static void encoder_step(uint32_t i)
 }
 #endif
 
+/* ---- hardware scan (gm_controller.h gm_scan_plan_t) -------------------- */
+
+static uint8_t hw_on;               /* the platform scans; frames come to gm_scan_frames */
+#if GM_HW_SCAN
+static uint32_t hw_frame_q4;        /* frame period, 1/16 us */
+static gm_scan_plan_t plan;
+static uint32_t hw_prev[GM_SCAN_MAX_ROWS / 2u];   /* the last frame that differed */
+static uint32_t hw_mask;            /* column bits of both halfwords of a frame word */
+#if GM_N_ENCODERS > 0
+static uint8_t enc_fed[NE];         /* both pins on switch matrices: stepped per frame */
+#endif
+typedef uint32_t __attribute__((may_alias)) u32_alias;
+
+static int on_swmatrix(gm_pin_t p)
+{
+    return p.hub != 0 && p.hub <= gm_device.n_hubs && gm_device.hubs[p.hub - 1].type == GM_HUB_SWMATRIX;
+}
+#endif
+
+int gm_scan_hw(void)
+{
+    return hw_on;
+}
+
+const gm_scan_plan_t *gm_scan_plan(void)
+{
+#if GM_HW_SCAN
+    plan.sel_reg = 0;
+    plan.in_reg = 0;
+    plan.n_rows = 0;
+    plan.in_mask = 0;
+    plan.row_ns = GM_HW_SCAN_ROW_NS;
+    plan.settle_ns = GM_HW_SCAN_SETTLE_NS;
+    plan.precharge = GM_HW_SCAN_PRECHARGE;
+#if GM_HAS_MATRIX
+    const gm_matrix_t *m = gm_device.matrix;
+    if (m) {
+        /* Key rows are plan slots 0..n_rows-1, in order (gm_scan_frames). */
+        if (!rows_sel || !cols_fast || m_hubs || m->n_rows > GM_SCAN_MAX_ROWS) {
+            app_log(LOG_WARN, "hardware scan: key matrix rows need one-store selects and ",
+                    "columns on one input register; scanning in software");
+            return 0;
+        }
+        for (uint32_t r = 0; r < m->n_rows; r++) {
+            if (plan.sel_reg && row_sel_reg[r] != plan.sel_reg)
+                goto mixed;
+            plan.sel_reg = row_sel_reg[r];
+            plan.sel_word[r] = row_sel_word[r];
+        }
+        for (uint32_t i = 0; i < n_runs; i++) {
+            if (plan.in_reg && col_run[i].reg != plan.in_reg)
+                goto mixed;
+            plan.in_reg = col_run[i].reg;
+            plan.in_mask |= col_run[i].mask << col_run[i].src;
+        }
+        plan.n_rows = m->n_rows;
+    }
+#endif
+    if (!vpin_scan_plan(&plan.sel_reg, plan.sel_word, &plan.n_rows, GM_SCAN_MAX_ROWS,
+                        &plan.in_reg, &plan.in_mask))
+        goto mixed;
+    if (!plan.n_rows || !plan.sel_reg || !plan.in_reg || (plan.in_mask >> 16)) {
+        app_log(LOG_WARN, "hardware scan: nothing to scan, or columns above bit 15; ",
+                "scanning in software");
+        return 0;
+    }
+    if (plan.n_rows & 1u) {
+        if (plan.n_rows >= GM_SCAN_MAX_ROWS)
+            goto mixed;
+        plan.sel_word[plan.n_rows] = plan.sel_word[plan.n_rows - 1u];
+        plan.n_rows++;
+    }
+    return &plan;
+mixed:
+    app_log(LOG_WARN, "hardware scan: rows or columns of the matrices are on different ",
+            "registers, or too many rows; scanning in software");
+#endif
+    return 0;
+}
+
+void gm_scan_hw_started(uint32_t frame_q4)
+{
+#if GM_HW_SCAN
+    hw_frame_q4 = frame_q4;
+    hw_mask = (plan.in_mask & 0xFFFFu) * 0x10001u;
+    for (uint32_t i = 0; i < GM_SCAN_MAX_ROWS / 2u; i++)
+        hw_prev[i] = 0xFFFFFFFFu;   /* the first frame always counts */
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+        enc_fed[i] = (uint8_t)(on_swmatrix(gm_device.encoders[i].a) &&
+                               on_swmatrix(gm_device.encoders[i].b));
+#endif
+    vpin_scan_hw(1);
+    hw_on = 1;
+#else
+    (void)frame_q4;
+#endif
+}
+
+void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
+{
+#if GM_HW_SCAN
+    uint32_t words = plan.n_rows / 2u, key_rows = 0;
+#if GM_HAS_MATRIX
+    const gm_matrix_t *m = gm_device.matrix;
+    int by_rows = m && m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+    key_rows = m ? m->n_rows : 0u;
+#endif
+    ticks += lost;
+    for (uint32_t f = 0; f < n; f++, raw += plan.n_rows) {
+        ticks++;
+        /* Word k holds rows 2k and 2k+1 (a key pair on a row-pair keybed);
+         * only the column bits count (the rest of the port may be anything).
+         * Nothing moved since the last frame (nearly always): nothing to do. */
+        const u32_alias *w = (const u32_alias *)(const void *)raw;
+        uint32_t chg = 0;
+        for (uint32_t k = 0; k < words; k++) {
+            uint32_t x = w[k] & hw_mask;
+            if (x != hw_prev[k]) {
+                chg |= 1u << k;
+                hw_prev[k] = x;
+            }
+        }
+        if (!chg)
+            continue;
+#if GM_HAS_MATRIX
+        for (uint32_t k = 0; m && 2u * k < key_rows; k++) {
+            if (!((chg >> k) & 1u))
+                continue;
+            uint32_t even = 0;
+            matrix_row(m, 2u * k, cols_of(raw[2u * k]), key_rows, by_rows, &even);
+            if (2u * k + 1u < key_rows)
+                matrix_row(m, 2u * k + 1u, cols_of(raw[2u * k + 1u]), key_rows, by_rows, &even);
+        }
+#endif
+        if (!(chg >> (key_rows / 2u)))
+            continue;                   /* only key rows changed */
+        vpin_scan_feed(raw);
+#if GM_N_ENCODERS > 0
+        for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+            if (enc_fed[i])
+                encoder_step(i);
+#endif
+    }
+#else
+    (void)raw;
+    (void)n;
+    (void)lost;
+#endif
+}
+
 void gm_scan_tick(void)
 {
-    ticks++;
+    if (!hw_on)
+        ticks++;                    /* hardware scan: frames count the time */
     uint32_t t = hal_cycles();
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
-    if (gm_device.matrix)
+    if (gm_device.matrix && !hw_on)
         matrix_scan();
 #endif
     part_done(0, &t);
     /* Switch matrices (panel buttons, encoders) every other tick: plenty for
      * both, and it halves their share of the scan. */
-    if (has_matrices && (ticks & 1u))
+    if (has_matrices && !hw_on && (ticks & 1u))
         vpin_scan_matrices();       /* before the encoders read them */
     part_done(1, &t);
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+#if GM_HW_SCAN
+        if (hw_on && enc_fed[i])
+            continue;
+#endif
         if (!enc_i2c[i])
             encoder_step(i);
+    }
 #endif
     part_done(2, &t);
     if (has_sr_hubs)
@@ -415,8 +599,16 @@ static uint32_t velocity(uint32_t dt_ticks)
 {
     if (gm_cfg.vel_curve == CURVE_FIXED || gm_device.matrix->kind != GM_MATRIX_KIND_VELOCITY)
         return (uint32_t)gm_cfg.vel_fixed;
-    uint32_t t = dt_ticks * gm_scan_period_us / 100u;       /* 0.1 ms */
-    int32_t fast = gm_cfg.vel_fast, slow = gm_cfg.vel_slow;
+    /* In microseconds: a hardware scan's ticks (frames) are a few tens of
+     * us, finer than the 0.1 ms steps of vel_fast / vel_slow. The tick
+     * period is in 1/16 us; a product that won't fit 32 bits saturates. */
+    uint32_t q4 = gm_scan_period_us * 16u;
+#if GM_HW_SCAN
+    if (hw_on)
+        q4 = hw_frame_q4;
+#endif
+    uint32_t t = q4 && dt_ticks > 0xFFFFFFFFu / q4 ? 0x0FFFFFFFu : (dt_ticks * q4) >> 4;
+    int32_t fast = gm_cfg.vel_fast * 100, slow = gm_cfg.vel_slow * 100;
     if (slow <= fast)
         slow = fast + 1;
     int32_t v;
@@ -925,11 +1117,18 @@ static void analog_read(uint32_t i)
     }
 }
 
-/* One input per ANALOG_MS in turn, and every pitch-bend and pressure
- * input each time as well, so a wheel or a pressure strip follows quickly
- * however many inputs there are. */
+/* With the hardware analog scan: every input, since the readings are
+ * already there. Without it: one input per ANALOG_MS in turn (each takes an
+ * ADC conversion and a mux settle), and every pitch-bend and pressure input
+ * each time as well, so a wheel or a pressure strip follows quickly however
+ * many inputs there are. */
 static void analog_poll(void)
 {
+    if (gm_adc_hw()) {
+        for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+            analog_read(i);
+        return;
+    }
     uint32_t i = a_next;
     a_next = (uint8_t)((a_next + 1u) % GM_N_ANALOGS);
     analog_read(i);
@@ -941,7 +1140,9 @@ static void analog_poll(void)
 
 /* ---- pads (velocity from strike force) --------------------------------- */
 
-/* Every pad is read once per ms from the main loop, like the analog inputs:
+/* Every pad is read once per ms from the main loop, like the analog inputs
+ * (with the hardware analog scan: its strongest reading of the ~5 sweeps
+ * since the last pass, vpin_analog_peak):
  * they share the mux select lines and the one ADC, so reading them from the
  * scan interrupt would race with the main loop's reads. A hit: the reading
  * crosses pad.threshold, the peak over the next pad.window ms gives the
@@ -1040,9 +1241,10 @@ static void pads_scan(uint32_t now)
     int32_t on = gm_cfg.pad_threshold, off = gm_cfg.pad_release;
     if (off >= on)
         off = on - 1;
+    vpin_analog_peaks();            /* hardware analog scan: peaks since the last pass */
     for (uint32_t k = 0; k < NP; k++) {
         uint32_t i = pad_order[k];
-        int32_t r = vpin_analog(gm_pads[i].pin);
+        int32_t r = vpin_analog_peak(gm_pads[i].pin);
         if (r < 0)
             continue;
         switch (pad_state[i]) {
@@ -1277,6 +1479,43 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
 }
 #endif
 
+/* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
+ * (start, after the lamp test). leds_update() runs every 10 ms over every
+ * LED; an LED whose level and phase didn't change isn't written again. */
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];
+
+/* Whether level shows differently in the two blink phases (led_show). */
+static int led_blinks(const gm_led_t *l, uint32_t level)
+{
+#if GM_HOST_LEDS
+    if (level & LV_BLINK)
+        return 1;
+#endif
+    return !vpin_is_none(l->pin2) && vpin_is_none(l->pin3) && level >= 4u;
+}
+
+static void led_set(uint32_t i, uint32_t level, int blink_on)
+{
+    /* The blink phase is only part of the key for a blinking level: a
+     * steady LED isn't written again every 500 ms. */
+    int ph = led_blinks(&gm_device.leds[i], level) && blink_on;
+    uint16_t key = (uint16_t)(((level & 0x7FFFu) << 1) | (ph ? 1u : 0u));
+    if (led_shown[i] == key)
+        return;
+    led_shown[i] = key;
+    led_show(&gm_device.leds[i], level, blink_on);
+}
+
+#if GM_HOST_LEDS
+/* leds_update() works out the buttons' and pads' own levels every 10 ms;
+ * leds_apply() then shows LED_STEP LEDs per main-loop pass, so no one pass
+ * carries all of them. */
+#define LED_STEP 13u
+static uint8_t local[NL], has_local[NL];
+static uint8_t led_next = 0xFFu;    /* next LED to show, 0xFF = none */
+static uint32_t led_now;
+#endif
+
 /* Diagnostic LED walk (GM_LED_WALK_MS, e.g. `make LED_WALK=500`): one LED
  * on at a time, each for GM_LED_WALK_MS, in leds: order, logging "walk LED
  * <n>". Holding any button pauses it. Normal LED behaviour is off. */
@@ -1320,7 +1559,6 @@ static void leds_update(uint32_t now)
 #endif
     int blink_on = (now / 500u) & 1u;
 #if GM_HOST_LEDS
-    uint8_t local[NL], has_local[NL];
     for (uint32_t i = 0; i < NL; i++)
         local[i] = has_local[i] = 0;
 #endif
@@ -1361,7 +1599,7 @@ static void leds_update(uint32_t now)
         local[li] = (uint8_t)level;
         has_local[li] = 1;
 #else
-        led_show(&gm_device.leds[li], MODE_LED((uint32_t)li, level, now), blink_on);
+        led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
     }
 #if GM_N_PADS > 0
@@ -1374,7 +1612,7 @@ static void leds_update(uint32_t now)
         local[li] = (uint8_t)level;
         has_local[li] = 1;
 #else
-        led_show(&gm_device.leds[li], MODE_LED((uint32_t)li, level, now), blink_on);
+        led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
     }
 #endif
@@ -1382,12 +1620,31 @@ static void leds_update(uint32_t now)
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         uint32_t lv = mode_led(i, 0xFFu, now);    /* also LEDs no button drives */
         if (lv != 0xFFu)
-            led_show(&gm_device.leds[i], lv, blink_on);
+            led_set(i, lv, blink_on);
     }
 #endif
 #if GM_HOST_LEDS
-    for (uint32_t i = 0; i < gm_device.n_leds; i++)
-        led_show(&gm_device.leds[i], MODE_LED(i, led_level(i, local[i], has_local[i], now), now), blink_on);
+    (void)blink_on;                 /* leds_apply() works it out */
+    led_now = now;
+    led_next = 0;
+#endif
+}
+
+/* Show the next LED_STEP LEDs of the round leds_update() started; 1 if it
+ * did any. */
+static int leds_apply(void)
+{
+#if GM_HOST_LEDS
+    if (led_next >= gm_device.n_leds)
+        return 0;
+    uint32_t now = led_now, end = led_next + LED_STEP;
+    int blink_on = (now / 500u) & 1u;
+    for (uint32_t i = led_next; i < end && i < gm_device.n_leds; i++)
+        led_set(i, MODE_LED(i, led_level(i, local[i], has_local[i], now), now), blink_on);
+    led_next = end >= gm_device.n_leds ? 0xFFu : (uint8_t)end;
+    return 1;
+#else
+    return 0;
 #endif
 }
 
@@ -1727,8 +1984,10 @@ void gm_init(uint32_t fw_version, int safe_mode)
     vpin_flush_i2c();
     vpin_flush_tm1628();
     hal_delay_us(200000);
-    for (uint32_t i = 0; i < gm_device.n_leds; i++)
+    for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         led_show(&gm_device.leds[i], 0, 0);
+        led_shown[i] = 0xFFFFu;         /* leds_update writes each once */
+    }
     vpin_flush();
     vpin_flush_i2c();
     vpin_flush_tm1628();
@@ -1777,7 +2036,7 @@ void gm_poll(void)
 #endif
     poll_part_done(1, &tc);
 #if GM_N_ANALOGS > 0
-    if (now - t_analog >= ANALOG_MS) {
+    if (now - t_analog >= (gm_adc_hw() ? 1u : ANALOG_MS)) {
         t_analog = now;
         analog_poll();
     }
@@ -1794,16 +2053,23 @@ void gm_poll(void)
     encoders_poll();
 #endif
     poll_part_done(4, &tc);
+    int led_pass = 0;
     if (now - t_led >= LED_MS) {
         t_led = now;
-        leds_update(now);
-        gm_display_poll();
-        if (has_tm_hubs)
-            vpin_flush_tm1628();
+        leds_update(now);           /* the buttons' and pads' levels */
+        gm_display_poll();          /* the display's segments: written with the LEDs */
+        led_pass = 1;
+    } else {
+        leds_apply();               /* then the LEDs, a few per pass */
     }
+    poll_part_done(5, &tc);
+    /* Changed TM1628 bytes, a few per pass, and not on the LED update's
+     * pass, so the two never add up in one pass. */
+    if (has_tm_hubs && !led_pass)
+        vpin_poll_tm1628();
     if (has_rgb_hubs)
         vpin_poll_rgb_serial(now);
-    poll_part_done(5, &tc);
+    poll_part_done(6, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;
         app_log(LOG_INFO, gm_device.name, safe ? " up (safe mode: defaults)" : " up");

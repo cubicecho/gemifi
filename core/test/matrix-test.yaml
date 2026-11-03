@@ -1,4 +1,6 @@
-# Test device for core/test/test_matrix.c: a Code 61-style matrix. A decoder
+# Test device for core/test/test_matrix.c: a Code 61-style matrix.
+# matrix-hw-test.yaml is the same board on stm32f1 with hardware_scan:, for
+# the hardware-scan build of the same test. A decoder
 # hub selects the rows (3 address lines, 3 groups on 2 enable lines), the keys
 # have their two contacts on row pairs with a descending key map, and buttons
 # plus an encoder sit on a switch matrix that shares the key columns. Not a

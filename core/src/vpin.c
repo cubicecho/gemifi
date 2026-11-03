@@ -12,6 +12,8 @@
 #include "gm_vpin.h"
 #include "gm_hal.h"
 #include "gm_device_config.h"
+#include "gm_controller.h"
+#include "app_proto.h"
 
 #define N_HUBS (GM_N_HUBS > 0 ? GM_N_HUBS : 1)
 #ifndef GM_TM1628_RAM
@@ -134,7 +136,7 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
 }
 #if GM_TM1628_RAM > 0
 static uint8_t tm_ram[GM_TM1628_RAM];
-static uint8_t rgb_sent[GM_TM1628_RAM];   /* RGB_SERIAL: the bits last sent */
+static uint8_t ram_sent[GM_TM1628_RAM];   /* what the chip / LED board has (its bytes of tm_ram) */
 #endif
 
 static const gm_hub_t *hub_of(gm_pin_t p)
@@ -166,11 +168,21 @@ static void mcu_out(gm_pin_t p, int level)
 
 static void mux_shared_init(void);
 
+/* Hardware scan (vpin_scan_plan): which plan slot each switch-matrix row
+ * reads from. */
+#define FED_MAX 32u
+static uint8_t fed_hub[FED_MAX], fed_row[FED_MAX], fed_slot[FED_MAX];
+static uint8_t n_fed, fed_on;
+static void adc_off(void);          /* the hardware analog scan, below */
+
 void vpin_init(void)
 {
 #if GM_TM1628_RAM > 0
     uint32_t tm_off = 0;
 #endif
+    n_fed = 0;
+    fed_on = 0;
+    adc_off();
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
@@ -229,16 +241,16 @@ void vpin_init(void)
             mcu_out(h->clock, 1);
             mcu_out(h->data, 1);
             s->tm_off = (uint16_t)tm_off;
-            s->tm_dirty = 1;
+            s->tm_dirty = 1;            /* and never = 1: the first write is the whole RAM */
             for (uint32_t k = 0; k < h->ram_bytes && tm_off < GM_TM1628_RAM; k++)
                 tm_ram[tm_off++] = 0;
             break;
         case GM_HUB_RGB_SERIAL:
-            /* All off; every LED is sent once (rgb_sent starts different). */
+            /* All off; every LED is sent once (ram_sent starts different). */
             s->tm_off = (uint16_t)tm_off;
             for (uint32_t k = 0; k < h->ram_bytes && tm_off < GM_TM1628_RAM; k++) {
                 tm_ram[tm_off] = 0;
-                rgb_sent[tm_off++] = 0xFFu;
+                ram_sent[tm_off++] = 0xFFu;
             }
             if (h->data.hub == 0)
                 (void)hal_serial_open(h->data.num, 115200u);
@@ -458,9 +470,242 @@ void vpin_write(gm_pin_t p, int active)
         s->out &= ~(1u << p.num);
 }
 
+/* ---- hardware analog scan (gm_controller.h gm_adc_plan_t) -------------- */
+
+#ifndef GM_HW_ADC
+#define GM_HW_ADC 0                 /* a config generated before hardware_scan: */
+#endif
+#if GM_HW_ADC
+#define ADC_CELLS (GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS)
+static gm_adc_plan_t aplan;
+static uint8_t adc_on;
+static uint16_t adc_last[ADC_CELLS];
+/* Per cell, the highest and lowest reading of the sweeps since the pads'
+ * last look, in two generations: the interrupt fills adc_gen while the main
+ * loop reads the other (vpin_analog_peaks flips them). The interrupt can't
+ * be interrupted by the main loop, so a flip never lands mid-sweep. */
+static uint16_t adc_hi[2][ADC_CELLS], adc_lo[2][ADC_CELLS];
+static volatile uint32_t adc_n[2];
+static volatile uint8_t adc_gen;
+static uint8_t adc_read_gen;
+
+static int adc_add_pin(uint16_t pin)
+{
+    for (uint32_t k = 0; k < aplan.n_pins; k++)
+        if (aplan.pin[k] == pin)
+            return (int)k;
+    if (aplan.n_pins >= GM_ADC_MAX_PINS)
+        return -1;
+    aplan.pin[aplan.n_pins] = pin;
+    return (int)aplan.n_pins++;
+}
+
+static int adc_pin_index(uint16_t pin)
+{
+    for (uint32_t k = 0; k < aplan.n_pins; k++)
+        if (aplan.pin[k] == pin)
+            return (int)k;
+    return -1;
+}
+
+/* One analog source into the plan: an ADC pin, or a mux channel whose select
+ * lines are the plan's (the first mux sets them). 0 if it can't be. */
+static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
+{
+    if (p.hub == 0)
+        return adc_add_pin(p.num) >= 0;
+    const gm_hub_t *h = hub_of(p);
+    if (!h || h->type != GM_HUB_MUX || h->common.hub != 0 || h->n_sel == 0 || h->n_sel > 4)
+        return 0;
+    if (!*group) {
+        uint32_t steps = 1u << h->n_sel;
+        if (steps > GM_ADC_MAX_STEPS)
+            return 0;
+        volatile uint32_t *reg = 0;
+        uint32_t bit[4];
+        for (uint32_t k = 0; k < h->n_sel; k++) {
+            volatile uint32_t *r = h->sel[k].hub ? 0 : hal_pin_bsrr(h->sel[k].num, &bit[k]);
+            if (!r || (reg && r != reg))
+                return 0;
+            reg = r;
+        }
+        for (uint32_t c = 0; c < steps; c++) {
+            uint32_t w = 0;
+            for (uint32_t k = 0; k < h->n_sel; k++)
+                w |= ((c >> k) & 1u) ? 1u << bit[k] : 1u << (bit[k] + 16u);
+            aplan.step_word[c] = w;
+        }
+        aplan.sel_reg = reg;
+        aplan.n_steps = steps;
+        *group = h;
+    } else if (h != *group) {
+        const gm_hub_t *g = *group;
+        if (h->n_sel != g->n_sel)
+            return 0;
+        for (uint32_t k = 0; k < h->n_sel; k++)
+            if (h->sel[k].hub != 0 || h->sel[k].num != g->sel[k].num)
+                return 0;
+    }
+    uint32_t ns = (h->settle_us ? h->settle_us : 2u) * 1000u;   /* as mux_select waits */
+    if (ns > aplan.settle_ns)
+        aplan.settle_ns = ns;
+    return adc_add_pin(h->common.num) >= 0;
+}
+
+static int on_mux(gm_pin_t p)
+{
+    const gm_hub_t *h = p.hub ? hub_of(p) : 0;
+    return h && h->type == GM_HUB_MUX;
+}
+#endif
+
+static void adc_off(void)
+{
+#if GM_HW_ADC
+    adc_on = 0;
+#endif
+}
+
+int gm_adc_hw(void)
+{
+#if GM_HW_ADC
+    return adc_on;
+#else
+    return 0;
+#endif
+}
+
+const gm_adc_plan_t *gm_adc_plan(void)
+{
+#if GM_HW_ADC
+    const gm_hub_t *group = 0;
+    aplan.sel_reg = 0;
+    aplan.n_steps = 1;
+    aplan.step_word[0] = 0;
+    aplan.n_pins = 0;
+    aplan.settle_ns = 0;
+    int ok = 1;
+    for (uint32_t i = 0; ok && i < gm_device.n_analogs; i++)
+        ok = adc_plan_source(gm_device.analogs[i].pin, &group);
+#if GM_N_PADS > 0
+    for (uint32_t i = 0; ok && i < GM_N_PADS; i++)
+        ok = adc_plan_source(gm_pads[i].pin, &group);
+#endif
+    /* A button or encoder on a mux reads it digitally, switching the select
+     * lines the hardware is stepping: not with this. */
+    for (uint32_t i = 0; ok && i < gm_device.n_buttons; i++)
+        ok = !on_mux(gm_device.buttons[i].pin);
+    for (uint32_t i = 0; ok && i < gm_device.n_encoders; i++)
+        ok = !on_mux(gm_device.encoders[i].a) && !on_mux(gm_device.encoders[i].b);
+    if (!ok || !aplan.n_pins) {
+        app_log(LOG_WARN, "hardware analog scan: inputs on muxes with different select lines, a mux ",
+                "read digitally, or too many ADC pins; reading in software");
+        return 0;
+    }
+    return &aplan;
+#else
+    return 0;
+#endif
+}
+
+void gm_adc_hw_started(void)
+{
+#if GM_HW_ADC
+    adc_n[0] = adc_n[1] = 0;
+    adc_gen = 0;
+    adc_read_gen = 1;
+    adc_on = 1;
+#endif
+}
+
+void gm_adc_sweep(const uint16_t *v)
+{
+#if GM_HW_ADC
+    uint32_t g = adc_gen, n = aplan.n_steps * aplan.n_pins, first = adc_n[g] == 0;
+    uint16_t *hi = adc_hi[g], *lo = adc_lo[g];
+    for (uint32_t i = 0; i < n; i++) {
+        uint16_t x = (uint16_t)(v[i] & 0xFFFu);
+        adc_last[i] = x;
+        if (first || x > hi[i])
+            hi[i] = x;
+        if (first || x < lo[i])
+            lo[i] = x;
+    }
+    adc_n[g]++;
+#else
+    (void)v;
+#endif
+}
+
+void vpin_analog_peaks(void)
+{
+#if GM_HW_ADC
+    if (!adc_on)
+        return;
+    uint8_t g = adc_gen;
+    adc_n[g ^ 1u] = 0;              /* the one read last time: refilled from scratch */
+    adc_gen = (uint8_t)(g ^ 1u);
+    adc_read_gen = g;
+#endif
+}
+
+/* Cell lookup for p: its pin index k and step (-1 = an ADC pin: every step). */
+#if GM_HW_ADC
+static int adc_cell(gm_pin_t p, int *k, int *step)
+{
+    if (p.hub == 0) {
+        *k = adc_pin_index(p.num);
+        *step = -1;
+    } else {
+        const gm_hub_t *h = hub_of(p);
+        if (!h || h->type != GM_HUB_MUX || p.num >= aplan.n_steps)
+            return 0;
+        *k = adc_pin_index(h->common.num);
+        *step = (int)p.num;
+    }
+    return *k >= 0;
+}
+#endif
+
+int32_t vpin_analog_peak(gm_pin_t p)
+{
+#if GM_HW_ADC
+    int k, step;
+    uint32_t g = adc_read_gen;
+    if (adc_on && adc_n[g] && adc_cell(p, &k, &step)) {
+        int inv = (p.flags & GM_PIN_INVERT) != 0;
+        int32_t best = -1;
+        for (uint32_t s = step < 0 ? 0u : (uint32_t)step; s < aplan.n_steps; s++) {
+            uint32_t c = s * aplan.n_pins + (uint32_t)k;
+            int32_t v = inv ? 4095 - adc_lo[g][c] : adc_hi[g][c];
+            if (v > best)
+                best = v;
+            if (step >= 0)
+                break;
+        }
+        return best;
+    }
+#endif
+    return vpin_analog(p);
+}
+
 int32_t vpin_analog(gm_pin_t p)
 {
     int32_t v;
+#if GM_HW_ADC
+    int k, step;
+    if (adc_on && adc_cell(p, &k, &step)) {
+        if (step >= 0) {
+            v = adc_last[(uint32_t)step * aplan.n_pins + (uint32_t)k];
+        } else {
+            uint32_t sum = 0;           /* an ADC pin: the sweep's mean (n_steps readings) */
+            for (uint32_t s = 0; s < aplan.n_steps; s++)
+                sum += adc_last[s * aplan.n_pins + (uint32_t)k];
+            v = (int32_t)(sum / aplan.n_steps);
+        }
+        return (p.flags & GM_PIN_INVERT) ? 4095 - v : v;
+    }
+#endif
     if (p.hub == 0) {
         v = hal_adc_read(p.num);
     } else {
@@ -579,6 +824,8 @@ void vpin_scan_matrices(void)
         const gm_hub_t *h = &gm_device.hubs[i];
         if (h->type != GM_HUB_SWMATRIX)
             continue;
+        if (fed_on)
+            break;                      /* every switch matrix is fed by frames */
         hub_state_t *s = &hs[i];
         uint32_t v = s->in;
         uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
@@ -606,6 +853,71 @@ void vpin_scan_matrices(void)
         }
         s->channel = (int8_t)r;
         s->in = v;
+    }
+}
+
+int vpin_scan_plan(volatile uint32_t **sel_reg, uint32_t *sel_word, uint32_t *n_rows,
+                   uint32_t max_rows, const volatile uint32_t **in_reg, uint32_t *in_mask)
+{
+    volatile uint32_t *sreg = *sel_reg;
+    const volatile uint32_t *ireg = *in_reg;
+    uint32_t n = *n_rows, mask = *in_mask, nf = 0;
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        if (h->type != GM_HUB_SWMATRIX)
+            continue;
+        if (!sm_reg[i] || (ireg && sm_reg[i] != ireg))
+            return 0;                   /* columns not one load of the plan's register */
+        ireg = sm_reg[i];
+        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
+        mask |= all << sm_shift[i];
+        for (uint32_t r = 0; r < h->n_rows; r++) {
+            if (r * h->n_cols >= 32u)
+                break;                  /* beyond the 32-bit cache, as vpin_scan_matrices */
+            volatile uint32_t *reg = 0;
+            uint32_t word = 0, k;
+            if (!vpin_select_word(h->rows[r], &reg, &word) || (sreg && reg != sreg))
+                return 0;
+            sreg = reg;
+            for (k = 0; k < n && sel_word[k] != word; k++) {
+            }
+            if (k == n) {
+                if (n >= max_rows)
+                    return 0;
+                sel_word[n++] = word;
+            }
+            if (nf >= FED_MAX)
+                return 0;
+            fed_hub[nf] = (uint8_t)i;
+            fed_row[nf] = (uint8_t)r;
+            fed_slot[nf] = (uint8_t)k;
+            nf++;
+        }
+    }
+    *sel_reg = sreg;
+    *in_reg = ireg;
+    *n_rows = n;
+    *in_mask = mask;
+    n_fed = (uint8_t)nf;
+    return 1;
+}
+
+void vpin_scan_hw(int on)
+{
+    fed_on = (uint8_t)(on && n_fed);
+}
+
+/* One frame: each fed row's columns into its matrix's cache. Called from the
+ * platform's scan interrupt, like vpin_scan_matrices. */
+void vpin_scan_feed(const uint16_t *frame)
+{
+    for (uint32_t f = 0; f < n_fed; f++) {
+        uint32_t i = fed_hub[f];
+        const gm_hub_t *h = &gm_device.hubs[i];
+        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
+        uint32_t bit = fed_row[f] * h->n_cols;
+        uint32_t row = (((uint32_t)frame[fed_slot[f]] >> sm_shift[i]) & all) ^ sm_inv[i];
+        hs[i].in = (hs[i].in & ~(all << bit)) | (row << bit);
     }
 }
 
@@ -647,29 +959,88 @@ static void tm_cmd(const gm_hub_t *h, uint32_t cmd)
     tm_end(h);
 }
 
-void vpin_flush_tm1628(void)
+/* What a chip still needs, in bytes on the bus (budget units). A whole-RAM
+ * write: 0x40, C0 + every byte; fixed addresses: 0x44, then C0|a + byte for
+ * each changed byte. */
+static uint32_t tm_changed(const hub_state_t *s, uint32_t n)
 {
-    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+    uint32_t c = 0;
+    for (uint32_t k = 0; k < n; k++)
+        c += tm_ram[s->tm_off + k] != ram_sent[s->tm_off + k];
+    return c;
+}
+
+/* Write what changed in each chip, at most `budget` bus bytes (each about
+ * 17 us) per call; what's left stays dirty for the next call. A chip's first
+ * write is its whole RAM plus the display mode and control commands (they
+ * stay set in the chip); after that only changed bytes go out, one at a
+ * time at a fixed address, or the whole RAM when that is shorter. */
+static void tm_flush(uint32_t budget)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs && budget; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
         if (h->type != GM_HUB_TM1628 || !s->tm_dirty)
             continue;
-        s->tm_dirty = 0;
         uint32_t n = h->ram_bytes;
         if (s->tm_off + n > GM_TM1628_RAM)
             n = GM_TM1628_RAM - s->tm_off;
-        /* Mode (if set), data write with auto-increment, address 0 and
-         * the whole RAM, then display on at the brightness. */
-        if (h->grids >= 4u && h->grids <= 7u)
-            tm_cmd(h, h->grids - 4u);
-        tm_cmd(h, 0x40u);
-        tm_start(h);
-        tm_byte(h, 0xC0u);
-        for (uint32_t k = 0; k < n; k++)
-            tm_byte(h, tm_ram[s->tm_off + k]);
-        tm_end(h);
-        tm_cmd(h, 0x88u | (h->brightness & 7u));
+        uint8_t *ram = &tm_ram[s->tm_off], *sent = &ram_sent[s->tm_off];
+        uint32_t c = s->never ? n : tm_changed(s, n);
+        if (s->never || (2u + n < 1u + 2u * c && 2u + n <= budget)) {
+            if (s->never && h->grids >= 4u && h->grids <= 7u)
+                tm_cmd(h, h->grids - 4u);
+            tm_cmd(h, 0x40u);           /* auto-increment from address 0 */
+            tm_start(h);
+            tm_byte(h, 0xC0u);
+            for (uint32_t k = 0; k < n; k++) {
+                tm_byte(h, ram[k]);
+                sent[k] = ram[k];
+            }
+            tm_end(h);
+            if (s->never)
+                tm_cmd(h, 0x88u | (h->brightness & 7u));
+            s->never = 0;
+            s->tm_dirty = 0;
+            budget = budget > 2u + n ? budget - 2u - n : 0u;
+            continue;
+        }
+        if (c == 0) {
+            s->tm_dirty = 0;
+            continue;
+        }
+        if (budget < 3u)
+            break;
+        tm_cmd(h, 0x44u);               /* fixed address */
+        budget--;
+        for (uint32_t k = 0; k < n && budget >= 2u; k++) {
+            if (ram[k] == sent[k])
+                continue;
+            uint8_t v = ram[k];
+            tm_start(h);
+            tm_byte(h, 0xC0u | k);
+            tm_byte(h, v);
+            tm_end(h);
+            sent[k] = v;
+            budget -= 2u;
+            c--;
+        }
+        s->tm_dirty = c != 0;
     }
+}
+
+void vpin_flush_tm1628(void)
+{
+    tm_flush(0xFFFFFFFFu);
+}
+
+/* About 9 bus bytes: ~150 us at most per main-loop pass, and a single LED
+ * change (3 bytes, ~50 us) always goes out at once. */
+#define TM_POLL_BUDGET 9u
+
+void vpin_poll_tm1628(void)
+{
+    tm_flush(TM_POLL_BUDGET);
 }
 
 /* ---- RGB_SERIAL hubs --------------------------------------------------- */
@@ -721,7 +1092,7 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
         /* The next changed LED after the last one sent, so one busy LED
          * can't starve the others. */
         const uint8_t *ram = &tm_ram[s->tm_off];
-        uint8_t *sent = &rgb_sent[s->tm_off];
+        uint8_t *sent = &ram_sent[s->tm_off];
         for (uint32_t k = 0; k < h->chain; k++) {
             uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->chain;
             uint32_t v = rgb_bits(ram, led);
@@ -740,6 +1111,10 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
 }
 #else
 void vpin_flush_tm1628(void)
+{
+}
+
+void vpin_poll_tm1628(void)
 {
 }
 

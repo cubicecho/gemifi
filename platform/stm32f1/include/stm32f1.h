@@ -62,6 +62,7 @@
 #define RCC_APB2_IOPA   (1u << 2)          /* IOPx = 1 << (2 + port) */
 #define RCC_APB2_IOP(port) (1u << (2u + (port)))
 #define RCC_APB2_ADC1   (1u << 9)
+#define RCC_APB2_TIM1   (1u << 11)
 #define RCC_APB2_USART1 (1u << 14)
 /* APB1ENR / APB1RSTR */
 #define RCC_APB1_TIM2   (1u << 0)
@@ -171,6 +172,9 @@
 #define ADC_CR2_CAL     (1u << 2)
 #define ADC_CR2_RSTCAL  (1u << 3)
 #define ADC_CR2_EXTSEL_SWSTART (7u << 17)
+#define ADC_CR2_EXTSEL_TIM4_CC4 (5u << 17) /* regular group trigger (RM0008 11.12.3) */
+#define ADC_CR2_DMA     (1u << 8)
+#define ADC_CR1_SCAN    (1u << 8)
 #define ADC_CR2_EXTTRIG (1u << 20)
 #define ADC_CR2_SWSTART (1u << 22)
 
@@ -201,6 +205,24 @@
 #define TIM_DIER_UIE    (1u << 0)
 #define TIM_SR_UIF      (1u << 0)
 #define TIM_EGR_UG      (1u << 0)
+/* TIM1 (advanced, on APB2: clocked at HCLK) and the registers the matrix
+ * scan uses (RM0008 14.4). The layout matches TIM2..TIM4 for these. */
+#define TIM1_BASE       0x40012C00u
+#define TIM_CR2(t)      REG32((t) + 0x04u)
+#define TIM_CCMR1(t)    REG32((t) + 0x18u)
+#define TIM_CCMR2(t)    REG32((t) + 0x1Cu)
+#define TIM_CCER(t)     REG32((t) + 0x20u)
+#define TIM_RCR(t)      REG32((t) + 0x30u)
+#define TIM_CCR1(t)     REG32((t) + 0x34u)
+#define TIM_CCR2(t)     REG32((t) + 0x38u)
+#define TIM_CCR3(t)     REG32((t) + 0x3Cu)
+#define TIM_CCR4(t)     REG32((t) + 0x40u)
+#define TIM_DIER_UDE    (1u << 8)          /* update -> DMA request */
+#define TIM_DIER_CC1DE  (1u << 9)          /* compare n -> DMA request */
+#define TIM_DIER_CC2DE  (1u << 10)
+#define TIM_DIER_CC3DE  (1u << 11)
+#define TIM_CCMR2_OC4M_PWM2 (7u << 12)     /* OC4REF rises at CNT = CCR4 */
+#define TIM_CCER_CC4E   (1u << 12)
 
 /* ---- debug MCU (RM0008 31.6) ------------------------------------------ */
 /* DBGMCU_IDCODE: DEV_ID [11:0], REV_ID [31:16]. Note ST errata (ES0340
@@ -246,6 +268,8 @@
 /* IRQ numbers (RM0008 table 63, connectivity-line-free F101/F103) */
 #define IRQ_USB_HP_CAN1_TX  19
 #define IRQ_USB_LP_CAN1_RX0 20
+#define IRQ_DMA1_CH1        11
+#define IRQ_DMA1_CH3        13
 #define IRQ_TIM2            28
 #define IRQ_TIM3            29
 #define IRQ_TIM4            30
@@ -286,6 +310,7 @@ static inline void irq_restore(uint32_t pm)
 #define USART_CR1_TE    (1u << 3)
 #define USART_CR3_DMAT  (1u << 7)
 #define DMA1_BASE       0x40020000u
+#define DMA1_ISR        REG32(DMA1_BASE + 0x00u)
 #define DMA1_IFCR       REG32(DMA1_BASE + 0x04u)
 #define DMA1_CCR(ch)    REG32(DMA1_BASE + 0x08u + 20u * ((ch) - 1u))
 #define DMA1_CNDTR(ch)  REG32(DMA1_BASE + 0x0Cu + 20u * ((ch) - 1u))
@@ -294,5 +319,19 @@ static inline void irq_restore(uint32_t pm)
 #define DMA_CCR_EN      (1u << 0)
 #define DMA_CCR_DIR     (1u << 4)          /* memory -> peripheral */
 #define DMA_CCR_MINC    (1u << 7)
+#define DMA_CCR_TCIE    (1u << 1)
+#define DMA_CCR_HTIE    (1u << 2)
+#define DMA_CCR_TEIE    (1u << 3)
+#define DMA_CCR_CIRC    (1u << 5)
+#define DMA_CCR_PSIZE32 (2u << 8)
+#define DMA_CCR_MSIZE16 (1u << 10)
+#define DMA_CCR_MSIZE32 (2u << 10)
+#define DMA_CCR_PL(n)   ((uint32_t)(n) << 12)   /* 0 low .. 3 very high */
+/* DMA1_ISR / DMA1_IFCR: 4 bits per channel. Clear only TC/HT/TE: clearing
+ * the global flag of an active channel can hide a transfer error (ES0340
+ * 2.4.1, the high-density sheet; the DMA1 block is the same). */
+#define DMA_ISR_TCIF(ch) (2u << (4u * ((ch) - 1u)))
+#define DMA_ISR_HTIF(ch) (4u << (4u * ((ch) - 1u)))
+#define DMA_ISR_TEIF(ch) (8u << (4u * ((ch) - 1u)))
 
 #endif

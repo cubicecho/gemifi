@@ -7,7 +7,9 @@
  * SysEx from the web updater or tools/host/gemifi.py.
  *
  * This file is only the STM32F1 entry point: clocks, IWDG, USB-MIDI, the
- * scan timer (TIM2 interrupt at gm_device.scan_us) and the main loop.
+ * scan timer (TIM2 interrupt at gm_device.scan_us), the hardware scans
+ * (hardware_scan: in the YAML: src/scan_dma.c for the matrix, src/adc_dma.c
+ * for the analog inputs and pads) and the main loop.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -22,6 +24,8 @@
 #include "gm_device_config.h"
 #include "app_proto.h"
 #include "gm_feedback.h"
+#include "scan_dma.h"
+#include "adc_dma.h"
 
 #define FW_VERSION GEMIFI_VERSION(FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH)
 
@@ -54,6 +58,11 @@ static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
  * pass, and the host allows ~2 ms after SET_ADDRESS. */
 static uint32_t loop_max, loop_over1, loop_over2;
 static volatile uint8_t scan_slowed;
+/* hal.c: MIDI sends that waited over 100 us for the host, and the longest. */
+extern volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;
+static uint8_t hw_scan_failed;          /* hardware_scan.matrix given, but scan_dma refused the plan */
+static uint8_t hw_adc_failed;           /* hardware_scan.analog given, but adc_dma refused it */
+static uint32_t hw_scan_rows;
 #define SCAN_MAX_US 4000u
 
 void TIM2_IRQHandler(void)
@@ -128,10 +137,34 @@ static void report_scan(void)
     app_log(LOG_INFO, fmt_num(a, "poll analog ", gm_poll_part_max[2] / mhz, " us"),
             fmt_num(b, ", pads ", gm_poll_part_max[3] / mhz, " us"));
     app_log(LOG_INFO, fmt_num(a, "poll encoders ", gm_poll_part_max[4] / mhz, " us"),
-            fmt_num(b, ", leds ", gm_poll_part_max[5] / mhz, " us"));
+            fmt_num(b, ", led update ", gm_poll_part_max[5] / mhz, " us"));
+    app_log(LOG_INFO, fmt_num(a, "poll led writes ", gm_poll_part_max[6] / mhz, " us"),
+            fmt_num(b, ", midi out waits ", hal_midi_waits, ""));
+    app_log(LOG_INFO, fmt_num(a, "midi out longest wait ", hal_midi_wait_max_us, " us"), "");
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));
+    if (gm_scan_hw()) {
+        /* The matrix is the DMA's: the scan tick above only has the rest. */
+        app_log(LOG_INFO, fmt_num(a, "hw scan frame ", scan_dma_frame_ns(), " ns"),
+                fmt_num(b, ", rows ", hw_scan_rows, ""));
+        app_log(LOG_INFO, fmt_num(a, "hw scan irq max ", scan_dma_isr_max_us, " us"),
+                fmt_num(b, ", overruns ", scan_dma_overruns, ""));
+        if (scan_dma_errors)
+            app_log(LOG_WARN, "hw scan: DMA transfer error, the matrix scan stopped", "");
+    } else if (hw_scan_failed) {
+        app_log(LOG_WARN, "hw scan: the plan can't run on this chip; scanning in software", "");
+    }
+    if (gm_adc_hw()) {
+        app_log(LOG_INFO, fmt_num(a, "hw adc sweep ", adc_dma_sweep_us(), " us"),
+                fmt_num(b, ", irq max ", adc_dma_isr_max_us, " us"));
+        app_log(LOG_INFO, fmt_num(a, "hw adc overruns ", adc_dma_overruns, ""),
+                fmt_num(b, ", resyncs ", adc_dma_resyncs, ""));
+        if (adc_dma_errors)
+            app_log(LOG_WARN, "hw adc: DMA transfer error, the analog sweeps stopped", "");
+    } else if (hw_adc_failed) {
+        app_log(LOG_WARN, "hw adc: the plan can't run on this chip; reading in software", "");
+    }
     if (!sys_hse_ok())
         app_log(LOG_WARN, "HSE crystal did not start: running on HSI, USB timing ",
                 "out of spec");
@@ -183,6 +216,22 @@ int main(void)
     app_proto_uid_hex(serial);
     usbd_init(&usb_desc);
 
+    /* The hardware matrix scan, when the YAML asks for one: frames from the
+     * DMA replace the scan tick's matrix work. Started while interrupts are
+     * still off (scan_timer_start turns them on), so no frame comes before
+     * gm_scan_hw_started(). */
+    const gm_scan_plan_t *plan = gm_scan_plan();
+    if (plan && scan_dma_start(plan)) {
+        hw_scan_rows = plan->n_rows;
+        gm_scan_hw_started(scan_dma_frame_q4());
+    } else if (plan) {
+        hw_scan_failed = 1;
+    }
+    const gm_adc_plan_t *aplan = gm_adc_plan();
+    if (aplan && adc_dma_start(aplan))
+        gm_adc_hw_started();
+    else if (aplan)
+        hw_adc_failed = 1;
     scan_timer_start(gm_device.scan_us);
     /* USB from its interrupt, above the scan: a long main-loop pass (the
      * pads, an LED refresh, a flash write) can't miss the host's deadlines
@@ -218,6 +267,10 @@ int main(void)
                 gm_scan_part_max[i] = 0;
             for (uint32_t i = 0; i < GM_POLL_PARTS; i++)
                 gm_poll_part_max[i] = 0;
+            scan_dma_isr_max_us = 0;        /* the hardware scans' too: steady state at 10 s */
+            adc_dma_isr_max_us = 0;
+            hal_midi_waits = hal_midi_wait_max_us = 0;
+            c_last = DWT_CYCCNT;            /* the report's own sending isn't a pass */
         }
     }
 }

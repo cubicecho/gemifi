@@ -52,6 +52,17 @@ export function useFeedback(client: SysexClient): FeedbackController {
   const [sendError, setSendError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
+  // BOOTED (§4.6.3): the device restarted and forgot every state set here, so read it again.
+  useEffect(
+    () =>
+      client.onMessage((message) => {
+        if (message.kind === 'booted') {
+          setAttempt((n) => n + 1);
+        }
+      }),
+    [client],
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the reload trigger.
   useEffect(() => {
     const controller = new AbortController();

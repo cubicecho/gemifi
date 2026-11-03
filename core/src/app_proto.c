@@ -14,6 +14,7 @@
 #include "gm_vpin.h"
 
 #define REBOOT_DELAY_MS 50u
+#define BOOTED_DELAY_MS 1500u        /* BOOTED once USB is normally up (sysex.md 4.6.3) */
 #define SCHEMA_WINDOW   64u
 #define PARAMS_RUN      16u
 /* A whole frame with an n-byte payload: F0, body, F7. */
@@ -29,9 +30,10 @@ static uint8_t data_buf[256];        /* unpacked FW_DATA chunk */
 static uint8_t rx_buf[GSX_OVERHEAD + 4 + 300];   /* FW_DATA: 256 B packed */
 static gsx_rx_t rx;
 /* The largest reply: GET_PARAMS (6 + 16 values), or GET_COMPONENT (kind,
- * index, count, three lstrings, up to 3 bytes of extras). */
+ * index, count, three lstrings, up to 4 bytes of extras: an encoder's ring,
+ * centre and mode). */
 #define REPLY_PARAMS    (6u + PARAMS_RUN * 5u + 8u)
-#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 3u)
+#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 4u)
 #define REPLY_MAX       (REPLY_PARAMS > REPLY_COMPONENT ? REPLY_PARAMS : REPLY_COMPONENT)
 static uint8_t tx_buf[GSX_OVERHEAD + 1 + REPLY_MAX];
 static uint16_t tx_len;
@@ -40,6 +42,10 @@ static uint8_t uid[12];
 static uint8_t unsol_seq;
 static uint8_t reboot_mode;          /* 0 none, 1 app, 2 bootloader */
 static uint32_t reboot_at;
+#if GM_HOST_FB
+static uint8_t booted_due;           /* BOOTED not sent yet */
+static uint32_t booted_at;
+#endif
 
 __attribute__((weak)) void app_on_param_set(uint16_t id, uint16_t index)
 {
@@ -66,6 +72,10 @@ void app_proto_init(uint32_t version, int config)
     rx.buf = rx_buf;
     rx.cap = sizeof(rx_buf);
     gsx_rx_reset(&rx);
+#if GM_HOST_FB
+    booted_due = 1;
+    booted_at = hal_millis() + BOOTED_DELAY_MS;
+#endif
 }
 
 static uint16_t caps(void)
@@ -181,10 +191,9 @@ static void put_node_name(gsx_tx_t *t)
         gsx_put(t, (uint8_t)s[i]);
 }
 
-static int cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
+/* HELLO's reply fields after the status; BOOTED sends the same. */
+static void put_hello(gsx_tx_t *t)
 {
-    if (f->len != 0)
-        return GSX_BAD_LEN;
     gsx_put(t, 0);                          /* role: app */
     gsx_put_u(t, gm_device.board_id, 2);
     gsx_put_u(t, fw_version, 5);
@@ -193,8 +202,30 @@ static int cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
     gsx_put_u(t, caps(), 2);
     gsx_put_packed(t, uid, sizeof(uid));
     put_node_name(t);
+}
+
+static int cmd_hello(const gsx_frame_t *f, gsx_tx_t *t)
+{
+    if (f->len != 0)
+        return GSX_BAD_LEN;
+    put_hello(t);
     return GSX_OK;
 }
+
+#if GM_HOST_FB
+/* BOOTED (sysex.md 4.6.3): a HELLO reply without the status, sent once so a
+ * DAW script knows its FB_* states are gone. Only with caps bit 6. */
+static void send_booted(void)
+{
+    if ((caps() & GSX_CAP_FEEDBACK) == 0)
+        return;
+    uint8_t buf[FRAME(1 + 2 + 5 + 1 + 2 + 2 + 14 + 1 + GSX_NODE_NAME_MAX)];
+    gsx_tx_t t;
+    gsx_tx_begin(&t, buf, GSX_MSG_BOOTED, unsol_seq++ & 0x7F);
+    put_hello(&t);
+    hal_midi_send(buf, gsx_tx_end(&t));
+}
+#endif
 
 static int cmd_get_schema(const gsx_frame_t *f, gsx_tx_t *t)
 {
@@ -482,6 +513,13 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put_u(t, gm_device.matrix->n_keys, 2);
         gsx_put(t, gm_device.matrix->first_note);
         break;
+    case GSX_KIND_ANALOG:
+#if GM_ANALOG_PICKUP
+        gsx_put(t, gm_analog_pickup[index] ? 1 : 0);    /* takeover */
+#else
+        gsx_put(t, 0);
+#endif
+        break;
     case GSX_KIND_ENCODER: {
 #if GM_RINGS
         const gm_ring_t *r = &gm_encoder_ring[index];
@@ -491,10 +529,21 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put(t, 0);
         gsx_put_u(t, GSX_NONE_INDEX, 2);
 #endif
+        uint32_t mode = (uint32_t)gm_cfg.enc_mode[index];
+#if GM_MCU
+        if (gm_encoder_mcu[index] != GM_MCU_NONE)
+            mode = GSX_ENC_MODE_MCU;                    /* a V-Pot ignores encoder.mode */
+#endif
+        gsx_put(t, (uint8_t)mode);
         break;
     }
     case GSX_KIND_LED:
         gsx_put(t, vpin_is_none(gm_device.leds[index].pin2) ? 1 : 2);
+#if GM_LED_FB
+        gsx_put(t, gm_led_fb[index].owner);            /* as led_level() in controller.c */
+#else
+        gsx_put(t, GM_LED_OWNER);
+#endif
         break;
     default:
         break;
@@ -674,6 +723,12 @@ void app_proto_rx_byte(uint8_t b)
 
 void app_proto_poll(void)
 {
+#if GM_HOST_FB
+    if (booted_due && (int32_t)(hal_millis() - booted_at) >= 0) {
+        booted_due = 0;
+        send_booted();
+    }
+#endif
     if (reboot_mode && (int32_t)(hal_millis() - reboot_at) >= 0) {
         if (fw_active)
             fw->abort();

@@ -207,6 +207,15 @@ static int gsx_request(uint8_t cmd, const uint8_t *p, int n, const uint8_t **pl,
     return -1;
 }
 
+/* The first gemifi message with this cmd in the output: offset of its F0, or -1. */
+static int find_sysex(uint8_t cmd)
+{
+    for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++)
+        if (out[i] == 0xF0 && out[i + 1] == 0x7D && out[i + 1 + GSX_OFF_CMD] == cmd)
+            return i;
+    return -1;
+}
+
 /* An lstring at *p: compare with want, move past it. */
 static int lstr_is(const uint8_t **p, const char *want)
 {
@@ -218,7 +227,7 @@ static int lstr_is(const uint8_t **p, const char *want)
 static void knob(int pin, int raw)
 {
     adc[pin] = raw;
-    run_ms(100);                        /* the input filter settles */
+    run_ms(150);                        /* the input filter settles (3 inputs, one per 2 ms) */
 }
 
 /* ---- tests ------------------------------------------------------------ */
@@ -230,7 +239,28 @@ int main(void)
     adc[0] = 2048;                      /* knob at 64 */
     adc[1] = 0;                         /* fader at the bottom */
     gm_init(0x01020000u, 0);           /* fw 1.2.0 */
-    run_ms(2000);
+    run_ms(1400);
+    CHECK(find_sysex(GSX_MSG_BOOTED) < 0, "no BOOTED before 1.5 s");
+    run_ms(600);
+    {
+        /* BOOTED (sysex.md 4.6.3): HELLO's fields without the status */
+        int b = find_sysex(GSX_MSG_BOOTED);
+        uint8_t p[64] = { 0 };
+        int plen = b < 0 ? 0 : out[b + 1 + GSX_OFF_LEN] | out[b + 1 + GSX_OFF_LEN + 1] << 7;
+        if (b >= 0 && plen <= (int)sizeof p)
+            memcpy(p, out + b + 1 + GSX_OFF_PAYLOAD, (size_t)plen);   /* gsx_request reuses out */
+        CHECK(b >= 0 && plen == 27 + 1 + 13, "BOOTED once, 27 bytes + node feedback-test");
+        CHECK(b >= 0 && p[0] == 0 && gsx_get_u(p + 1, 2) == 0x3F10 && gsx_get_u(p + 3, 5) == 0x01020000u &&
+              p[8] == GSX_PROTO_VERSION && (gsx_get_u(p + 11, 2) & GSX_CAP_FEEDBACK) && p[27] == 13 &&
+              memcmp(p + 28, "feedback-test", 13) == 0, "BOOTED: role, board, fw, caps bit 6, node");
+        const uint8_t *h;
+        int hn;
+        CHECK(gsx_request(GSX_CMD_HELLO, 0, 0, &h, &hn) == GSX_OK && hn == plen && memcmp(h, p, (size_t)hn) == 0,
+              "BOOTED = HELLO reply without the status");
+        out_n = 0;
+        run_ms(3000);
+        CHECK(find_sysex(GSX_MSG_BOOTED) < 0, "BOOTED only once");
+    }
     out_n = 0;
 
     /* button.action: the preset actions, then Mackie Control at 16 */
@@ -523,19 +553,44 @@ int main(void)
         r += 1 + r[0];
         CHECK(lstr_is(&r, "device_param_1"), "role device_param_1");
         CHECK(r[0] == 3 && gsx_get_u(r + 1, 2) == GSX_NONE_INDEX, "ring of 3, no centre");
+        CHECK(r[3] == ENC_ABSOLUTE && r + 4 == out + find_sysex(GSX_CMD_GET_COMPONENT | GSX_REPLY) + 1 +
+              GSX_OFF_PAYLOAD + 1 + rn, "mode 0 (absolute), the last field");
+        /* `mode` follows encoder.mode */
+        uint8_t sp[9] = { P_ENC_MODE, 0, 2, 0, ENC_REL_OFFSET, 0, 0, 0, 0 };
+        CHECK(gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0) == GSX_OK, "encoder.mode[2] = relative offset");
+        gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
+        CHECK(rn >= 4 && r[rn - 1] == ENC_REL_OFFSET, "mode 2 after SET_PARAM");
+        sp[4] = ENC_ABSOLUTE;
+        gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0);
         qe[1] = 1;
         gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
         r += 5;
         r += 1 + r[0];
         r += 1 + r[0];
         CHECK(lstr_is(&r, "vpot_1") && r[0] == 5 && gsx_get_u(r + 1, 2) == 14, "pan: vpot_1, ring 5, centre 14");
+        CHECK(r[3] == GSX_ENC_MODE_MCU, "a V-Pot reports mode 3");
+        qe[1] = 0;
+        gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
+        CHECK(rn >= 4 && r[rn - 1] == ENC_ABSOLUTE, "enc: mode 0");
 
         uint8_t ql[3] = { GSX_KIND_LED, 15, 0 };
         CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK, "GET_COMPONENT LED 15");
         r += 5;
         CHECK(lstr_is(&r, "bi") && lstr_is(&r, "Bicolour"), "id bi, name Bicolour");
         r += 1 + r[0];
-        CHECK(r[0] == 2, "two colours");
+        CHECK(r[0] == 2 && r[1] == GM_OWNER_HOST_THEN_LOCAL, "two colours, owner host_then_local");
+        /* `owner`: the LED's own, MCU-driven ones host (sysex.md 4.6.1) */
+        static const struct { uint8_t led, owner; } owners[] = {
+            { PLAY, GM_OWNER_HOST },            /* the play button's mcu: LED */
+            { PAD, GM_OWNER_LOCAL }, { MOM, GM_OWNER_HOST_THEN_LOCAL }, { REC, GM_OWNER_HOST },
+            { 9, GM_OWNER_HOST }, { 14, GM_OWNER_HOST }, { 16, GM_OWNER_HOST },   /* rings, centre */
+        };
+        for (unsigned k = 0; k < sizeof owners / sizeof owners[0]; k++) {
+            ql[0] = GSX_KIND_LED;
+            ql[1] = owners[k].led;
+            CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK && r[rn - 1] == owners[k].owner,
+                  "LED %d owner %d (got %d)", owners[k].led, owners[k].owner, r[rn - 1]);
+        }
 
         uint8_t qa[3] = { GSX_KIND_ANALOG, 1, 0 };
         gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
@@ -543,6 +598,13 @@ int main(void)
         r += 1 + r[0];
         r += 1 + r[0];
         CHECK(lstr_is(&r, "fader_1"), "fader role fader_1");
+        CHECK(rn >= 1 && r[0] == 1, "fader: takeover pick-up (the MCU default)");
+        qa[1] = 0;
+        gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
+        CHECK(r[rn - 1] == 1, "knob: takeover pick-up");
+        qa[1] = 2;
+        gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
+        CHECK(gsx_get_u(r + 3, 2) == 3 && r[rn - 1] == 0, "level: 3 analogs, takeover none");
 
         uint8_t bad[][3] = { { GSX_KIND_BUTTON, 4, 0 }, { GSX_KIND_MATRIX, 0, 0 }, { GSX_KIND_DISPLAY, 0, 0 },
                              { 9, 0, 0 } };

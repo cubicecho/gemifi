@@ -82,6 +82,12 @@ class TestComponentCodec(unittest.TestCase):
         C(gp.KIND_LED, 0, 5, "pad_led", "Pad", "", colours=3),
         C(gp.KIND_DISPLAY, 0, 1, "lcd", "LCD", "track_name", cols=16, rows=2, display_type=1),
         C(9, 0, 1, "future", "Future", "", extra=b"\x01\x02"),
+        # the added fields (sysex.md 4.6.1)
+        C(gp.KIND_ANALOG, 0, 9, "knob", "Knob", "", takeover=gp.TAKEOVER_PICKUP),
+        C(gp.KIND_ANALOG, 1, 9, "slider", "Slider", "", takeover=gp.TAKEOVER_NONE),
+        C(gp.KIND_ENCODER, 2, 8, "pan", "Pan", "vpot_1", ring=11, center=gp.NONE_INDEX, mode=gp.ENC_MCU),
+        C(gp.KIND_ENCODER, 3, 8, "dial", "Dial", "", mode=gp.ENC_REL_TWOS),
+        C(gp.KIND_LED, 1, 5, "pad_led", "Pad", "", colours=1, owner=gp.OWNER_LOCAL),
     ]
 
     def test_round_trip(self):
@@ -105,6 +111,38 @@ class TestComponentCodec(unittest.TestCase):
         self.assertEqual(gp.build_component_reply(C(gp.KIND_ANALOG, 0, 1, "", "", "")), bytes([0, 3, 0, 0, 1, 0, 0, 0, 0]))
         self.assertEqual(gp.build_component_reply(c, gp.BAD_PARAM), bytes([gp.BAD_PARAM]))
 
+    def test_added_fields_layout(self):
+        """takeover, mode, owner: one byte each, after the kind's first fields (sysex.md 4.6.1)."""
+        base = bytes([0, 0, 1, 0, 0, 0, 0])            # index 0, count 1, three empty lstrings
+        a = C(gp.KIND_ANALOG, 0, 1, "", "", "", takeover=1)
+        self.assertEqual(gp.build_component_reply(a), bytes([0, 3]) + base + bytes([1]))
+        e = C(gp.KIND_ENCODER, 0, 1, "", "", "", ring=5, center=200, mode=2)
+        self.assertEqual(gp.build_component_reply(e), bytes([0, 4]) + base + bytes([5, 0x48, 0x01, 2]))
+        x = C(gp.KIND_LED, 0, 1, "", "", "", colours=2, owner=2)
+        self.assertEqual(gp.build_component_reply(x), bytes([0, 5]) + base + bytes([2, 2]))
+
+    def test_older_firmware(self):
+        """A reply without the added fields still parses; they read as None, and hosts assume FB_* reach."""
+        for k in (gp.KIND_ANALOG, gp.KIND_ENCODER, gp.KIND_LED):
+            c = gp.parse_component(gp.build_component_reply(C(k, 0, 1, "x", "", "")))
+            self.assertEqual((c.takeover, c.mode, c.owner), (None, None, None))
+        self.assertTrue(C(gp.KIND_ANALOG, 0, 1, "").takes_value)
+        self.assertTrue(C(gp.KIND_ENCODER, 0, 1, "").takes_value)
+        self.assertTrue(C(gp.KIND_LED, 0, 1, "").host_drives)
+        # ... and a newer device's later bytes are ignored
+        e = gp.parse_component(gp.build_component_reply(C(gp.KIND_ENCODER, 0, 1, "", mode=1)) + b"\x05\x06")
+        self.assertEqual(e.mode, 1)
+
+    def test_what_reaches(self):
+        self.assertTrue(C(gp.KIND_ANALOG, 0, 1, "", takeover=1).takes_value)
+        self.assertFalse(C(gp.KIND_ANALOG, 0, 1, "", takeover=0).takes_value)
+        self.assertTrue(C(gp.KIND_ENCODER, 0, 1, "", mode=0).takes_value)
+        for m in (1, 2, 3, 9):
+            self.assertFalse(C(gp.KIND_ENCODER, 0, 1, "", mode=m).takes_value, m)
+        self.assertFalse(C(gp.KIND_LED, 0, 1, "", owner=gp.OWNER_LOCAL).host_drives)
+        self.assertTrue(C(gp.KIND_LED, 0, 1, "", owner=gp.OWNER_HOST).host_drives)
+        self.assertFalse(C(gp.KIND_BUTTON, 0, 1, "").takes_value)
+
     def test_request(self):
         self.assertEqual(gp.req_get_component(gp.KIND_LED, 200), bytes([5, 0x48, 0x01]))
         with self.assertRaises(ValueError):
@@ -123,8 +161,42 @@ class TestComponentCodec(unittest.TestCase):
         texts = [c.extras_text() for c in self.CASES]
         self.assertEqual(texts[:9], ["LED 7", "no LED", "61 keys from C2 (36)", "", "ring of 11, centre LED 300",
                                      "no ring", "bicolour", "RGB", "16x2 characters"])
+        self.assertEqual(texts[10:], ["takeover pickup", "takeover none", "ring of 11, mcu_vpot",
+                                      "no ring, relative_twos", "single, owner local"])
         self.assertEqual(self.CASES[1].to_json()["led"], None)
         self.assertEqual(self.CASES[8].to_json()["type"], 1)
+        self.assertEqual(self.CASES[3].to_json()["takeover"], None)
+        self.assertEqual((self.CASES[12].to_json()["mode"], self.CASES[14].to_json()["owner"]), (3, 2))
+
+
+class TestBooted(unittest.TestCase):
+    def test_codec(self):
+        """BOOTED (sysex.md 4.6.3) = a HELLO reply's payload without the status byte."""
+        h = gp.Hello(gp.ROLE_APP, 0x3F10, 0x01020000, 1, 0, gp.CAP_FEEDBACK | gp.CAP_CONFIG, bytes(range(12)), "box")
+        p = gp.build_booted(h)
+        self.assertEqual(bytes([gp.OK]) + p, gp.build_hello_reply(h))
+        self.assertEqual(gp.parse_booted(p), h)
+        self.assertEqual((gp.BOOTED, gp.CMD_NAMES[gp.BOOTED]), (0x64, "BOOTED"))
+        with self.assertRaises(gp.ProtocolError):
+            gp.parse_booted(p[:20])
+
+    def test_sim(self):
+        dev = make_dev()
+        port = SimPort(dev)
+        self.assertTrue(dev.send_booted())
+        port.send(gp.build_frame(gp.HELLO, 1, b""))
+        frames = [gp.parse_frame(m) for m in port.recv(0)]
+        self.assertEqual([f.cmd for f in frames], [gp.HELLO | gp.REPLY, gp.BOOTED])
+        self.assertEqual(gp.parse_booted(frames[1].payload), gp.parse_hello(frames[0].payload))
+        self.assertFalse(SimDevice(role=gp.ROLE_APP).send_booted())     # no caps bit 6: never sent
+        self.assertFalse(SimDevice().send_booted())                     # bootloader
+
+    def test_monitor_text(self):
+        h = gp.Hello(gp.ROLE_APP, 1, 0x00010005, 1, 0, gp.CAP_FEEDBACK, bytes(12), "keys")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            gemifi.print_unsolicited(gp.parse_frame(gp.build_frame(gp.BOOTED, 3, gp.build_booted(h))))
+        self.assertEqual(out.getvalue(), "BOOTED keys, fw 0.1.5, caps 0x0040 (it restarted: its feedback state is gone)\n")
 
 
 class TestNotificationCodec(unittest.TestCase):
@@ -270,8 +342,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(lines), 2 + len(FEEDBACK_COMPONENTS))
         self.assertRegex(out, r"button +0 +play +Play +play +LED 0")
         self.assertRegex(out, r"keys +0 +keys +Keys +32 keys from C3 \(48\)")
-        self.assertRegex(out, r"encoder +0 +enc1 +Encoder 1 +device_param_1 +ring of 5, centre LED 2")
-        self.assertRegex(out, r"led +1 +rec_led +Record LED +bicolour")
+        self.assertRegex(out, r"analog +0 +fader1 +Fader 1 +track_volume +takeover pickup")
+        self.assertRegex(out, r"encoder +0 +enc1 +Encoder 1 +device_param_1 +ring of 5, centre LED 2, absolute")
+        self.assertRegex(out, r"led +1 +rec_led +Record LED +bicolour, owner local")
 
     def test_components_json(self):
         rc, out, _ = run_cli(make_dev(), "components", "--json")

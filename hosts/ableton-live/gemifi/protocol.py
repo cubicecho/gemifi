@@ -24,6 +24,7 @@ UNSOLICITED_FIRST = 0x60
 LOG = 0x60
 EVENT = 0x61
 PARAM_CHANGED = 0x62
+BOOTED = 0x64                   # sysex.md 4.6.3: HELLO's fields, sent once after the device starts
 
 # Host feedback notifications (sysex.md 4.6.2). Never answered.
 FB_LED = 0x20
@@ -53,6 +54,12 @@ KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY = 1, 2
 ALL_KINDS = (KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY)
 KIND_NAMES = {1: "button", 2: "keys", 3: "analog", 4: "encoder", 5: "led", 6: "display"}
 NONE_INDEX = 0x3FFF             # "no LED" in GET_COMPONENT replies
+
+# Fields added to GET_COMPONENT after the first F3 firmware (sysex.md 4.6.1 "Added fields").
+# A Component holds None for one the device didn't send.
+TAKEOVER_NONE, TAKEOVER_PICKUP = 0, 1
+ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU = 0, 1, 2, 3
+OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
 
 U14_MAX = 0x3FFF
 
@@ -309,6 +316,11 @@ def build_hello_reply(h, status=OK):
             (bytes([len(h.node)]) + h.node.encode("ascii") if h.node else b""))
 
 
+def parse_booted(payload):
+    """BOOTED payload (sysex.md 4.6.3) -> Hello: a HELLO reply without its status byte."""
+    return parse_hello(bytes([OK]) + bytes(payload))
+
+
 # ---- GET_PARAM / SET_PARAM ----
 
 def req_get_param(pid, index=0):
@@ -347,7 +359,8 @@ class Component(object):
     the script's normalised role is set later by device.normalise_role()."""
 
     def __init__(self, kind, index, count, id="", name="", role="", led=NONE_INDEX, keys=0, first_note=0,
-                 ring=0, center=NONE_INDEX, colours=1, cols=0, rows=0, display_type=0):
+                 ring=0, center=NONE_INDEX, colours=1, cols=0, rows=0, display_type=0, takeover=None,
+                 mode=None, owner=None):
         self.kind = kind
         self.index = index
         self.count = count
@@ -363,10 +376,33 @@ class Component(object):
         self.cols = cols
         self.rows = rows
         self.display_type = display_type
+        self.takeover = takeover        # analog: 0 none, 1 pick-up; None = not reported (older firmware)
+        self.mode = mode                # encoder: 0 absolute, 1/2 relative, 3 Mackie V-Pot; None = not reported
+        self.owner = owner              # LED: 0 host_then_local, 1 host, 2 local; None = not reported
 
     @property
     def has_led(self):
         return self.kind == KIND_BUTTON and self.led != NONE_INDEX
+
+    @property
+    def takes_value(self):
+        """Whether FB_VALUE does anything (sysex.md 4.6.2): a pick-up analog input or an absolute
+        encoder. True when the device didn't say, as the script assumed before the field existed."""
+        if self.kind == KIND_ANALOG:
+            return self.takeover is None or self.takeover == TAKEOVER_PICKUP
+        if self.kind == KIND_ENCODER:
+            return self.mode is None or self.mode == ENC_ABSOLUTE
+        return False
+
+    @property
+    def local_only(self):
+        """An LED with owner: local ignores every FB_* (sysex.md 4.6.2 "Ownership")."""
+        return self.kind == KIND_LED and self.owner == OWNER_LOCAL
+
+    @property
+    def reports_added_fields(self):
+        """Whether the reply carried the added field of its kind (so the firmware also sends BOOTED)."""
+        return {KIND_ANALOG: self.takeover, KIND_ENCODER: self.mode, KIND_LED: self.owner}.get(self.kind) is not None
 
     def __repr__(self):
         return "Component(%s %d %r role=%r)" % (KIND_NAMES.get(self.kind, self.kind), self.index, self.id, self.role)
@@ -397,16 +433,20 @@ def parse_component_reply(payload):
     elif kind == KIND_KEYS:
         need(3)
         c.keys, c.first_note = dec_u14(rest[0:2]), rest[2]
+    elif kind == KIND_ANALOG:
+        c.takeover = rest[0] if len(rest) > 0 else None
     elif kind == KIND_ENCODER:
         need(3)
         c.ring, c.center = rest[0], dec_u14(rest[1:3])
+        c.mode = rest[3] if len(rest) > 3 else None
     elif kind == KIND_LED:
         need(1)
         c.colours = rest[0]
+        c.owner = rest[1] if len(rest) > 1 else None
     elif kind == KIND_DISPLAY:
         need(3)
         c.cols, c.rows, c.display_type = rest[0], rest[1], rest[2]
-    # kind 3 (analog) has no extras; unknown kinds: ignore whatever follows.
+    # takeover / mode / owner are absent in older firmware; unknown kinds: ignore whatever follows.
     return c
 
 
@@ -418,10 +458,12 @@ def build_component_reply(c):
         out += u14(c.led)
     elif c.kind == KIND_KEYS:
         out += u14(c.keys) + bytes([c.first_note])
+    elif c.kind == KIND_ANALOG:
+        out += b"" if c.takeover is None else bytes([c.takeover])
     elif c.kind == KIND_ENCODER:
-        out += bytes([c.ring]) + u14(c.center)
+        out += bytes([c.ring]) + u14(c.center) + (b"" if c.mode is None else bytes([c.mode]))
     elif c.kind == KIND_LED:
-        out += bytes([c.colours])
+        out += bytes([c.colours]) + (b"" if c.owner is None else bytes([c.owner]))
     elif c.kind == KIND_DISPLAY:
         out += bytes([c.cols, c.rows, c.display_type])
     return out

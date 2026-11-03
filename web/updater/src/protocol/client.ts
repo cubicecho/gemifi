@@ -130,7 +130,7 @@ export class SysexClient {
   }
 
   /**
-   * Listens for LOG, EVENT and PARAM_CHANGED messages.
+   * Listens for LOG, EVENT, PARAM_CHANGED and BOOTED messages.
    *
    * @param listener - Called with each one.
    * @returns A function that stops listening.

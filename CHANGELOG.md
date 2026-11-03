@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.6.0](https://github.com/cubicecho/gemifi/compare/v0.5.0...v0.6.0) (2026-11-03)
+
+
+### Features
+
+* **core): device modes (presets phase 2:** Edit mode keys pick presets ([92d3c96](https://github.com/cubicecho/gemifi/commit/92d3c96545ce6bc180875e7c7ce146ac275b2d75))
+
 # [0.5.0](https://github.com/cubicecho/gemifi/compare/v0.4.0...v0.5.0) (2026-11-03)
 
 

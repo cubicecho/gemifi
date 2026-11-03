@@ -133,7 +133,7 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 |---|---|---|
 | button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`) or `mcu:` (action `mcu`) | `button.action`, `button.number` |
 | LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
-| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`, or `pitch_bend`: no `cc` needed; "Pitch wheels" below), optional `takeover:`, `mcu:` | `analog.cc`, `analog.mode` |
+| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below), optional `takeover:`, `mcu:` | `analog.cc`, `analog.mode` |
 | pad (velocity pad: pressure / FSR) | `id`/`name`, `pin` (ADC pin or mux channel; `inverted: true` if pressure lowers the reading), default `note`, optional `led` (lit while the pad is held); what all pads share goes in the top-level `pad_settings:` ("Pads" below) | `pad.note`, and once per device `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.threshold`, `pad.release`, `pad.full`, `pad.window`, `pad.retrigger` |
 | encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:` | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
@@ -146,9 +146,9 @@ Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`,
 
 **Encoder modes** (`encoder.mode`): 0 absolute (0..127, sends the value), 1 relative two's complement (1 = +1, 127 = −1), 2 relative offset (65 = +1, 63 = −1).
 
-### Pitch wheels
+### Pitch wheels and aftertouch
 
-An analog input with `analog.mode` = pitch bend (YAML `mode: pitch_bend`, or set from the web app) sends 14-bit pitch bend on `midi.channel` instead of a CC.
+An analog input with `analog.mode` = pitch bend (YAML `mode: pitch_bend`, or set from the web app) sends 14-bit pitch bend on `midi.channel` instead of a CC; with `analog.mode` = channel pressure (`mode: channel_pressure`) it sends channel pressure (aftertouch) 0..127, `adc_min` = released, `adc_max` = pressed hard, with the CC's hysteresis.
 
 ```yaml
 analog:
@@ -159,7 +159,7 @@ analog:
 - **Centre.** The input's first reading after power-up is the centre, because a sprung wheel rests there; keep it untouched while the device starts. 16 raw ADC counts either side of it send no bend, so the wheel always returns to exactly 8192.
 - **Range.** From the centre to each end (`adc_min` / `adc_max`, less 8 counts) is one half of 0..16383, so the bend is symmetric even when the centre isn't in the middle of the travel.
 - **Noise.** Changes under 6 raw counts are dropped, except to the centre or an end. Both are raw counts, so a wheel that only moves the reading over part of 0..4095 (set `adc_min` / `adc_max` to its ends) is no twitchier.
-- **Rate.** Pitch-bend inputs are read every 2 ms; the other analog inputs take turns, one every 2 ms.
+- **Rate.** Pitch-bend and pressure inputs are read every 2 ms; the other analog inputs take turns, one every 2 ms.
 
 Pressure pads (FSR style, like drum pads) play a note with a velocity from how hard they are hit. Each pad is one analog source, an ADC pin or a mux channel, and the list order is the pad order (index labels, `pad.note[i]`, EVENT index). What all pads share is in `pad_settings:`.
 

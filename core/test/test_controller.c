@@ -347,7 +347,8 @@ static void test_presets(void)
     CHECK(find_msg(0x80, &d1, 0) && d1 == 48, "switch: note off 48");
     CHECK(find_msg(0xB0, &d1, &d2) && d1 == 64 && d2 == 0, "switch: sustain released");
     CHECK(gm_cfg.channel == 10 && gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_action[0] == ACT_NOTE &&
-          gm_cfg.btn_number[0] == 36 && gm_cfg.btn_number[1] == 38, "slot 2 YAML values");
+          gm_cfg.btn_number[0] == 36 && gm_cfg.btn_action[6] == ACT_NOTE && gm_cfg.btn_number[6] == 38,
+          "slot 2 YAML values");
     CHECK(preset_changed_msg(&slot, &dirty) && slot == 2 && dirty == 0, "PRESET_CHANGED 2");
     CHECK(find_sysex(GSX_MSG_PARAM_CHANGED, 0) < 0, "no PARAM_CHANGED for the host's own switch");
     CHECK(count_msgs(0xC0) == 0, "no program change (none set)");
@@ -413,8 +414,7 @@ static void test_presets(void)
     gm_cfg.vel_fast = 99;
     boot();
     CHECK(gm_cfg.preset_active == 2 && gm_cfg.vel_fast == 30 && gm_cfg.channel == 10 &&
-          gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_number[0] == 40 && gm_cfg.btn_number[1] == 38 &&
-          gm_cfg.btn_number[6] == 1 && gm_cfg.preset_program == 5 && gm_cfg.preset_dirty == 0,
+          gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_number[0] == 40 && gm_cfg.btn_number[6] == 38 && gm_cfg.preset_program == 5 && gm_cfg.preset_dirty == 0,
           "boot loads slot 2: YAML + stored, globals");
     CHECK(count_msgs(0xC0) == 0, "no program change at boot");
     gm_init(0x00010000u, 1);         /* safe mode: store ignored */
@@ -432,17 +432,17 @@ static void test_presets(void)
     CHECK(has_bytes((const uint8_t[]){ 0xC9, 5 }, 2), "program change 5 on channel 10");
 
     /* actions 13-15 from buttons; PARAM_CHANGED, debounced preset.active */
-    set_param(P_BTN_ACTION, 1, ACT_PRESET_NEXT);     /* edit button */
+    set_param(P_BTN_ACTION, 6, ACT_PRESET_NEXT);     /* mod button */
     out_n = 0;
     int w0 = fake_cs_writes;
-    button(1, 1);
-    CHECK(gm_cfg.preset_active == 3 && gm_cfg.btn_action[1] == ACT_CC_MOMENTARY && gm_cfg.analog_cc[0] == 11,
+    button(6, 1);
+    CHECK(gm_cfg.preset_active == 3 && gm_cfg.btn_action[6] == ACT_CC_TOGGLE && gm_cfg.analog_cc[0] == 11,
           "preset_next -> slot 3 (DAW)");
     CHECK(find_sysex(GSX_MSG_PARAM_CHANGED, 0) >= 0 && preset_changed_msg(&slot, &dirty) && slot == 3,
           "PARAM_CHANGED + PRESET_CHANGED from the device");
     out_n = 0;
-    button(1, 0);
-    CHECK(count_msgs(0xB0) == 0, "held preset button's release: no CC 81");
+    button(6, 0);
+    CHECK(count_msgs(0xB0) == 0, "held preset button's release: no CC 82");
     run_ms(5000);
     CHECK(fake_cs_writes == w0, "preset.active not written yet");
     run_ms(5100);
@@ -512,8 +512,8 @@ static void test_presets(void)
     CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 5, 0) == GSX_OK, "PRESET_SAVE 5");
     CHECK(gm_cfg.preset_active == 5 && gm_cfg.preset_dirty == 0 && preset_changed_msg(&slot, &dirty) &&
           slot == 5 && dirty == 0, "now on slot 5, clean");
-    CHECK(fake_cs_get(5, P_ANALOG_CC, 0, &v) && v == 12 && fake_cs_get(5, P_BTN_ACTION, 1, &v) &&
-          v == ACT_CC_MOMENTARY && fake_cs_count(3) == -1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 5,
+    CHECK(fake_cs_get(5, P_ANALOG_CC, 0, &v) && v == 12 && fake_cs_get(5, P_BTN_ACTION, 6, &v) &&
+          v == ACT_CC_TOGGLE && fake_cs_count(3) == -1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 5,
           "slot 5 = DAW + edit as a diff vs defaults; slot 3 untouched; active stored");
     CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 0, 0) == GSX_BAD_PARAM &&
           preset_cmd(GSX_CMD_PRESET_SAVE, 9, 0) == GSX_BAD_PARAM, "PRESET_SAVE bad slot");
@@ -521,7 +521,7 @@ static void test_presets(void)
     /* PRESET_RESET */
     out_n = 0;
     CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 5, 0) == GSX_OK && fake_cs_count(5) == -1, "PRESET_RESET 5");
-    CHECK(gm_cfg.analog_cc[0] == 7 && gm_cfg.btn_action[1] == ACT_CC_TOGGLE, "active slot 5 reloaded");
+    CHECK(gm_cfg.analog_cc[0] == 7 && gm_cfg.btn_action[6] == ACT_CC_RAMP, "active slot 5 reloaded");
     CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 9, 0) == GSX_BAD_PARAM, "PRESET_RESET 9");
     CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 0, 0) == GSX_OK && fake_cs_count(1) == -1 &&
           fake_cs_count(2) == -1 && fake_cs_count(0) >= 0, "PRESET_RESET 0: all presets, not the globals");
@@ -535,6 +535,166 @@ static void test_presets(void)
     fake_cs_fail = 1;
     CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_FLASH_ERR && gm_cfg.preset_dirty == 1, "COMMIT flash error");
     fake_cs_fail = 0;
+    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+}
+
+/* ---- modes (the Keystation's edit mode, devices/keystation-mini32-mk3.yaml) ---- */
+
+/* Keys by note at octave 0: the lowest key is C3 = 48. */
+enum { K_C3 = 0, K_CS3 = 1, K_D3 = 2, K_E3 = 4, K_F3 = 5, K_G3 = 7, K_A3 = 9, K_B3 = 11, K_C4 = 12,
+       K_CS4 = 13, K_D4 = 14, K_E4 = 16, K_E5 = 28 };
+#define EDIT 1
+#define EDIT_LED_LIT (level[13] == 0)        /* PA13, active-low */
+#define OCT_DOWN_LIT (level[10] == 0)        /* PA10: Oct - colour A */
+#define OCT_UP_LIT (level[11] == 0)          /* PA11: Oct + colour A */
+
+/* PARAM_CHANGED for this param in the output. */
+static int param_changed_msg(uint16_t id)
+{
+    for (int i = 0; i + GSX_OVERHEAD < out_n; i++)
+        if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == GSX_MSG_PARAM_CHANGED &&
+            gsx_get_u(out + i + 1 + GSX_OFF_PAYLOAD, 2) == id)
+            return 1;
+    return 0;
+}
+
+/* Tap a key: press (out = what the press sent), release. */
+static void tap(int k)
+{
+    press_key(k, 500);
+    int n = out_n;
+    uint8_t keep[256];
+    memcpy(keep, out, (size_t)(n < 256 ? n : 256));
+    release_key(k);
+    memcpy(out, keep, (size_t)(n < 256 ? n : 256));
+    out_n = n < 256 ? n : 256;
+}
+
+static void edit(void)
+{
+    out_n = 0;
+    button(EDIT, 1);
+    button(EDIT, 0);
+}
+
+static void test_modes(void)
+{
+    int d1, d2, slot, dirty;
+    CHECK(GM_N_MODES == 3, "3 modes (edit, preset_pick, channel_pick)");
+    CHECK(gm_cfg.preset_active == 1 && gm_cfg.channel == 1 && gm_cfg.btn_action[EDIT] == ACT_NONE,
+          "slot 1, Edit has no action of its own");
+
+    /* entering the mode releases the held key; Edit itself sends nothing */
+    press_key(K_C3, 500);
+    CHECK(find_msg(0x90, &d1, 0) && d1 == 48, "C3 plays before the mode");
+    run_ms(20);
+    CHECK(!EDIT_LED_LIT, "Edit LED off while playing");
+    out_n = 0;
+    button(EDIT, 1);
+    CHECK(find_msg(0x80, &d1, 0) && d1 == 48 && count_msgs(0xB0) == 0 && count_msgs(0x90) == 0,
+          "Edit: Note Off for the held key, no CC");
+    button(EDIT, 0);
+    CHECK(count_msgs(0xB0) == 0, "Edit release: nothing");
+    run_ms(20);
+    CHECK(EDIT_LED_LIT, "Edit LED lit in the mode");
+    release_key(K_C3);
+    CHECK(count_msgs(0x80) == 0 && count_msgs(0x90) == 0, "the held key's release: nothing more");
+
+    /* unbound keys are silent; buttons keep their actions */
+    tap(K_B3);
+    CHECK(out_n == 0, "unbound B3: nothing at all (got %d bytes)", out_n);
+    out_n = 0;
+    button(0, 1);
+    CHECK(find_msg(0xB0, &d1, &d2) && d1 == 64 && d2 == 127, "sustain still sends CC 64 in the mode");
+    button(0, 0);
+
+    /* E3, then a white key from D4: preset 1..8; E4 = preset 2 */
+    tap(K_E3);
+    CHECK(count_msgs(0x90) == 0 && find_sysex(GSX_MSG_PRESET_CHANGED, 0) < 0, "E3: no note, no switch yet");
+    int on = 0, off = 0;
+    for (int i = 0; i < 60; i++) {
+        run_ms(10);
+        if (EDIT_LED_LIT)
+            on++;
+        else
+            off++;
+    }
+    CHECK(on > 15 && off > 15, "Edit LED blinks in the sub-mode (%d on, %d off)", on, off);
+    tap(K_E4);
+    CHECK(gm_cfg.preset_active == 2 && gm_cfg.channel == 10, "E4 picks preset 2 (Drums)");
+    CHECK(preset_changed_msg(&slot, &dirty) && slot == 2 && dirty == 0 && param_changed_msg(P_PRESET_ACTIVE),
+          "PRESET_CHANGED 2 and PARAM_CHANGED preset.active");
+    CHECK(count_msgs(0x90) == 0 && count_msgs(0x80) == 0, "no notes from the pick");
+
+    /* then Oct - blinks twice, and both octave LEDs flash once */
+    {
+        int blinks = 0, was = 0, up_on = 0, both = 0;
+        for (int i = 0; i < 150; i++) {
+            run_ms(10);
+            if (OCT_DOWN_LIT && !was)
+                blinks++;
+            was = OCT_DOWN_LIT;
+            up_on += OCT_UP_LIT;
+            both += OCT_DOWN_LIT && OCT_UP_LIT;
+        }
+        CHECK(blinks == 3 && both >= 30 && up_on == both, "preset 2 shown: 2 blinks + the end flash "
+              "(%d on-periods, %d both, %d up)", blinks, both, up_on);
+        CHECK(!OCT_DOWN_LIT && !OCT_UP_LIT && EDIT_LED_LIT, "then the octave LEDs are theirs again, Edit lit");
+    }
+
+    /* back in edit mode after the pick: D4 is unbound there, G3 is preset_next */
+    tap(K_D4);
+    CHECK(out_n == 0 && gm_cfg.preset_active == 2, "back in edit mode: D4 does nothing");
+    tap(K_G3);
+    CHECK(gm_cfg.preset_active == 3 && preset_changed_msg(&slot, &dirty) && slot == 3, "G3: next preset (3)");
+    tap(K_F3);
+    tap(K_F3);
+    CHECK(gm_cfg.preset_active == 1, "F3 twice: previous preset (1)");
+
+    /* A3, then C#4: channel 2 (a device-side edit: PARAM_CHANGED, the preset is dirty) */
+    tap(K_A3);
+    tap(K_CS4);
+    CHECK(gm_cfg.channel == 2 && param_changed_msg(P_CHANNEL), "C#4 in channel_pick: channel 2");
+    CHECK(preset_changed_msg(&slot, &dirty) && slot == 1 && dirty == 1 && gm_cfg.preset_dirty == 1,
+          "channel change makes the preset dirty");
+    tap(K_C4);
+    CHECK(gm_cfg.channel == 2 && out_n == 0, "back in edit mode: C4 does nothing");
+
+    /* octave and curve keys */
+    tap(K_CS3);
+    tap(K_CS3);
+    CHECK(gm_cfg.octave == -2 && param_changed_msg(P_OCTAVE), "C#3 twice: octave -2");
+    tap(K_C3);
+    CHECK(gm_cfg.octave == 0, "C3: octave reset");
+    tap(K_E5);
+    CHECK(gm_cfg.vel_curve == CURVE_HARD && param_changed_msg(P_VEL_CURVE), "E5: velocity curve hard");
+
+    /* Edit again: keys play again, on the new channel */
+    edit();
+    run_ms(20);
+    CHECK(!EDIT_LED_LIT, "Edit LED off after the mode");
+    press_key(K_C3, 500);
+    CHECK(find_msg(0x91, &d1, 0) && d1 == 48, "C3 plays again, on channel 2");
+    release_key(K_C3);
+    CHECK(find_msg(0x81, &d1, 0) && d1 == 48, "and its Note Off");
+
+    /* Edit leaves from a sub-mode too */
+    edit();
+    tap(K_E3);
+    edit();
+    press_key(K_E4, 500);
+    CHECK(find_msg(0x91, &d1, 0) && d1 == 64, "Edit in preset_pick leaves the mode: E4 plays");
+    release_key(K_E4);
+    CHECK(gm_cfg.preset_active == 1, "no preset picked");
+
+    /* a host can't give Edit an action while it is the mode button */
+    set_param(P_BTN_ACTION, EDIT, ACT_CC_MOMENTARY);
+    set_param(P_BTN_NUMBER, EDIT, 81);
+    edit();
+    CHECK(count_msgs(0xB0) == 0, "Edit with a CC action set by the host: still only the mode");
+    tap(K_C3);
+    CHECK(count_msgs(0x90) == 0, "in the mode");
+    edit();
     request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
 }
 
@@ -641,24 +801,28 @@ int main(int argc, char **argv)
     button(0, 0);
     CHECK(find_msg(0xB0, &d1, &d2) && d1 == 64 && d2 == 0, "sustain off");
 
-    /* edit = CC toggle 80 */
+    /* sustain as CC toggle 80 (Edit is the mode button: test_modes) */
+    set_param(P_BTN_ACTION, 0, ACT_CC_TOGGLE);
+    set_param(P_BTN_NUMBER, 0, 80);
     out_n = 0;
-    button(1, 1); button(1, 0);
+    button(0, 1); button(0, 0);
     CHECK(find_msg(0xB0, &d1, &d2) && d1 == 80 && d2 == 127, "toggle on");
     out_n = 0;
-    button(1, 1); button(1, 0);
+    button(0, 1); button(0, 0);
     CHECK(find_msg(0xB0, &d1, &d2) && d1 == 80 && d2 == 0, "toggle off");
 
-    /* host feedback (F1) over USB-MIDI events: the edit toggle follows the
+    /* host feedback (F1) over USB-MIDI events: the toggle follows the
      * host's echo of CC 80, the sustain LED the host's CC 64 for 2 s */
     {
         uint8_t ev[4] = { 0x0B, 0xB0, 80, 127 };
         gm_midi_rx_usb(ev);
         run_ms(20);
-        CHECK(level[13] == 0, "edit LED lit by the host's CC 80 = 127");
+        CHECK(level[12] == 0, "toggle's LED lit by the host's CC 80 = 127");
         out_n = 0;
-        button(1, 1); button(1, 0);
+        button(0, 1); button(0, 0);
         CHECK(find_msg(0xB0, &d1, &d2) && d1 == 80 && d2 == 0, "so the next press sends 0");
+        set_param(P_BTN_ACTION, 0, ACT_CC_MOMENTARY);
+        set_param(P_BTN_NUMBER, 0, 64);
         uint8_t ev2[4] = { 0x0B, 0xB0, 64, 127 };
         gm_midi_rx_usb(ev2);
         run_ms(20);
@@ -787,6 +951,7 @@ int main(int argc, char **argv)
           "defaults after reset");
 
     test_presets();
+    test_modes();
 
     /* HELLO, FW_* in the app, REBOOT */
     {

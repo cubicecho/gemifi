@@ -38,6 +38,13 @@
 #define NE GM_ARR(GM_N_ENCODERS)
 #define NK GM_ARR(GM_MATRIX_KEYS)
 
+#ifndef GM_N_MODES
+#define GM_N_MODES 0                /* a config generated before modes */
+#endif
+#if GM_N_MODES > 0 && (!GM_HAS_MATRIX || GM_N_BUTTONS == 0)
+#error "modes need a key matrix and a toggle button (the builder checks this)"
+#endif
+
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
 static uint8_t has_i2c_hubs;
@@ -112,6 +119,11 @@ static volatile uint32_t *row_reg[FAST_ROWS];
 static uint32_t row_on;             /* level that drives row r: bit r */
 static uint8_t rows_fast;
 static uint8_t knote[NK], kchan[NK];
+#endif
+
+#if GM_N_MODES > 0
+static uint8_t mode_cur = GM_MODE_NONE;     /* the active mode; GM_MODE_NONE = keys play */
+static void mode_key(uint32_t k);
 #endif
 
 static volatile uint32_t ticks;
@@ -334,6 +346,13 @@ static void keys_poll(void)
         kev_t e = kq[kq_tail];
         kq_tail = (uint8_t)((kq_tail + 1u) & (KQ - 1u));
         if (e.on) {
+#if GM_N_MODES > 0
+            if (mode_cur != GM_MODE_NONE) {
+                knote[e.key] = NOTE_NONE;   /* a function key: no note, its release sends nothing */
+                mode_key(e.key);
+                continue;
+            }
+#endif
             int32_t n = key_note(e.key);
             uint32_t v = velocity(e.dt);
             if (n < 0 || n > 127) {
@@ -350,6 +369,19 @@ static void keys_poll(void)
             knote[e.key] = NOTE_NONE;
             event(EV_KEY, e.key, 0);
         }
+    }
+}
+
+/* Note Off for every sounding key; their releases then send nothing. */
+static void keys_off(void)
+{
+    if (!gm_device.matrix)
+        return;
+    for (uint32_t k = 0; k < NK; k++) {
+        if (knote[k] == NOTE_NONE)
+            continue;
+        midi3(0x80 | kchan[k], knote[k], 0);
+        knote[k] = NOTE_NONE;
     }
 }
 #endif
@@ -472,6 +504,127 @@ static void button_changed(uint32_t i, int down)
     }
 }
 
+/* ---- modes (core/README.md "Modes") ------------------------------------ */
+
+#if GM_N_MODES > 0
+#define SHOW_STEP_MS 200u           /* preset number blink: one step */
+#define MODE_BLINK_MS 250u          /* a blinking mode LED: half period */
+static uint8_t show_n;              /* slot being shown on the LEDs, 0 = none */
+static uint8_t show_mode;           /* the mode whose LEDs show it */
+static uint32_t show_t0;
+
+/* The toggle button of a root mode: enters the mode (held keys get their
+ * Note Off first), or leaves it from the mode or any of its sub-modes. Its
+ * own action never runs. Returns 0 if button i toggles no mode. */
+static int mode_button(uint32_t i, int down)
+{
+    for (uint32_t m = 0; m < GM_N_MODES; m++) {
+        if (gm_modes[m].toggle != i)
+            continue;
+        event(EV_BUTTON, i, (uint32_t)down);
+        if (!down)
+            return 1;
+        if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m) {
+            mode_cur = GM_MODE_NONE;
+        } else {
+            if (mode_cur == GM_MODE_NONE)
+                keys_off();
+            mode_cur = (uint8_t)m;
+        }
+        app_log(LOG_DEBUG, gm_device.buttons[i].name, mode_cur == GM_MODE_NONE ? ": mode off" : ": mode on");
+        return 1;
+    }
+    return 0;
+}
+
+/* A device-side change of a per-preset param: the host hears of it, and the
+ * preset is now dirty (like a host edit: COMMIT keeps it, a switch drops it). */
+static void set_live(int32_t *v, int32_t x, uint16_t id)
+{
+    if (*v == x)
+        return;
+    *v = x;
+    app_param_changed(id, 0);
+    presets_host_set(id, 0);
+}
+
+/* A key pressed in the active mode: run its binding (unbound keys do
+ * nothing), then a sub-mode goes back to its parent. */
+static void mode_key(uint32_t k)
+{
+    const gm_mode_t *m = &gm_modes[mode_cur];
+    const gm_mode_key_t *b = 0;
+    for (uint32_t i = 0; i < m->n_keys; i++)
+        if (m->keys[i].key == k) {
+            b = &m->keys[i];
+            break;
+        }
+    if (!b)
+        return;
+    int up = 1;
+    switch (b->op) {
+    case GM_MK_MODE:
+        mode_cur = b->arg;
+        return;
+    case GM_MK_PRESET:
+    case GM_MK_PRESET_NEXT:
+    case GM_MK_PRESET_PREV:
+        if (b->op == GM_MK_PRESET)
+            presets_select(b->arg);
+        else
+            presets_step(b->op == GM_MK_PRESET_NEXT ? 1 : -1);
+        show_n = (uint8_t)presets_active();
+        show_mode = mode_cur;
+        show_t0 = hal_millis();
+        break;
+    case GM_MK_OCTAVE_DOWN:
+        up = -1;
+        /* fall through */
+    case GM_MK_OCTAVE_UP:
+    case GM_MK_OCTAVE_RESET:
+        shift(&gm_cfg.octave, up, 4, P_OCTAVE, b->op == GM_MK_OCTAVE_RESET);
+        break;
+    case GM_MK_TRANSPOSE_DOWN:
+        up = -1;
+        /* fall through */
+    case GM_MK_TRANSPOSE_UP:
+    case GM_MK_TRANSPOSE_RESET:
+        shift(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
+        break;
+    case GM_MK_CHANNEL:
+        set_live(&gm_cfg.channel, b->arg, P_CHANNEL);
+        break;
+    case GM_MK_CURVE:
+        set_live(&gm_cfg.vel_curve, b->arg, P_VEL_CURVE);
+        break;
+    default:
+        break;
+    }
+    if (m->parent != GM_MODE_NONE)
+        mode_cur = m->parent;
+}
+
+/* What LED li shows instead of level: after a preset switch from a mode,
+ * its count LED blinks the slot number, then it and the done LED flash
+ * once; while a mode is active, its LED is lit (or blinks). */
+static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
+{
+    if (show_n) {
+        const gm_mode_t *m = &gm_modes[show_mode];
+        uint32_t s = (now - show_t0) / SHOW_STEP_MS, n2 = 2u * show_n;
+        int is_count = m->blink_count == (int8_t)li, is_done = m->blink_done == (int8_t)li;
+        if (s > n2 + 2u)
+            show_n = 0;             /* done: a dark step, N blinks, a 2-step flash */
+        else if (is_count || is_done)
+            return s > n2 ? 1u : is_count && (s & 1u);
+    }
+    if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
+        return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
+    return level;
+}
+#define MODE_LED(li, level, now) mode_led(li, level, now)
+#endif
+
 static void buttons_sample(void)
 {
     uint32_t s = read_buttons();
@@ -485,6 +638,10 @@ static void buttons_sample(void)
                 btn_ignore &= ~(1u << i);   /* released after a preset switch */
                 continue;
             }
+#if GM_N_MODES > 0
+            if (mode_button(i, (s >> i) & 1u))
+                continue;
+#endif
             button_changed(i, (s >> i) & 1u);
         }
     }
@@ -649,6 +806,10 @@ static void encoders_poll(void)
 
 /* ---- LEDs ------------------------------------------------------------- */
 
+#ifndef MODE_LED
+#define MODE_LED(li, level, now) (level)
+#endif
+
 /* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
  * (bicolour). LV_BLINK | level: that level, blinking (host feedback). */
 #define LV_BLINK 0x80u
@@ -807,12 +968,19 @@ static void leds_update(uint32_t now)
         local[li] = (uint8_t)level;
         has_local[li] = 1;
 #else
-        led_show(&gm_device.leds[li], level, blink_on);
+        led_show(&gm_device.leds[li], MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
     }
+#if GM_N_MODES > 0 && !GM_HOST_LEDS
+    for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        uint32_t lv = mode_led(i, 0xFFu, now);    /* also LEDs no button drives */
+        if (lv != 0xFFu)
+            led_show(&gm_device.leds[i], lv, blink_on);
+    }
+#endif
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < gm_device.n_leds; i++)
-        led_show(&gm_device.leds[i], led_level(i, local[i], has_local[i], now), blink_on);
+        led_show(&gm_device.leds[i], MODE_LED(i, led_level(i, local[i], has_local[i], now), now), blink_on);
 #endif
 }
 
@@ -964,13 +1132,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
 void gm_release_all(void)
 {
 #if GM_HAS_MATRIX
-    if (gm_device.matrix)
-        for (uint32_t k = 0; k < NK; k++) {
-            if (knote[k] == NOTE_NONE)
-                continue;
-            midi3(0x80 | kchan[k], knote[k], 0);
-            knote[k] = NOTE_NONE;           /* its release then sends nothing */
-        }
+    keys_off();
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 32; i++) {
@@ -1095,6 +1257,10 @@ void gm_init(uint32_t fw_version, int safe_mode)
         for (uint32_t k = 0; k < NK; k++)
             knote[k] = NOTE_NONE;
     }
+#endif
+#if GM_N_MODES > 0
+    mode_cur = GM_MODE_NONE;
+    show_n = 0;
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < NB; i++) {

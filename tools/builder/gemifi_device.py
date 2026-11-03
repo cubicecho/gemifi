@@ -215,7 +215,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix", "presets"]
+            "buttons", "leds", "analog", "encoders", "key_matrix", "presets", "modes"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -645,6 +645,7 @@ class Device:
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
+        self.modes = []              # Hub per mode (validate_modes), in YAML order
         self.budget = None           # storage_budget(self), after validation
 
 
@@ -670,6 +671,7 @@ class _V:
         self.transport = None
         self.hub_by_id = {}
         self.presets = None      # the presets: mapping, once preset_slots has checked it
+        self.mode_toggles = {}   # button index -> mode id, for the preset check
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
 
     def err(self, path, line, msg):
@@ -1236,6 +1238,7 @@ def validate(data, file=None):
             else:
                 dev.boot_combo.append(idx)
 
+    validate_modes(v, dev, data)
     validate_presets(v, dev, data)
     check_budget(v, dev, data)
 
@@ -2036,6 +2039,10 @@ def preset_values(v, dev, d, p):
                 v.warn(cp, cl, "changes nothing")
                 continue
             line = lambda k: o.line_of(k) if k in o else o.line   # noqa: E731
+            if sec == "buttons" and idx in v.mode_toggles:
+                v.err(cp, cl, f"button '{cid}' toggles mode '{v.mode_toggles[idx]}', so presets can't change it "
+                              "(modes are the same in every preset, so a preset can't lock you out of them)")
+                continue
             if sec == "buttons":
                 b = dev.buttons[idx]
                 act, num = button_action(v, dev, o, cp, base=(b.action_name, b.number))
@@ -2084,6 +2091,379 @@ def preset_ref(v, cid, path, line, kind, plural):
     hint = f"; did you mean '{close[0]}'?" if close else ""
     v.err(path, line, f"no {kind} with id '{cid}' ({plural}: {', '.join(known) or 'none'}{hint})")
     return None
+
+
+# ---------------------------------------------------------------------------------------------
+# modes (research/core/presets-design.md §6, core/README.md "Modes")
+
+# What a key can do in a mode: YAML action -> (gm_device.h GM_MK_* op, the key giving its number or None).
+MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "preset_prev": (3, None),
+                "octave_down": (4, None), "octave_up": (5, None), "octave_reset": (6, None),
+                "transpose_down": (7, None), "transpose_up": (8, None), "transpose_reset": (9, None),
+                "channel": (10, "channel"), "velocity_curve": (11, "curve")}
+MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
+MODE_KEYS = ["id", "toggle", "parent", "led", "preset_blink", "keys"]
+RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
+RANGE_ACTIONS = ("preset_select", "channel")
+MAX_MODES = 64
+NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+NOTE_RE = re.compile(r"([A-Ga-g])([#b]?)(-?\d+)")
+WHITE = {0, 2, 4, 5, 7, 9, 11}
+
+
+def note_text(n):
+    """MIDI note -> name, C4 = 60 (scientific pitch)."""
+    return f"{NOTE_NAMES[n % 12]}{n // 12 - 1}"
+
+
+def parse_note(x):
+    """`E3`, `F#3`, `Db4` (C4 = 60) or a MIDI note number -> note, or None."""
+    if isinstance(x, int) and not isinstance(x, bool):
+        return x if 0 <= x <= 127 else None
+    m = NOTE_RE.fullmatch(x.strip()) if isinstance(x, str) else None
+    if not m:
+        return None
+    n = (int(m.group(3)) + 1) * 12 + [0, 2, 4, 5, 7, 9, 11]["CDEFGAB".index(m.group(1).upper())] + \
+        {"#": 1, "b": -1, "": 0}[m.group(2)]
+    return n if 0 <= n <= 127 else None
+
+
+def mode_key_index(v, dev, x, path, line):
+    """A key named in a mode (its note at octave 0, no transpose: the physical key) -> its matrix index."""
+    m = dev.matrix
+    lo, hi = m.first_note, m.first_note + m.keys - 1
+    n = parse_note(x)
+    if n is None:
+        v.err(path, line, f"'{x}' isn't a key: name it by its note at octave 0 (C4 = 60), e.g. E3, F#3, Db4, "
+                          f"or give the MIDI note number (this keyboard: {note_text(lo)}..{note_text(hi)})")
+        return None
+    if not lo <= n <= hi:
+        v.err(path, line, f"{note_text(n)} (note {n}) isn't on the keyboard: its keys are "
+                          f"{note_text(lo)}..{note_text(hi)} (notes {lo}..{hi} at octave 0, from "
+                          "key_matrix.first_note)")
+        return None
+    return n - lo
+
+
+def mode_action(v, dev, name, d, path, line, arg=None):
+    """An action name (+ its number from d, or arg for a key of a range) -> (op, arg, text), or None."""
+    if name not in MODE_ACTIONS:
+        close = difflib.get_close_matches(str(name), list(MODE_ACTIONS), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(path, line, f"unknown action '{name}' ({hint}valid in a mode: {', '.join(MODE_ACTIONS)}; or "
+                          "`{ mode: <id> }` to go to a sub-mode)")
+        return None
+    op, argkey = MODE_ACTIONS[name]
+    if name.startswith("preset") and dev.n_presets < 2:
+        v.err(path, line, f"action {name} switches presets, but this device has {dev.n_presets} preset slot: "
+                          "add presets: (with 2 or more slots)")
+        return None
+    if name == "velocity_curve" and _vel(dev) == 0:
+        v.err(path, line, "velocity_curve needs a velocity key matrix (key_matrix: { type: velocity })")
+        return None
+    extra = [k for k in (d or {}) if k not in ("action", argkey)]
+    if extra:
+        v.err(f"{path}.{extra[0]}", d.line_of(extra[0]), f"action {name} takes " +
+              (f"{argkey}:" if argkey else "nothing else") + f", not {extra[0]}:")
+        return None
+    if argkey is None:
+        return op, 0, name
+    if arg is not None:
+        return op, arg, f"{name} {arg}"
+    if d is None or argkey not in d:
+        need = {"preset": f"preset: (the slot, 1..{dev.n_presets})", "channel": "channel: (1..16)",
+                "curve": f"curve: ({' | '.join(CURVES)})"}[argkey]
+        example = {"preset": 2, "channel": 10, "curve": "hard"}[argkey]
+        v.err(path, line, f"action {name} needs {need}, e.g. `{{ action: {name}, {argkey}: {example} }}`")
+        return None
+    if argkey == "curve":
+        x = enum_value(v, d, "curve", f"{path}.curve", CURVES)
+        return None if x is None else (op, x, f"{name} {CURVES[x]}")
+    x = v.integer(d, argkey, path, 1, dev.n_presets if argkey == "preset" else 16)
+    return None if x is None else (op, x, f"{name} {x}")
+
+
+def mode_led_ref(v, d, path):
+    """A mode's led: an LED id (lit while the mode is active) or { <LED id>: blink } -> (index, blink)."""
+    x, line = d["led"], d.line_of("led")
+    if isinstance(x, dict):
+        if len(x) != 1:
+            v.err(path, line, "must be an LED id (lit while the mode is active) or `{ <LED id>: blink }`")
+            return None
+        lid, how = next(iter(x.items()))
+        if how not in ("blink", True):
+            v.err(f"{path}.{lid}", x.line_of(lid), f"must be blink or on (got {x.raw_of(lid)!r})")
+            return None
+        holder = LDict(led=lid)
+        holder.line = line
+        idx = v.ref(holder, "led", path, line, "LED", "LEDs")
+        return None if idx is None else (idx, how == "blink")
+    idx = v.ref(d, "led", path, line, "LED", "LEDs")
+    return None if idx is None else (idx, False)
+
+
+def validate_modes(v, dev, data):
+    """modes: -> dev.modes, one Hub per mode: toggle (button index) or parent (mode index), root, led,
+    blink, show (preset_blink LEDs) and keys = sorted [(key index, op, arg, comment)]."""
+    if data.get("modes") is None:
+        return
+    lst = v.seq(data["modes"], "modes", data.line_of("modes"))
+    if not lst:
+        return
+    if len(lst) > MAX_MODES:
+        v.err("modes", data.line_of("modes"), f"{len(lst)} modes: at most {MAX_MODES}")
+        return
+    if dev.matrix is None:
+        v.err("modes", data.line_of("modes"), "modes turn the keys into function keys: the device needs a "
+                                              "key_matrix")
+        return
+    n_errors = len(errors(v.diags))
+    # pass 1: ids, toggles and parents
+    modes, by_id = [], {}
+    for i, d in enumerate(lst):
+        p = f"modes[{i}]"
+        d = v.mapping(d, p, lst.line_of(i), MODE_KEYS)
+        if d is None:
+            continue
+        if "id" not in d:
+            v.err(p, d.line, "needs id: (e.g. `id: edit`; keys go to a sub-mode by its id)")
+            continue
+        mid = d["id"]
+        why = id_problem(mid, d.raw_of("id"))
+        if why:
+            v.err(f"{p}.id", d.line_of("id"), why)
+            continue
+        if mid in by_id:
+            v.err(f"{p}.id", d.line_of("id"), f"mode '{mid}' is already {by_id[mid].path}: mode ids are unique")
+            continue
+        m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, parent=None, root=None,
+                led=None, blink=False, show=None, keys=[])
+        has_t, has_p = d.get("toggle") is not None, d.get("parent") is not None
+        if has_t == has_p:
+            v.err(p, d.line, f"mode '{mid}' needs " + (
+                "toggle: or parent:, not both" if has_t else
+                "toggle: { button: <id> } (the button that enters and leaves it) or parent: <mode id> "
+                "(a sub-mode, entered from a key of another mode)"))
+        elif has_t:
+            mode_toggle(v, dev, m, d, p)
+        modes.append(m)
+        by_id[mid] = m
+    for m in modes:
+        d = m.d
+        if d.get("parent") is None or d.get("toggle") is not None:
+            continue
+        pid, pl = d["parent"], d.line_of("parent")
+        if pid not in by_id:
+            close = difflib.get_close_matches(str(pid), list(by_id), 1)
+            hint = f"; did you mean '{close[0]}'?" if close else ""
+            v.err(f"{m.path}.parent", pl, f"no mode with id '{d.raw_of('parent')}' (modes: "
+                                          f"{', '.join(by_id)}{hint})")
+        elif pid == m.id:
+            v.err(f"{m.path}.parent", pl, "a mode can't be its own parent")
+        else:
+            m.parent = by_id[pid].index
+    for m in modes:                  # the root: follow the parents (and catch loops)
+        seen, x = [m.index], m
+        while x.parent is not None and x.parent not in seen:
+            x = modes[x.parent]
+            seen.append(x.index)
+        if x.parent is not None:
+            v.err(f"{m.path}.parent", m.d.line_of("parent"), "the parents go round in a loop: " +
+                  " -> ".join(modes[i].id for i in seen + [x.parent]))
+        m.root = x.index
+    # pass 2: LEDs and keys (a key may name a sub-mode further down the file)
+    for m in modes:
+        d, p = m.d, m.path
+        if d.get("led") is not None:
+            r = mode_led_ref(v, d, f"{p}.led")
+            if r:
+                m.led, m.blink = r
+        if d.get("preset_blink") is not None:
+            mode_show(v, dev, m, d, p)
+        keys = d.get("keys")
+        if keys is None:
+            v.warn(p, d.line, f"mode '{m.id}' has no keys: it does nothing")
+        elif not isinstance(keys, dict):
+            v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
+                                                   "`keys: { C3: octave_reset, E3: { mode: pick } }`")
+        else:
+            mode_keys(v, dev, m, keys, f"{p}.keys", by_id)
+    targets = {k[2] for m in modes for k in m.keys if k[1] == MK_MODE}
+    for m in modes:
+        if m.parent is not None and m.index not in targets:
+            v.err(m.path, m.line, f"mode '{m.id}' can't be reached: no key goes to it (add e.g. "
+                                  f"`E3: {{ mode: {m.id} }}` to the keys of mode '{modes[m.parent].id}')")
+    if len(errors(v.diags)) > n_errors:
+        return
+    # defaults: a root lights its toggle button's LED, a sub-mode blinks its parent's; preset_blink is
+    # inherited from the parent
+    for m in modes:
+        x = m
+        while m.parent is not None and x.parent is not None and (m.led is None or m.show is None):
+            x = modes[x.parent]
+            if m.led is None and x.led is not None:
+                m.led, m.blink = x.led, True
+            if m.show is None:
+                m.show = x.show
+        root = modes[m.root]
+        if m.led is None and root.toggle is not None and dev.buttons[root.toggle].led >= 0:
+            m.led, m.blink = dev.buttons[root.toggle].led, m is not root
+        m.keys.sort()
+    dev.modes = modes
+
+
+def mode_toggle(v, dev, m, d, p):
+    """toggle: { button: <id> } (or toggle: <id>): the button that enters and leaves a root mode."""
+    t, tl = d["toggle"], d.line_of("toggle")
+    if isinstance(t, dict):
+        if v.mapping(t, f"{p}.toggle", tl, ["button"]) is None:
+            return
+        if "button" not in t:
+            v.err(f"{p}.toggle", tl, "needs button: (e.g. `toggle: { button: edit }`)")
+            return
+        holder = t
+    else:
+        holder = LDict(button=t)
+        holder.line = tl
+    idx = v.ref(holder, "button", f"{p}.toggle.button", holder.line_of("button"), "button", "buttons")
+    if idx is None:
+        return
+    b = dev.buttons[idx]
+    if idx in v.mode_toggles:
+        v.err(f"{p}.toggle", tl, f"button '{b.id}' already toggles mode '{v.mode_toggles[idx]}'")
+    elif b.action_name != "none":
+        v.err(f"{p}.toggle", tl, f"button '{b.id}' toggles this mode, so its own action would never run: remove "
+                                 f"`action: {b.action_name}` (and its cc:/note:) from the button")
+    else:
+        v.mode_toggles[idx] = m.id
+        m.toggle = idx
+
+
+def mode_show(v, dev, m, d, p):
+    """preset_blink: [count LED, done LED]: after a preset switch from the mode, the first blinks the
+    slot number, then both flash once."""
+    pb, pbl = d["preset_blink"], d.line_of("preset_blink")
+    items = v.seq(pb, f"{p}.preset_blink", pbl)
+    if not 1 <= len(items) <= 2:
+        if isinstance(pb, list):
+            v.err(f"{p}.preset_blink", pbl, "needs one or two LED ids: the first blinks the preset number, then "
+                                            "both flash once (e.g. [oct_down_led, oct_up_led])")
+        return
+    idx = [v.ref(items, k, f"{p}.preset_blink[{k}]", items.line_of(k), "LED", "LEDs") for k in range(len(items))]
+    if None in idx:
+        return
+    m.show = (idx[0], idx[-1] if len(idx) > 1 else -1)
+    if dev.n_presets < 2:
+        v.warn(f"{p}.preset_blink", pbl, "only shown after a preset switch, and this device has 1 preset slot")
+
+
+def mode_keys(v, dev, m, keys, kp, by_id):
+    """The keys: mapping of one mode -> m.keys."""
+    first, top = dev.matrix.first_note, dev.matrix.first_note + dev.matrix.keys - 1
+    bound = {}
+
+    def bind(k, op, arg, text, line):
+        name = note_text(first + k)
+        if k in bound:
+            v.err(kp, line, f"{name} is bound twice in this mode ({bound[k]}, and {text})")
+            return
+        bound[k] = f"{text} at line {line}"
+        m.keys.append((k, op, arg, f"{name}: {text}"))
+
+    if any(k in keys for k in RANGE_KEYS):
+        mode_range(v, dev, keys, kp, bind, first, top)
+    for name in keys:
+        if name in RANGE_KEYS:
+            continue
+        path, line = f"{kp}.{name}", keys.line_of(name)
+        k = mode_key_index(v, dev, name, path, line)
+        if k is None:
+            continue
+        b = keys[name]
+        r = None
+        if isinstance(b, str):
+            r = mode_action(v, dev, b, None, path, line)
+        elif isinstance(b, dict) and "mode" in b:
+            target = by_id.get(b["mode"])
+            extra = [x for x in b if x != "mode"]
+            if extra:
+                v.err(f"{path}.{extra[0]}", b.line_of(extra[0]), "a key that goes to a sub-mode does nothing "
+                                                                 "else (mode: only)")
+            elif target is None:
+                close = difflib.get_close_matches(str(b["mode"]), list(by_id), 1)
+                hint = f"; did you mean '{close[0]}'?" if close else ""
+                v.err(f"{path}.mode", b.line_of("mode"), f"no mode with id '{b.raw_of('mode')}' (modes: "
+                                                         f"{', '.join(by_id)}{hint})")
+            elif target.parent is None:
+                v.err(f"{path}.mode", b.line_of("mode"), f"mode '{target.id}' has no parent: a key can only go to "
+                                                         "a sub-mode (one with parent:)")
+            else:
+                r = (MK_MODE, target.index, f"mode {target.id}")
+        elif isinstance(b, dict) and "action" in b:
+            r = mode_action(v, dev, b["action"], b, path, line)
+        else:
+            v.err(path, line, "must be an action (`octave_reset`, `{ action: preset_select, preset: 2 }`, "
+                              "`{ action: channel, channel: 10 }`, ...) or `{ mode: <sub-mode id> }`")
+        if r:
+            bind(k, *r, line)
+
+
+def mode_range(v, dev, keys, kp, bind, first, top):
+    """keys: { white_from: D4 | from: C4, action: preset_select | channel, count: N }: consecutive (white)
+    keys numbered 1..count (default: every slot / 16 channels)."""
+    start = [k for k in ("white_from", "from") if k in keys]
+    if len(start) != 1 or "action" not in keys:
+        v.err(kp, keys.line, "a range of keys needs white_from: (white keys) or from: (every key), and "
+                             "action: (preset_select | channel), e.g. `{ white_from: D4, action: preset_select }`")
+        return
+    act, sk = keys["action"], start[0]
+    if act not in RANGE_ACTIONS:
+        v.err(f"{kp}.action", keys.line_of("action"), f"a range numbers its keys 1, 2, ...: action is one of "
+                                                      f"{', '.join(RANGE_ACTIONS)} (got {keys.raw_of('action')!r})")
+        return
+    if mode_action(v, dev, act, None, f"{kp}.action", keys.line_of("action"), arg=1) is None:
+        return
+    count = v.integer(keys, "count", kp, 1, dev.n_presets if act == "preset_select" else 16,
+                      default=dev.n_presets if act == "preset_select" else 16)
+    k0 = mode_key_index(v, dev, keys[sk], f"{kp}.{sk}", keys.line_of(sk))
+    if count is None or k0 is None:
+        return
+    white = sk == "white_from"
+    if white and (first + k0) % 12 not in WHITE:
+        v.err(f"{kp}.{sk}", keys.line_of(sk), f"{note_text(first + k0)} is a black key")
+        return
+    ks = [n - first for n in range(first + k0, top + 1) if not white or n % 12 in WHITE][:count]
+    if len(ks) < count:
+        v.err(f"{kp}.{sk}", keys.line_of(sk), f"{count} {'white ' if white else ''}keys from "
+                                              f"{note_text(first + k0)} go past the top key ({note_text(top)}): "
+                                              f"{len(ks)} fit (set count: {len(ks)}, or start lower)")
+        return
+    op = MODE_ACTIONS[act][0]
+    for j, k in enumerate(ks, 1):
+        bind(k, op, j, f"{act} {j}", keys.line_of(sk))
+
+
+def mode_tables(dev):
+    """gm_modes[] (gm_device.h gm_mode_t), with each mode's key bindings sorted by key."""
+    if not dev.modes:
+        return []
+    c = ["/* modes: key bindings { key index, op (gm_device.h GM_MK_*), arg } */"]
+    rows = []
+    for m in dev.modes:
+        arr = "0"
+        if m.keys:
+            arr = f"mode_{m.index + 1}_keys"
+            c.append(f"static const gm_mode_key_t {arr}[{len(m.keys)}] = {{ /* {_comment(m.id)} */")
+            c += [f"    {{ {k}, {op}, {arg} }}, /* {_comment(text)} */" for k, op, arg, text in m.keys]
+            c.append("};")
+        show = m.show or (-1, -1)
+        toggle = "GM_MODE_NONE" if m.toggle is None else m.toggle
+        parent = "GM_MODE_NONE" if m.parent is None else m.parent
+        rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
+                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr} }}, /* {_comment(m.id)} */")
+    c += ["/* { toggle button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys } */",
+          "const gm_mode_t gm_modes[GM_N_MODES] = {", *rows, "};", ""]
+    return c
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2251,7 +2631,8 @@ def generate(dev, source="device.yaml"):
           f"#define GM_N_PRESETS {dev.n_presets} /* " +
           ("presets.slots */" if dev.presets_given else "no presets: in the YAML */"),
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
-          f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */"]
+          f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
+          f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -2340,6 +2721,7 @@ def generate(dev, source="device.yaml"):
           arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
     c += feedback_tables(dev)
     c += preset_tables(dev)
+    c += mode_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 
 

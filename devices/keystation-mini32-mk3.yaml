@@ -24,7 +24,7 @@ buttons:
     action: cc_momentary
     cc: 64
     led: sustain_led
-  - { id: edit,       pin: { number: PA2, inverted: true }, action: cc_toggle,   cc: 80, led: edit_led }
+  - { id: edit,       pin: { number: PA2, inverted: true }, led: edit_led }     # the edit mode (modes: below)
   - { id: oct_down,   name: Oct -, pin: { number: PA3, inverted: true }, action: octave_down, led: oct_down_led }
   - { id: oct_up,     name: Oct +, pin: { number: PA4, inverted: true }, action: octave_up,   led: oct_up_led }
   - { id: pitch_down, pin: { number: PA5, inverted: true }, action: bend_down }
@@ -66,11 +66,42 @@ presets:
       velocity: { curve: hard }
       buttons:
         sustain: { action: note, note: 36 }      # kick
-        edit:    { action: note, note: 38 }      # snare
+        mod:     { action: note, note: 38 }      # snare
     - name: DAW
       buttons:
         sustain: { cc: 66 }                      # sostenuto, still momentary
-        edit:    { action: cc_momentary, cc: 81 }
         mod:     { action: cc_toggle, cc: 82 }
       analog:
         volume: { cc: 11 }                       # expression
+
+# Edit mode (core/README.md "Modes"): Edit turns the keys into function keys (no notes) until it is
+# pressed again; its LED is lit meanwhile. Keys are named by their note at octave 0: the lowest key
+# is C3. E3, then a white key from D4, picks preset 1..8 (the Edit LED blinks while it waits); A3,
+# then a key from C4, picks MIDI channel 1..16. After a preset switch, Oct - blinks the preset
+# number, then both octave LEDs flash.
+modes:
+  - id: edit
+    toggle: { button: edit }
+    led: edit_led
+    preset_blink: [oct_down_led, oct_up_led]
+    keys:
+      C3: octave_reset
+      C#3: octave_down
+      D3: transpose_reset
+      D#3: octave_up
+      E3: { mode: preset_pick }
+      F3: preset_prev
+      G3: preset_next
+      A3: { mode: channel_pick }
+      C5: { action: velocity_curve, curve: normal }
+      D5: { action: velocity_curve, curve: soft }
+      E5: { action: velocity_curve, curve: hard }
+      F5: { action: velocity_curve, curve: fixed }
+  - id: preset_pick
+    parent: edit                 # one pick, then back to edit mode
+    led: { edit_led: blink }
+    keys: { white_from: D4, action: preset_select }     # D4 E4 F4 G4 A4 B4 C5 D5 = presets 1..8
+  - id: channel_pick
+    parent: edit
+    led: { edit_led: blink }
+    keys: { from: C4, action: channel }                  # C4..D#5 = channels 1..16

@@ -1072,7 +1072,7 @@ list:
         self.assertEqual([p.name for p in dev.presets[:3]], ["Default", "Drums", "DAW"])
         # the components' defaults are unchanged by the presets
         self.assertEqual([b.action_name for b in dev.buttons],
-                         ["cc_momentary", "cc_toggle", "octave_down", "octave_up", "bend_down", "bend_up", "cc_ramp"])
+                         ["cc_momentary", "none", "octave_down", "octave_up", "bend_down", "bend_up", "cc_ramp"])
         self.assertIn((1, 0, 10, "midi.channel = 10"), dev.presets[1].vals)
         bd = dev.budget
         self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (220, 76, 5, 5))
@@ -1116,6 +1116,195 @@ list:
         out = self.dump(gen_dir(dev, self.tmp), "ks")
         self.assertIn("presets=8 revision=0", out)
         self.assertIn(" preset 2 name=Drums program=-1 n=6 vals=ptr", out)
+
+
+# ---- modes (research/core/presets-design.md §6, core/README.md "Modes") ----
+
+MODES_NUC = MINIMAL_NUC + """\
+  - { id: menu, pin: PA2, led: menu_led }
+  - { id: other, pin: PA3, action: note, note: 60 }
+leds:
+  - { id: menu_led, pin: PA12 }
+  - { id: lamp, pin: PA13 }
+key_matrix:
+  type: velocity
+  rows: [PA8, PA9, PC0, PC1, PC2, PC3, PC6, PC7]
+  columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
+  keys: 32
+  first_note: 48
+presets: { slots: 4 }
+"""
+
+
+def modes(body, base=MODES_NUC):
+    """base + a modes: block (body: the lines under it, indented by 2)."""
+    return base + "modes:\n" + "".join(f"  {ln}\n" for ln in body.strip("\n").split("\n"))
+
+
+ROOT = "- id: menu\n  toggle: { button: menu }\n  keys:\n"
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestModes(unittest.TestCase):
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+    gen = TestPresets.gen
+
+    def warns(self, text):
+        return [d.msg for d in self.errs(text, level="warning")]
+
+    def test_no_modes(self):
+        _dev, h, c = self.gen(MODES_NUC)
+        self.assertIn("#define GM_N_MODES 0", h)
+        self.assertNotIn("gm_modes", c)
+
+    def test_generate(self):
+        dev, h, c = self.gen(modes(ROOT + """\
+    C3: octave_reset
+    C#3: { action: octave_down }
+    E3: { mode: pick }
+    F3: { action: preset_select, preset: 3 }
+    A3: { action: channel, channel: 10 }
+    B3: { action: velocity_curve, curve: soft }
+    60: transpose_up
+  preset_blink: [lamp, menu_led]
+- id: pick
+  parent: menu
+  keys: { white_from: D4, action: preset_select, C3: { mode: chan } }
+- id: chan
+  parent: pick
+  led: { lamp: blink }
+  keys: { from: C5, action: channel, count: 3 }
+"""))
+        self.assertIn("#define GM_N_MODES 3", h)
+        self.assertIn("static const gm_mode_key_t mode_1_keys[7] = { /* menu */", c)
+        rows = re.findall(r"\{ (\d+), (\d+), (\d+) \}, /\* (.*?) \*/", c.split("modes: key bindings")[1])
+        self.assertEqual([(int(k), int(op), int(a), t) for k, op, a, t in rows], [
+            (0, 6, 0, "C3: octave_reset"), (1, 4, 0, "C#3: octave_down"), (4, 12, 1, "E3: mode pick"),
+            (5, 1, 3, "F3: preset_select 3"), (9, 10, 10, "A3: channel 10"), (11, 11, 1, "B3: velocity_curve soft"),
+            (12, 8, 0, "C4: transpose_up"),
+            (0, 12, 2, "C3: mode chan"), (14, 1, 1, "D4: preset_select 1"), (16, 1, 2, "E4: preset_select 2"), (17, 1, 3, "F4: preset_select 3"),
+            (19, 1, 4, "G4: preset_select 4"),
+            (24, 10, 1, "C5: channel 1"), (25, 10, 2, "C#5: channel 2"), (26, 10, 3, "D5: channel 3")])
+        # toggle, parent, root, led, blink, count LED, done LED, n, keys
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys }, /* menu */", c)
+        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys }, /* pick */", c)   # parent's LED, blinking
+        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys }, /* chan */", c)
+        self.assertEqual(dev.modes[2].root, 0)
+
+    def test_modes_compile(self):
+        if not GCC:
+            self.skipTest("needs host gcc")
+        tmp = tempfile.mkdtemp()
+        try:
+            dev, diags = load(modes(ROOT + "    E3: { mode: pick }\n- { id: pick, parent: menu, keys: { C4: preset_next } }"))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
+        finally:
+            shutil.rmtree(tmp)
+
+    gcc = TestGenerateCompiles.gcc
+
+    def test_keystation(self):
+        dev, diags = gd.load_device(KEYSTATION)
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
+        self.assertEqual([m.id for m in dev.modes], ["edit", "preset_pick", "channel_pick"])
+        edit = dev.modes[0]
+        self.assertEqual((edit.toggle, edit.led, edit.blink, edit.show), (1, 1, False, (2, 3)))
+        self.assertEqual([k[3] for k in dev.modes[1].keys][:2], ["D4: preset_select 1", "E4: preset_select 2"])
+        self.assertEqual(len(dev.modes[1].keys), 8)
+        self.assertEqual(len(dev.modes[2].keys), 16)
+
+    def test_section_errors(self):
+        self.assertError(modes("a: 1"), r"must be a list", path="modes")
+        self.assertError(modes("- toggle: { button: menu }"), r"needs id:")
+        self.assertError(modes("- { id: menu, toggle: { button: menu }, colour: red }"), r"unknown key", path="modes[0].colour")
+        self.assertError(modes(ROOT + "    C3: octave_reset\n- { id: menu, parent: menu }"), r"mode 'menu' is already modes\[0\]")
+        self.assertError(modes("- { id: x }"), r"needs toggle: \{ button: <id> \}.*or parent:")
+        self.assertError(modes("- { id: x, toggle: { button: menu }, parent: y }"), r"toggle: or parent:, not both")
+        self.assertError(modes(ROOT + "    C3: octave_reset", base=MINIMAL_NUC), r"needs a key_matrix")
+        self.assertTrue(any("has no keys" in w for w in self.warns(modes("- { id: x, toggle: { button: menu } }"))))
+
+    def test_toggle_errors(self):
+        self.assertError(modes("- { id: x, toggle: { button: mneu }, keys: { C3: octave_reset } }"),
+                         r"no button with id 'mneu'.*did you mean 'menu'")
+        self.assertError(modes("- { id: x, toggle: { button: a }, keys: { C3: octave_reset } }"),
+                         r"button 'a' toggles this mode, so its own action would never run: remove `action: cc_momentary`")
+        self.assertError(modes("- { id: x, toggle: { btn: menu } }"), r"unknown key", path="modes[0].toggle.btn")
+        self.assertError(modes("- { id: x, toggle: { button: menu } }\n- { id: z, toggle: menu }"),
+                         r"button 'menu' already toggles mode 'x'")
+        self.assertClean(modes("- { id: x, toggle: menu, keys: { C3: octave_reset } }"))
+        # presets can't rebind the mode button
+        t = modes("- { id: x, toggle: menu, keys: { C3: octave_reset } }").replace(
+            "presets: { slots: 4 }\n", "presets:\n  list:\n    - {}\n    - buttons: { menu: { action: note, note: 3 } }\n")
+        self.assertError(t, r"button 'menu' toggles mode 'x', so presets can't change it",
+                         path="presets.list[1].buttons.menu")
+
+    def test_parent_errors(self):
+        self.assertError(modes(ROOT + "    E3: { mode: pick }\n- { id: pick, parent: mnu, keys: { C4: preset_next } }"),
+                         r"no mode with id 'mnu'.*did you mean 'menu'")
+        self.assertError(modes(ROOT + "    C3: octave_reset\n- { id: pick, parent: pick }"), r"can't be its own parent")
+        self.assertError(modes(ROOT + "    E3: { mode: a }\n- { id: a, parent: b, keys: { C4: { mode: b } } }\n"
+                                      "- { id: b, parent: a, keys: { C4: { mode: a } } }"),
+                         r"the parents go round in a loop: a -> b -> a")
+        self.assertError(modes(ROOT + "    C3: octave_reset\n- { id: pick, parent: menu, keys: { C4: preset_next } }"),
+                         r"mode 'pick' can't be reached: no key goes to it.*`E3: \{ mode: pick \}` to the keys of mode 'menu'")
+        self.assertError(modes(ROOT + "    E3: { mode: menu }"), r"mode 'menu' has no parent: a key can only go to a sub-mode")
+        self.assertError(modes(ROOT + "    E3: { mode: pikc }\n- { id: pick, parent: menu, keys: { C4: preset_next } }"),
+                         r"no mode with id 'pikc'.*did you mean 'pick'")
+
+    def test_key_errors(self):
+        self.assertError(modes(ROOT + "    H3: octave_reset"), r"'H3' isn't a key: name it by its note.*C3\.\.G5")
+        self.assertError(modes(ROOT + "    B2: octave_reset"), r"B2 \(note 47\) isn't on the keyboard: its keys are C3\.\.G5")
+        self.assertError(modes(ROOT + "    G#5: octave_reset"), r"G#5 \(note 80\) isn't on the keyboard")
+        self.assertClean(modes(ROOT + "    Db3: octave_reset\n    G5: octave_up\n    49: octave_down".replace("49", "50")))
+        self.assertError(modes(ROOT + "    C#3: octave_reset\n    Db3: octave_up"),
+                         r"C#3 is bound twice in this mode \(octave_reset at line \d+, and octave_up\)")
+        self.assertError(modes(ROOT + "    C3: octave_rest"), r"unknown action 'octave_rest' \(did you mean 'octave_reset'")
+        self.assertError(modes(ROOT + "    C3: cc_toggle"), r"valid in a mode: preset_select")
+        self.assertError(modes(ROOT + "    C3: preset_select"), r"preset_select needs preset: \(the slot, 1\.\.4\)")
+        self.assertError(modes(ROOT + "    C3: { action: preset_select, preset: 5 }"), r"5 is out of range \(1\.\.4\)")
+        self.assertError(modes(ROOT + "    C3: { action: channel, channel: 17 }"), r"17 is out of range \(1\.\.16\)")
+        self.assertError(modes(ROOT + "    C3: { action: velocity_curve, curve: hrad }"), r"did you mean 'hard'")
+        self.assertError(modes(ROOT + "    C3: { action: octave_up, preset: 2 }"), r"octave_up takes nothing else, not preset:")
+        self.assertError(modes(ROOT + "    C3: { action: channel, preset: 2 }"), r"channel takes channel:, not preset:")
+        self.assertError(modes(ROOT + "    C3: { mode: x, action: octave_up }\n- { id: x, parent: menu }"),
+                         r"goes to a sub-mode does nothing else")
+        self.assertError(modes(ROOT + "    C3: 5"), r"must be an action")
+        nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
+        self.assertError(modes(ROOT + "    C3: preset_next", base=nopre), r"preset_next switches presets.*1 preset slot")
+        sw = MODES_NUC.replace("type: velocity", "type: switch").replace("columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]",
+                                                                        "columns: [PB0, PB1, PB2, PB3]")
+        self.assertError(modes(ROOT + "    C3: { action: velocity_curve, curve: hard }", base=sw), r"needs a velocity key matrix")
+
+    def test_range_errors(self):
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { white_from: C#4, action: preset_select }")),
+                         r"C#4 is a black key")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { white_from: E5, action: channel }")),
+                         r"16 white keys from E5 go past the top key \(G5\): 3 fit \(set count: 3")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { white_from: E5 }")), r"a range of keys needs")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { from: E5, white_from: E5, action: channel }")),
+                         r"a range of keys needs")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { from: C4, action: octave_up }")),
+                         r"a range numbers its keys 1, 2, \.\.\.: action is one of preset_select, channel")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { from: C4, action: preset_select, count: 5 }")),
+                         r"5 is out of range \(1\.\.4\)")
+        self.assertError(modes(ROOT.replace("  keys:\n", "  keys: { from: C4, action: channel, C4: octave_up }")),
+                         r"C4 is bound twice")
+        self.assertClean(modes(ROOT.replace("  keys:\n", "  keys: { from: C4, action: channel, C3: octave_up }")))
+
+    def test_led_errors(self):
+        base = ROOT + "    C3: octave_reset\n"
+        self.assertError(modes(base + "  led: lmap"), r"no LED with id 'lmap'.*did you mean 'lamp'")
+        self.assertError(modes(base + "  led: { lamp: fast }"), r"must be blink or on")
+        self.assertError(modes(base + "  led: { lamp: blink, menu_led: on }"), r"must be an LED id")
+        self.assertError(modes(base + "  preset_blink: [lamp, menu_led, lamp]"), r"needs one or two LED ids")
+        self.assertError(modes(base + "  preset_blink: [lmp]"), r"no LED with id 'lmp'")
+        _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys }", c)
+        nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
+        self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")

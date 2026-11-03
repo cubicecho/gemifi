@@ -1,6 +1,6 @@
 # Presets and device modes: design (draft for review)
 
-Written 2026-11-02. Status: **proposal**, nothing implemented. Branch `feat/presets`.
+Written 2026-11-02. Status: phase 1 (presets) and phase 2 (modes) are implemented; phases 3 and 4 are not. Phase 2's deviations from this design are listed at the end of §6.
 
 ## Goal
 
@@ -177,6 +177,21 @@ modes:
 - **Feedback.** The mode LED plus, on the Keystation, a short blink pattern of the octave LEDs showing the preset number after a switch: Oct − blinks once per preset number, then both octave LEDs flash once to finish. On the Code 61, later, the 6-character display.
 - **Generated code.** The builder turns modes into constant tables (mode → key → action/argument). The firmware cost is one small state machine plus the tables, and about 4 bytes of RAM.
 
+### 6.1 Phase 2 as implemented (2026-11-02)
+
+Implemented as above (core/README.md "Modes"), on the Keystation with Edit as the toggle: Edit → E3 → a white key from D4 picks preset 1..8, and the edit mode also has octave, transpose, channel and velocity-curve keys. Not tested on hardware yet. Where this section was vague or the implementation differs:
+
+- **No `mode` button action.** A root mode is entered only by its `toggle:` button, so `button.action` keeps its 16 values and the schema, host and web lists don't change. A button that enters a mode directly can come later if a device needs one.
+- **The toggle button has no action of its own,** and the builder refuses a preset that rebinds it (that is what would lock you out). A `button.action` the host sets for it is stored but ignored.
+- **No `buttons:` rebinding inside a mode** yet: buttons keep their normal actions in every mode.
+- **No EVENT type for mode changes** (§5): the protocol is unchanged. The toggle button's presses still show as button EVENTs.
+- **Held keys** get their Note Off when the mode starts, not at their release.
+- **Keys:** named by note at octave 0 (C4 = 60, so the Keystation's lowest key is C3) or by MIDI note number. Besides the design's `white_from:` range there is `from:` (every key) and `count:`; a range can be `preset_select` or `channel`. An action with no number can be written as just its name (`C3: octave_reset`).
+- **Key actions:** `preset_select`, `preset_next`, `preset_prev`, `octave_down/up/reset`, `transpose_down/up/reset`, `channel`, `velocity_curve`, and `{ mode: <id> }`. `channel` and `velocity_curve` are device-side edits of per-preset params: they send PARAM_CHANGED and make the preset dirty, like a host edit.
+- **LEDs:** a root mode lights its toggle button's LED by default, and a sub-mode blinks its parent's. The preset-number blink (Q7) is the per-mode option `preset_blink: [count LED, done LED]`, inherited by sub-modes; it runs after a preset switch made from a mode (not from a button or the host): one dark step, the slot number in 200 ms blinks, then both LEDs flash for 400 ms.
+- **Keystation YAML:** Edit lost its CC toggle 80 (it is the mode button now); the Drums snare moved from Edit to Mod, and the DAW preset's Edit CC 81 was dropped.
+- **Cost on the Keystation:** +844 B flash (19884 → 20728 B text) and +12 B RAM, tables included.
+
 ## 7. Tools and web
 
 - **Builder.** Validates `presets:` and `modes:` (ids exist, keys are within the keyboard's range, no key bound twice in a mode, every mode reachable, every mode has an exit). Generates the preset override tables and the mode tables. The dashboard shows the presets list.
@@ -192,7 +207,7 @@ modes:
    - Scope flags, the record v2 journal with compaction, YAML `presets:`, `preset_next/prev/select` button actions, the protocol commands and the `gemifi.py` commands.
    - Tests: core host tests, the host-sim journal (power cut during compaction), and the builder.
    - On hardware: the Keystation with the presets on buttons.
-2. **Modes.** YAML `modes:`, the key-layer state machine, the Keystation Edit → E → white-keys flow and the LED feedback. Hardware-test on the Keystation.
+2. **Modes.** YAML `modes:`, the key-layer state machine, the Keystation Edit → E → white-keys flow and the LED feedback. Hardware-test on the Keystation. **Implemented (§6.1); not yet tested on hardware.**
 3. **Web editor:** the preset UI.
 4. **Code 61,** after the STM32 platform lands: the preset button, the display, and optionally importing the 12 stock presets (decoding the vendor preset format from the disassembly).
 

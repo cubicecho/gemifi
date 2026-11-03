@@ -50,7 +50,8 @@ int presets_select(uint32_t slot);
 void presets_step(int dir);          /* +1 next, -1 previous (wraps) */
 uint32_t presets_active(void);
 
-/* app_proto: the host changed (id, index) with SET_PARAM(S): a PF_PRESET
+/* app_proto: the host changed (id, index) with SET_PARAM(S) (or a mode key
+ * changed a per-preset param on the device): a PF_PRESET
  * param sets dirty, preset.active switches. */
 void presets_host_set(uint16_t id, uint16_t index);
 

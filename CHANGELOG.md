@@ -2,6 +2,18 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.9.0](https://github.com/cubicecho/gemifi/compare/v0.8.0...v0.9.0) (2026-11-03)
+
+
+### Bug Fixes
+
+* **stm32f1:** bootloader takes the protocol's 512-byte upload order ([309728a](https://github.com/cubicecho/gemifi/commit/309728ab2e5f0d617545c82a317c158212f4ec69))
+
+
+### Features
+
+* **updater:** settings and host feedback move to a Config tab ([37a232d](https://github.com/cubicecho/gemifi/commit/37a232d6a7542328f1497819a62fdb5ba2bc631a))
+
 # [0.8.0](https://github.com/cubicecho/gemifi/compare/v0.7.1...v0.8.0) (2026-11-03)
 
 

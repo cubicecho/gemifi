@@ -13,10 +13,10 @@ F0 7D 67 6D  ver  cmd  seq  len_lo len_hi  payload…  chk  F7
 
 | Field | Meaning |
 |---|---|
-| `7D` | MIDI "non-commercial / development" ID. Not allowed in products released to the public; make it a build constant so a real manufacturer ID can replace it. |
+| `7D` | MIDI "non-commercial / development" ID, a placeholder until gemifi has its own (#3). Not allowed in products released to the public. Each implementation keeps it in one constant (`GSX_ID_BYTES` in core, `MANUFACTURER` in `tools/host`, `MANUFACTURER_ID` in `web/updater`). A paid ID is 3 bytes (`00 xx yy`), so the header grows by 2 and every offset after it moves: code finds fields from the ID's length, never from fixed positions. |
 | `67 6D` | Project signature, ASCII `g` `m`. |
 | `ver` | Protocol version, `1`. |
-| `cmd` | Request `0x00–0x1F`. Reply = `cmd | 0x40` (so `0x40–0x5F`). Unsolicited device → host messages `0x60–0x7F`. The three ranges never overlap. |
+| `cmd` | Request `0x00–0x1F`. Reply = `cmd | 0x40` (so `0x40–0x5F`). Host → device notifications `0x20–0x3F`, which are never answered (§4.6). Unsolicited device → host messages `0x60–0x7F`. The ranges never overlap. |
 | `seq` | 0–127, chosen by the host and echoed in the reply. Unsolicited messages use a running device counter (not meaningful to the host). |
 | `len_lo len_hi` | Payload length in **SysEx bytes** (after packing), 14-bit, low 7 bits first. |
 | `chk` | `(sum of bytes from ver through the last payload byte) & 0x7F`. |
@@ -42,6 +42,7 @@ The flow itself is stop-and-wait. The host sends one request and waits for its r
 - **Packed binary (8→7):** each group of up to 7 input bytes becomes 1 + n output bytes. The first output byte holds the MSBs: bit *i* = bit 7 of input byte *i*. The next *n* bytes are the inputs with bit 7 cleared. A final group of n < 7 bytes produces n + 1 bytes. (This is the Korg/Elektron scheme.)
 - **Text:** 7-bit ASCII, unpacked, no terminator. The length comes from the frame.
 - **string:** `u8 len` (0..16), then `len` bytes of printable ASCII (0x20–0x7E), unpacked. Used for preset names (§4.5). It is not the schema's string (§4.4), which is inside packed data and allows 63 bytes.
+- **lstring:** the same with `len` 0..31. Used for component ids, names and roles (§4.6.1).
 
 ## 3. Replies and status codes
 
@@ -90,9 +91,10 @@ Specific cases:
 | 0x0C | PRESET_SAVE | presets | – | `slot` u14 (1..count) | – (OK, or FLASH_ERR): store the live values into `slot` and make it active (§4.5) |
 | 0x0D | PRESET_RESET | presets | – | `slot` u14 (0 = every slot) | – (OK, or FLASH_ERR): drop the slot's stored edits and name |
 | 0x0E | PRESET_NAME | presets | – | `slot` u14 (1..count), `name` string | – (OK, or FLASH_ERR): store a new name (empty = back to the firmware's name) |
+| 0x11 | GET_COMPONENT | feedback | – | `kind` (1 byte), `index` u14 | the component's description (§4.6.1) |
 | 0x05, 0x06, 0x0F | GET_BLOB, SET_BLOB, LOG_LEVEL | reserved | – | see `research/core/bootloader-design.md` §6 | |
 
-"presets" = only in an app with HELLO caps bit 5; any other device replies BAD_CMD.
+"presets" = only in an app with HELLO caps bit 5; "feedback" = only with caps bit 6. Any other device replies BAD_CMD.
 
 Unsolicited device → host messages (no reply expected):
 
@@ -111,6 +113,7 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 2: LOG messages
 - bit 3: EVENT messages
 - bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
+- bit 6: host feedback (§4.6: GET_COMPONENT and the FB_* notifications)
 
 ### 4.1.1 HELLO `node` (node name)
 
@@ -281,6 +284,64 @@ The request is 2 bytes; any other length → BAD_LEN. A `slot` above `count` →
 To restore, for each slot: PRESET_RESET it; if the backup has stored edits for it, select it, set its values, PRESET_SAVE it and set its name. Then select the preset that was active and COMMIT. `tools/host/gemifi.py backup` / `restore` do this.
 
 **Button actions.** Presets add three `button.action` values: 13 `preset_next`, 14 `preset_prev`, 15 `preset_select` (`button.number` = the slot). Mackie Control (on devices with a DAW port) moves from 13 to **16**. A profile stored before this change with an MCU button needs that button set again. Editors take the values from the schema's option labels, so nothing else changes for them.
+
+### 4.6 Host feedback (app, draft)
+
+**Status: draft (2026-11-03), not implemented.** Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
+
+A script in the DAW (a Live Remote Script, a Bitwig extension) drives the device's LEDs, values and displays with these messages. It addresses everything by **component index**, not by MIDI note or CC. That way it works for any gemifi device without knowing its mapping, and a preset that changes CC numbers doesn't break it. A device with this feature sets HELLO caps bit 6.
+
+The script's side of the loop:
+1. **Find the device:** HELLO on each port, looking for caps bit 6.
+2. **Learn its controls:** GET_COMPONENT for each kind and index (§4.6.1). The `role` of each component tells the script what to connect it to.
+3. **Hear presses and moves by index:** SET_PARAM `debug.events` (id 13) = 1 turns on EVENT messages (0x61). Those carry the button, key, analog or encoder index; the control's normal MIDI goes out as well.
+4. **Drive feedback:** the FB_* notifications below.
+5. **Hand back on exit:** FB_RELEASE when the script stops (Live closing, the device unselected).
+
+#### 4.6.1 GET_COMPONENT (0x11)
+
+Request: `kind` (1 byte), `index` u14. Kinds use the EVENT type numbers where they overlap: 1 button, 2 key matrix, 3 analog, 4 encoder; and 5 LED, 6 display.
+
+Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many components of this kind the device has), `id` lstring (the YAML `id:`), `name` lstring (the display name), `role` lstring, then fields by kind:
+
+| kind | Extra fields |
+|---|---|
+| 1 button | `led` u14 (its LED's index, or 0x3FFF for none) |
+| 2 key matrix | `keys` u14, `first_note` (1 byte) |
+| 3 analog | – |
+| 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF) |
+| 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB) |
+| 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
+
+An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind replies BAD_PARAM for index 0.
+
+**`role`** is the YAML `daw:` value of the component (what a script should connect it to, e.g. `play`, `track_volume`, `device_param_3`). If there's no `daw:`, it's the component's `mcu:` name (e.g. `fader_1`). It's empty when there's neither. The role vocabulary is the scripts' business, not the protocol's: the device only passes the string on. Lengths over 31 are cut.
+
+#### 4.6.2 Notifications (host → device, 0x20–0x3F)
+
+Framed like requests, but the device **never replies**, not even with an error. A malformed or unknown notification is dropped. `seq` is ignored, so the host can send them as fast as the link carries them, with no retries. A host that needs to know they arrived can read the state back (GET_PARAM) or watch the device; the feedback itself is idempotent, so the next update fixes a lost one.
+
+Notifications don't take part in stop-and-wait (§1): the host may send them while a request is waiting for its reply. **Hosts send them only to a device with caps bit 6.** Older firmware answers an unknown command with BAD_CMD as `cmd | 0x40`, which for `0x20–0x3F` lands in the unsolicited range (`0x60–0x7F`) and would read as a LOG or EVENT.
+
+| cmd | Name | Payload |
+|---|---|---|
+| 0x20 | FB_LED | `led` u14, `level` (1 byte, below) |
+| 0x21 | FB_LED_RGB | `led` u14, `r`, `g`, `b` (1 byte each, 0..127), `flags` (bit 0 blink) |
+| 0x22 | FB_LEDS | `first` u14, `n` (1 byte, 1..64), then `n` × `level`: several LEDs at once (a bank switch) |
+| 0x23 | FB_VALUE | `kind` (3 analog, 4 encoder), `index` u14, `value` u14 (0..16383) |
+| 0x24 | FB_RING | `encoder` u14, `mode` (0 dot, 1 boost/cut, 2 wrap, 3 spread), `value` u14 (0..16383), `flags` (bit 0 centre LED) |
+| 0x25 | FB_TEXT | `display` u14, `row` (1 byte), `col` (1 byte), text (7-bit ASCII, ≤ 64 bytes) |
+| 0x26 | FB_RELEASE | `what` (1 byte: 0 everything, 1 LEDs, 2 values, 3 text) |
+
+**`level`** (FB_LED, FB_LEDS), as for plain feedback (`core/README.md`): 0 off, 1 blink, 2..127 on. On a bicolour LED, 2..63 is colour 1 and 64..127 is colour 2. On an RGB LED, the level picks white at that brightness. FB_LED_RGB on a single-colour LED lights it if any of `r`, `g`, `b` is non-zero; on a bicolour LED, the nearer of its two colours.
+
+**Ownership.** FB_* states are host states, like plain feedback (`owner:` in `core/README.md`), with one difference: they don't time out (`led_timeout` doesn't apply), because the script is the authority while it runs. An LED with `owner: local` ignores them. FB_RELEASE hands the chosen states back to local, as if the host had never set them.
+
+**FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`). For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them.
+
+**FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution.
+
+**FB_TEXT** writes characters into a display from (`row`, `col`), clipped at its edge. Characters a display can't show (a 7-segment one) show as blank.
 
 ## 5. Image format (`.gfw`)
 

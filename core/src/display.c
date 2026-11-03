@@ -120,6 +120,15 @@ static uint8_t inited;
 static volatile uint32_t midi_msg;      /* seq << 24 | status << 16 | a << 8 | b */
 static uint32_t midi_seen;
 
+#define MSG_MAX 24u
+#define MSG_HOLD_MS 1000u               /* a scrolling message: start and end */
+#define MSG_STEP_MS 300u                /* ... and one character */
+static char msg[MSG_MAX + 1];
+static uint8_t msg_len, msg_pos;
+static uint8_t msg_new;                 /* set by gm_display_message */
+static uint8_t msg_scroll;              /* 1 scrolling, 2 holding the end */
+static uint32_t msg_t;
+
 void gm_display_text(uint32_t d, const char *s)
 {
     if (d >= GM_N_DISPLAYS)
@@ -146,6 +155,27 @@ void gm_display_midi(uint8_t status, uint8_t a, uint8_t b)
 {
     uint32_t seq = (midi_msg >> 24) + 1u;
     midi_msg = (seq << 24) | ((uint32_t)status << 16) | ((uint32_t)a << 8) | b;
+}
+
+void gm_display_message(const char *s)
+{
+    uint32_t n = 0;
+    while (s[n] && n < MSG_MAX) {
+        msg[n] = s[n];
+        n++;
+    }
+    msg[n] = 0;
+    msg_len = (uint8_t)n;
+    msg_new = 1;
+}
+
+/* Characters pos.. of the message, every one taking a place. */
+static void msg_show(uint32_t pos)
+{
+    uint32_t n = gm_displays[0].n_chars > MAXC ? MAXC : gm_displays[0].n_chars;
+    for (uint32_t i = 0; i < n; i++)
+        want[0][i] = pos + i < msg_len ? gm_seg14_glyph(msg[pos + i]) : 0;
+    dirty = 1;
 }
 
 /* Decimal digits of v (0..999) into p, no padding; returns the count. */
@@ -219,7 +249,7 @@ static void format_midi(uint32_t m)
     }
 }
 
-void gm_display_poll(void)
+void gm_display_poll(uint32_t now)
 {
     if (!inited) {
         inited = 1;
@@ -232,7 +262,24 @@ void gm_display_poll(void)
     uint32_t m = midi_msg;
     if (m != midi_seen) {
         midi_seen = m;
+        msg_scroll = 0;
         format_midi(m);
+    }
+    if (msg_new) {                      /* a message wins over MIDI in the same poll */
+        msg_new = 0;
+        msg_pos = 0;
+        msg_t = now;
+        msg_scroll = msg_len > gm_displays[0].n_chars ? 1u : 0u;
+        msg_show(0);
+    } else if (msg_scroll && now - msg_t >= (msg_pos == 0 || msg_scroll == 2 ? MSG_HOLD_MS : MSG_STEP_MS)) {
+        msg_t = now;
+        if (msg_scroll == 2) {
+            msg_scroll = 0;             /* done: back to the start */
+            msg_pos = 0;
+        } else if (++msg_pos + gm_displays[0].n_chars >= msg_len) {
+            msg_scroll = 2;             /* the end: hold it */
+        }
+        msg_show(msg_pos);
     }
     if (!dirty)
         return;
@@ -261,6 +308,7 @@ void gm_display_poll(void)
 
 void gm_display_text(uint32_t d, const char *s) { (void)d; (void)s; }
 void gm_display_midi(uint8_t status, uint8_t a, uint8_t b) { (void)status; (void)a; (void)b; }
-void gm_display_poll(void) {}
+void gm_display_message(const char *s) { (void)s; }
+void gm_display_poll(uint32_t now) { (void)now; }
 
 #endif

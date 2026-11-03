@@ -145,8 +145,10 @@ static uint8_t knote[NK], kchan[NK];
 #endif
 
 #if GM_N_MODES > 0
-static uint8_t mode_cur = GM_MODE_NONE;     /* the active mode; GM_MODE_NONE = keys play */
-static void mode_key(uint32_t k);
+static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled mode; GM_MODE_NONE = none */
+static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
+static uint32_t keys_mode(void);
+static void mode_key(uint32_t mi, uint32_t k);
 #endif
 
 static volatile uint32_t ticks;
@@ -640,9 +642,10 @@ static void keys_poll(void)
         kq_tail = (uint8_t)((kq_tail + 1u) & (KQ - 1u));
         if (e.on) {
 #if GM_N_MODES > 0
-            if (mode_cur != GM_MODE_NONE) {
+            uint32_t mi = keys_mode();
+            if (mi != GM_MODE_NONE) {
                 knote[e.key] = NOTE_NONE;   /* a function key: no note, its release sends nothing */
-                mode_key(e.key);
+                mode_key(mi, e.key);
                 continue;
             }
 #endif
@@ -806,22 +809,69 @@ static void button_changed(uint32_t i, int down)
 static uint8_t show_n;              /* slot being shown on the LEDs, 0 = none */
 static uint8_t show_mode;           /* the mode whose LEDs show it */
 static uint32_t show_t0;
+static uint64_t btn_in_mode;        /* pressed as a mode's function button: its release is silent */
 
-/* The toggle button of a root mode: enters the mode (held keys get their
- * Note Off first), or leaves it from the mode or any of its sub-modes. Its
- * own action never runs. Returns 0 if button i toggles no mode. */
+/* The mode the keys go to: a held hold mode with keys, else the toggled
+ * one if it has keys; GM_MODE_NONE = the keys play. */
+static uint32_t keys_mode(void)
+{
+    if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].n_keys)
+        return hold_cur;
+    if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].n_keys)
+        return mode_cur;
+    return GM_MODE_NONE;
+}
+
+/* "CH <n>" on the display. */
+static void show_channel(void)
+{
+    char t[6] = "CH ";
+    uint32_t c = (uint32_t)gm_cfg.channel, j = 3;
+    if (c >= 10u)
+        t[j++] = (char)('0' + c / 10u);
+    t[j++] = (char)('0' + c % 10u);
+    t[j] = 0;
+    gm_display_message(t);
+}
+
+static int binds_channel(const gm_mode_key_t *b, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++)
+        if (b[i].op == GM_MK_CHANNEL || b[i].op == GM_MK_CHANNEL_UP || b[i].op == GM_MK_CHANNEL_DOWN)
+            return 1;
+    return 0;
+}
+
+/* The toggle or hold button of a root mode. Toggle: enters the mode (held
+ * keys get their Note Off first, if it has keys), or leaves it from the
+ * mode or any of its sub-modes. Hold: the mode is active while the button
+ * is down. Its own action never runs. Returns 0 if button i is neither. */
 static int mode_button(uint32_t i, int down)
 {
     for (uint32_t m = 0; m < GM_N_MODES; m++) {
-        if (gm_modes[m].toggle != i)
+        const gm_mode_t *md = &gm_modes[m];
+        if (md->toggle != i)
             continue;
         event(EV_BUTTON, i, (uint32_t)down);
+        if (md->hold) {
+            if (down) {
+                if (md->n_keys && keys_mode() == GM_MODE_NONE)
+                    keys_off();
+                hold_cur = (uint8_t)m;
+                if (binds_channel(md->buttons, md->n_buttons) || binds_channel(md->keys, md->n_keys))
+                    show_channel();
+            } else if (hold_cur == m) {
+                hold_cur = GM_MODE_NONE;
+            }
+            app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? ": mode on" : ": mode off");
+            return 1;
+        }
         if (!down)
             return 1;
         if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m) {
             mode_cur = GM_MODE_NONE;
         } else {
-            if (mode_cur == GM_MODE_NONE)
+            if (md->n_keys && keys_mode() == GM_MODE_NONE)
                 keys_off();
             mode_cur = (uint8_t)m;
         }
@@ -842,19 +892,11 @@ static void set_live(int32_t *v, int32_t x, uint16_t id)
     presets_host_set(id, 0);
 }
 
-/* A key pressed in the active mode: run its binding (unbound keys do
- * nothing), then a sub-mode goes back to its parent. */
-static void mode_key(uint32_t k)
+/* Run a binding of mode mi (a key's or a button's), then a sub-mode goes
+ * back to its parent. */
+static void mode_run(uint32_t mi, const gm_mode_key_t *b)
 {
-    const gm_mode_t *m = &gm_modes[mode_cur];
-    const gm_mode_key_t *b = 0;
-    for (uint32_t i = 0; i < m->n_keys; i++)
-        if (m->keys[i].key == k) {
-            b = &m->keys[i];
-            break;
-        }
-    if (!b)
-        return;
+    const gm_mode_t *m = &gm_modes[mi];
     int up = 1;
     switch (b->op) {
     case GM_MK_MODE:
@@ -868,7 +910,7 @@ static void mode_key(uint32_t k)
         else
             presets_step(b->op == GM_MK_PRESET_NEXT ? 1 : -1);
         show_n = (uint8_t)presets_active();
-        show_mode = mode_cur;
+        show_mode = (uint8_t)mi;
         show_t0 = hal_millis();
         break;
     case GM_MK_OCTAVE_DOWN:
@@ -886,21 +928,73 @@ static void mode_key(uint32_t k)
         shift(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
         break;
     case GM_MK_CHANNEL:
-        set_live(&gm_cfg.channel, b->arg, P_CHANNEL);
+    case GM_MK_CHANNEL_UP:
+    case GM_MK_CHANNEL_DOWN: {
+        int32_t c = b->op == GM_MK_CHANNEL ? b->arg
+                  : b->op == GM_MK_CHANNEL_UP ? gm_cfg.channel % 16 + 1
+                  : (gm_cfg.channel + 14) % 16 + 1;
+        set_live(&gm_cfg.channel, c, P_CHANNEL);
+        show_channel();
         break;
+    }
     case GM_MK_CURVE:
         set_live(&gm_cfg.vel_curve, b->arg, P_VEL_CURVE);
         break;
     default:
         break;
     }
-    if (m->parent != GM_MODE_NONE)
+    if (m->parent != GM_MODE_NONE && mode_cur == mi)
         mode_cur = m->parent;
+}
+
+/* A key pressed in mode mi: run its binding (unbound keys do nothing). */
+static void mode_key(uint32_t mi, uint32_t k)
+{
+    const gm_mode_t *m = &gm_modes[mi];
+    for (uint32_t i = 0; i < m->n_keys; i++)
+        if (m->keys[i].key == k) {
+            mode_run(mi, &m->keys[i]);
+            return;
+        }
+}
+
+/* Button i pressed or released while a mode is active: a button the mode
+ * binds runs that instead of its own action (the held hold mode first, then
+ * the toggled one), and its release is silent, even after the mode ends.
+ * Returns 1 if the mode took the change. */
+static int mode_btn(uint32_t i, int down)
+{
+    uint64_t bit = 1ull << i;
+    if (!down) {
+        if (!(btn_in_mode & bit))
+            return 0;
+        btn_in_mode &= ~bit;
+        event(EV_BUTTON, i, 0);
+        return 1;
+    }
+    btn_in_mode &= ~bit;
+    const uint8_t cand[2] = { hold_cur, mode_cur };
+    for (uint32_t c = 0; c < 2; c++) {
+        uint32_t mi = cand[c];
+        if (mi == GM_MODE_NONE)
+            continue;
+        const gm_mode_t *m = &gm_modes[mi];
+        for (uint32_t k = 0; k < m->n_buttons; k++)
+            if (m->buttons[k].key == i) {
+                btn_in_mode |= bit;
+                event(EV_BUTTON, i, 1);
+                app_log(LOG_DEBUG, gm_device.buttons[i].name, ": mode action");
+                mode_run(mi, &m->buttons[k]);
+                return 1;
+            }
+    }
+    return 0;
 }
 
 /* What LED li shows instead of level: after a preset switch from a mode,
  * its count LED blinks the slot number, then it and the done LED flash
- * once; while a mode is active, its LED is lit (or blinks). */
+ * once; while a mode is active (or its hold button held), its LED is lit
+ * (or blinks). */
 static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 {
     if (show_n) {
@@ -912,6 +1006,8 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
         else if (is_count || is_done)
             return s > n2 ? 1u : is_count && (s & 1u);
     }
+    if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].led == (int8_t)li)
+        return gm_modes[hold_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
     if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
         return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
     return level;
@@ -938,10 +1034,17 @@ static void buttons_sample(void)
                 continue;
             if ((btn_ignore >> i) & 1u) {
                 btn_ignore &= ~(1ull << i);   /* released after a preset switch */
+#if GM_N_MODES > 0
+                if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].toggle == i)
+                    hold_cur = GM_MODE_NONE;  /* a hold mode still ends with its button */
+                btn_in_mode &= ~(1ull << i);
+#endif
                 continue;
             }
 #if GM_N_MODES > 0
             if (mode_button(i, (s >> i) & 1u))
+                continue;
+            if (mode_btn(i, (s >> i) & 1u))
                 continue;
 #endif
             button_changed(i, (s >> i) & 1u);
@@ -1943,8 +2046,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
     }
 #endif
 #if GM_N_MODES > 0
-    mode_cur = GM_MODE_NONE;
+    mode_cur = hold_cur = GM_MODE_NONE;
     show_n = 0;
+    btn_in_mode = 0;
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < NB; i++) {
@@ -2057,7 +2161,7 @@ void gm_poll(void)
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);           /* the buttons' and pads' levels */
-        gm_display_poll();          /* the display's segments: written with the LEDs */
+        gm_display_poll(now);       /* the display's segments: written with the LEDs */
         led_pass = 1;
     } else {
         leds_apply();               /* then the LEDs, a few per pass */

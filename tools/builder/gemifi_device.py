@@ -2631,9 +2631,10 @@ def preset_ref(v, cid, path, line, kind, plural):
 MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "preset_prev": (3, None),
                 "octave_down": (4, None), "octave_up": (5, None), "octave_reset": (6, None),
                 "transpose_down": (7, None), "transpose_up": (8, None), "transpose_reset": (9, None),
-                "channel": (10, "channel"), "velocity_curve": (11, "curve")}
+                "channel": (10, "channel"), "velocity_curve": (11, "curve"),
+                "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
-MODE_KEYS = ["id", "toggle", "parent", "led", "preset_blink", "keys"]
+MODE_KEYS = ["id", "toggle", "hold", "parent", "led", "preset_blink", "keys", "buttons"]
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
 RANGE_ACTIONS = ("preset_select", "channel")
 MAX_MODES = 64
@@ -2767,21 +2768,23 @@ def validate_modes(v, dev, data):
         if mid in by_id:
             v.err(f"{p}.id", d.line_of("id"), f"mode '{mid}' is already {by_id[mid].path}: mode ids are unique")
             continue
-        m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, parent=None, root=None,
-                led=None, blink=False, show=None, keys=[])
-        has_t, has_p = d.get("toggle") is not None, d.get("parent") is not None
-        if has_t == has_p:
+        m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
+                root=None, led=None, blink=False, show=None, keys=[], buttons=[])
+        given = [k for k in ("toggle", "hold", "parent") if d.get(k) is not None]
+        if len(given) != 1:
             v.err(p, d.line, f"mode '{mid}' needs " + (
-                "toggle: or parent:, not both" if has_t else
-                "toggle: { button: <id> } (the button that enters and leaves it) or parent: <mode id> "
-                "(a sub-mode, entered from a key of another mode)"))
-        elif has_t:
-            mode_toggle(v, dev, m, d, p)
+                f"one of toggle:, hold: or parent:, not {' and '.join(given)}" if given else
+                "toggle: { button: <id> } (the button that enters and leaves it), hold: { button: <id> } "
+                "(active while that button is held) or parent: <mode id> (a sub-mode, entered from a key "
+                "of another mode)"))
+        elif given[0] != "parent":
+            m.hold = given[0] == "hold"
+            mode_toggle(v, dev, m, d, p, given[0])
         modes.append(m)
         by_id[mid] = m
     for m in modes:
         d = m.d
-        if d.get("parent") is None or d.get("toggle") is not None:
+        if d.get("parent") is None or d.get("toggle") is not None or d.get("hold") is not None:
             continue
         pid, pl = d["parent"], d.line_of("parent")
         if pid not in by_id:
@@ -2802,7 +2805,10 @@ def validate_modes(v, dev, data):
             v.err(f"{m.path}.parent", m.d.line_of("parent"), "the parents go round in a loop: " +
                   " -> ".join(modes[i].id for i in seen + [x.parent]))
         m.root = x.index
-    # pass 2: LEDs and keys (a key may name a sub-mode further down the file)
+        if x.parent is None and x.hold and m is not x:
+            v.err(f"{m.path}.parent", m.d.line_of("parent"), f"mode '{x.id}' is a hold mode (active while its "
+                                                            "button is held): it can't have sub-modes")
+    # pass 2: LEDs, keys and buttons (a key may name a sub-mode further down the file)
     for m in modes:
         d, p = m.d, m.path
         if d.get("led") is not None:
@@ -2812,8 +2818,11 @@ def validate_modes(v, dev, data):
         if d.get("preset_blink") is not None:
             mode_show(v, dev, m, d, p)
         keys = d.get("keys")
+        if d.get("buttons") is not None:
+            mode_buttons(v, dev, m, d["buttons"], f"{p}.buttons", d.line_of("buttons"))
         if keys is None:
-            v.warn(p, d.line, f"mode '{m.id}' has no keys: it does nothing")
+            if d.get("buttons") is None:
+                v.warn(p, d.line, f"mode '{m.id}' has no keys or buttons: it does nothing")
         elif not isinstance(keys, dict):
             v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
                                                    "`keys: { C3: octave_reset, E3: { mode: pick } }`")
@@ -2840,34 +2849,67 @@ def validate_modes(v, dev, data):
         if m.led is None and root.toggle is not None and dev.buttons[root.toggle].led >= 0:
             m.led, m.blink = dev.buttons[root.toggle].led, m is not root
         m.keys.sort()
+        m.buttons.sort()
     dev.modes = modes
 
 
-def mode_toggle(v, dev, m, d, p):
-    """toggle: { button: <id> } (or toggle: <id>): the button that enters and leaves a root mode."""
-    t, tl = d["toggle"], d.line_of("toggle")
+def mode_toggle(v, dev, m, d, p, key="toggle"):
+    """toggle: { button: <id> } (or toggle: <id>): the button that enters and leaves a root mode;
+    hold: the same form, the button that keeps a hold mode active while it is held."""
+    t, tl = d[key], d.line_of(key)
     if isinstance(t, dict):
-        if v.mapping(t, f"{p}.toggle", tl, ["button"]) is None:
+        if v.mapping(t, f"{p}.{key}", tl, ["button"]) is None:
             return
         if "button" not in t:
-            v.err(f"{p}.toggle", tl, "needs button: (e.g. `toggle: { button: edit }`)")
+            v.err(f"{p}.{key}", tl, f"needs button: (e.g. `{key}: {{ button: edit }}`)")
             return
         holder = t
     else:
         holder = LDict(button=t)
         holder.line = tl
-    idx = v.ref(holder, "button", f"{p}.toggle.button", holder.line_of("button"), "button", "buttons")
+    idx = v.ref(holder, "button", f"{p}.{key}.button", holder.line_of("button"), "button", "buttons")
     if idx is None:
         return
     b = dev.buttons[idx]
+    verb = "toggles" if key == "toggle" else "holds"
     if idx in v.mode_toggles:
-        v.err(f"{p}.toggle", tl, f"button '{b.id}' already toggles mode '{v.mode_toggles[idx]}'")
+        v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode '{v.mode_toggles[idx]}'")
     elif b.action_name != "none":
-        v.err(f"{p}.toggle", tl, f"button '{b.id}' toggles this mode, so its own action would never run: remove "
-                                 f"`action: {b.action_name}` (and its cc:/note:) from the button")
+        v.err(f"{p}.{key}", tl, f"button '{b.id}' {verb} this mode, so its own action would never run: remove "
+                                f"`action: {b.action_name}` (and its cc:/note:) from the button")
     else:
         v.mode_toggles[idx] = m.id
         m.toggle = idx
+
+
+def mode_buttons(v, dev, m, btns, bp, bl):
+    """buttons: { <button id>: <action> }: what buttons do instead of their own action while the mode is
+    active (the actions of keys:, but no sub-modes or ranges) -> m.buttons."""
+    if not isinstance(btns, dict) or not btns:
+        v.err(bp, bl, "must be a mapping of button ids to what they do in the mode, e.g. "
+                      "`buttons: { up: channel_up, down: channel_down }`")
+        return
+    for bid in btns:
+        path, line = f"{bp}.{bid}", btns.line_of(bid)
+        holder = LDict(button=bid)
+        holder.line = line
+        idx = v.ref(holder, "button", path, line, "button", "buttons")
+        if idx is None:
+            continue
+        if idx in v.mode_toggles or idx == m.toggle:
+            v.err(path, line, f"button '{bid}' enters a mode (toggle:/hold:): it can't also be bound in one")
+            continue
+        b = btns[bid]
+        r = None
+        if isinstance(b, str):
+            r = mode_action(v, dev, b, None, path, line)
+        elif isinstance(b, dict) and "action" in b:
+            r = mode_action(v, dev, b["action"], b, path, line)
+        else:
+            v.err(path, line, "must be an action (`channel_up`, `preset_next`, `{ action: channel, channel: 10 }`, "
+                              "...); buttons can't go to a sub-mode")
+        if r:
+            m.buttons.append((idx, r[0], r[1], f"{dev.buttons[idx].id}: {r[2]}"))
 
 
 def mode_show(v, dev, m, d, p):
@@ -2987,12 +3029,20 @@ def mode_tables(dev):
             c.append(f"static const gm_mode_key_t {arr}[{len(m.keys)}] = {{ /* {_comment(m.id)} */")
             c += [f"    {{ {k}, {op}, {arg} }}, /* {_comment(text)} */" for k, op, arg, text in m.keys]
             c.append("};")
+        barr = "0"
+        if m.buttons:
+            barr = f"mode_{m.index + 1}_buttons"
+            c.append(f"static const gm_mode_key_t {barr}[{len(m.buttons)}] = {{ /* {_comment(m.id)}: buttons */")
+            c += [f"    {{ {k}, {op}, {arg} }}, /* {_comment(text)} */" for k, op, arg, text in m.buttons]
+            c.append("};")
         show = m.show or (-1, -1)
         toggle = "GM_MODE_NONE" if m.toggle is None else m.toggle
         parent = "GM_MODE_NONE" if m.parent is None else m.parent
         rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
-                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr} }}, /* {_comment(m.id)} */")
-    c += ["/* { toggle button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys } */",
+                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr} }}, "
+                    f"/* {_comment(m.id)} */")
+    c += ["/* { toggle/hold button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys, hold, "
+          "n_buttons, buttons } */",
           "const gm_mode_t gm_modes[GM_N_MODES] = {", *rows, "};", ""]
     return c
 

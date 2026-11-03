@@ -1367,6 +1367,9 @@ list:
         path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
         with open(path, encoding="utf-8") as f:
             text = f.read()
+        # one slot: without its presets: (and modes:), Up / Down back to program changes
+        text = text.split("\n# Presets (core/README.md")[0].replace("action: preset_next", "action: program_next") \
+            .replace("action: preset_prev", "action: program_prev") + "\n"
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
         self.assertEqual((bd["preset_values"], bd["global_values"]), (148, 10))
@@ -1531,9 +1534,10 @@ class TestModes(unittest.TestCase):
             (19, 1, 4, "G4: preset_select 4"),
             (24, 10, 1, "C5: channel 1"), (25, 10, 2, "C#5: channel 2"), (26, 10, 3, "D5: channel 3")])
         # toggle, parent, root, led, blink, count LED, done LED, n, keys
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys }, /* menu */", c)
-        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys }, /* pick */", c)   # parent's LED, blinking
-        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys }, /* chan */", c)
+        # ..., hold, n_buttons, buttons
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0 }, /* menu */", c)
+        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0 }, /* pick */", c)   # parent's LED, blinking
+        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0 }, /* chan */", c)
         self.assertEqual(dev.modes[2].root, 0)
 
     def test_modes_compile(self):
@@ -1565,7 +1569,9 @@ class TestModes(unittest.TestCase):
         self.assertError(modes("- { id: menu, toggle: { button: menu }, colour: red }"), r"unknown key", path="modes[0].colour")
         self.assertError(modes(ROOT + "    C3: octave_reset\n- { id: menu, parent: menu }"), r"mode 'menu' is already modes\[0\]")
         self.assertError(modes("- { id: x }"), r"needs toggle: \{ button: <id> \}.*or parent:")
-        self.assertError(modes("- { id: x, toggle: { button: menu }, parent: y }"), r"toggle: or parent:, not both")
+        self.assertError(modes("- { id: x, toggle: { button: menu }, parent: y }"),
+                         r"one of toggle:, hold: or parent:, not toggle and parent")
+        self.assertError(modes("- { id: x, toggle: menu, hold: menu }"), r"not toggle and hold")
         self.assertError(modes(ROOT + "    C3: octave_reset", base=MINIMAL_NUC), r"needs a key_matrix")
         self.assertTrue(any("has no keys" in w for w in self.warns(modes("- { id: x, toggle: { button: menu } }"))))
 
@@ -1576,7 +1582,7 @@ class TestModes(unittest.TestCase):
                          r"button 'a' toggles this mode, so its own action would never run: remove `action: cc_momentary`")
         self.assertError(modes("- { id: x, toggle: { btn: menu } }"), r"unknown key", path="modes[0].toggle.btn")
         self.assertError(modes("- { id: x, toggle: { button: menu } }\n- { id: z, toggle: menu }"),
-                         r"button 'menu' already toggles mode 'x'")
+                         r"button 'menu' already enters mode 'x'")
         self.assertClean(modes("- { id: x, toggle: menu, keys: { C3: octave_reset } }"))
         # presets can't rebind the mode button
         t = modes("- { id: x, toggle: menu, keys: { C3: octave_reset } }").replace(
@@ -1637,6 +1643,50 @@ class TestModes(unittest.TestCase):
                          r"C4 is bound twice")
         self.assertClean(modes(ROOT.replace("  keys:\n", "  keys: { from: C4, action: channel, C3: octave_up }")))
 
+    def test_hold_and_buttons(self):
+        dev, h, c = self.gen(modes("""\
+- id: hold
+  hold: { button: menu }
+  buttons: { other: { action: channel, channel: 3 }, a: preset_next }
+- id: edit
+  toggle: lamp_btn
+  buttons: { a: channel_down }
+""", base=MODES_NUC.replace("leds:\n", "  - { id: lamp_btn, pin: PA4 }\nleds:\n")))
+        self.assertIn("#define GM_N_MODES 2", h)
+        self.assertIn("static const gm_mode_key_t mode_1_buttons[2] = { /* hold: buttons */", c)
+        rows = re.findall(r"\{ (\d+), (\d+), (\d+) \}, /\* (.*?) \*/", c.split("modes: key bindings")[1])
+        self.assertEqual([(int(k), int(op), int(a), t) for k, op, a, t in rows], [
+            (0, 2, 0, "a: preset_next"), (2, 10, 3, "other: channel 3"), (0, 14, 0, "a: channel_down")])
+        # the hold button's LED is lit while it is held; hold = 1; no keys: the keyboard plays
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons }, /* hold */", c)
+        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons }, /* edit */", c)
+        self.assertEqual(self.warns(modes("- { id: x, hold: menu, buttons: { a: channel_up } }")), [])
+        self.assertTrue(any("has no keys or buttons" in w for w in self.warns(modes("- { id: x, hold: menu }"))))
+
+    def test_hold_and_buttons_errors(self):
+        self.assertError(modes("- { id: x, hold: { button: a }, buttons: { other: channel_up } }"),
+                         r"button 'a' holds this mode, so its own action would never run")
+        self.assertError(modes("- { id: x, hold: menu, keys: { E3: { mode: sub } } }\n- { id: sub, parent: x, keys: { C4: preset_next } }"),
+                         r"mode 'x' is a hold mode .* can't have sub-modes", path="modes[1].parent")
+        self.assertError(modes("- { id: x, hold: menu, buttons: { c: channel_up } }"), r"no button with id 'c'")
+        self.assertError(modes("- { id: x, hold: menu, buttons: { menu: channel_up } }"),
+                         r"button 'menu' enters a mode \(toggle:/hold:\): it can't also be bound in one")
+        self.assertError(modes("- { id: x, hold: menu, buttons: { a: chanel_up } }"), r"did you mean 'channel_up'")
+        self.assertError(modes("- { id: x, hold: menu, buttons: { a: { mode: x } } }"), r"buttons can't go to a sub-mode")
+        self.assertError(modes("- { id: x, hold: menu, buttons: [a] }"), r"must be a mapping of button ids")
+        nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
+        self.assertError(modes("- { id: x, hold: menu, buttons: { a: preset_next } }", base=nopre),
+                         r"preset_next switches presets.*1 preset slot")
+
+    def test_code61(self):
+        dev, diags = gd.load_device(os.path.join(REPO, "devices", "m-audio-code61.yaml"))
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
+        m = dev.modes[0]
+        self.assertEqual((m.id, m.hold, dev.buttons[m.toggle].id), ("channel", True, "channel"))
+        self.assertEqual([(dev.buttons[b[0]].id, b[3]) for b in m.buttons],
+                         [("up", "up: channel_up"), ("down", "down: channel_down")])
+        self.assertEqual(dev.n_presets, 3)
+
     def test_led_errors(self):
         base = ROOT + "    C3: octave_reset\n"
         self.assertError(modes(base + "  led: lmap"), r"no LED with id 'lmap'.*did you mean 'lamp'")
@@ -1645,7 +1695,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes(base + "  preset_blink: [lamp, menu_led, lamp]"), r"needs one or two LED ids")
         self.assertError(modes(base + "  preset_blink: [lmp]"), r"no LED with id 'lmp'")
         _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys }", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0 }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 

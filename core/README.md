@@ -297,7 +297,7 @@ leds:
 analog:
   - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, mcu: fader_1 }   # pitch bend ch 1; takeover: pickup by default
 encoders:
-  - { id: pan_1, pin_a: GPIO20, pin_b: GPIO21, mcu: vpot_1, ring: [r0, r1, r2] }   # CC 0x10 relative; ring from CC 0x30
+  - { id: pan_1, pin_a: GPIO20, pin_b: GPIO21, mcu: vpot_1, ring: [r0, r1, r2], ring_center: rc }   # CC 0x10 relative; ring from CC 0x30
 ```
 
 | YAML | MCU message |
@@ -306,9 +306,12 @@ encoders:
 | analog `mcu: fader_1`–`fader_8`, `master` | pitch bend ch 1–8 / 9, 14 bit, both ways (no motors: the host's position is the pick-up target) |
 | encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17: 01–0F = +n, 41–4F = −n |
 | encoder `ring:` (1–16 LED ids, leftmost first) | CC 0x30–0x37 from the host: position 1–11 spread over the LEDs, modes dot / boost-cut / wrap / spread |
+| encoder `ring_center:` (an LED id) | bit 6 of the same CC: the LED under the V-Pot |
+| (to hooks) | CC 0x40–0x4B: the 12 timecode / assignment characters (`gm_mcu_char()`, `gm_mcu_on_char`); SysEx `12`: LCD text (`gm_mcu_on_lcd`, streamed in pieces); channel pressure: meter levels (`gm_mcu_on_meter`); SysEx `20`: meter modes (`gm_mcu_meter_mode()`). A device with a display or meter LEDs shows them; nothing does yet |
+| (automatic) | SysEx `00` device query → `01` serial + challenge; the host's `02` answer → `03` (accepted without checking it, so no response algorithm is needed); `61` faders to minimum (pick-up targets), `62` all MCU LEDs off, `63` reset |
 | (automatic) | the version request `F0 00 00 66 14 13 00 F7` gets `… 14 14 "V1.02" F7` (from the firmware version), which is all Live asks |
 
-Not done yet (TODO in `src/mcu.c`): the host-connection challenge/response (`00`/`01`/`02`/`03`; Live doesn't use it, other hosts not checked), LCD text (`12`, hook `gm_mcu_on_lcd`), meters (channel pressure, passed to the hook `gm_mcu_on_meter`, nothing shows them), the timecode display (CC 0x40–0x4B), the ring's centre LED, fader touch notes, extender chaining beyond one device id.
+Not done: fader touch notes (needs touch-sensing faders), extender chaining beyond one device id, and showing the display and meter hooks on real hardware (needs a display component). See #18.
 
 **Cost** (NUC120, Keystation config): plain feedback (the default) adds about 0.5 KB of flash and 24 B of RAM; `feedback: { enabled: false }` leaves 60 B (the packet dispatcher); `mcu:` adds about 0.5 KB more. Each LED with a host state uses 5 B of RAM; per-LED settings, pick-up and MCU tables are only generated when the YAML uses them.
 

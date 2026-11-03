@@ -36,6 +36,7 @@ leds:
   - { id: r2, pin: PD2 }
   - { id: r3, pin: PD3 }
   - { id: r4, pin: PD4 }
+  - { id: rc, pin: PD5 }                         # the V-Pot's centre LED
 
 analog:
   - { id: knob,  pin: PA0, cc: 7, takeover: pickup }
@@ -43,4 +44,4 @@ analog:
 
 encoders:
   - { id: enc, pin_a: PB4, pin_b: PB5, cc: 30 }    # absolute (encoder.mode 0)
-  - { id: pan, pin_a: PB6, pin_b: PB7, mcu: vpot_1, ring: [r0, r1, r2, r3, r4] }
+  - { id: pan, pin_a: PB6, pin_b: PB7, mcu: vpot_1, ring: [r0, r1, r2, r3, r4], ring_center: rc }

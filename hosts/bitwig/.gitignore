@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+target/
+*.jar
+*.bwextension
+# local JDK / Maven downloads used to build without a system install
+.tools/

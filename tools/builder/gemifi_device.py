@@ -70,6 +70,11 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("preset.active", 17, GLOBAL, lambda d: 1),
     ("preset.program", 18, PRESET, lambda d: 1 if d.n_presets > 1 else 0),
     ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.n_presets > 1 else 0),
+    ("pad.note", 20, PRESET, lambda d: len(d.pads)),
+    *((n, i, s, (lambda d: 1 if d.pads else 0)) for n, i, s in (
+        ("pad.channel", 21, PRESET), ("pad.curve", 22, PRESET), ("pad.aftertouch", 23, PRESET),
+        ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
+        ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
 ]
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
 PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
@@ -96,6 +101,10 @@ PRESET_GLOBALS = {
                  "fixed": ("velocity.fixed", 100, "int", 1, 127)},
     "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
     "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
+    # default: the device's own pad_settings: (a function of the device)
+    "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
+                     "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
+                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1)},
 }
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
@@ -103,6 +112,8 @@ PRESET_NOT_HERE = {
                           "top-level midi:"},
     "velocity": {k: "global (the keybed's calibration, the same in every preset): set it in "
                     "key_matrix.velocity" for k in ("fast", "slow")},
+    "pad_settings": {k: "global (the pads' calibration, the same in every preset): set it in the "
+                        "top-level pad_settings:" for k in ("threshold", "release", "full", "window", "retrigger")},
 }
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
@@ -111,6 +122,7 @@ PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refu
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
                  ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw"]),
+    "pads": ("pad", "pads", ["note"], ["id", "name", "pin"]),
 }
 PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]
@@ -215,7 +227,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "leds", "analog", "encoders", "key_matrix", "presets", "modes"]
+            "buttons", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -646,6 +658,8 @@ class Device:
         self.presets_revision = 0
         self.presets = []
         self.modes = []              # Hub per mode (validate_modes), in YAML order
+        self.pads = []               # Hub per pad (validate_pads), in YAML order
+        self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.budget = None           # storage_budget(self), after validation
 
 
@@ -1096,7 +1110,7 @@ def suggest_id(text, kind="item"):
 
 def example_id(kind):
     return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
-            "hub": "faders"}.get(kind, "item")
+            "hub": "faders", "pad": "pad_1"}.get(kind, "item")
 
 
 def a_(kind):
@@ -1219,6 +1233,7 @@ def validate(data, file=None):
 
     preset_slots(v, dev, data)
     validate_components(v, dev, data)
+    validate_pads(v, dev, data)
 
     if data.get("key_matrix") is not None:
         validate_matrix(v, dev, data["key_matrix"], data.line_of("key_matrix"))
@@ -1246,7 +1261,7 @@ def validate(data, file=None):
         v.err("buttons", data.line_of("buttons"), f"{len(dev.buttons)} buttons: at most 32 (the runtime "
                                                   "keeps button state in a 32-bit mask)")
     for kind, lst in (("buttons", dev.buttons), ("leds", dev.leds), ("analog", dev.analogs),
-                      ("encoders", dev.encoders)):
+                      ("encoders", dev.encoders), ("pads", dev.pads)):
         if len(lst) > 255:
             v.err(kind, data.line_of(kind), f"{len(lst)} items: at most 255")
 
@@ -1258,8 +1273,8 @@ def validate(data, file=None):
         if not h.used:
             v.warn(h.path, h.line, f"hub '{h.id}' is not used by any component")
     v.check_uses()
-    if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix):
-        v.warn("", data.line, "the device has no inputs (buttons, analog, encoders or key_matrix)")
+    if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix or dev.pads):
+        v.warn("", data.line, "the device has no inputs (buttons, analog, encoders, pads or key_matrix)")
     return (None if errors(v.diags) else dev), v.diags
 
 
@@ -1885,6 +1900,75 @@ def validate_velocity(v, d, path, kind):
 
 
 # ---------------------------------------------------------------------------------------------
+# pads (core/README.md "Pads")
+
+# pad_settings: the pad.* param defaults (core/src/settings.c GM_PAD_*_DEFAULT). Readings are 0..4095,
+# after inverted:; window and retrigger in ms.
+PAD_DEFAULTS = {"channel": 0, "curve": 0, "aftertouch": 0, "threshold": 200, "release": 100, "full": 3000,
+                "window": 3, "retrigger": 20}
+PAD_KEYS = ["id", "name", "pin", "note"]
+PAD_SETTINGS_KEYS = list(PAD_DEFAULTS)
+MAX_PADS = 128
+
+
+def validate_pads(v, dev, data):
+    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note.
+    pad_settings: what all pads share: the sensing (global) and channel / curve / aftertouch (per preset)."""
+    names = {}
+    pads = v.seq(data.get("pads"), "pads", data.line_of("pads"))
+    for i, d in enumerate(pads):
+        p = f"pads[{i}]"
+        d = v.mapping(d, p, pads.line_of(i), PAD_KEYS, renamed=RENAMED_ID)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "pad", len(dev.pads))
+        name = v.display_name(d, p, ident)
+        unique_name(v, names, "pad", name, p, d)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", why="a pad is read with the ADC")
+        note = v.integer(d, "note", p, 0, 127, default=0, required=True)
+        dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, path=p,
+                            line=d.line_of("note") if "note" in d else d.line))
+    if len(dev.pads) > MAX_PADS:
+        v.err("pads", data.line_of("pads"), f"{len(dev.pads)} pads: at most {MAX_PADS}")
+    seen = {}
+    for x in dev.pads:
+        if x.note in seen:
+            v.warn(f"{x.path}.note", x.line, f"note {x.note} is also the note of {seen[x.note]}: both pads "
+                                              "play the same note")
+        seen.setdefault(x.note, x.path)
+
+    if data.get("pad_settings") is None:
+        return
+    p, line = "pad_settings", data.line_of("pad_settings")
+    s = v.mapping(data["pad_settings"], p, line, PAD_SETTINGS_KEYS)
+    if s is None:
+        return
+    if not dev.pads:
+        v.warn(p, line, "there are no pads: ignored")
+    ps = dev.pad_set
+
+    def put(key, val):
+        if val is not None:
+            ps[key] = val
+
+    put("channel", v.integer(s, "channel", p, 0, 16))
+    if "curve" in s:
+        put("curve", enum_value(v, s, "curve", f"{p}.curve", CURVES))
+    if "aftertouch" in s:
+        put("aftertouch", int(v.boolean(s, "aftertouch", p)))
+    put("threshold", v.integer(s, "threshold", p, 1, 4095))
+    put("release", v.integer(s, "release", p, 0, 4094))
+    put("full", v.integer(s, "full", p, 2, 4095))
+    put("window", v.period(s, "window", p, 1000, 50_000, step_us=1000, example="3ms"))
+    put("retrigger", v.period(s, "retrigger", p, 0, 500_000, step_us=1000, example="20ms"))
+    if not ps["release"] < ps["threshold"] < ps["full"]:
+        v.err(p, line, f"needs release < threshold < full (got release {ps['release']}, threshold "
+                       f"{ps['threshold']}, full {ps['full']}; readings 0..4095, with the defaults "
+                       f"{PAD_DEFAULTS['release']}, {PAD_DEFAULTS['threshold']}, {PAD_DEFAULTS['full']} "
+                       "for those not given)")
+
+
+# ---------------------------------------------------------------------------------------------
 # presets (research/core/presets-design.md §2, §10.2)
 
 def preset_section(v, data):
@@ -2005,11 +2089,17 @@ def preset_values(v, dev, d, p):
             kp, kl = f"{sp}.{k}", g.line_of(k)
             if not any(n == param and c(dev) for n, _i, _s, c in PARAMS):
                 why = ("it needs a velocity key matrix (key_matrix: { type: velocity })"
-                       if param == "velocity.curve" else "the device has no buttons")
+                       if param == "velocity.curve" else "the device has no pads"
+                       if param.startswith("pad.") else "the device has no buttons")
                 v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
                 continue
+            if callable(default):
+                default = default(dev)
             if kind == "int":
                 val, shown = v.integer(g, k, sp, lo, hi), None
+            elif kind == "bool":
+                val = v.boolean(g, k, sp, default=None)
+                val, shown = (None, None) if val is None else (int(val), str(val).lower())
             elif kind == "ms":
                 val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
                 shown = f"{val} ms"
@@ -2056,6 +2146,9 @@ def preset_values(v, dev, d, p):
             elif sec == "analog":
                 put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
                     line("cc"), f"analog.cc[{cid}]")
+            elif sec == "pads":
+                put("pad.note", idx, v.integer(o, "note", cp, 0, 127), dev.pads[idx].note, f"{cp}.note",
+                    line("note"), f"pad.note[{cid}]")
             else:
                 e = dev.encoders[idx]
                 if "cc" in o:
@@ -2633,6 +2726,7 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
+    h += pad_defines(dev)
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -2722,7 +2816,36 @@ def generate(dev, source="device.yaml"):
     c += feedback_tables(dev)
     c += preset_tables(dev)
     c += mode_tables(dev)
+    c += pad_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+
+
+def pad_defines(dev):
+    """GM_N_PADS, and with pads the pad.* param defaults from pad_settings: (core/src/settings.c)."""
+    h = ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (core/README.md \"Pads\") */"]
+    if dev.pads:
+        ps = dev.pad_set
+        h += [f"#define GM_PAD_CHANNEL_DEFAULT {ps['channel']} /* 0 = midi.channel */",
+              f"#define GM_PAD_CURVE_DEFAULT {ps['curve']} /* {CURVES[ps['curve']]} */",
+              f"#define GM_PAD_AFTERTOUCH_DEFAULT {ps['aftertouch']}",
+              f"#define GM_PAD_THRESHOLD_DEFAULT {ps['threshold']}",
+              f"#define GM_PAD_RELEASE_DEFAULT {ps['release']}",
+              f"#define GM_PAD_FULL_DEFAULT {ps['full']}",
+              f"#define GM_PAD_WINDOW_DEFAULT {ps['window']} /* ms */",
+              f"#define GM_PAD_RETRIGGER_DEFAULT {ps['retrigger']} /* ms */"]
+    return h
+
+
+def pad_tables(dev):
+    """gm_pads[] (gm_device.h gm_pad_t) and the pad.note defaults; nothing without pads."""
+    if not dev.pads:
+        return []
+    return ["const gm_pad_t gm_pads[GM_N_PADS] = {",
+            *[f"    {{ {x.pin.c()}, {c_str(x.name)} }}, /* {_comment(x.id)}: {_comment(x.pin.desc)} */"
+              for x in dev.pads],
+            "};",
+            "const int32_t gm_pad_note_defaults[GM_N_PADS] = { " + ", ".join(str(x.note) for x in dev.pads) + " };",
+            ""]
 
 
 OWNER_NAMES = {n: k for k, n in LED_OWNERS.items()}

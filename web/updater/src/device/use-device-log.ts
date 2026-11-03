@@ -17,6 +17,7 @@ const EVENT_NAMES: Readonly<Record<number, string>> = Object.freeze({
   2: 'key',
   3: 'analog',
   4: 'encoder',
+  7: 'pad',
 });
 
 /**

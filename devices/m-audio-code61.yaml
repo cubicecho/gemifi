@@ -24,9 +24,6 @@
 #   - 8 encoders: matrix rows 21-22, A = column 2n, B = column 2n+1.
 #   - LEDs and the 6-character display: two TM1628-class serial LED drivers
 #     (CLK PC10, DIO PC11 open-drain, STB PA15 / PC12). There's no driver for them.
-#   - 16 pads: two 8:1 mux channels on ADC ch0 (PA0) and ch1 (PA1), select
-#     PC0-PC2, through the slot table at 0x08014C08. They need pad velocity
-#     from pressure, which the core doesn't have.
 #   - Pitch and mod wheels on PA4 (ch4) and PA5 (ch5). Which is which is unknown,
 #     and the core has no analog pitch bend.
 #   - Aftertouch strip on PC3 (ch13): the core has no channel pressure source.
@@ -54,14 +51,28 @@ scan_interval: 200us       # the stock main loop counts in 200 us ticks
 
 # Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
 # No enable line is set by the stock app. The pads use the same select lines
-# on two more muxes (PA0, PA1), which aren't listed here (see TODO).
+# on two more muxes (PA0, PA1, below): allow_other_uses on every use.
 cd74hc4051:
   - id: fader_mux
-    pin_s0: PC0            # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
-    pin_s1: PC1            # [sure]
-    pin_s2: PC2            # [sure]
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
     common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
     delay: 10us            # [guess] the stock app waits a whole ADC frame after switching
+  # Pad muxes: mux step n = pad slot n on PA0 (ADC ch0), slot n + 8 on PA1 (ch1) [sure].
+  # Keep delay: the same on muxes that share select lines.
+  - id: pad_mux_a
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
+    common_pin: PA0        # [sure] ADC rank 1 = ch0
+    delay: 10us            # [guess]
+  - id: pad_mux_b
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
+    pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
+    pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
+    common_pin: PA1        # [sure] ADC rank 2 = ch1
+    delay: 10us            # [guess]
 
 buttons:
   # Sustain jack: PC9, input with pull-up, read directly (0x080120FC). [likely]
@@ -85,3 +96,39 @@ analog:
   - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000 }   # [guess]
   - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
+
+# Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
+# right. Pad k is pad_k. Which mux slot each pad is on is [guess] (the stock
+# slot table at 0x08014C08 isn't decoded): this assumes pad k = slot k - 1,
+# so pads 1-8 on pad_mux_a channels 0-7 and pads 9-16 on pad_mux_b. To
+# remap, change only the pin: of each pad; ids, names and notes stay put.
+# Polarity is [guess]: no inverted: assumes pressure raises the reading. A pad
+# that reads high at rest stays silent and is named in a WARN log at boot.
+pads:
+  - { id: pad_1,  pin: { cd74hc4051: pad_mux_a, number: 0 }, note: 36 }   # [guess] slot
+  - { id: pad_2,  pin: { cd74hc4051: pad_mux_a, number: 1 }, note: 37 }   # [guess]
+  - { id: pad_3,  pin: { cd74hc4051: pad_mux_a, number: 2 }, note: 38 }   # [guess]
+  - { id: pad_4,  pin: { cd74hc4051: pad_mux_a, number: 3 }, note: 39 }   # [guess]
+  - { id: pad_5,  pin: { cd74hc4051: pad_mux_a, number: 4 }, note: 40 }   # [guess]
+  - { id: pad_6,  pin: { cd74hc4051: pad_mux_a, number: 5 }, note: 41 }   # [guess]
+  - { id: pad_7,  pin: { cd74hc4051: pad_mux_a, number: 6 }, note: 42 }   # [guess]
+  - { id: pad_8,  pin: { cd74hc4051: pad_mux_a, number: 7 }, note: 43 }   # [guess]
+  - { id: pad_9,  pin: { cd74hc4051: pad_mux_b, number: 0 }, note: 44 }   # [guess]
+  - { id: pad_10, pin: { cd74hc4051: pad_mux_b, number: 1 }, note: 45 }   # [guess]
+  - { id: pad_11, pin: { cd74hc4051: pad_mux_b, number: 2 }, note: 46 }   # [guess]
+  - { id: pad_12, pin: { cd74hc4051: pad_mux_b, number: 3 }, note: 47 }   # [guess]
+  - { id: pad_13, pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 48 }   # [guess]
+  - { id: pad_14, pin: { cd74hc4051: pad_mux_b, number: 5 }, note: 49 }   # [guess]
+  - { id: pad_15, pin: { cd74hc4051: pad_mux_b, number: 6 }, note: 50 }   # [guess]
+  - { id: pad_16, pin: { cd74hc4051: pad_mux_b, number: 7 }, note: 51 }   # [guess]
+
+# Pad sensing. All [guess] until tried: tune them live from the web app
+# (Pads group); with debug.events on, each hit's EVENT pad value is its peak
+# reading x 4.
+pad_settings:
+  channel: 10              # [guess] drums on channel 10; 0 = follow midi.channel
+  threshold: 200           # [guess] reading that starts a hit
+  release: 100             # [guess] the pad is let go below this
+  full: 3000               # [guess] peak reading for velocity 127
+  window: 3ms              # peak search after the threshold (3-4 samples at 1 ms)
+  retrigger: 20ms          # no new hit for 20 ms after a release

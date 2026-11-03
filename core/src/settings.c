@@ -23,12 +23,42 @@ gm_settings_t gm_cfg;
 #define GM_VEL_SLOW_DEFAULT 1200
 #endif
 
-enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS };
+/* Pad defaults: the YAML's pad_settings: (core/README.md "Pads").
+ * Readings are 0..4095, after inverted:. */
+#ifndef GM_PAD_CHANNEL_DEFAULT
+#define GM_PAD_CHANNEL_DEFAULT 0
+#endif
+#ifndef GM_PAD_CURVE_DEFAULT
+#define GM_PAD_CURVE_DEFAULT 0
+#endif
+#ifndef GM_PAD_AFTERTOUCH_DEFAULT
+#define GM_PAD_AFTERTOUCH_DEFAULT 0
+#endif
+#ifndef GM_PAD_THRESHOLD_DEFAULT
+#define GM_PAD_THRESHOLD_DEFAULT 200
+#endif
+#ifndef GM_PAD_RELEASE_DEFAULT
+#define GM_PAD_RELEASE_DEFAULT 100
+#endif
+#ifndef GM_PAD_FULL_DEFAULT
+#define GM_PAD_FULL_DEFAULT 3000
+#endif
+#ifndef GM_PAD_WINDOW_DEFAULT
+#define GM_PAD_WINDOW_DEFAULT 3
+#endif
+#ifndef GM_PAD_RETRIGGER_DEFAULT
+#define GM_PAD_RETRIGGER_DEFAULT 20
+#endif
+
+enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS, G_PADS };
 static const char *const groups[] = {
     "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug", "Presets",
+#if GM_N_PADS > 0
+    "Pads",                          /* only with pads: other schemas stay as they were */
+#endif
 };
 
-#if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
+#if (GM_HAS_MATRIX && GM_MATRIX_VELOCITY) || GM_N_PADS > 0
 static const char *const curve_opts[] = { "Normal", "Soft", "Hard", "Fixed" };
 #endif
 static const char *const log_opts[] = { "Off", "Errors", "Warnings", "Info", "Debug" };
@@ -52,6 +82,9 @@ static const char *const action_opts[N_ACTIONS] = {
 static const char *button_labels[GM_ARR(GM_N_BUTTONS)];
 static const char *analog_labels[GM_ARR(GM_N_ANALOGS)];
 static const char *encoder_labels[GM_ARR(GM_N_ENCODERS)];
+#if GM_N_PADS > 0
+static const char *pad_labels[GM_N_PADS];
+#endif
 
 #if GM_N_ENCODERS > 0
 static const int32_t enc_mode_defs[GM_N_ENCODERS] = { 0 };
@@ -68,6 +101,10 @@ void gm_settings_init(void)
         analog_labels[i] = gm_device.analogs[i].name;
     for (uint32_t i = 0; i < gm_device.n_encoders; i++)
         encoder_labels[i] = gm_device.encoders[i].name;
+#if GM_N_PADS > 0
+    for (uint32_t i = 0; i < GM_N_PADS; i++)
+        pad_labels[i] = gm_pads[i].name;
+#endif
 }
 
 static const param_def_t params[] = {
@@ -148,6 +185,38 @@ static const param_def_t params[] = {
     { .id = P_PRESET_DIRTY, .flags = PF_VOLATILE | PF_READ_ONLY, .type = PT_BOOL,
       .group = G_PRESETS, .count = 1, .min = 0, .max = 1, .def = 0,
       .name = "preset.dirty", .label = "Unsaved changes", .values = &gm_cfg.preset_dirty },
+#endif
+
+#if GM_N_PADS > 0
+    /* the mapping: per preset */
+    { .id = P_PAD_NOTE, .flags = PF_PRESET, .type = PT_NOTE, .group = G_PADS, .count = GM_N_PADS,
+      .min = 0, .max = 127, .defs = gm_pad_note_defaults, .index_labels = pad_labels,
+      .name = "pad.note", .label = "Note", .values = gm_cfg.pad_note },
+    { .id = P_PAD_CHANNEL, .flags = PF_PRESET, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 0, .max = 16, .def = GM_PAD_CHANNEL_DEFAULT,
+      .name = "pad.channel", .label = "Channel (0 = MIDI channel)", .values = &gm_cfg.pad_channel },
+    { .id = P_PAD_CURVE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_PADS, .count = 1,
+      .min = 0, .max = 3, .def = GM_PAD_CURVE_DEFAULT, .options = curve_opts, .option_count = 4,
+      .name = "pad.curve", .label = "Velocity curve", .values = &gm_cfg.pad_curve },
+    { .id = P_PAD_AFTERTOUCH, .flags = PF_PRESET, .type = PT_BOOL, .group = G_PADS, .count = 1,
+      .min = 0, .max = 1, .def = GM_PAD_AFTERTOUCH_DEFAULT,
+      .name = "pad.aftertouch", .label = "Poly aftertouch", .values = &gm_cfg.pad_aftertouch },
+    /* the sensing: global (the pads' calibration) */
+    { .id = P_PAD_THRESHOLD, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 1, .max = 4095, .def = GM_PAD_THRESHOLD_DEFAULT,
+      .name = "pad.threshold", .label = "Hit threshold (reading)", .values = &gm_cfg.pad_threshold },
+    { .id = P_PAD_RELEASE, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 0, .max = 4094, .def = GM_PAD_RELEASE_DEFAULT,
+      .name = "pad.release", .label = "Released below (reading)", .values = &gm_cfg.pad_release },
+    { .id = P_PAD_FULL, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 2, .max = 4095, .def = GM_PAD_FULL_DEFAULT,
+      .name = "pad.full", .label = "Peak for velocity 127 (reading)", .values = &gm_cfg.pad_full },
+    { .id = P_PAD_WINDOW, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 1, .max = 50, .def = GM_PAD_WINDOW_DEFAULT, .unit = "ms",
+      .name = "pad.window", .label = "Peak window", .values = &gm_cfg.pad_window },
+    { .id = P_PAD_RETRIGGER, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = 0, .max = 500, .def = GM_PAD_RETRIGGER_DEFAULT, .unit = "ms",
+      .name = "pad.retrigger", .label = "Retrigger guard", .values = &gm_cfg.pad_retrigger },
 #endif
 };
 

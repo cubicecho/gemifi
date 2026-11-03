@@ -32,6 +32,7 @@ extern "C" {
 #define EV_KEY     2
 #define EV_ANALOG  3
 #define EV_ENCODER 4
+#define EV_PAD     7    /* value = peak reading x 4 on a hit, 0 on release */
 
 /* has_config: the app has a params.h table (and config_store). Caps and
  * the upload role come from that and hal_fw_ops(). */

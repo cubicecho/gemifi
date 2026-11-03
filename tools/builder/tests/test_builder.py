@@ -160,6 +160,10 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("i2c sda=8 scl=9", out)
         self.assertIn("transport=1", out)
         self.assertIn("a hub=7 flags=2 num=0", out)   # MCP pull-up kept
+        self.assertIn("pads=3 channel=10 curve=1 aftertouch=1 threshold=300 release=150 full=3500 window=2 "
+                      "retrigger=30", out)
+        self.assertIn("pad hub=6 flags=1 num=2\n  name=Snare\n  note=38", out)
+        self.assertIn("pad hub=5 flags=0 num=1\n  name=Pad 3\n  note=42", out)
 
     def test_presets_compile(self):
         for name, path, *_ in gb.list_presets():
@@ -177,6 +181,7 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("buttons=0 (null)", out)
         self.assertIn("defaults0: 0 0 1 0", out)
         self.assertIn("matrix=null", out)
+        self.assertIn("pads=0\n", out)
         self.assertIn("transport=2", out)
         self.assertIn("usb=0000:0000", out)
 
@@ -1306,6 +1311,126 @@ class TestModes(unittest.TestCase):
         self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
+
+
+PADS_STM = """\
+gemifi: 2
+name: test
+board_id: 0x3F05
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+cd74hc4051:
+  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }
+pads:
+  - { id: kick, pin: { cd74hc4051: m, number: 0 }, note: 36 }
+  - { id: snare, pin: PA1, note: 38 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestPads(unittest.TestCase):
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        return dev, gd.generate(dev, "t.yaml")
+
+    def warns(self, text):
+        return [str(d) for d in self.errs(text, level="warning")]
+
+    def test_generate(self):
+        dev, files = self.gen(PADS_STM)
+        h, c = files["gm_device_config.h"], files["gm_device_config.c"]
+        self.assertIn("#define GM_N_PADS 2 ", h)
+        for d in ("CHANNEL_DEFAULT 0", "CURVE_DEFAULT 0 /* normal */", "THRESHOLD_DEFAULT 200",
+                  "RELEASE_DEFAULT 100", "FULL_DEFAULT 3000", "WINDOW_DEFAULT 3 /* ms */", "RETRIGGER_DEFAULT 20"):
+            self.assertIn(f"#define GM_PAD_{d}", h)
+        self.assertIn('{ { 1, 0, 0 }, "Kick" }, /* kick: m.0 */', c)
+        self.assertIn('{ { 0, 0, 1 }, "Snare" }, /* snare: PA1 */', c)
+        self.assertIn("gm_pad_note_defaults[GM_N_PADS] = { 36, 38 };", c)
+        # stored values: 2 notes + channel, curve, aftertouch per preset; 5 sensing globals
+        n_preset, n_global = gd.stored_counts(dev)
+        dev0, _ = load(PADS_STM.split("pads:")[0] + "analog: [{ id: k, pin: PA1, cc: 1 }]\n")
+        p0, g0 = gd.stored_counts(dev0)
+        self.assertEqual((n_preset - p0, n_global - g0), (5 - 1, 5))   # analog.cc of dev0 is 1 value
+        _, files = self.gen(MINIMAL_NUC)
+        self.assertIn("#define GM_N_PADS 0", files["gm_device_config.h"])
+        self.assertNotIn("GM_PAD_", files["gm_device_config.h"])
+        self.assertNotIn("gm_pads", files["gm_device_config.c"])
+
+    def test_settings(self):
+        _, files = self.gen(PADS_STM + "pad_settings: { channel: 10, curve: hard, aftertouch: true, threshold: 400, "
+                                       "release: 250, full: 3900, window: 5ms, retrigger: 0ms }\n")
+        h = files["gm_device_config.h"]
+        for d in ("CHANNEL_DEFAULT 10", "CURVE_DEFAULT 2 /* hard */", "AFTERTOUCH_DEFAULT 1", "THRESHOLD_DEFAULT 400",
+                  "RELEASE_DEFAULT 250", "FULL_DEFAULT 3900", "WINDOW_DEFAULT 5 ", "RETRIGGER_DEFAULT 0 "):
+            self.assertIn(f"#define GM_PAD_{d}", h)
+        bad = PADS_STM + "pad_settings: { %s }\n"
+        self.assertError(bad % "threshold: 50", r"needs release < threshold < full \(got release 100, threshold 50")
+        self.assertError(bad % "full: 150", r"release < threshold < full")
+        self.assertError(bad % "window: 3", r"needs a unit")
+        self.assertError(bad % "window: 80ms", r"out of range \(1ms\.\.50ms\)")
+        self.assertError(bad % "curve: hrad", r"did you mean 'hard'")
+        self.assertError(bad % "channel: 17", r"17 is out of range \(0\.\.16\)")
+        self.assertError(bad % "treshold: 300", r"did you mean 'threshold'")
+        self.assertTrue(any("there are no pads: ignored" in w
+                            for w in self.warns(MINIMAL_NUC + "pad_settings: { threshold: 300 }\n")))
+
+    def test_pad_errors(self):
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6 }\n", r"pads\[2\]\.note.*|is required", path="pads[2].note")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PC6, note: 40 }\n", r"PC6 has no ADC on stm32f1")
+        self.assertError(PADS_STM + "  - { id: p3, pin: { cd74hc4051: m, number: 8 }, note: 40 }\n",
+                         r"channel 8 is out of range")
+        hc =PADS_STM.replace("pads:", "sn74hc165:\n  - { id: s, data_pin: PB0, clock_pin: PB1, load_pin: PB2 }\npads:")
+        self.assertError(hc + "  - { id: p3, pin: { sn74hc165: s, number: 0 }, note: 40 }\n",
+                         r"sn74hc165, which can't be an analog input.*a pad is read with the ADC")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6, note: 128 }\n", r"128 is out of range")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA6, note: 40, cc: 3 }\n", r"unknown key")
+        self.assertError(PADS_STM + "  - { id: kick, pin: PA6, note: 40 }\n", r"id 'kick' .* is already the id")
+        self.assertError(PADS_STM + "  - { id: p3, pin: PA1, note: 40 }\n", r"PA1 is already used by pads\[1\]")
+        self.assertTrue(any("note 36 is also the note of pads[0]" in w
+                            for w in self.warns(PADS_STM + "  - { id: p3, pin: PA6, note: 36 }\n")))
+        # a pad shares the select lines of another mux only with allow_other_uses on every use
+        two = PADS_STM.replace("cd74hc4051:\n  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }",
+                               "cd74hc4051:\n  - { id: m, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA0 }\n"
+                               "  - { id: m2, pin_s0: PC0, pin_s1: PC1, pin_s2: PC2, common_pin: PA2 }")
+        self.assertError(two + "  - { id: p3, pin: { cd74hc4051: m2, number: 0 }, note: 40 }\n",
+                         r"set allow_other_uses: true on each use")
+        shared = two.replace("pin_s0: PC0, pin_s1: PC1, pin_s2: PC2",
+                             "pin_s0: { number: PC0, allow_other_uses: true }, "
+                             "pin_s1: { number: PC1, allow_other_uses: true }, "
+                             "pin_s2: { number: PC2, allow_other_uses: true }")
+        self.assertClean(shared + "  - { id: p3, pin: { cd74hc4051: m2, number: 0 }, note: 40 }\n")
+
+    def test_presets(self):
+        base = PADS_STM + "pad_settings: { channel: 10 }\npresets:\n  list:\n    - name: Default\n    - name: B\n"
+        _, files = self.gen(base + "      pads: { snare: { note: 40 } }\n"
+                                   "      pad_settings: { channel: 0, curve: hard, aftertouch: true }\n")
+        c = files["gm_device_config.c"]
+        for s in ("{ 20, 1, 40 }, /* pad.note[snare] = 40 */", "{ 21, 0, 0 }, /* pad.channel = 0 */",
+                  "{ 22, 0, 2 }, /* pad.curve = hard */", "{ 23, 0, 1 }, /* pad.aftertouch = true */"):
+            self.assertIn(s, c)
+        self.assertTrue(any("the same as in preset 1 (pad.channel = 10)" in w
+                            for w in self.warns(base + "      pad_settings: { channel: 10 }\n")))
+        self.assertError(base + "      pad_settings: { threshold: 300 }\n",
+                         r"global \(the pads' calibration.*set it in the top-level pad_settings:")
+        self.assertError(base + "      pads: { snare: { pin: PA2 } }\n", r"pin: is the same in every preset")
+        self.assertError(base + "      pads: { snar: { note: 40 } }\n", r"no pad with id 'snar'.*did you mean 'snare'")
+        nopads = MINIMAL_NUC + "presets:\n  list:\n    - name: Default\n    - name: B\n"
+        self.assertError(nopads + "      pad_settings: { curve: hard }\n",
+                         r"pad.curve doesn't exist on this device: the device has no pads")
+
+    def test_code61(self):
+        dev, diags = gd.load_device(os.path.join(REPO, "devices", "m-audio-code61.yaml"))
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertEqual([p.id for p in dev.pads], [f"pad_{k}" for k in range(1, 17)])
+        self.assertEqual([p.name for p in dev.pads], [f"Pad {k}" for k in range(1, 17)])
+        hubs = {h.id: h.index + 1 for h in dev.hubs}
+        self.assertEqual({p.pin.hub for p in dev.pads}, {hubs["pad_mux_a"], hubs["pad_mux_b"]})
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")

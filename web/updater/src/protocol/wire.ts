@@ -145,7 +145,7 @@ export const LogLevel = { Error: 0, Warn: 1, Info: 2, Debug: 3 } as const;
 export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
 /** EVENT types (§4). Others are reserved and shown as numbers. */
-export const EventType = { Button: 1, Key: 2, Analog: 3, Encoder: 4 } as const;
+export const EventType = { Button: 1, Key: 2, Analog: 3, Encoder: 4, Pad: 7 } as const;
 export type EventType = (typeof EventType)[keyof typeof EventType];
 
 /** Capability bits in HELLO's `caps` (§4.1). */

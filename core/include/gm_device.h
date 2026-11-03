@@ -263,6 +263,18 @@ typedef struct {
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
 
+/* Pads (core/README.md "Pads"): pressure pads (FSR style) that play notes
+ * with a velocity from how hard they are hit. Generated only when the YAML
+ * has pads: (GM_N_PADS > 0). The note and the sensing (thresholds, peak
+ * window, retrigger guard, curve) are params: gm_settings.h P_PAD_*. */
+typedef struct {
+    gm_pin_t pin;                /* MCU ADC pin, or a MUX hub channel; INVERT = 4095 - reading */
+    const char *name;
+} gm_pad_t;
+
+extern const gm_pad_t gm_pads[];             /* GM_N_PADS entries */
+extern const int32_t gm_pad_note_defaults[]; /* GM_N_PADS entries */
+
 #ifdef __cplusplus
 }
 #endif

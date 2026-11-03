@@ -49,6 +49,7 @@ APP_SRCS := main.c \
             $(CORE)/src/controller.c \
             $(CORE)/src/midi_in.c \
             $(CORE)/src/mcu.c \
+            $(CORE)/src/presets.c \
             $(DEVICE_DIR)/gm_device_config.c
 
 include $(PLAT)/mk/app.mk

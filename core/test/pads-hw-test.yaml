@@ -32,8 +32,15 @@ cd74hc4051:
     common_pin: PA1
     delay: 10us
 
+# A 4-wire XY pad on the Code 61's pins: read in software (the hardware
+# scan, in pads-hw-test.yaml, leaves it out of its plan).
+xy_pad:
+  - { id: xy, x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10 }
+
 analog:
   - { id: fader, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 20 }
+  - { id: xy_x, pin: { xy_pad: xy, number: x }, cc: 16, adc_min: 592, adc_max: 3408 }
+  - { id: xy_y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 592, adc_max: 3408 }
 
 pads:                                  # 0..7 on mux_a, 8..15 on mux_b, 16 direct
   - { id: pad_1,  pin: { cd74hc4051: mux_a, number: 0 }, note: 36 }

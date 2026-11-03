@@ -1179,14 +1179,20 @@ static void analog_read(uint32_t i)
         v = (raw - lo) * 4095 / (hi - lo);   /* hi < lo: reversed */
         v = v < 0 ? 0 : v > 4095 ? 4095 : v;
     }
-    if (a_sent[i] < 0) {
+    /* An XY pad reads nothing untouched; a touch jumps to where it is, and
+     * the first touch sends (it isn't the power-up reading). */
+    int jump = vpin_analog_jump(a->pin);
+    if (a_sent[i] < 0 && !jump) {
         a_filt[i] = v << 2;                 /* first reading: no message */
         a_sent[i] = (int16_t)(v >> 5);
         a_center[i] = (int16_t)v;
         a_bend[i] = 8192;
         return;
     }
-    a_filt[i] += v - (a_filt[i] >> 2);     /* 4-sample moving average */
+    if (jump)
+        a_filt[i] = v << 2;
+    else
+        a_filt[i] += v - (a_filt[i] >> 2); /* 4-sample moving average */
     int32_t pos = a_filt[i] >> 2;           /* 0..4095 */
     if (gm_cfg.analog_mode[i] == AN_MODE_BEND) {
         analog_bend(i, pos);

@@ -334,6 +334,42 @@ class TestValidation(unittest.TestCase):
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
+    def test_xy_pad(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(hub="x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10",
+                x="{ xy_pad: xy, number: x }", y="{ xy_pad: xy, number: y }", extra=""):
+            return (stm + f"xy_pad:\n  - {{ id: xy, {hub} }}\nanalog:\n"
+                    f"  - {{ id: ax, pin: {x}, cc: 16{extra} }}\n  - {{ id: ay, pin: {y}, cc: 17 }}\n")
+
+        self.assertClean(dev())
+        self.assertClean(dev(x="{ xy_pad: xy, number: 0 }", y="{ xy_pad: xy, number: 1 }"))
+        self.assertError(dev(x="{ xy_pad: xy, number: z }"), r"'z' is not a pin of hub 'xy' \(use x or y\)")
+        self.assertError(dev(x="{ xy_pad: xy, number: 2 }"), r"channel 2 is out of range|pin 2 is out of range")
+        self.assertError(dev(extra=", mode: pitch_bend"), r"XY pad reads nothing until touched")
+        self.assertClean(dev(extra=", mode: channel_pressure"))
+        self.assertError(dev(hub="x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4"), r"is required",
+                         path="xy_pad[0].y_minus_pin")
+        self.assertError(dev(hub="x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PB11, y_minus_pin: PB10"),
+                         r"X is read on y_minus_pin or y_plus_pin: neither has an ADC")
+        self.assertError(dev(hub="x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10, "
+                                 "touch_min: 3000, touch_max: 2000"), r"touch_min 3000 must be below")
+        self.assertError(dev(hub="x_plus_pin: PB1, x_minus_pin: PA0, y_plus_pin: PC4, y_minus_pin: PB10")
+                         .replace("pin: PA1", "pin: PA0"), r"PA0")                           # pin used twice
+        # a pad is read on a mux or an ADC pin, not an XY pad
+        self.assertError(dev() + "pads:\n  - { id: p, pin: { xy_pad: xy, number: x }, note: 36 }\n",
+                         r"xy_pad, which can't be an analog input")
+        # Each axis is read on the other plate's minus pin when it has an ADC, else its plus pin.
+        d, diags = load(dev())
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        c = gd.generate(d, "t.yaml")["gm_device_config.c"]
+        self.assertIn(".type = GM_HUB_XY,", c)
+        self.assertIn(".data = { 0, 0, 36 }, .clock = { 0, 0, 37 },", c)    # X on PC4 (Y+), Y on PC5 (X-)
+        self.assertIn(".sel = { { 0, 0, 17 }, { 0, 0, 37 }, { 0, 0, 36 }, { 0, 0, 26 } },", c)
+        self.assertIn(".touch_min = 570, .touch_max = 3430,", c)
+        self.assertIn("{ 1, 0, 0 }", c)                                     # ax: hub 1, channel 0 (x)
+        self.assertIn("{ 1, 0, 1 }", c)
+
     def test_displays(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         tm = ("tm1628:\n  - { id: ta, clk_pin: PC10, dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN }, "
@@ -1372,22 +1408,22 @@ list:
             .replace("action: preset_prev", "action: program_prev") + "\n"
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (148, 10))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 10))
         # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
-        # (1 + 2 + 11 each), analog cc and mode 12 each (1 + 1 + 3 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
-        # (1 + 1 + 4) = 64 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 64), 4 * (9 + 16)))
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (392, 1024, 1024))
+        # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
+        # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 16)))
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (400, 1024, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (3, 2))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
-        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 65), 692))  # + program
+        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 67), 708))  # + program
         self.assertFalse([d for d in self.errs(with_slots(2), level="warning") if "config page" in d.msg])
         w = [str(d) for d in self.errs(with_slots(3), level="warning") if "config page" in d.msg]
-        self.assertTrue(w and "presets use 96% of the stm32f1 config page" in w[0], w)
+        self.assertTrue(w and "presets use 98% of the stm32f1 config page" in w[0], w)
         e = self.assertError(with_slots(4), r"presets don't fit the stm32f1 config page", path="presets.slots")
-        self.assertIn("1284 of 1024 B", e.msg)
+        self.assertIn("1316 of 1024 B", e.msg)
         self.assertIn("At most 3 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)

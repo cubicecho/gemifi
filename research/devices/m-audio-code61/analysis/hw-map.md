@@ -204,14 +204,16 @@ So a Code 61 build should differ in the key map, the 0x31 → 0x3D constants and
 
 ## 8. Needs hardware
 
-1. Chip marking (ST or GD32, RB or something else): board photo.
-2. ~~The Code 61 key map and key count~~: done from the Code 61 app (§9). Still worth one press-every-key test.
-3. Which physical button is each of the 40 button slots. That includes octave −/+ (slots 0/1?) and transport.
-4. Which fader is slot 0 (PA6), and which order slots 1-8 follow.
-5. Which wheel is PA4 and which is PA5. What PB0 (ch8) is for.
-6. What PC13 and PC15 do (power sense? display power?), and what USART2 (PA2) talks to.
-7. That pages 0x0801EC00/0x0801F000/0x0801F400 hold only 0xFF on a real unit, and that the bootloader leaves them alone.
-8. The mux part number and settle time, and whether there's a MIDI-in jack on PA10.
+Updated 2026-11-03, after gemifi ran on a Code 61 (`devices/m-audio-code61.yaml` has the details).
+
+1. ~~Chip marking~~: STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410).
+2. ~~The Code 61 key map and key count~~: done from the Code 61 app (§9), and every key checked on hardware.
+3. ~~Which physical button is each of the 40 button slots~~: labelled on hardware (the YAML's `buttons:`). Slots 0/1 are Down / Up, not octave −/+.
+4. Which fader is slot 0 (PA6), and which order slots 1-8 follow: still open (PA6 is taken to be the master fader).
+5. ~~Which wheel is PA4 and which is PA5~~: PA4 is pitch, PA5 mod. What PB0 (ch8) is for: still open (most likely the expression pedal jack).
+6. What PC13 and PC15 do: still open. When PC13 goes low, the stock app flushes pending settings 2 s later and then drives PC15 low, which looks like a power-loss warning. ~~What USART2 (PA2) talks to~~: the pad LED board (core/README.md "RGB serial LEDs").
+7. ~~The settings pages~~: gemifi's settings store works in 0x0801EC00/0x0801F000 on hardware (settings and presets save). A power cut during a write is still untested (#13).
+8. The mux part number: still open; the 4 us settle works. Whether there's a MIDI-in jack on PA10: see the DIN MIDI work (PR #50).
 
 ## 9. Code 61 v1.2.2 check
 

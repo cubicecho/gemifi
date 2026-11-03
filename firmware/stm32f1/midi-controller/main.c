@@ -42,11 +42,11 @@ static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), sizeof(strings) / sizeof(strings[0]), strings,
 };
 
-/* TIM2 counts microseconds (prescaled to 1 MHz). Scan time is measured from
- * the handler's entry, so a late start (the main loop stalled, e.g. by a
- * flash erase) isn't counted as scan time: those count as "late". The period
- * is raised only when a scan itself is longer than it (which would starve the
- * main loop, and with it USB). */
+/* TIM2 ticks the scan (prescaled to 1 MHz). Scan time is measured with the
+ * DWT cycle counter from the handler's entry, so a late start (the main loop
+ * stalled, e.g. by a flash erase) isn't counted: those count as "late". The
+ * period is raised when a scan takes more than 80% of it, which would starve
+ * the main loop and with it USB. */
 #define SCAN_TIM TIM2_BASE
 static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
 static volatile uint8_t scan_slowed;
@@ -55,27 +55,31 @@ static volatile uint8_t scan_slowed;
 void TIM2_IRQHandler(void)
 {
     TIM_SR(SCAN_TIM) = ~TIM_SR_UIF;     /* rc_w0 */
-    uint32_t p = TIM_ARR(SCAN_TIM) + 1u;
-    uint32_t t0 = TIM_CNT(SCAN_TIM);    /* counts up from 0 at each tick */
+    uint32_t c0 = DWT_CYCCNT;           /* cycle counter: can't wrap within a scan */
     gm_scan_tick();
-    uint32_t t1 = TIM_CNT(SCAN_TIM);
-    int wrapped = (TIM_SR(SCAN_TIM) & TIM_SR_UIF) != 0;   /* the next tick came */
-    uint32_t used = wrapped ? t1 + p - t0 : t1 - t0;
+    uint32_t used = (DWT_CYCCNT - c0) / (sys_hclk_hz / 1000000u);
+    if (used == 0 && (TIM_SR(SCAN_TIM) & TIM_SR_UIF))
+        used = TIM_ARR(SCAN_TIM) + 1u;  /* no cycle counter (a clone?): an overrun is a full period */
     if (used > scan_max)
         scan_max = used;
     scan_sum += used;
     scan_n++;
-    if (!wrapped)
-        return;
-    if (used + 10u < p) {
+    uint32_t p = TIM_ARR(SCAN_TIM) + 1u;
+    if (5u * used > 4u * p) {
+        /* The scan takes over 80% of the period: give it 1.5x what it took,
+         * so the main loop (and USB) keeps a third of the time. */
+        uint32_t np = used + used / 2u;
+        if (np < p + p / 4u)
+            np = p + p / 4u;
+        if (np > SCAN_MAX_US)
+            np = SCAN_MAX_US;
+        if (np != p) {
+            TIM_ARR(SCAN_TIM) = np - 1u;
+            gm_scan_period_us = np;
+            scan_slowed = 1;
+        }
+    } else if (TIM_SR(SCAN_TIM) & TIM_SR_UIF) {
         scan_late++;                    /* started late, the scan itself fits */
-        return;
-    }
-    if (p < SCAN_MAX_US) {
-        p += p / 4u;
-        TIM_ARR(SCAN_TIM) = p - 1u;
-        gm_scan_period_us = p;
-        scan_slowed = 1;
     }
 }
 

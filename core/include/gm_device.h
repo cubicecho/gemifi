@@ -139,10 +139,13 @@ typedef struct {
     uint16_t timeout;       /* host_then_local: 10 ms units, or GM_TIMEOUT_NEVER */
 } gm_led_fb_t;
 
-/* LEDs around an MCU V-Pot (encoder), leftmost first. */
+/* LEDs around an MCU V-Pot (encoder), leftmost first, and the LED under
+ * it (the ring value's bit 6), or GM_RING_NO_CENTER. */
+#define GM_RING_NO_CENTER 0xFFu
 typedef struct {
     const uint8_t *leds;
     uint8_t n;
+    uint8_t center;
 } gm_ring_t;
 
 #define GM_MCU_NONE 0xFFu

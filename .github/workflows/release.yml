@@ -1,0 +1,94 @@
+# Cuts a release from the commit log after CI passes on main (semantic-release, .releaserc.json).
+#
+# Versions come from Conventional Commits: `fix:` -> patch, `feat:` -> minor, `!` or a
+# `BREAKING CHANGE:` footer -> major. Any other type (docs, chore, ci, refactor, test, ...)
+# releases nothing. A release:
+#   - bumps package.json, the dashboard's VERSION and the web updater (tools/release/set-version.mjs)
+#   - prepends the notes to CHANGELOG.md and commits it as `chore(release): x.y.z [skip ci]`
+#   - tags vx.y.z and opens a GitHub release with the same notes
+#   - builds the Docker image for the tag, and redeploys the site (its /changelog/ page)
+#
+# semantic-release pushes as the cubicecho-release GitHub App (org variable RELEASE_APP_ID,
+# org secret RELEASE_APP_PRIVATE_KEY), not as GITHUB_TOKEN, so the push still lands once main
+# requires pull requests: the app is on the ruleset's bypass list. Its token is scoped to
+# this repo and lives for the job only. See https://github.com/orgs/cubicecho/projects/6.
+#
+# The image and the site are started from here with `gh workflow run`. The release commit
+# says `[skip ci]`, and GitHub applies that to the tag pushed on it too, so docker.yml's
+# `tags: v*` trigger never fires on its own; pages.yml's push trigger doesn't watch
+# CHANGELOG.md. Both workflows take workflow_dispatch, so they stay as they are.
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+# GITHUB_TOKEN only starts docker.yml and pages.yml; everything semantic-release does
+# (the release commit, the tag, the GitHub release) uses the app's token.
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # A red CI run must not become a version; neither does CI on a PR branch.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v5
+        with:
+          # The commit CI tested, not whatever main has moved on to since.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # semantic-release reads the whole log and the tags to work out the next version.
+          fetch-depth: 0
+          # semantic-release pushes with the app token itself; checkout credentials would shadow it.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Semantic release
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          GIT_AUTHOR_NAME: cubicecho-release[bot]
+          GIT_AUTHOR_EMAIL: 351668011+cubicecho-release[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: cubicecho-release[bot]
+          GIT_COMMITTER_EMAIL: 351668011+cubicecho-release[bot]@users.noreply.github.com
+        run: npx semantic-release
+
+      # semantic-release leaves HEAD on the release commit and tags it there; no tag on HEAD
+      # means nothing was released.
+      - id: out
+        run: |
+          tag=$(git tag --points-at HEAD --list 'v*' | head -n1)
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "released: ${tag:-nothing}"
+
+      # docker.yml on the tag: its metadata step reads the version from the ref, so this
+      # pushes :x.y.z, :x.y and :latest exactly as a hand-pushed tag would. The site builds
+      # from main, which now has the new CHANGELOG.md.
+      - name: Image and site for the release
+        if: steps.out.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.out.outputs.version }}
+        run: |
+          gh workflow run docker.yml --ref "v$VERSION"
+          gh workflow run pages.yml --ref main

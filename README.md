@@ -59,3 +59,22 @@ Early and experimental: expect the YAML format and the protocol to change.
 - **Code 49/61, FCB1010:** researched or planned (`research/devices/`).
 
 Stock firmware dumps and vendor files are kept locally and are **not** committed (see `.gitignore`).
+
+## Releases
+
+Versions come from the commit log ([semantic-release](https://semantic-release.gitbook.io/), `.releaserc.json`). After CI passes on `main`, the release workflow reads the commits since the last tag, written as [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Commit | Release |
+| --- | --- |
+| `fix(builder): ...` | patch (0.1.0 → 0.1.1) |
+| `feat(core): ...` | minor (0.1.0 → 0.2.0) |
+| `feat!: ...`, or a `BREAKING CHANGE:` footer | major |
+| `docs:`, `chore:`, `ci:`, `refactor:`, `test:` | no release |
+
+A release:
+- tags `vX.Y.Z` and opens a GitHub release;
+- prepends the notes to [CHANGELOG.md](CHANGELOG.md), which the site shows at [/changelog/](https://cubicecho.github.io/gemifi/changelog/);
+- sets the version in the dashboard and updater, where the builder header shows it with a link to the changelog;
+- publishes the Docker image as `:X.Y.Z`, `:X.Y` and `:latest`.
+
+`npm ci && npm run release:dry` shows what the next release would be.

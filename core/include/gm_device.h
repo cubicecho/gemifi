@@ -265,6 +265,7 @@ extern const gm_comp_t gm_comp_analogs[];
 extern const gm_comp_t gm_comp_encoders[];
 extern const gm_comp_t gm_comp_leds[];
 extern const gm_comp_t gm_comp_matrix[];     /* one entry: the key matrix */
+extern const gm_comp_t gm_comp_displays[];   /* displays: */
 
 /* Presets (research/core/presets-design.md §2, §10.1). Always generated:
  * GM_N_PRESETS (>= 1) slots and GM_PRESETS_REVISION in gm_device_config.h.

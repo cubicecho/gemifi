@@ -347,12 +347,14 @@ FB_RELEASE everything:                     F0 7D 67 6D 01 26 00 01 00 00 28 F7
 - Writes from (`row`, `col`), clipped at the end of the row; it doesn't wrap.
 - A position outside the display drops the message.
 - The rest of the row is unchanged, so clear old text with spaces.
-- No current device has a display.
+- Each character takes a place (a `.` too). The device's own text (MIDI values, preset names) stays underneath, and FB_RELEASE 0 or 3 shows it again.
+- Displays so far: the Code 61's 6-character 14-segment display (GET_COMPONENT kind 6: 6 cols, 1 row, type characters).
 
 ### 5.6 Release (FB_RELEASE)
 - 1 (LEDs): every LED state the script set goes back to local, rings included.
 - 2 (values): every pick-up target is dropped; encoder values stay.
-- 0: both. **Send it on exit.**
+- 3 (text): every display shows the device's own text again.
+- 0: all of them. **Send it on exit.**
 
 ### 5.7 Change-only output
 Keep a cache of what you last sent for each LED, value and ring, and send only differences. The device can take notifications as fast as USB carries them, but DAW state (meters especially) changes far more often than a controller needs. Don't map meters to LEDs.

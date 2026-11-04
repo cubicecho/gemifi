@@ -14,7 +14,7 @@ import { useRequest } from './builder/use-request.ts';
 import { useDemoClient } from './dev/use-demo-client.ts';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
 import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
-import { FeedbackCard } from './device/feedback-card.tsx';
+import { FeedbackView } from './device/feedback-view.tsx';
 import { FlashCard, type ResumeOffer } from './device/flash-card.tsx';
 import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
@@ -285,7 +285,7 @@ export function App() {
     feedbackEmpty !== null || client === null ? (
       emptyCard(feedbackEmpty ?? NO_DEVICE)
     ) : (
-      <FeedbackCard client={client} />
+      <FeedbackView client={client} />
     );
   const saveBar =
     view === AppView.Presets && settingsEmpty === null && info !== null ? (

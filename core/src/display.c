@@ -113,7 +113,9 @@ uint16_t gm_seg14_glyph(char c)
 
 extern const gm_display_t gm_displays[GM_N_DISPLAYS];   /* generated config */
 
-static uint16_t want[GM_N_DISPLAYS][MAXC];  /* segments to show            */
+static uint16_t want[GM_N_DISPLAYS][MAXC];  /* segments the device shows   */
+static uint16_t host[GM_N_DISPLAYS][MAXC];  /* segments a host set (FB_TEXT) */
+static uint8_t host_on[GM_N_DISPLAYS];      /* the host's text is showing   */
 static uint16_t shown[GM_N_DISPLAYS][MAXC]; /* segments written to the pins */
 static uint8_t dirty;
 static uint8_t inited;
@@ -288,7 +290,7 @@ void gm_display_poll(uint32_t now)
         const gm_display_t *dp = &gm_displays[d];
         uint32_t n = dp->n_chars > MAXC ? MAXC : dp->n_chars;
         for (uint32_t i = 0; i < n; i++) {
-            uint16_t w = want[d][i];
+            uint16_t w = host_on[d] ? host[d][i] : want[d][i];
             uint16_t diff = (shown[d][i] & 0x8000u) ? 0x7FFFu : (uint16_t)(w ^ shown[d][i]);
             if (!diff)
                 continue;
@@ -304,8 +306,48 @@ void gm_display_poll(uint32_t now)
     }
 }
 
+/* FB_TEXT (sysex.md 4.6.2): from (row, col), every character taking a
+ * place, clipped at the end of the row; nothing else changes. The host's
+ * text covers the device's own (MIDI values, messages), which carries on
+ * underneath and shows again after gm_display_host_release. These displays
+ * have one row. */
+void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n)
+{
+    if (d >= GM_N_DISPLAYS || row != 0)
+        return;
+    uint32_t w = gm_displays[d].n_chars > MAXC ? MAXC : gm_displays[d].n_chars;
+    if (col >= w)
+        return;
+    if (!host_on[d]) {
+        host_on[d] = 1;
+        for (uint32_t i = 0; i < MAXC; i++)
+            host[d][i] = 0;
+    }
+    for (uint32_t i = 0; i < n && col + i < w; i++) {
+        uint8_t c = text[i];
+        host[d][col + i] = c >= 0x20 && c <= 0x7E ? gm_seg14_glyph((char)c) : 0;
+    }
+    dirty = 1;
+}
+
+void gm_display_host_release(void)
+{
+    for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+        host_on[d] = 0;
+    dirty = 1;
+}
+
 #else
 
+void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n)
+{
+    (void)d;
+    (void)row;
+    (void)col;
+    (void)text;
+    (void)n;
+}
+void gm_display_host_release(void) {}
 void gm_display_text(uint32_t d, const char *s) { (void)d; (void)s; }
 void gm_display_midi(uint8_t status, uint8_t a, uint8_t b) { (void)status; (void)a; (void)b; }
 void gm_display_message(const char *s) { (void)s; }

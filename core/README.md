@@ -15,7 +15,7 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `include/gsx.h`, `src/gsx.c` | SysEx frame codec (`protocol/sysex.md` §1–3) |
 | `include/params.h`, `src/params.c` | param table, GET/SET validation, schema blob (§4.3, §4.4) |
 | `include/config_store.h` | stored-profile API; implemented per platform |
-| `include/app_proto.h`, `src/app_proto.c` | app-side request handling: HELLO, REBOOT, identity, config, FW_* (via `hal_fw_ops`), LOG/EVENT/PARAM_CHANGED |
+| `include/app_proto.h`, `src/app_proto.c` | app-side request handling: HELLO, REBOOT, identity, config, FW_* (via `hal_fw_ops`), LOG/EVENT/PARAM_CHANGED. Where the bootloader takes uploads (nuvoton-nuc1xx, stm32f1: `-DHAL_APP_FW_UPLOAD=0` in their `mk/app.mk`), FW_* and its buffers are left out and every FW_* is answered BAD_STATE; the receive buffer then holds the longest other request (SET_PARAMS with 16 values, 86 bytes of payload) |
 | `include/gm_device.h` | the hardware model: virtual pins, hubs, buttons, LEDs, analog inputs, encoders, key matrix, pads |
 | `include/gm_hal.h` | what a platform provides |
 | `include/gm_controller.h`, `src/controller.c` | the runtime: scanning, actions, velocity, LEDs, MIDI out, host feedback (F1) |
@@ -238,6 +238,12 @@ pad_settings:                  # all optional; these are the param defaults
 - **EVENTs** (`debug.events`): a pad's own hits only play notes. A pad's layer twin ("Button layers") sends EVENT type 7 instead: its pad component index (the pads, then the twins), and on a hit the peak reading × 4 (1..16380), 0 on release. That is also the raw number to set `threshold` and `full` from: hit the pads with their layer on.
 - **Presets** may set `pads: { <id>: { note: N } }` and `pad_settings: { channel, curve, aftertouch }`; the sensing (`threshold`, `release`, `full`, `window`, `retrigger`) is the pads' calibration and the same in every preset.
 - **Generated code** (`gm_device.h` `gm_pad_t`, only with `pads:`): `GM_N_PADS` and the `GM_PAD_*_DEFAULT`s in `gm_device_config.h`, `gm_pads[GM_N_PADS]` (pin, name, LED) and `gm_pad_note_defaults[]` in `gm_device_config.c`; with pad twins also `GM_PAD_TWINS` and `gm_pad_twins[]` (`gm_pad_twin_t`: layer, base pad, LED). A device without pads has no pad params, no "Pads" group and no pad code. RAM: about 16 bytes and one param value per pad, plus 8 values.
+
+## Software scan
+
+Without `hardware_scan:`, the key matrix is scanned from the scan tick (`scan_interval`): each row in turn is driven, the columns are read after `settle`, and the row is released. Rows on MCU pins are driven by one store each (`hal_pin_out_reg`), and columns on MCU pins are read as runs of adjacent bits of their port (`hal_pin_in_reg`; the Keystation's PB0–PB5, PB8, PB12 are 3 runs from one load), not pin by pin.
+
+When every row is such a pin, every column is on one input register, nothing is on a shift-register hub and a key's contacts are on columns (the Keystation), `gm_init` picks a loop of its own (`matrix_scan_fast` in `controller.c`). The pins see the same thing: row on, `settle`, read, row off. A row that reads as it did on the last tick (nearly always) is then done; only a row that changed has its columns sorted out of the port bits and its keys looked at. On the NUC120 that is about 38 cycles per row besides the settle, down from about 200, so the Keystation's 8 rows take about 21 us of each 125 us tick instead of about 48 (the `scan load` the firmware logs 2.5 s after boot). A row is released sooner after its read than before, and the next one driven sooner, so a column has about 1 us less to fall back between rows: if a board shows ghost notes on the next row, raise `settle`.
 
 ## Hardware scan
 
@@ -780,6 +786,9 @@ encoders:
 #define GM_HAS_MATRIX 1
 #define GM_MATRIX_KEYS 32
 #define GM_MATRIX_VELOCITY 1
+#define GM_MATRIX_ROWS 8                  /* key-matrix rows scanned (at most 32): sizes the scan's per-row tables */
+#define GM_MATRIX_COL_RUNS 3              /* runs of adjacent column bits on one port (PB0-5, PB8, PB12) */
+#define GM_MATRIX_DECODER 0               /* 1: a row is a decoder output (the one-store row selects are kept) */
 #define GM_BOARD_ID 0x0001
 #define GM_DEVICE_NAME "Keystation Mini 32"   /* friendly_name */
 #define GM_NODE_NAME "keystation-mini32"       /* name: sent at the end of HELLO (sysex.md 4.1.1) */

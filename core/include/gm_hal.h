@@ -106,6 +106,13 @@ typedef struct {
     void (*abort)(void);
 } hal_fw_ops_t;
 const hal_fw_ops_t *hal_fw_ops(void);
+/* 0 on platforms whose bootloader takes uploads (nuvoton-nuc1xx, stm32f1:
+ * their mk/app.mk sets it): app_proto.c then leaves out the FW_* handling and
+ * its buffers, doesn't call hal_fw_ops(), and answers every FW_* with
+ * BAD_STATE, as an app whose hal_fw_ops() returns NULL does. */
+#ifndef HAL_APP_FW_UPLOAD
+#define HAL_APP_FW_UPLOAD 1
+#endif
 
 /* Extra HELLO caps bits the platform knows about (e.g. GSX_CAP_GEMIFI_BOOT on
  * boards where the bootloader may be the vendor's or gemifi's). A weak

@@ -33,10 +33,26 @@ uint8_t app_log_limit = LOG_DEBUG + 1;
 
 static uint32_t fw_version;
 static uint8_t has_config;
+/* The longest request or notification: SET_PARAMS with PARAMS_RUN values
+ * (id, index, n, then 5 bytes each: 86 bytes of payload). Notifications
+ * need at least 72 (sysex.md 4.6.2: FB_LEDS with 64 LEDs, FB_TEXT with 64
+ * characters), PRESET_NAME 3 + 16. Anything longer is answered BAD_LEN
+ * (gsx_parse), a notification dropped. */
+#define RX_PAYLOAD      (6u + PARAMS_RUN * 5u)
+_Static_assert(RX_PAYLOAD >= 72u, "notifications of 72 bytes (sysex.md 4.6.2)");
+_Static_assert(RX_PAYLOAD >= 3u + PRESET_NAME_MAX, "PRESET_NAME with the longest name");
+_Static_assert(RX_PAYLOAD >= 17u, "FW_BEGIN");
+#if HAL_APP_FW_UPLOAD
 static const hal_fw_ops_t *fw;
 static uint8_t fw_active;
-static uint8_t data_buf[256];        /* unpacked FW_DATA chunk */
-static uint8_t rx_buf[GSX_OVERHEAD + 4 + 300];   /* FW_DATA: 256 B packed */
+/* FW_DATA: offset + up to 256 B packed (293 bytes), unpacked in place. */
+static uint8_t rx_buf[GSX_OVERHEAD + 4 + 300];
+_Static_assert(4u + 300u >= RX_PAYLOAD, "rx_buf");
+#else
+/* The bootloader takes uploads (gm_hal.h HAL_APP_FW_UPLOAD): no FW_DATA. */
+#define fw ((const hal_fw_ops_t *)0)
+static uint8_t rx_buf[GSX_OVERHEAD + RX_PAYLOAD];
+#endif
 static gsx_rx_t rx;
 /* The largest reply: GET_PARAMS (6 + 16 values), or GET_COMPONENT (kind,
  * index, count, three lstrings, up to 5 bytes of extras: an encoder's ring,
@@ -76,7 +92,9 @@ void app_proto_init(uint32_t version, int config)
 {
     fw_version = version;
     has_config = (uint8_t)config;
+#if HAL_APP_FW_UPLOAD
     fw = hal_fw_ops();
+#endif
     hal_uid(uid);
     rx.buf = rx_buf;
     rx.cap = sizeof(rx_buf);
@@ -425,6 +443,7 @@ static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
 
 /* ---- firmware upload in the app (A/B platforms) ----------------------- */
 
+#if HAL_APP_FW_UPLOAD
 static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
 {
     if (!fw)
@@ -455,10 +474,13 @@ static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
         if (f->len < 5)
             return GSX_BAD_LEN;
         uint32_t off = gsx_get_u(f->payload, 4);
-        int n = gsx_unpack(f->payload + 4, f->len - 4u, data_buf);
+        /* In place: output byte 7g+i goes where input byte 8g+1+i was,
+         * after it has been read. f->payload points into rx_buf. */
+        uint8_t *data = (uint8_t *)(uintptr_t)(f->payload + 4);
+        int n = gsx_unpack(data, f->len - 4u, data);
         if (n <= 0 || n > (int)fw->max_chunk || (n & 3))
             return GSX_BAD_LEN;
-        int st = fw->data(off, data_buf, (uint32_t)n);
+        int st = fw->data(off, data, (uint32_t)n);
         if (st == GSX_OK)
             gsx_put_u(t, off, 4);
         return st;
@@ -478,6 +500,7 @@ static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
         return GSX_OK;
     }
 }
+#endif
 
 /* ---- DAW-script messages (sysex.md 4.6) ---------------------------------- */
 
@@ -683,7 +706,11 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_FW_DATA:
     case GSX_CMD_FW_END:
     case GSX_CMD_FW_ABORT:
+#if HAL_APP_FW_UPLOAD
         return cmd_fw(f, t);
+#else
+        return GSX_BAD_STATE;               /* reboot to the bootloader first */
+#endif
     }
     if (!has_config)
         return GSX_BAD_CMD;
@@ -750,6 +777,12 @@ static void handle_frame(void)
         return;                             /* never answered, not even an error */
     }
 #endif
+#if !HAL_APP_FW_UPLOAD
+    /* An FW_DATA chunk doesn't fit rx_buf here: BAD_STATE all the same, as
+     * for any FW_* (reboot to the bootloader first). */
+    if (pst == GSX_BAD_LEN && rx.state == 2 && f.cmd >= GSX_CMD_FW_BEGIN && f.cmd <= GSX_CMD_FW_ABORT)
+        pst = GSX_BAD_STATE;
+#endif
     if (pst != GSX_OK) {
         uint8_t err[GSX_OVERHEAD + 4];
         gsx_tx_t t;
@@ -791,8 +824,10 @@ void app_proto_poll(void)
     }
 #endif
     if (reboot_mode && (int32_t)(hal_millis() - reboot_at) >= 0) {
+#if HAL_APP_FW_UPLOAD
         if (fw_active)
             fw->abort();
+#endif
         hal_reboot(reboot_mode == 2);
     }
 }

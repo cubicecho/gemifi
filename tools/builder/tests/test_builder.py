@@ -884,6 +884,34 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(dev.matrix.settle_us, 3)
         self.assertError((m % ("switch", "", 6)) + "  settle: 1ms\n", r"1ms is out of range \(0us\.\.255us\)")
 
+    def test_matrix_scan_sizes(self):
+        """GM_MATRIX_ROWS / _COL_RUNS / _DECODER size controller.c's scan tables."""
+        def defs(text):
+            dev, diags = gd.load_device("x.yaml", text)
+            self.assertFalse(gd.errors(diags), diags)
+            h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+            return {k: int(re.search(rf"#define {k} (\d+)", h).group(1))
+                    for k in ("GM_MATRIX_ROWS", "GM_MATRIX_COL_RUNS", "GM_MATRIX_DECODER")}
+        dev, _ = gd.load_device(KEYSTATION)
+        h = gd.generate(dev, "x.yaml")["gm_device_config.h"]
+        # PB0-PB5, PB8, PB12: 3 runs
+        for s in ("#define GM_MATRIX_ROWS 8 ", "#define GM_MATRIX_COL_RUNS 3 ", "#define GM_MATRIX_DECODER 0 "):
+            self.assertIn(s, h)
+        m = MINIMAL_NUC + "key_matrix:\n  type: switch\n  rows: [PA8, PA9]\n  columns: [%s]\n  keys: %d\n"
+        self.assertEqual(defs(m % ("PB0, PB1, PB2, PB3", 8)),
+                         {"GM_MATRIX_ROWS": 2, "GM_MATRIX_COL_RUNS": 1, "GM_MATRIX_DECODER": 0})
+        # out of order, another port, a gap: each starts a run
+        self.assertEqual(defs(m % ("PB1, PB0, PC2, PC3, PC5", 10))["GM_MATRIX_COL_RUNS"], 4)
+        # columns past the 16th are read pin by pin: not counted
+        cols = ", ".join(f"P{p}{b}" for p in "BC" for b in (0, 2, 4, 6, 8, 10, 12, 14)) + ", PD0"
+        self.assertEqual(defs(m % (cols, 34))["GM_MATRIX_COL_RUNS"], 16)
+        dec = MINIMAL_NUC + self.DECODER + (
+            "key_matrix:\n  type: velocity\n  rows: { decoder: dec, first: 0, count: 4 }\n"
+            "  columns: " + self.COLS % ("", "") + "\n  contacts: rows\n  keys: 4\n")
+        self.assertEqual(defs(dec), {"GM_MATRIX_ROWS": 4, "GM_MATRIX_COL_RUNS": 1, "GM_MATRIX_DECODER": 1})
+        self.assertNotIn("GM_MATRIX_ROWS", gd.generate(gd.load_device("x.yaml", MINIMAL_NUC)[0],
+                                                        "x.yaml")["gm_device_config.h"])
+
     def test_image_stem(self):
         """Images are named <node name>-<version>, or <node name> without project.version."""
         dev, _ = gd.load_device("x.yaml", MINIMAL_NUC + "project: { version: 1.2.3 }\n")

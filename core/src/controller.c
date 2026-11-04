@@ -113,6 +113,17 @@ static void event(uint8_t type, uint32_t index, uint32_t value)
 /* ---- key matrix (scan side) ------------------------------------------ */
 
 #if GM_HAS_MATRIX
+/* The scan tables' sizes, from the builder (core/README.md "Generated
+ * code"); a config generated before them gets the most. */
+#ifndef GM_MATRIX_ROWS
+#define GM_MATRIX_ROWS 32           /* rows scanned: n_rows, at most 32 */
+#endif
+#ifndef GM_MATRIX_COL_RUNS
+#define GM_MATRIX_COL_RUNS 16       /* col_run entries gm_init makes */
+#endif
+#ifndef GM_MATRIX_DECODER
+#define GM_MATRIX_DECODER 1         /* a row on a decoder: one-store selects */
+#endif
 enum { K_IDLE, K_TIMING, K_ON };
 
 typedef struct {
@@ -125,8 +136,14 @@ typedef struct {
 static volatile kev_t kq[KQ];
 static volatile uint8_t kq_head, kq_tail;
 static uint8_t kstate[NK];
-static uint32_t kt0[NK];
-static uint32_t mprev[32];
+/* The tick a key's first contact closed, low 16 bits: kt0_age() keeps a
+ * timing key's age at most KT0_MAX, so ticks - kt0 never wraps. */
+static uint16_t kt0[NK];
+#define KT0_MAX 0x8000u
+static uint8_t kt0_next;
+_Static_assert(NK <= 256, "kt0_next");
+#define FAST_ROWS GM_ARR(GM_MATRIX_ROWS)   /* rows scanned (at most 32) */
+static uint32_t mprev[FAST_ROWS];
 static uint8_t m_hubs;              /* rows or cols on a shift-register hub */
 /* Fast paths (the scan runs every scan_us from an interrupt):
  * - columns all on MCU pins with an input register: a row is read as a few
@@ -139,20 +156,36 @@ typedef struct {
     uint32_t mask;                  /* run length, as low bits     */
     uint8_t src, dst;               /* port bit -> column bit      */
 } col_run_t;
-static col_run_t col_run[FAST_COLS];
+static col_run_t col_run[GM_ARR(GM_MATRIX_COL_RUNS)];
 static uint8_t n_runs;
 static uint32_t col_inv;            /* columns with GM_PIN_INVERT */
 static uint8_t cols_fast;
-#define FAST_ROWS 32u
 static volatile uint32_t *row_reg[FAST_ROWS];
 static uint32_t row_on;             /* level that drives row r: bit r */
 static uint8_t rows_fast;
+#if GM_MATRIX_DECODER
 static uint8_t rows_dec;            /* every row is a decoder output */
 /* Rows selected by one store each (vpin_select_word): decoder rows on a port
  * with a set/reset register. */
 static volatile uint32_t *row_sel_reg[FAST_ROWS];
 static uint32_t row_sel_word[FAST_ROWS];
 static uint8_t rows_sel;
+#else
+#define rows_dec 0
+#define rows_sel 0
+/* The common software scan gets a loop of its own (matrix_scan_fast): rows
+ * on MCU pins with an output register, every column on one input register,
+ * no shift-register hubs, contacts on columns (the Keystation). gm_init
+ * picks it. */
+#define SCAN_FAST 1
+static uint8_t scan_fast;
+static const volatile uint32_t *fast_in;   /* the columns' input register */
+static uint32_t fast_mask;          /* ... their bits */
+static uint32_t mraw[FAST_ROWS];    /* each row's last reading & fast_mask */
+#endif
+#ifndef SCAN_FAST
+#define SCAN_FAST 0                 /* a decoder row: matrix_scan only */
+#endif
 static uint8_t knote[NK], kchan[NK];
 #endif
 
@@ -234,13 +267,13 @@ static void key_update(uint32_t k, uint32_t c)
             kq_push(k, 1, 0);
         } else if (c) {
             kstate[k] = K_TIMING;
-            kt0[k] = ticks;
+            kt0[k] = (uint16_t)ticks;
         }
         break;
     case K_TIMING:
         if (c == 3u) {
             kstate[k] = K_ON;
-            kq_push(k, 1, ticks - kt0[k]);
+            kq_push(k, 1, (uint16_t)(ticks - kt0[k]));
         } else if (!c) {
             kstate[k] = K_IDLE;
         }
@@ -252,6 +285,17 @@ static void key_update(uint32_t k, uint32_t c)
         }
         break;
     }
+}
+
+/* One key per scan tick: a key still timing after KT0_MAX ticks stays at
+ * KT0_MAX (seconds: velocity 1 long before). Each key is seen every NK
+ * ticks, so its age stays far below 0x10000. */
+static void kt0_age(void)
+{
+    uint32_t k = kt0_next;
+    kt0_next = (uint8_t)(k + 1u < NK ? k + 1u : 0u);
+    if (kstate[k] == K_TIMING && (uint16_t)(ticks - kt0[k]) >= KT0_MAX)
+        kt0[k] = (uint16_t)(ticks - KT0_MAX);
 }
 
 /* A pin on a 74HC595/165 hub: the matrix scan must flush/refresh those
@@ -271,7 +315,7 @@ static uint32_t key_at(const gm_matrix_t *m, uint32_t pos, uint32_t dflt)
     return m->key_map ? m->key_map[pos] : dflt;
 }
 
-#if GM_HW_SCAN
+#if GM_HW_SCAN || SCAN_FAST
 /* Columns of one row from a reading of the (single) column register. */
 static uint32_t cols_of(uint32_t v)
 {
@@ -334,16 +378,66 @@ static void matrix_row(const gm_matrix_t *m, uint32_t r, uint32_t s, uint32_t ro
     }
 }
 
+#if SCAN_FAST
+/* The pins see what matrix_scan does to them: row on, settle, read the
+ * columns, row off. A row that reads as last time (nearly always) is then
+ * done: its columns are only sorted out of the port bits, and handed to
+ * matrix_row, when something changed. */
+static void matrix_scan_fast(const gm_matrix_t *m)
+{
+    const volatile uint32_t *in = fast_in;
+    uint32_t mask = fast_mask, on = row_on, settle = m->settle_us, rows = m->n_rows;
+    for (uint32_t r = 0; r < rows; r++, on >>= 1) {
+        volatile uint32_t *reg = row_reg[r];
+        *reg = on & 1u;
+        if (settle)
+            hal_delay_us(settle);
+        uint32_t raw = *in & mask;
+        *reg = (on & 1u) ^ 1u;
+        if (raw != mraw[r]) {
+            mraw[r] = raw;
+            matrix_row(m, r, cols_of(raw), rows, 0, 0);
+        }
+    }
+}
+
+/* gm_init, once the rows and columns are set up. (Not inlined: smaller
+ * that way, as gm_init is large.) */
+__attribute__((noinline)) static void scan_fast_init(const gm_matrix_t *m)
+{
+    scan_fast = rows_fast && cols_fast && !m_hubs && n_runs &&
+                !(m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS);
+    fast_in = col_run[0].reg;
+    fast_mask = 0;
+    for (uint32_t i = 0; i < n_runs; i++) {
+        if (col_run[i].reg != fast_in)
+            scan_fast = 0;
+        fast_mask |= col_run[i].mask << col_run[i].src;
+    }
+    for (uint32_t r = 0; r < FAST_ROWS; r++)
+        mraw[r] = ~0u;              /* never a reading: the first scan sorts out every row */
+}
+#endif
+
 static void matrix_scan(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
-    uint32_t rows = m->n_rows > 32 ? 32 : m->n_rows;
+#if SCAN_FAST
+    if (scan_fast) {
+        matrix_scan_fast(m);
+        return;
+    }
+#endif
+    uint32_t rows = m->n_rows > FAST_ROWS ? FAST_ROWS : m->n_rows;
     int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
     uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
     for (uint32_t r = 0; r < rows; r++) {
+#if GM_MATRIX_DECODER
         if (rows_sel)
             *row_sel_reg[r] = row_sel_word[r];
-        else if (rows_fast)
+        else
+#endif
+        if (rows_fast)
             *row_reg[r] = (row_on >> r) & 1u;
         else
             vpin_write(m->rows[r], 1);
@@ -482,12 +576,14 @@ const gm_scan_plan_t *gm_scan_plan(void)
                     "columns on one input register; scanning in software");
             return 0;
         }
+#if GM_MATRIX_DECODER
         for (uint32_t r = 0; r < m->n_rows; r++) {
             if (plan.sel_reg && row_sel_reg[r] != plan.sel_reg)
                 goto mixed;
             plan.sel_reg = row_sel_reg[r];
             plan.sel_word[r] = row_sel_word[r];
         }
+#endif
         for (uint32_t i = 0; i < n_runs; i++) {
             if (plan.in_reg && col_run[i].reg != plan.in_reg)
                 goto mixed;
@@ -598,8 +694,11 @@ void gm_scan_tick(void)
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
-    if (gm_device.matrix && !hw_on)
-        matrix_scan();
+    if (gm_device.matrix) {
+        if (!hw_on)
+            matrix_scan();
+        kt0_age();                  /* the frames' keys too */
+    }
 #endif
     part_done(0, &t);
     /* Switch matrices (panel buttons, encoders) every other tick: plenty for
@@ -735,7 +834,18 @@ static uint64_t btn_live = ~0ull;   /* layers_update() */
 #else
 #define BTN_LIVE_ALL (~0ull)
 #endif
-static uint64_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
+/* A reading of every button, one bit each, in the narrowest type that holds
+ * GM_N_BUTTONS (64-bit shifts are library calls on a Cortex-M0). */
+#if GM_N_BUTTONS <= 8
+typedef uint8_t btn_bits_t;
+#elif GM_N_BUTTONS <= 16
+typedef uint16_t btn_bits_t;
+#elif GM_N_BUTTONS <= 32
+typedef uint32_t btn_bits_t;
+#else
+typedef uint64_t btn_bits_t;
+#endif
+static btn_bits_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
@@ -743,12 +853,12 @@ static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
-static uint64_t read_buttons(void)
+static btn_bits_t read_buttons(void)
 {
-    uint64_t s = 0;
+    btn_bits_t s = 0;
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
         if (vpin_read(gm_device.buttons[i].pin))
-            s |= 1ull << i;
+            s |= (btn_bits_t)1 << i;
     return s;
 }
 
@@ -1171,13 +1281,14 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 static void buttons_sample(void)
 {
-    uint64_t s = read_buttons();
-    uint64_t recent = s;            /* pressed in any of the last BTN_STABLE samples */
+    btn_bits_t now = read_buttons();
+    btn_bits_t recent = now;        /* pressed in any of the last BTN_STABLE samples */
     for (uint32_t k = 0; k < BTN_STABLE - 1u; k++)
         recent |= btn_hist[k];
     for (uint32_t k = BTN_STABLE - 1u; k > 1u; k--)
         btn_hist[k - 1u] = btn_hist[k - 2u];
-    btn_hist[0] = s;
+    btn_hist[0] = now;
+    uint64_t s = now;
     uint64_t st = s | (btn_stable & recent);
     if (st != btn_stable) {
         uint64_t diff = st ^ btn_stable;
@@ -2385,14 +2496,18 @@ void gm_init(uint32_t fw_version, int safe_mode)
     if (gm_device.matrix) {
         const gm_matrix_t *m = gm_device.matrix;
         rows_fast = m->n_rows <= FAST_ROWS;
+#if GM_MATRIX_DECODER
         rows_dec = m->n_rows > 0;
         rows_sel = m->n_rows > 0 && m->n_rows <= FAST_ROWS;
+#endif
         for (uint32_t r = 0; r < m->n_rows; r++) {
             vpin_output(m->rows[r]);
+#if GM_MATRIX_DECODER
             if (!vpin_is_decoder(m->rows[r]))
                 rows_dec = 0;
             if (r >= FAST_ROWS || !vpin_select_word(m->rows[r], &row_sel_reg[r], &row_sel_word[r]))
                 rows_sel = 0;
+#endif
             if (on_sr_hub(m->rows[r]))
                 m_hubs = 1;
             if (r < FAST_ROWS) {
@@ -2422,12 +2537,17 @@ void gm_init(uint32_t fw_version, int safe_mode)
             uint32_t len = k ? (uint32_t)__builtin_popcount(k->mask) : 0;
             if (k && k->reg == reg && k->src + len == bit && k->dst + len == c && len < 31u) {
                 k->mask = (k->mask << 1) | 1u;      /* extends the previous run */
-            } else {
+            } else if (n_runs < GM_ARR(GM_MATRIX_COL_RUNS)) {
                 col_run[n_runs++] = (col_run_t){ reg, 1u, bit, (uint8_t)c };
+            } else {
+                cols_fast = 0;          /* more runs than the builder counted */
             }
             if (m->cols[c].flags & GM_PIN_INVERT)
                 col_inv |= 1u << c;
         }
+#if SCAN_FAST
+        scan_fast_init(m);
+#endif
         for (uint32_t k = 0; k < NK; k++)
             knote[k] = NOTE_NONE;
     }

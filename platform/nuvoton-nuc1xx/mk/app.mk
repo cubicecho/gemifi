@@ -14,6 +14,9 @@ FW_V := $(subst ., ,$(FW_VERSION))
 DEFS += -DFW_VERSION_MAJOR=$(word 1,$(FW_V)) \
         -DFW_VERSION_MINOR=$(word 2,$(FW_V)) \
         -DFW_VERSION_PATCH=$(word 3,$(FW_V))
+# The bootloader takes uploads (hal_fw_ops() is NULL): leave the app's FW_*
+# handling out (core/include/gm_hal.h).
+DEFS += -DHAL_APP_FW_UPLOAD=0
 
 # Board id passed to mkimage; must match BOARD_ID in the board header.
 MKIMAGE_BOARD ?= 0x0001

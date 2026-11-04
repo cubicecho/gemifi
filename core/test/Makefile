@@ -121,6 +121,7 @@ LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
 test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
+	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
 	$(BUILD)/test_matrix
@@ -140,7 +141,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(DEV) $(SRCS) -o $@
+	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(DEV) $(SRCS) -o $@
 
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

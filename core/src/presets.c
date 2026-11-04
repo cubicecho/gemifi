@@ -371,6 +371,12 @@ void presets_poll(uint32_t now)
         write_active();
 }
 
+void presets_flush(void)
+{
+    if (active_pending)
+        write_active();
+}
+
 int presets_save(uint32_t slot)
 {
     if (slot < 1u || slot > GM_N_PRESETS)

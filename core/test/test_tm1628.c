@@ -3,12 +3,23 @@
  * device core/test/tm1628-test.yaml: two chips sharing CLK and DIO, each
  * with its own STB. The simulated HAL decodes the bit stream on the pins
  * (LSB first, DIO taken on the CLK rising edge, STB low = one command) into
- * each chip's display RAM, and checks the timing rules it can see. The
- * rgb_serial hub's messages are caught at hal_serial_write.
+ * each chip's display RAM, and checks the timing rules it can see against
+ * the time the delays ask for: a virtual clock in ns, moved by hal_delay_us
+ * and by each hal_cycles() call (10 ns; hal_ns_to_cycles(ns) = ns), so the
+ * waits on hal_cycles() take what they count. GM_TEST_NO_CYCLES=1 makes
+ * hal_ns_to_cycles 0 (no cycle counter): the bits are then timed with
+ * hal_delay_us, as they are without hal_pin_bsrr. The rgb_serial hub's
+ * messages are caught at hal_serial_write.
+ *
+ * Built with GM_TEST_STORE (vpin.c's TM_STORE calls gm_test_store); with
+ * GM_TEST_BSRR=1 in the environment, hal_pin_bsrr gives the TM1628 a
+ * set/reset register per port, so CLK, DIO and STB go through the store
+ * path, as on the STM32. Without it they go through hal_pin_write.
  *
  * SPDX-License-Identifier: MIT
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "gm_hal.h"
 #include "gm_controller.h"
@@ -39,6 +50,22 @@ static int in_tick;             /* inside gm_scan_tick */
 static int tick_writes;         /* TM pins written from the scan tick */
 static int dio_while_high;      /* DIO changed while CLK high inside a command */
 static int bits_odd;            /* commands that weren't whole bytes */
+
+/* Virtual time, ns: only the delays move it. */
+static uint64_t t_ns;
+static uint64_t t_clk_fall, t_clk_rise, t_dio, t_stb_rise[2];
+static uint64_t min_low = ~0ull, min_high = ~0ull, min_period = ~0ull, min_setup = ~0ull,
+                min_hold = ~0ull, min_clk_stb = ~0ull, min_stb_high = ~0ull, min_stb_clk = ~0ull;
+static int had_rise;            /* a CLK rising edge in this command */
+static uint64_t t_stb_fall;
+#define MIN(m, v) do { uint64_t v_ = (v); if (v_ < (m)) (m) = v_; } while (0)
+
+/* The store path: a set/reset register per port (A, B, C). */
+static int use_bsrr;
+static volatile uint32_t bsrr[3];
+static int stores;              /* TM pin changes by a store */
+static int slow_writes;         /* TM pin changes by hal_pin_write, after gm_init */
+static int init_done;
 
 /* One chip as the pins see it. */
 typedef struct {
@@ -111,13 +138,23 @@ static void chip_end(chip_t *c)
 }
 
 uint32_t hal_millis(void) { return now_ms; }
-void hal_delay_us(uint32_t us) { (void)us; }
+void hal_delay_us(uint32_t us) { t_ns += 1000ull * us; }
+static int no_cycles;
+uint32_t hal_cycles(void) { return (uint32_t)(t_ns += 10); }
+uint32_t hal_ns_to_cycles(uint32_t ns) { return no_cycles ? 0 : ns; }
 void hal_pin_mode(uint16_t pin, uint8_t m) { mode[pin] = m; }
 
-void hal_pin_write(uint16_t pin, int l)
+static int tm_pin(uint16_t pin)
+{
+    return pin == PIN_STB_A || pin == PIN_STB_B || pin == PIN_CLK || pin == PIN_DIO;
+}
+
+/* A pin level change, and its timing inside a command (one chip's STB low:
+ * the chips share CLK and DIO but never have STB low together). */
+static void sim_write(uint16_t pin, int l)
 {
     l = l != 0;
-    if (in_tick && (pin == PIN_STB_A || pin == PIN_STB_B || pin == PIN_CLK || pin == PIN_DIO))
+    if (in_tick && tm_pin(pin))
         tick_writes++;
     int was = level[pin];
     level[pin] = (uint8_t)l;
@@ -127,15 +164,71 @@ void hal_pin_write(uint16_t pin, int l)
             c->active = 1;
             c->nbits = 0;
             memset(c->buf, 0, sizeof c->buf);
+            if (t_stb_rise[k])
+                MIN(min_stb_high, t_ns - t_stb_rise[k]);
+            t_stb_fall = t_ns;
+            had_rise = 0;
         } else if (pin == c->stb && !was && l && c->active) {
             c->active = 0;
             chip_end(c);
+            if (had_rise)
+                MIN(min_clk_stb, t_ns - t_clk_rise);
+            t_stb_rise[k] = t_ns;
         } else if (pin == PIN_CLK && !was && l && c->active) {
             if (c->nbits < 8 * (int)sizeof c->buf && level[PIN_DIO])
                 c->buf[c->nbits / 8] |= (uint8_t)(1u << (c->nbits % 8));
             c->nbits++;
-        } else if (pin == PIN_DIO && was != l && c->active && level[PIN_CLK]) {
-            dio_while_high++;
+            MIN(min_low, t_ns - t_clk_fall);
+            MIN(min_setup, t_ns - t_dio);
+            if (had_rise)
+                MIN(min_period, t_ns - t_clk_rise);
+            t_clk_rise = t_ns;
+            had_rise = 1;
+        } else if (pin == PIN_CLK && was && !l && c->active) {
+            if (had_rise)
+                MIN(min_high, t_ns - t_clk_rise);
+            else
+                MIN(min_stb_clk, t_ns - t_stb_fall);
+            t_clk_fall = t_ns;
+        } else if (pin == PIN_DIO && was != l && c->active) {
+            if (level[PIN_CLK])
+                dio_while_high++;
+            if (had_rise)
+                MIN(min_hold, t_ns - t_clk_rise);
+            t_dio = t_ns;
+        }
+    }
+    if (pin == PIN_DIO && was != l)
+        t_dio = t_ns;
+}
+
+void hal_pin_write(uint16_t pin, int l)
+{
+    if (init_done && tm_pin(pin))
+        slow_writes++;
+    sim_write(pin, l);
+}
+
+volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
+{
+    *bit = pin & 15u;
+    return use_bsrr && pin < 48 ? &bsrr[pin >> 4] : 0;
+}
+
+/* vpin.c's TM_STORE: bits 0-15 set pins, 16-31 clear them. */
+void gm_test_store(volatile uint32_t *reg, uint32_t w)
+{
+    uint32_t port = (uint32_t)(reg - bsrr);
+    if (port >= 3)
+        return;
+    for (uint32_t b = 0; b < 16; b++) {
+        if ((w >> b) & 1u) {
+            sim_write((uint16_t)(port * 16 + b), 1);
+            stores++;
+        }
+        if ((w >> (b + 16)) & 1u) {
+            sim_write((uint16_t)(port * 16 + b), 0);
+            stores++;
         }
     }
 }
@@ -254,8 +347,13 @@ int main(void)
     }
     level[PIN_STB_A] = level[PIN_STB_B] = 1;
     level[PIN_BTN] = 1;                 /* released (inverted, pull-up) */
+    use_bsrr = getenv("GM_TEST_BSRR") != NULL;
+    no_cycles = getenv("GM_TEST_NO_CYCLES") != NULL;
+    printf("TM1628 pins: %s, bits timed by %s\n", use_bsrr ? "set/reset stores" : "hal_pin_write",
+           use_bsrr && !no_cycles ? "hal_cycles" : "hal_delay_us");
 
     gm_init(0x01000000u, 0);
+    init_done = 1;
     CHECK(mode[PIN_DIO] == HAL_OUT_OD && mode[PIN_CLK] == HAL_OUT && mode[PIN_STB_A] == HAL_OUT &&
           mode[PIN_STB_B] == HAL_OUT, "DIO open-drain, CLK and STBs push-pull");
     CHECK(level[PIN_STB_A] && level[PIN_STB_B] && level[PIN_CLK] && level[PIN_DIO], "bus idles high");
@@ -489,6 +587,32 @@ int main(void)
     CHECK(tick_writes == 0, "the scan tick never touches the TM1628 pins (%d)", tick_writes);
     CHECK(dio_while_high == 0, "DIO only changes while CLK is low (%d)", dio_while_high);
     CHECK(bits_odd == 0, "every command is whole bytes (%d)", bits_odd);
+    if (use_bsrr)
+        CHECK(stores > 1000 && slow_writes == 0, "every TM1628 pin change a store (%d stores, %d writes)",
+              stores, slow_writes);
+    else
+        CHECK(stores == 0 && slow_writes > 1000, "no store path without hal_pin_bsrr (%d, %d)", stores,
+              slow_writes);
+    /* The datasheet's limits, from the delays alone. */
+    printf("CLK low %llu, high %llu, period %llu ns; DIO setup %llu, hold %llu ns; "
+           "CLK-STB %llu, STB high %llu, STB-CLK %llu ns\n",
+           (unsigned long long)min_low, (unsigned long long)min_high, (unsigned long long)min_period,
+           (unsigned long long)min_setup, (unsigned long long)min_hold, (unsigned long long)min_clk_stb,
+           (unsigned long long)min_stb_high, (unsigned long long)min_stb_clk);
+    CHECK(min_low >= 400 && min_high >= 400, "PWCLK >= 400 ns (low %llu, high %llu)",
+          (unsigned long long)min_low, (unsigned long long)min_high);
+    CHECK(min_period >= 1000, "CLK <= 1 MHz (%llu ns a bit)", (unsigned long long)min_period);
+    if (no_cycles || !use_bsrr)
+        CHECK(min_period >= 2000, "the slow path: 1 us a phase (%llu ns a bit)",
+              (unsigned long long)min_period);
+    else
+        CHECK(min_period <= 1100, "about 1 us a bit (%llu ns)", (unsigned long long)min_period);
+    CHECK(min_setup >= 500, "DIO setup >= 500 ns, for an open-drain DIO to rise (%llu)",
+          (unsigned long long)min_setup);
+    CHECK(min_hold >= 100, "DIO hold >= 100 ns (%llu)", (unsigned long long)min_hold);
+    CHECK(min_clk_stb >= 1000, "last CLK rise to STB rise >= 1 us (%llu)", (unsigned long long)min_clk_stb);
+    CHECK(min_stb_high >= 1000, "PWSTB >= 1 us (%llu)", (unsigned long long)min_stb_high);
+    CHECK(min_stb_clk >= 1000, "STB fall to the first CLK fall >= 1 us (%llu)", (unsigned long long)min_stb_clk);
     CHECK(level[PIN_STB_A] && level[PIN_STB_B] && level[PIN_CLK], "bus idles high");
 
     printf("test_tm1628: %d checks, %d failed\n", checks, fails);

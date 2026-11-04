@@ -420,8 +420,8 @@ pad_settings:
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
 # display shows the name. The STM32F1's 1 KB settings page holds 3 slots at
-# most. Rename them with `gemifi.py preset rename` (the web page's preset
-# controls are coming); slots 2 and 3 start as copies of slot 1.
+# most. Rename them on the web page's Config card or with
+# `gemifi.py preset rename`; slots 2 and 3 start as copies of slot 1.
 presets:
   slots: 3
   list:

@@ -642,21 +642,35 @@ static int32_t log2_q8(uint32_t x)
     return msb * 256 + (int32_t)frac;
 }
 
+/* log2_q8 of the key times, for the fast / slow they were taken of (the
+ * settings change rarely; a note on shouldn't pay for two logs). 0 / 0 to
+ * start, which is never a key: slow > fast. */
+static int32_t vk_fast, vk_slow;
+static int16_t vk_lf, vk_ls;
+
 /* Stock-like curve: 127 at vel_fast, 1 at vel_slow, linear in log(time)
  * between (about -18 velocity per doubling with the defaults). */
-static uint32_t velocity(uint32_t dt_ticks)
+static uint32_t velocity(uint16_t dt_ticks)
 {
     if (gm_cfg.vel_curve == CURVE_FIXED || gm_device.matrix->kind != GM_MATRIX_KIND_VELOCITY)
         return (uint32_t)gm_cfg.vel_fixed;
     /* In microseconds: a hardware scan's ticks (frames) are a few tens of
      * us, finer than the 0.1 ms steps of vel_fast / vel_slow. The tick
-     * period is in 1/16 us; a product that won't fit 32 bits saturates. */
+     * period is in 1/16 us. (dt * q4) >> 4 as two products that fit 32
+     * bits, dt <= 0xFFFF (kq_push saturates it) and q4 < 2^20 (the scan
+     * period is at most 0xFFFF us; the platforms slow it to 5 ms at most,
+     * frames are tens of us): no divide. A time of 2^28 or more (the whole
+     * product over 32 bits) saturates there, as it always has. */
     uint32_t q4 = gm_scan_period_us * 16u;
 #if GM_HW_SCAN
     if (hw_on)
         q4 = hw_frame_q4;
 #endif
-    uint32_t t = q4 && dt_ticks > 0xFFFFFFFFu / q4 ? 0x0FFFFFFFu : (dt_ticks * q4) >> 4;
+    if (q4 > 0xFFFFFu)
+        q4 = 0xFFFFFu;
+    uint32_t t = dt_ticks * (q4 >> 4) + ((dt_ticks * (q4 & 15u)) >> 4);
+    if (t > 0x0FFFFFFFu)
+        t = 0x0FFFFFFFu;
     int32_t fast = gm_cfg.vel_fast * 100, slow = gm_cfg.vel_slow * 100;
     if (slow <= fast)
         slow = fast + 1;
@@ -666,7 +680,13 @@ static uint32_t velocity(uint32_t dt_ticks)
     } else if ((int32_t)t >= slow) {
         v = 1;
     } else {
-        int32_t lf = log2_q8((uint32_t)fast), ls = log2_q8((uint32_t)slow);
+        if (fast != vk_fast || slow != vk_slow) {
+            vk_fast = fast;
+            vk_slow = slow;
+            vk_lf = (int16_t)log2_q8((uint32_t)fast);
+            vk_ls = (int16_t)log2_q8((uint32_t)slow);
+        }
+        int32_t lf = vk_lf, ls = vk_ls;
         v = 127 - 126 * (log2_q8(t) - lf) / (ls - lf);
     }
     if (gm_cfg.vel_curve == CURVE_SOFT)

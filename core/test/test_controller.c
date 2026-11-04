@@ -827,6 +827,109 @@ static void test_modes(void)
     request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
 }
 
+/* ---- velocity sweep ----------------------------------------------------
+ * The key velocity as controller.c worked it out before the divide-free
+ * time and the cached logs (0.29.0), to check the firmware still gives
+ * exactly this over a sweep of key times, key-time settings, curves and
+ * scan periods. */
+static int32_t ref_log2_q8(uint32_t x)
+{
+    if (!x)
+        return 0;
+    int32_t msb = 31 - __builtin_clz(x);
+    uint32_t frac = msb >= 8 ? (x >> (msb - 8)) & 0xFFu : (x << (8 - msb)) & 0xFFu;
+    return msb * 256 + (int32_t)frac;
+}
+
+static int ref_velocity(uint32_t dt_ticks, uint32_t q4)
+{
+    if (gm_cfg.vel_curve == CURVE_FIXED)
+        return (int)gm_cfg.vel_fixed;
+    uint32_t t = q4 && dt_ticks > 0xFFFFFFFFu / q4 ? 0x0FFFFFFFu : (dt_ticks * q4) >> 4;
+    int32_t fast = gm_cfg.vel_fast * 100, slow = gm_cfg.vel_slow * 100;
+    if (slow <= fast)
+        slow = fast + 1;
+    int32_t v;
+    if ((int32_t)t <= fast) {
+        v = 127;
+    } else if ((int32_t)t >= slow) {
+        v = 1;
+    } else {
+        int32_t lf = ref_log2_q8((uint32_t)fast), ls = ref_log2_q8((uint32_t)slow);
+        v = 127 - 126 * (ref_log2_q8(t) - lf) / (ls - lf);
+    }
+    if (gm_cfg.vel_curve == CURVE_SOFT)
+        v = 127 - (127 - v) * (127 - v) / 127;
+    else if (gm_cfg.vel_curve == CURVE_HARD)
+        v = v * v / 127;
+    return v < 1 ? 1 : v > 127 ? 127 : v;
+}
+
+/* Key 0 with its contacts n ticks apart: the firmware sees n + 1 (the
+ * first contact is seen on the tick after it closes, the second on the
+ * one it closes on). The velocity sent, -1 = no Note On. */
+static int key_velocity(uint32_t n)
+{
+    int d1, d2;
+    out_n = 0;
+    contact[0][1] = 1;
+    ticks(1);
+    ticks(n);
+    contact[0][0] = 1;
+    ticks(1);
+    run_ms(1);
+    int v = find_msg(0x90, &d1, &d2) && d1 == 48 ? d2 : -1;
+    release_key(0);
+    return v;
+}
+
+static void test_velocity_sweep(void)
+{
+    static const int32_t times[][2] = {     /* velocity.fast, velocity.slow (0.1 ms) */
+        { 12, 1200 }, { 1, 20 }, { 500, 2000 }, { 30, 600 }, { 100, 101 },
+    };
+    int bad = 0, n_keys = 0;
+    for (uint32_t ti = 0; ti < sizeof times / sizeof times[0]; ti++) {
+        set_param(P_VEL_FAST, 0, times[ti][0]);
+        set_param(P_VEL_SLOW, 0, times[ti][1]);
+        for (int32_t curve = CURVE_NORMAL; curve <= CURVE_HARD; curve++) {
+            set_param(P_VEL_CURVE, 0, curve);
+            for (uint32_t n = 0; n < 2600; n += n < 300 ? 1 : 7) {
+                int got = key_velocity(n), want = ref_velocity(n + 1, gm_scan_period_us * 16u);
+                n_keys++;
+                if (got != want && bad++ < 5)
+                    printf("  fast %d slow %d curve %d, %u ticks: velocity %d, want %d\n",
+                           (int)times[ti][0], (int)times[ti][1], (int)curve, (unsigned)n + 1, got, want);
+            }
+        }
+    }
+    CHECK(bad == 0, "velocity sweep: %d keys as before, %d differ", n_keys, bad);
+    /* A slowed scan (5 ms, 80000/16 us) and long key times: the time no
+     * longer fits 32 bits in 1/16 us and saturates; the queue saturates
+     * the ticks at 0xFFFF. */
+    set_param(P_VEL_FAST, 0, 12);
+    set_param(P_VEL_SLOW, 0, 1200);
+    set_param(P_VEL_CURVE, 0, CURVE_SOFT);
+    uint32_t period = gm_scan_period_us;
+    static const uint32_t slow_scan[][2] = {    /* scan period (us), ticks */
+        { 5000, 1 }, { 5000, 2 }, { 5000, 53000 }, { 5000, 53687 }, { 5000, 65534 }, { 5000, 70000 },
+        { 4000, 65534 }, { 1, 65534 }, { 2, 3000 }, { 3, 2001 },
+    };
+    bad = 0;
+    for (uint32_t i = 0; i < sizeof slow_scan / sizeof slow_scan[0]; i++) {
+        gm_scan_period_us = slow_scan[i][0];
+        uint32_t n = slow_scan[i][1];
+        int got = key_velocity(n);
+        int want = ref_velocity(n + 1 > 0xFFFFu ? 0xFFFFu : n + 1, slow_scan[i][0] * 16u);
+        if (got != want && bad++ < 5)
+            printf("  scan %u us, %u ticks: velocity %d, want %d\n", (unsigned)slow_scan[i][0],
+                   (unsigned)n + 1, got, want);
+    }
+    gm_scan_period_us = period;
+    CHECK(bad == 0, "velocity with slowed scans and long key times: %d differ", bad);
+    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+}
+
 /* ---- tests ------------------------------------------------------------ */
 
 int main(int argc, char **argv)
@@ -1149,6 +1252,7 @@ int main(int argc, char **argv)
 
     test_presets();
     test_modes();
+    test_velocity_sweep();
 
     /* HELLO, FW_* in the app, REBOOT */
     {

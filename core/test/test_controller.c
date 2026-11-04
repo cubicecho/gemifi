@@ -889,6 +889,11 @@ int main(int argc, char **argv)
     press_key(31, 250000);           /* 250 ms */
     CHECK(find_msg(0x90, &d1, &d2) && d1 == 79 && d2 == 1, "slow key: note 79 vel 1 (got %d %d)", d1, d2);
     release_key(31);
+    /* held half-way for 65536 + 3 ticks (8 s): the 16-bit start time
+     * doesn't wrap into a fast key (kt0_age) */
+    press_key(7, (65536 + 3) * (int)gm_device.scan_us);
+    CHECK(find_msg(0x90, &d1, &d2) && d1 == 55 && d2 == 1, "8 s half press: note 55 vel 1 (got %d %d)", d1, d2);
+    release_key(7);
     /* order of contacts doesn't matter (keys 16..31 swap them on the stock board) */
     out_n = 0;
     contact[2][5] = 1; ticks(20); contact[2][4] = 1; ticks(1); run_ms(1);

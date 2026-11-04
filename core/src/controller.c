@@ -136,7 +136,12 @@ typedef struct {
 static volatile kev_t kq[KQ];
 static volatile uint8_t kq_head, kq_tail;
 static uint8_t kstate[NK];
-static uint32_t kt0[NK];
+/* The tick a key's first contact closed, low 16 bits: kt0_age() keeps a
+ * timing key's age at most KT0_MAX, so ticks - kt0 never wraps. */
+static uint16_t kt0[NK];
+#define KT0_MAX 0x8000u
+static uint8_t kt0_next;
+_Static_assert(NK <= 256, "kt0_next");
 #define FAST_ROWS GM_ARR(GM_MATRIX_ROWS)   /* rows scanned (at most 32) */
 static uint32_t mprev[FAST_ROWS];
 static uint8_t m_hubs;              /* rows or cols on a shift-register hub */
@@ -250,13 +255,13 @@ static void key_update(uint32_t k, uint32_t c)
             kq_push(k, 1, 0);
         } else if (c) {
             kstate[k] = K_TIMING;
-            kt0[k] = ticks;
+            kt0[k] = (uint16_t)ticks;
         }
         break;
     case K_TIMING:
         if (c == 3u) {
             kstate[k] = K_ON;
-            kq_push(k, 1, ticks - kt0[k]);
+            kq_push(k, 1, (uint16_t)(ticks - kt0[k]));
         } else if (!c) {
             kstate[k] = K_IDLE;
         }
@@ -268,6 +273,17 @@ static void key_update(uint32_t k, uint32_t c)
         }
         break;
     }
+}
+
+/* One key per scan tick: a key still timing after KT0_MAX ticks stays at
+ * KT0_MAX (seconds: velocity 1 long before). Each key is seen every NK
+ * ticks, so its age stays far below 0x10000. */
+static void kt0_age(void)
+{
+    uint32_t k = kt0_next;
+    kt0_next = (uint8_t)(k + 1u < NK ? k + 1u : 0u);
+    if (kstate[k] == K_TIMING && (uint16_t)(ticks - kt0[k]) >= KT0_MAX)
+        kt0[k] = (uint16_t)(ticks - KT0_MAX);
 }
 
 /* A pin on a 74HC595/165 hub: the matrix scan must flush/refresh those
@@ -619,8 +635,11 @@ void gm_scan_tick(void)
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
-    if (gm_device.matrix && !hw_on)
-        matrix_scan();
+    if (gm_device.matrix) {
+        if (!hw_on)
+            matrix_scan();
+        kt0_age();                  /* the frames' keys too */
+    }
 #endif
     part_done(0, &t);
     /* Switch matrices (panel buttons, encoders) every other tick: plenty for

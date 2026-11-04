@@ -438,6 +438,7 @@ static volatile uint32_t din_tx_head, din_tx_tail, din_rx_head, din_rx_tail;
 static volatile uint32_t din_tx_run;        /* DMA: bytes of the run going out, 0 = idle */
 static uint8_t din_open, din_dma, din_rx_on;
 volatile uint32_t hal_din_overruns;         /* RX bytes lost: UART overrun or a full ring */
+volatile uint32_t hal_din_rx_errors;        /* RX bytes dropped: framing or noise error */
 
 void USART1_IRQHandler(void)
 {
@@ -446,7 +447,11 @@ void USART1_IRQHandler(void)
         uint8_t b = (uint8_t)USART1_DR;     /* reading DR clears RXNE and ORE */
         if (sr & USART_SR_ORE)
             hal_din_overruns++;
-        if (sr & USART_SR_RXNE) {
+        /* A framing or noise error is a garbled byte (noise on an open MIDI
+         * In, a cable plugged in mid-byte): drop it rather than pass it on. */
+        if ((sr & USART_SR_RXNE) && (sr & (USART_SR_FE | USART_SR_NE))) {
+            hal_din_rx_errors++;
+        } else if (sr & USART_SR_RXNE) {
             uint32_t h = din_rx_head;
             if (h - din_rx_tail < DIN_RX_SIZE) {
                 din_rx[h % DIN_RX_SIZE] = b;

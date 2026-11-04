@@ -433,10 +433,16 @@ int presets_rename(uint32_t slot, const char *name, uint32_t len)
     collect_t c = { e, 0, 1 };
     cs_slot_info_t info;
     int has = config_store_read((uint8_t)slot, &info, collect_cb, &c);
+    int st;
     if (!len && !c.n)
-        return has ? config_store_erase_slot((uint8_t)slot) : GSX_OK;
-    return config_store_write((uint8_t)slot, has ? info.revision : GM_PRESETS_REVISION,
-                              len ? nm : 0, e, c.n);
+        st = has ? config_store_erase_slot((uint8_t)slot) : GSX_OK;
+    else
+        st = config_store_write((uint8_t)slot, has ? info.revision : GM_PRESETS_REVISION,
+                                len ? nm : 0, e, c.n);
+    preset_info_t now;
+    if (st == GSX_OK && slot == cur && presets_info(slot, &now) == GSX_OK)
+        gm_display_message(now.name);       /* the active preset's new name, at once */
+    return st;
 }
 
 typedef struct {

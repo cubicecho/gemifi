@@ -93,6 +93,15 @@ export function isPresetStored(info: PresetInfo): boolean {
 }
 
 /**
+ * @param info - A slot's facts.
+ * @returns Whether nothing is in it yet: no stored edits, and the device file does not define it
+ *   (so it is a copy of slot 1, named "Preset N").
+ */
+export function isPresetEmpty(info: PresetInfo): boolean {
+  return isPresetStored(info) === false && (info.flags & PresetFlag.Yaml) === 0;
+}
+
+/**
  * Reads one slot's facts.
  *
  * @param client - The device.

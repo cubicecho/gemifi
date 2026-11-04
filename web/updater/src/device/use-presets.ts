@@ -18,7 +18,19 @@ export type PresetsState =
   | { kind: 'ready'; presets: PresetInfo[]; active: number; dirty: boolean };
 
 /** A preset action that is running. */
-export type PresetAction = 'select' | 'save-as' | 'reset' | 'rename';
+export type PresetAction = 'select' | 'create' | 'reset' | 'rename';
+
+/** What a new preset starts from. */
+export type PresetStart = 'current' | 'defaults';
+
+/** A new preset, as the New preset dialog asks for it. */
+export interface NewPreset {
+  /** The slot it goes into; what that slot held before is replaced. */
+  slot: number;
+  name: string;
+  /** The live values (a copy of the active preset), or the firmware's for that slot. */
+  from: PresetStart;
+}
 
 /** What {@link usePresets} hands the card. */
 export interface PresetsController {
@@ -27,8 +39,12 @@ export interface PresetsController {
   actionError: string | null;
   /** Selects a slot; unsaved edits of the active one are dropped (ask first). */
   select: (slot: number) => void;
-  /** Stores the live values into a slot and makes it active. */
-  saveAs: (slot: number) => Promise<void>;
+  /**
+   * Fills a slot, names it and makes it active. From `current`, the live values go in, unsaved
+   * edits included. From `defaults`, the slot is cleared, so it holds the firmware's values, and
+   * the active preset's unsaved edits are dropped.
+   */
+  create: (preset: NewPreset) => Promise<void>;
   /** Drops a slot's stored edits and name. */
   reset: (slot: number) => void;
   /** Stores a new name; empty = the firmware's name. */
@@ -49,14 +65,19 @@ function messageOf(error: unknown): string {
  * The device's presets (§4.5): the list, the active slot and its dirty flag, kept in step with
  * PRESET_CHANGED, and the preset actions.
  *
- * @param client - The connected device.
+ * @param client - The connected device, or null (state `off`).
  * @param enabled - The device has presets (HELLO caps bit 5).
  * @param onValuesChanged - Called when the live values were replaced (another preset loaded, or
  *   the active one reset), so the editor reads them again.
  * @returns The state and the actions.
  */
-export function usePresets(client: SysexClient, enabled: boolean, onValuesChanged: () => void): PresetsController {
-  const [state, setState] = useState<PresetsState>(enabled ? { kind: 'loading' } : { kind: 'off' });
+export function usePresets(
+  client: SysexClient | null,
+  enabled: boolean,
+  onValuesChanged: () => void,
+): PresetsController {
+  const isOn = client !== null && enabled;
+  const [state, setState] = useState<PresetsState>(isOn ? { kind: 'loading' } : { kind: 'off' });
   const [action, setAction] = useState<PresetAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -67,7 +88,7 @@ export function usePresets(client: SysexClient, enabled: boolean, onValuesChange
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the reload trigger.
   useEffect(() => {
-    if (enabled === false) {
+    if (client === null || enabled === false) {
       setState({ kind: 'off' });
       return;
     }
@@ -91,7 +112,7 @@ export function usePresets(client: SysexClient, enabled: boolean, onValuesChange
 
   useEffect(
     () =>
-      client.onMessage((message) => {
+      client?.onMessage((message) => {
         if (message.kind !== 'preset') {
           return;
         }
@@ -112,28 +133,34 @@ export function usePresets(client: SysexClient, enabled: boolean, onValuesChange
     setAttempt((n) => n + 1);
   }, []);
 
-  const run = useCallback(async (name: PresetAction, work: () => Promise<void>, rethrow: boolean) => {
-    setAction(name);
-    setActionError(null);
-    try {
-      await work();
-    } catch (error) {
-      if (rethrow) {
-        throw error;
+  const run = useCallback(
+    async (name: PresetAction, work: (device: SysexClient) => Promise<void>, rethrow: boolean) => {
+      if (client === null) {
+        return;
       }
-      setActionError(messageOf(error));
-    } finally {
-      setAction(null);
-    }
-  }, []);
+      setAction(name);
+      setActionError(null);
+      try {
+        await work(client);
+      } catch (error) {
+        if (rethrow) {
+          throw error;
+        }
+        setActionError(messageOf(error));
+      } finally {
+        setAction(null);
+      }
+    },
+    [client],
+  );
 
   const select = useCallback(
     (slot: number) => {
       void run(
         'select',
-        async () => {
+        async (device) => {
           const isReload = slot === activeRef.current;
-          await selectPreset(client, slot);
+          await selectPreset(device, slot);
           if (isReload) {
             // The same slot again: reloaded, its unsaved edits dropped, but PRESET_CHANGED names
             // the same slot, so nothing else would re-read the values.
@@ -143,28 +170,40 @@ export function usePresets(client: SysexClient, enabled: boolean, onValuesChange
         false,
       );
     },
-    [client, run],
+    [run],
   );
 
-  const saveAs = useCallback(
-    (slot: number) =>
+  const create = useCallback(
+    ({ slot, name, from }: NewPreset) =>
       run(
-        'save-as',
-        async () => {
-          await savePreset(client, slot);
+        'create',
+        async (device) => {
+          if (from === 'current') {
+            // SAVE first: PRESET_NAME keeps the values it finds stored.
+            await savePreset(device, slot);
+            await renamePreset(device, slot, name);
+          } else {
+            // An empty record with a name: the slot loads the firmware's values.
+            await resetPreset(device, slot);
+            await renamePreset(device, slot, name);
+            await selectPreset(device, slot);
+            if (slot === activeRef.current) {
+              onValuesChangedRef.current();
+            }
+          }
           setAttempt((n) => n + 1);
         },
         true,
       ),
-    [client, run],
+    [run],
   );
 
   const reset = useCallback(
     (slot: number) => {
       void run(
         'reset',
-        async () => {
-          await resetPreset(client, slot);
+        async (device) => {
+          await resetPreset(device, slot);
           setAttempt((n) => n + 1);
           if (slot === activeRef.current) {
             onValuesChangedRef.current();
@@ -173,21 +212,21 @@ export function usePresets(client: SysexClient, enabled: boolean, onValuesChange
         false,
       );
     },
-    [client, run],
+    [run],
   );
 
   const rename = useCallback(
     (slot: number, name: string) =>
       run(
         'rename',
-        async () => {
-          await renamePreset(client, slot, name);
+        async (device) => {
+          await renamePreset(device, slot, name);
           setAttempt((n) => n + 1);
         },
         true,
       ),
-    [client, run],
+    [run],
   );
 
-  return { state, action, actionError, select, saveAs, reset, rename, reload };
+  return { state, action, actionError, select, create, reset, rename, reload };
 }

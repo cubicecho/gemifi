@@ -15,7 +15,7 @@ Vite, TypeScript, and the cubeui components on Tailwind v4.
 
 ```sh
 npm install
-npm run dev        # Vite dev server on http://localhost:5173
+npm run dev        # Vite dev server on http://localhost:3000 (add ?demo for a pretend Code 61)
 npm test           # Vitest: the protocol codec, image checks and the upload sequence
 npm run build      # static build in dist/
 npm run check      # Biome (format, lint) and tsc
@@ -32,11 +32,23 @@ presets) from `src/builder/yaml-reference.json`; the builder's tests validate ev
 alone. `npm run dev` proxies `/api` and `/download` to `GEMIFI_BUILDER_URL`
 (default `http://127.0.0.1:6055`), so the dev server works against a running builder.
 
-**Presets.** On a device with presets (HELLO caps bit 5) the Config card starts with the active
-preset: a picker that asks before dropping unsaved edits, Rename, Save as (into another slot) and
-Reset. Settings that belong to a preset are marked "per preset". The page follows switches made on
-the device (PRESET_CHANGED) and reads the values again. Save to device stores the active preset
-with the globals.
+**Views.** **Update**: the connection, the device, firmware upload and the log; with the Serial
+(ESP) transport chosen, also the ESP first install. **Presets** (**Settings** on a device without
+presets): the device's presets and a card per settings group, with a save bar pinned under them.
+**Host feedback**: driving the device's LEDs and displays as a DAW script does.
+
+**Presets.** On a device with presets (HELLO caps bit 5) the Presets card lists every slot: choose
+one to make it active (the page asks before dropping unsaved edits), **New preset** (a name, a slot,
+and a start from a copy of the current settings or from the firmware's defaults), and Rename or
+Reset any slot from its menu. A device with a display shows the name when the preset is chosen,
+and at once when the active one is renamed. Under the card, the settings are split: what each
+preset has its own of ("In "<name>"") and what is the same in every preset. The page follows
+switches made on the device (PRESET_CHANGED) and reads the values again. Save to device stores the
+active preset with the shared settings.
+
+**Demo device.** `npm run dev` with `?demo` in the URL (`http://localhost:3000/?demo&view=presets`)
+connects a pretend Code 61 (`src/dev/demo-device.ts`): HELLO, the config and the presets in
+memory, for working on those views without a keyboard. It is not part of a production build.
 
 Web MIDI only works in a **secure context**: HTTPS, or `localhost`. Opening `dist/index.html` from
 `file://` does not work; use `npm run preview` to serve a build.
@@ -113,8 +125,8 @@ the GitHub Pages address) gets its own add-on.
    shown in the card. A stock M-Audio update file (`FirmwareFile…hex.txt`) is sent as it is, which
    restores the stock firmware; to use it from a stock keyboard, select its port first. Untested
    on hardware so far.
-4. **Install firmware (first flash)**, for an ESP chip with no gemifi firmware yet, or to
-   recover one: choose a merged factory image (one `.bin`, written at 0x0, from
+4. **Install firmware (first flash)**, shown with the Serial (ESP) transport, for an ESP chip
+   with no gemifi firmware yet, or to recover one: choose a merged factory image (one `.bin`, written at 0x0, from
    `esptool.py merge_bin` or PlatformIO), or a `manifest.json` in the
    [ESP Web Tools](https://esphome.github.io/esp-web-tools/) format
    (`{ name, version, builds: [{ chipFamily, parts: [{ path, offset }] }] }`) together with its
@@ -184,6 +196,7 @@ src/
     esp-manifest.ts    first install: merged image or ESP Web Tools manifest, build and part matching
     esp-install.ts     first install: esptool-js (ROM bootloader) detect, write, hard reset
   device/              React: hooks and one card per part of the page
+  dev/                 the ?demo device for `npm run dev`; never in a production build
   components/, lib/    vendored from the cubeui registry (`npx shadcn add @cubeui/<item>`); not edited
   app.tsx, main.tsx
 ```

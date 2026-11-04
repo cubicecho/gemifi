@@ -11,7 +11,7 @@ import { type DeviceListing, fetchBuilderInfo, listDevices } from './builder/api
 import { BuilderView, type OpenRequest } from './builder/builder-view.tsx';
 import { devicesWithNodeName } from './builder/node-match.ts';
 import { useRequest } from './builder/use-request.ts';
-import { ConfigCard } from './device/config-card.tsx';
+import { useDemoClient } from './dev/use-demo-client.ts';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
 import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
 import { FeedbackCard } from './device/feedback-card.tsx';
@@ -19,15 +19,18 @@ import { FlashCard, type ResumeOffer } from './device/flash-card.tsx';
 import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
 import { isWindows } from './device/platform.ts';
-import { offersConfig } from './device/use-config.ts';
+import { hasUnsavedSettings, SettingsSaveBar, SettingsView } from './device/settings-view.tsx';
+import { offersConfig, useConfig } from './device/use-config.ts';
 import { useConnection } from './device/use-connection.ts';
 import { useDeviceLog } from './device/use-device-log.ts';
 import { offersFeedback } from './device/use-feedback.ts';
 import { useHello } from './device/use-hello.ts';
 import { usePendingUpload } from './device/use-pending-upload.ts';
+import { usePresets } from './device/use-presets.ts';
 import { useSerial } from './device/use-serial.ts';
 import { useSearchParam } from './navigation/use-search-param.ts';
 import type { DeviceLink } from './protocol/flash.ts';
+import { offersPresets } from './protocol/presets.ts';
 import type { PickedBytes } from './serial/esp-manifest.ts';
 import { isMaudioBootloaderName } from './vendor/maudio.ts';
 
@@ -52,8 +55,8 @@ const disclaimer = (
   </p>
 );
 
-/** The page's views: Devices only when a builder serves it; Update and Config always. */
-const AppView = { Devices: 'devices', Update: 'update', Config: 'config' } as const;
+/** The page's views: Devices only when a builder serves it; the rest always. */
+const AppView = { Devices: 'devices', Update: 'update', Presets: 'presets', Feedback: 'feedback' } as const;
 type AppView = (typeof AppView)[keyof typeof AppView];
 
 /**
@@ -62,11 +65,23 @@ type AppView = (typeof AppView)[keyof typeof AppView];
  * @returns The view it names; with no param, Devices under a builder and Update otherwise.
  */
 function viewOf(param: string | null, hasBuilder: boolean): AppView {
-  if (param === AppView.Update || param === AppView.Config) {
+  if (param === AppView.Update || param === AppView.Presets || param === AppView.Feedback) {
     return param;
+  }
+  if (param === 'config') {
+    return AppView.Presets; // the old name of the view, in saved links
   }
   return hasBuilder ? AppView.Devices : AppView.Update;
 }
+
+/** What a device view says when there is nothing to show. */
+interface EmptyNote {
+  title: string;
+  description: string;
+}
+
+/** The empty note with no device: what the views say before anything is connected. */
+const NO_DEVICE: EmptyNote = { title: 'No device connected', description: 'Connect a device on the Update tab.' };
 
 /** Shown when the page is not a secure context, where the browser hides MIDI and serial ports. */
 const insecureAlert = (
@@ -78,10 +93,11 @@ const insecureAlert = (
 );
 
 /**
- * The page. Update: connection (USB MIDI or serial), device facts, firmware upload, the first install
- * on ESP chips and the log. Config: the connected device's settings and host feedback tests. Served by
- * a gemifi builder, it also has the Devices view, where device files are edited and built and their
- * images handed to the Update view.
+ * The page. Update: connection (USB MIDI or serial), device facts, firmware upload, the log, and on
+ * the serial transport the first install on ESP chips. Presets: the connected device's presets and
+ * settings, with the save bar pinned under them. Host feedback: driving its LEDs and displays as a
+ * DAW script does. Served by a gemifi builder, it also has the Devices view, where device files are
+ * edited and built and their images handed to the Update view.
  *
  * @returns The page.
  */
@@ -107,14 +123,15 @@ export function App() {
   const midi = useConnection();
   const serial = useSerial();
   const isMidi = mode === 'midi';
-  const client = isMidi ? midi.snapshot.client : serial.snapshot.client;
+  const demo = useDemoClient();
+  const client = demo ?? (isMidi ? midi.snapshot.client : serial.snapshot.client);
   const { state: hello, refresh } = useHello(client);
   const log = useDeviceLog(client);
   const [isFlashing, setIsFlashing] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const manager = midi.access.kind === 'ready' ? midi.access.manager : null;
   const link: DeviceLink | null = isMidi ? manager : serial.snapshot.port === null ? null : serial.link;
-  const isConnected = isMidi ? midi.snapshot.selected !== null : serial.snapshot.port !== null;
+  const isConnected = demo !== null || (isMidi ? midi.snapshot.selected !== null : serial.snapshot.port !== null);
   const info = hello.kind === 'ok' ? hello.info : null;
   const isBusy = isFlashing || isInstalling;
   const canInstall = serial.access.kind !== 'unavailable';
@@ -122,6 +139,14 @@ export function App() {
   const defaultView = hasBuilder ? AppView.Devices : AppView.Update;
   const showView = (next: AppView) => setViewParam(next === defaultView ? null : next);
   const nodeName = info?.nodeName ?? null;
+  const hasConfig = client !== null && info !== null && offersConfig(info);
+  const hasFeedback = client !== null && offersFeedback(info);
+  // The settings are read while a device with config is connected, whichever view is showing, and
+  // dropped during an upload: they are read again once the device is back.
+  const settingsClient = hasConfig && isBusy === false ? client : null;
+  const config = useConfig(settingsClient, settingsClient === null ? null : info);
+  const presets = usePresets(settingsClient, info !== null && offersPresets(info), config.refreshValues);
+  const hasUnsaved = settingsClient !== null && hasUnsavedSettings(config, presets);
   // An upload stored before the Code 61 went into update mode: offered once its bootloader is here.
   const bootloaderPair = midi.snapshot.pairs.find((pair) => isMaudioBootloaderName(pair.name)) ?? null;
   const resume: ResumeOffer | null =
@@ -179,6 +204,18 @@ export function App() {
         onSerialDisconnect={serial.disconnect}
         isBusy={isBusy}
       />
+      {/* The first install is an ESP's, over serial: the USB MIDI devices never need it. */}
+      {canInstall && mode === 'serial' ? (
+        <Suspense fallback={null}>
+          <InstallCard
+            serialLink={serial.link}
+            files={installFiles}
+            onFilesChange={setInstallFiles}
+            isBusy={isFlashing}
+            onRunningChange={setIsInstalling}
+          />
+        </Suspense>
+      ) : null}
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <DeviceCard client={client} hello={hello} onRefresh={refresh} isBusy={isBusy} deviceFiles={deviceFiles} />
         <FlashCard
@@ -197,72 +234,91 @@ export function App() {
         />
       </div>
       <LogCard lines={log.lines} rawLines={log.rawLines} onClear={log.clear} />
-      {canInstall ? (
-        <Suspense fallback={null}>
-          <InstallCard
-            serialLink={serial.link}
-            files={installFiles}
-            onFilesChange={setInstallFiles}
-            isBusy={isFlashing}
-            onRunningChange={setIsInstalling}
-          />
-        </Suspense>
-      ) : null}
     </>
   );
 
-  const hasConfig = client !== null && info !== null && offersConfig(info);
-  const hasFeedback = client !== null && offersFeedback(info);
-  let configEmpty: { title: string; description: string } | null = null;
-  if (client === null || info === null) {
-    configEmpty = {
-      title: 'No device connected',
-      description: 'Connect a device on the Update tab. Its settings and the host feedback tests show up here.',
-    };
-  } else if (isBusy) {
-    configEmpty = {
-      title: 'Firmware upload in progress',
-      description: 'The settings come back once the upload has finished and the device has restarted.',
-    };
-  } else if (hasConfig === false && hasFeedback === false) {
-    configEmpty = {
-      title: 'Nothing to configure',
-      description: 'This firmware has no settings and no host feedback (a bootloader or a test app).',
-    };
-  }
-  const configCards =
-    configEmpty === null ? (
-      <>
-        {hasConfig && client !== null && info !== null ? <ConfigCard client={client} device={info} /> : null}
-        {hasFeedback && client !== null ? <FeedbackCard client={client} /> : null}
-      </>
+  /** Why a device view is empty, or null when it has something to show. */
+  const emptyNote = (has: boolean, what: string, none: EmptyNote): EmptyNote | null => {
+    if (client === null || info === null) {
+      return {
+        title: 'No device connected',
+        description: `Connect a device on the Update tab. Its ${what} show up here.`,
+      };
+    }
+    if (isBusy) {
+      return {
+        title: 'Firmware upload in progress',
+        description: `The ${what} come back once the upload has finished and the device has restarted.`,
+      };
+    }
+    return has ? null : none;
+  };
+  const emptyCard = (note: EmptyNote) => (
+    <CardLayout
+      contentSlot={
+        <EmptyState
+          iconSlot={client === null ? <Plug /> : <Settings />}
+          title={note.title}
+          description={note.description}
+        />
+      }
+    />
+  );
+  const hasPresets = info !== null && offersPresets(info);
+  const settingsLabel = info !== null && hasPresets === false ? 'Settings' : 'Presets';
+  const settingsEmpty = emptyNote(hasConfig, 'presets and settings', {
+    title: 'Nothing to configure',
+    description: 'This firmware has no settings (a bootloader or a test app).',
+  });
+  const feedbackEmpty = emptyNote(hasFeedback, 'components', {
+    title: 'No host feedback',
+    description: 'This firmware was built without host feedback, so a DAW script cannot drive its LEDs or display.',
+  });
+  // `emptyNote` is null only with a device connected, so `info` and `client` are there below.
+  const settingsCards =
+    settingsEmpty !== null || info === null ? (
+      emptyCard(settingsEmpty ?? NO_DEVICE)
     ) : (
-      <CardLayout
-        contentSlot={
-          <EmptyState
-            iconSlot={client === null ? <Plug /> : <Settings />}
-            title={configEmpty.title}
-            description={configEmpty.description}
-          />
-        }
-      />
+      <SettingsView config={config} presets={presets} device={info} />
     );
+  const feedbackCards =
+    feedbackEmpty !== null || client === null ? (
+      emptyCard(feedbackEmpty ?? NO_DEVICE)
+    ) : (
+      <FeedbackCard client={client} />
+    );
+  const saveBar =
+    view === AppView.Presets && settingsEmpty === null && info !== null ? (
+      <SettingsSaveBar config={config} presets={presets} device={info} />
+    ) : undefined;
+  const statusBadges = (
+    <>
+      {hasUnsaved && view !== AppView.Presets ? <Badge variant="warning-soft">Unsaved settings</Badge> : null}
+      <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
+        {isConnected ? (nodeName === null ? 'Connected' : `Connected: ${nodeName}`) : 'Not connected'}
+      </Badge>
+    </>
+  );
 
   const viewSwitch = (
     <SegmentedGroup aria-label="View" value={view} onValueChange={showView}>
       {hasBuilder ? <SegmentedButton value={AppView.Devices}>Devices</SegmentedButton> : null}
       <SegmentedButton value={AppView.Update}>Update</SegmentedButton>
-      <SegmentedButton value={AppView.Config}>Config</SegmentedButton>
+      <SegmentedButton value={AppView.Presets}>{settingsLabel}</SegmentedButton>
+      <SegmentedButton value={AppView.Feedback}>Host feedback</SegmentedButton>
     </SegmentedGroup>
   );
-  // Update and Config stay mounted, so an upload keeps running and the log keeps filling across a switch.
+  // The device views stay mounted, so an upload keeps running and the log keeps filling across a switch.
   const deviceViews = (
     <>
       <div hidden={view !== AppView.Update} className="flex min-w-0 flex-col gap-4">
         {updateCards}
       </div>
-      <div hidden={view !== AppView.Config} className="flex min-w-0 flex-col gap-4">
-        {configCards}
+      <div hidden={view !== AppView.Presets} className="flex min-w-0 flex-col gap-4">
+        {settingsCards}
+      </div>
+      <div hidden={view !== AppView.Feedback} className="flex min-w-0 flex-col gap-4">
+        {feedbackCards}
       </div>
     </>
   );
@@ -272,13 +328,10 @@ export function App() {
       <PageLayout
         title="gemifi updater"
         contentRef={body}
-        description="Device info, config, debug log and firmware upload, over Web MIDI or Web Serial."
+        description="Device info, presets and settings, debug log and firmware upload, over Web MIDI or Web Serial."
         headerContentSlot={viewSwitch}
-        actionSlot={
-          <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
-            {isConnected ? 'Connected' : 'Not connected'}
-          </Badge>
-        }
+        actionSlot={statusBadges}
+        footerSlot={saveBar}
         contentSlot={
           <>
             {isSecure ? null : insecureAlert}
@@ -308,11 +361,10 @@ export function App() {
               hint="What's new in this version"
             />
           )}
-          <Badge variant={isConnected ? 'positive-soft' : 'secondary'}>
-            {isConnected ? 'Connected' : 'Not connected'}
-          </Badge>
+          {statusBadges}
         </>
       }
+      footerSlot={saveBar}
       contentSlot={
         <>
           {isSecure ? null : insecureAlert}
@@ -330,6 +382,7 @@ export function App() {
               }}
               onInstall={(files) => {
                 setInstallFiles(files);
+                setMode('serial');
                 showView(AppView.Update);
               }}
             />

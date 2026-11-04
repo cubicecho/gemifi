@@ -1121,6 +1121,18 @@ int main(int argc, char **argv)
         n += put_u(p + n, 20, 5);
         n += put_u(p + n, 21, 5);
         CHECK(request(GSX_CMD_SET_PARAMS, p, n, 0) == GSX_OK && gm_cfg.btn_number[6] == 21, "SET_PARAMS");
+        /* The longest request fits the receive buffer (app_proto.c
+         * RX_PAYLOAD): 16 values past the 7 buttons is BAD_PARAM, not
+         * BAD_LEN; one byte more doesn't fit. */
+        n = put_u(p, P_BTN_NUMBER, 2);
+        n += put_u(p + n, 0, 2);
+        n += put_u(p + n, 16, 2);
+        for (int i = 0; i < 16; i++)
+            n += put_u(p + n, 1, 5);
+        CHECK(n == 86 && request(GSX_CMD_SET_PARAMS, p, n, 0) == GSX_BAD_PARAM, "SET_PARAMS with 16 values fits");
+        uint8_t q[87] = { 0 };
+        memcpy(q, p, 86);
+        CHECK(request(GSX_CMD_SET_PARAMS, q, 87, 0) == GSX_BAD_LEN, "SET_PARAMS one byte longer -> BAD_LEN");
     }
     /* repeated seq: cached reply, not redone */
     {
@@ -1162,6 +1174,11 @@ int main(int argc, char **argv)
         CHECK(out[node_at] == node_len && memcmp(out + node_at + 1, gm_device.node_name, node_len) == 0,
               "HELLO ends with the node name '%s'", gm_device.node_name);
         CHECK(request(GSX_CMD_FW_END, 0, 0, 0) == GSX_BAD_STATE, "FW_* -> BAD_STATE on NUC");
+        {
+            uint8_t chunk[4 + 293] = { 0 };     /* a whole 256-byte FW_DATA chunk, packed */
+            CHECK(request(GSX_CMD_FW_DATA, chunk, sizeof(chunk), 0) == GSX_BAD_STATE,
+                  "FW_DATA longer than the receive buffer -> BAD_STATE all the same");
+        }
         uint8_t m = 1;
         CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1)");
         if (!setjmp(reboot_jb)) {

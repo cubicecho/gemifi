@@ -51,8 +51,12 @@ void SysTick_Handler(void) __attribute__((weak, alias("Default_Handler")));
 void USB_HP_CAN1_TX_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void USB_LP_CAN1_RX0_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void DMA1_Channel1_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
+void DMA1_Channel2_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void DMA1_Channel3_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void DMA1_Channel4_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
+void DMA1_Channel5_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
+void DMA1_Channel6_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
+void DMA1_Channel7_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void TIM2_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void TIM3_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void TIM4_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
@@ -84,8 +88,12 @@ const vector_t gemifi_vectors[16 + VECTOR_IRQS] = {
     [16 + IRQ_USB_HP_CAN1_TX] = USB_HP_CAN1_TX_IRQHandler,
     [16 + IRQ_USB_LP_CAN1_RX0] = USB_LP_CAN1_RX0_IRQHandler,
     [16 + IRQ_DMA1_CH1] = DMA1_Channel1_IRQHandler,
+    [16 + IRQ_DMA1_CH2] = DMA1_Channel2_IRQHandler,
     [16 + IRQ_DMA1_CH3] = DMA1_Channel3_IRQHandler,
     [16 + IRQ_DMA1_CH4] = DMA1_Channel4_IRQHandler,
+    [16 + IRQ_DMA1_CH5] = DMA1_Channel5_IRQHandler,
+    [16 + IRQ_DMA1_CH6] = DMA1_Channel6_IRQHandler,
+    [16 + IRQ_DMA1_CH7] = DMA1_Channel7_IRQHandler,
     [16 + IRQ_TIM2] = TIM2_IRQHandler,
     [16 + IRQ_TIM3] = TIM3_IRQHandler,
     [16 + IRQ_TIM4] = TIM4_IRQHandler,

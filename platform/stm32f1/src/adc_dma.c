@@ -1,14 +1,21 @@
 /*
- * adc_dma.c: the analog inputs and pads swept by TIM4, ADC1 and DMA1, with
- * no CPU per reading (core/README.md "Hardware scan").
+ * adc_dma.c: the analog inputs and pads swept by a timer, ADC1 and DMA1,
+ * with no CPU per reading (core/README.md "Hardware scan").
  *
- * TIM4 counts one mux step per period:
+ * The timer (TIM4 on the Code 61; dma_map.h) counts one mux step per period:
  *
- *   CC2 (t = 1 tick)       DMA1 ch4: store step s's select word (BSRR) on
+ *   mux (t = 1 tick)       CC2, ch4: store step s's select word (BSRR) on
  *                          the muxes' shared select lines (Code 61: PC0-PC2)
- *   CC4 (t = the settle)   OC4REF rises (PWM mode 2): ADC1's regular group
+ *   trigger (the settle)   OC4REF rises (PWM mode 2): ADC1's regular group
  *                          starts, every plan pin in turn (scan mode)
- *   each conversion        DMA1 ch1: ADC1_DR to the ring
+ *   each conversion        ch1: ADC1_DR to the ring
+ *
+ * hardware_scan.analog.timer moves it (the builder picks the mux compare):
+ * TIM4 triggers by CC4 (mux on CC2 or CC3), TIM3 by TRGO = OC2REF (mux on
+ * CC1, CC3 or CC4; no output is enabled), TIM2 by CC2 (mux on CC1 or CC4).
+ * CC4 / CC2 are enabled outputs, which reach their pin (PB9 / PA1) only if
+ * that pin is an alternate-function output: on the Code 61 PB9 is unused
+ * and PA1 an analog input.
  *
  * A sweep is all the steps; the ring holds two, and the half / full
  * interrupts hand the finished one to gm_adc_sweep(). The period leaves the
@@ -20,20 +27,49 @@
  * Every conversion samples for 41.5 ADC cycles (54 with the conversion, at
  * PCLK2 / 6: 4.5 us at 72 MHz), as the stock Code 61 firmware does: up to
  * 37 kOhm of source impedance for 1/4 LSB (datasheet table 48), with the
- * mux's on-resistance in series. TIM4 runs at HCLK (APB1 / 2, timers x 2),
+ * mux's on-resistance in series. TIM2..4 run at HCLK (APB1 / 2, timers x 2),
  * so a conversion is 324 timer ticks at any clock.
  *
- * DMA1 channels used: 1 (ADC1), 4 (TIM4_CH2). Nothing else may use ADC1
- * (hal_adc_read uses ADC2) or reconfigure the plan's pins while this runs.
+ * DMA1 channels used: 1 (ADC1) and GM_HW_ADC_MUX_CH. Nothing else may use
+ * ADC1 (hal_adc_read uses ADC2) or reconfigure the plan's pins while this
+ * runs.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "adc_dma.h"
 #include "stm32f1.h"
 #include "sys.h"
+#include "dma_map.h"
 
+#define TIM    TIM_BASE_N(GM_HW_ADC_TIM)
 #define CH_ADC 1u                   /* ADC1 */
-#define CH_MUX 4u                   /* TIM4_CH2 */
+#define CH_MUX GM_HW_ADC_MUX_CH
+#if GM_HW_ADC_TIM == 4
+#define TRIG_CC     4u              /* ADC1 started by TIM4_CC4 */
+#define TRIG_CCMR1  0u
+#define TRIG_CCMR2  TIM_CCMR2_OC4M_PWM2
+#define TRIG_CCER   TIM_CCER_CC4E   /* PB9 isn't an AF output: no pin is driven */
+#define TRIG_CR2    0u
+#define TRIG_EXTSEL ADC_CR2_EXTSEL_TIM4_CC4
+#elif GM_HW_ADC_TIM == 3
+#define TRIG_CC     2u              /* by TIM3_TRGO = OC2REF: internal, no output */
+#define TRIG_CCMR1  TIM_CCMR1_OC2M_PWM2
+#define TRIG_CCMR2  0u
+#define TRIG_CCER   0u
+#define TRIG_CR2    TIM_CR2_MMS_OC2REF
+#define TRIG_EXTSEL ADC_CR2_EXTSEL_TIM3_TRGO
+#elif GM_HW_ADC_TIM == 2
+#define TRIG_CC     2u              /* by TIM2_CC2 */
+#define TRIG_CCMR1  TIM_CCMR1_OC2M_PWM2
+#define TRIG_CCMR2  0u
+#define TRIG_CCER   TIM_CCER_CC2E   /* PA1 is driven only if it is an AF output */
+#define TRIG_CR2    0u
+#define TRIG_EXTSEL ADC_CR2_EXTSEL_TIM2_CC2
+#else
+#error "hardware_scan.analog: TIM2, TIM3 or TIM4"
+#endif
+_Static_assert(GM_HW_ADC_MUX != 0 && GM_HW_ADC_MUX != TRIG_CC && CH_MUX != CH_ADC &&
+               DMA1_TIM_CH(GM_HW_ADC_TIM, GM_HW_ADC_MUX) == CH_MUX, "analog mux request/channel");
 #define CONV_TICKS (54u * 6u)       /* 41.5 + 12.5 ADC cycles, ADC clock = HCLK / 6 */
 #define MARGIN_NS 2000u
 #define LATENCY_NS 500u             /* DMA store -> trigger, trigger -> sampling */
@@ -83,11 +119,11 @@ static void dma_off(uint32_t ch)
     DMA1_IFCR = DMA_ISR_TCIF(ch) | DMA_ISR_HTIF(ch) | DMA_ISR_TEIF(ch);
 }
 
-/* (Re)start the DMA channels and TIM4 from step 0. ADC1 is set up. */
+/* (Re)start the DMA channels and the timer from step 0. ADC1 is set up. */
 static void run(void)
 {
-    TIM_CR1(TIM4_BASE) = 0;
-    TIM_DIER(TIM4_BASE) = 0;
+    TIM_CR1(TIM) = 0;
+    TIM_DIER(TIM) = 0;
     dma_off(CH_ADC);
     dma_off(CH_MUX);
     /* A sequence of the old run may be in flight: let it end (the ADC
@@ -113,28 +149,30 @@ static void run(void)
         DMA1_CCR(CH_MUX) = DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_PSIZE32 | DMA_CCR_MSIZE32 | DMA_CCR_PL(1) |
                            DMA_CCR_CIRC | DMA_CCR_EN;
     }
-    TIM_PSC(TIM4_BASE) = 0;
-    TIM_ARR(TIM4_BASE) = ticks - 1u;
-    TIM_CCR2(TIM4_BASE) = ccr2;
-    TIM_CCR4(TIM4_BASE) = ccr4;
-    TIM_CCMR1(TIM4_BASE) = 0;               /* CC2: events only */
-    TIM_CCMR2(TIM4_BASE) = TIM_CCMR2_OC4M_PWM2;
-    TIM_CCER(TIM4_BASE) = TIM_CCER_CC4E;    /* PB9 isn't an AF output: no pin is driven */
-    TIM_CR1(TIM4_BASE) = TIM_CR1_URS;
-    TIM_EGR(TIM4_BASE) = TIM_EGR_UG;
-    TIM_SR(TIM4_BASE) = 0;
-    TIM_CNT(TIM4_BASE) = 0;
-    TIM_DIER(TIM4_BASE) = n_steps > 1u ? TIM_DIER_CC2DE : 0u;
-    TIM_CR1(TIM4_BASE) = TIM_CR1_URS | TIM_CR1_CEN;
+    TIM_PSC(TIM) = 0;
+    TIM_ARR(TIM) = ticks - 1u;
+    TIM_CCR(TIM, GM_HW_ADC_MUX) = ccr2;
+    TIM_CCR(TIM, TRIG_CC) = ccr4;
+    TIM_CCMR1(TIM) = TRIG_CCMR1;            /* the mux compare: events only */
+    TIM_CCMR2(TIM) = TRIG_CCMR2;
+    TIM_CCER(TIM) = TRIG_CCER;
+    if (TRIG_CR2)
+        TIM_CR2(TIM) = TRIG_CR2;            /* TIM3: TRGO = OC2REF (reset: 0) */
+    TIM_CR1(TIM) = TIM_CR1_URS;
+    TIM_EGR(TIM) = TIM_EGR_UG;
+    TIM_SR(TIM) = 0;
+    TIM_CNT(TIM) = 0;
+    TIM_DIER(TIM) = n_steps > 1u ? TIM_DIER_DE(GM_HW_ADC_MUX) : 0u;
+    TIM_CR1(TIM) = TIM_CR1_URS | TIM_CR1_CEN;
 }
 
 void adc_dma_stop(void)
 {
-    TIM_CR1(TIM4_BASE) = 0;
+    TIM_CR1(TIM) = 0;
     if (!running)
         return;
     NVIC_ICER(IRQ_DMA1_CH1 / 32u) = 1u << (IRQ_DMA1_CH1 % 32u);
-    TIM_DIER(TIM4_BASE) = 0;
+    TIM_DIER(TIM) = 0;
     dma_off(CH_ADC);
     dma_off(CH_MUX);
     ADC1_CR2 = 0;
@@ -186,7 +224,8 @@ int adc_dma_start(const gm_adc_plan_t *p)
     }
 
     /* ADC1: reset, power on, calibrate (RM0008 11.4), then the sequence:
-     * scan mode, DMA, started by TIM4_CC4. 41.5 cycles on every channel. */
+     * scan mode, DMA, started by the timer (TRIG_EXTSEL). 41.5 cycles on
+     * every channel. */
     RCC_AHBENR |= RCC_AHBENR_DMA1EN;
     RCC_APB2ENR |= RCC_APB2_ADC1;
     RCC_APB2RSTR |= RCC_APB2_ADC1;
@@ -218,11 +257,9 @@ int adc_dma_start(const gm_adc_plan_t *p)
     for (uint32_t i = 0; (ADC1_CR2 & ADC_CR2_CAL) && i < 100000u; i++) {
     }
     /* Other bits change with ADON: no conversion starts (RM0008 11.12.3). */
-    ADC1_CR2 = ADC_CR2_ADON | ADC_CR2_DMA | ADC_CR2_EXTTRIG | ADC_CR2_EXTSEL_TIM4_CC4;
+    ADC1_CR2 = ADC_CR2_ADON | ADC_CR2_DMA | ADC_CR2_EXTTRIG | TRIG_EXTSEL;
 
-    RCC_APB1ENR |= RCC_APB1_TIM4;
-    RCC_APB1RSTR |= RCC_APB1_TIM4;
-    RCC_APB1RSTR &= ~RCC_APB1_TIM4;
+    tim_clock_reset(GM_HW_ADC_TIM);
     NVIC_IPR8(IRQ_DMA1_CH1) = 0x80;         /* the scan tick's level: below USB (0x40) */
     NVIC_ICPR(IRQ_DMA1_CH1 / 32u) = 1u << (IRQ_DMA1_CH1 % 32u);
     NVIC_ISER(IRQ_DMA1_CH1 / 32u) = 1u << (IRQ_DMA1_CH1 % 32u);
@@ -247,7 +284,7 @@ void DMA1_Channel1_IRQHandler(void)
         adc_dma_errors++;                   /* the channel is off now: the sweeps stopped */
         return;
     }
-    uint32_t cnt = TIM_CNT(TIM4_BASE), mux_left = DMA1_CNDTR(CH_MUX);
+    uint32_t cnt = TIM_CNT(TIM), mux_left = DMA1_CNDTR(CH_MUX);
     uint32_t total = 2u * n_cells, pos = total - DMA1_CNDTR(CH_ADC);
     uint32_t first = pos >= n_cells ? 0u : n_cells;
     if ((isr & DMA_ISR_HTIF(CH_ADC)) && (isr & DMA_ISR_TCIF(CH_ADC)))

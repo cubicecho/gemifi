@@ -8,6 +8,7 @@ gemifi_build.py (CLI + dashboard) and the tests.
     files = generate(dev, source="devices/x.yaml")   # {"gm_device_config.h": text, ...}
 """
 import difflib
+import itertools
 import os
 import re
 
@@ -80,11 +81,29 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
 ]
-# STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() checks
-# that the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) don't share one.
-STM32F1_DMA = {"ADC1": 1, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM4_CH2": 4, "USART1_TX": 4, "TIM1_UP": 5,
-               "USART1_RX": 5, "TIM1_CH3": 6, "USART2_TX": 7}
+# STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
+# them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
+# Timer requests are TIMn_UP (update) and TIMn_CHk (compare k); TIM3_CH2 and TIM4_CH4 have none.
+STM32F1_DMA = {"ADC1": 1, "USART1_TX": 4, "USART1_RX": 5, "USART2_TX": 7,
+               "TIM1_UP": 5, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM1_CH3": 6, "TIM1_CH4": 4,
+               "TIM2_UP": 2, "TIM2_CH1": 5, "TIM2_CH2": 7, "TIM2_CH3": 1, "TIM2_CH4": 7,
+               "TIM3_UP": 3, "TIM3_CH1": 6, "TIM3_CH3": 2, "TIM3_CH4": 3,
+               "TIM4_UP": 7, "TIM4_CH1": 1, "TIM4_CH2": 4, "TIM4_CH3": 5}
 STM32F1_DMA_CHANNELS = 7
+# hardware_scan timers, in the order `timer: auto` tries them. TIM2..4 are also the core scan
+# tick's (an interrupt, no DMA): it takes the first of them the scans leave. The analog scan can't
+# have TIM1: its ADC triggers (CC1..3) need the compare outputs on, and PA9/PA10 are USART1's.
+HW_SCAN_TIMERS = {"matrix": [1, 3, 4, 2], "analog": [4, 3, 2]}
+TICK_TIMERS = [2, 3, 4]
+# The matrix scan's DMA steps (scan_dma.c), and the requests each tries, in order: request 0 is the
+# update event (period start), k is compare k. Only the select may be the update; when it isn't,
+# every step moves one tick later.
+HW_SCAN_ROLES = {"sel": [0, 1, 2, 3, 4], "in": [1, 3, 4, 2], "rd": [2, 1, 3, 4], "pre": [3, 4, 1, 2]}
+HW_SCAN_ROLE_NAMES = {"sel": "select", "in": "columns in", "rd": "read", "pre": "precharge",
+                      "mux": "mux step"}
+# The analog scan: one compare steps the muxes (DMA); the ADC1 trigger is another (adc_dma.c).
+HW_ADC_MUX = {4: [2, 3], 3: [1, 3, 4], 2: [1, 4]}
+HW_ADC_TRIGGER = {4: "TIM4_CC4", 3: "TIM3_TRGO (OC2REF)", 2: "TIM2_CC2"}
 # din_midi.mode (gm_din.h GM_DIN_ONLY / _PORT / _MERGE)
 DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # Params whose stored values can need 16 bits (settings.c min/max outside -128..127); every other
@@ -726,6 +745,9 @@ class Device:
         self.budget = None           # storage_budget(self), after validation
         self.hw_scan = None          # (row_ns, settle_ns, precharge) from hardware_scan.matrix
         self.hw_adc = False          # hardware_scan.analog
+        self.hw_timer = {}           # scan -> (timer n or None = auto, path, line)
+        self.dma_map = []            # allocate_dma: [(channel, request, user)]
+        self.scan_timers = {}        # allocate_dma: scan -> (timer n, {role: request}); 'tick' -> n
 
 
 class Use:
@@ -1131,16 +1153,23 @@ def validate_hw_scan(v, dev, data, plat):
                                      f"{', '.join(sorted(HW_SCAN_PLATFORMS))})")
         return
     if "analog" in hs:
-        dev.hw_adc = v.boolean(hs, "analog", "hardware_scan")
+        a = hs["analog"]
+        if isinstance(a, dict):         # `analog: { timer: tim3 }`
+            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), ["timer"]) is not None:
+                dev.hw_adc = True
+                hw_timer(v, dev, a, "analog")
+        else:
+            dev.hw_adc = v.boolean(hs, "analog", "hardware_scan")
         if dev.hw_adc and "analog" not in data and "pads" not in data:
             v.err("hardware_scan.analog", hs.line_of("analog"), "needs analog: inputs or pads: to read")
             dev.hw_adc = False
     if "matrix" not in hs:
         return
     path, mline = "hardware_scan.matrix", hs.line_of("matrix")
-    mx = v.mapping(hs["matrix"], path, mline, ["row_time", "settle", "precharge"])
+    mx = v.mapping(hs["matrix"], path, mline, ["row_time", "settle", "precharge", "timer"])
     if mx is None:
         return
+    hw_timer(v, dev, mx, "matrix")
     if "key_matrix" not in data and "switch_matrix" not in data:
         v.err(path, mline, "needs a key_matrix: or switch_matrix: to scan")
         return
@@ -1165,6 +1194,25 @@ def validate_hw_scan(v, dev, data, plat):
               f"{(settle + lo) / 1000:g}us{' with precharge' if pre else ''}")
         return
     dev.hw_scan = (row, settle, pre)
+
+
+def hw_timer(v, dev, d, scan):
+    """hardware_scan.<scan>.timer: auto (the default) or tim1..tim4 -> dev.hw_timer[scan]."""
+    path = f"hardware_scan.{scan}.timer"
+    if "timer" not in d:
+        dev.hw_timer[scan] = (None, path, d.line)
+        return
+    x, line = d["timer"], d.line_of("timer")
+    ok = ["auto"] + [f"tim{n}" for n in sorted(HW_SCAN_TIMERS[scan])]
+    name = x.lower() if isinstance(x, str) else None
+    if name == "tim1" and scan == "analog":
+        v.err(path, line, "the analog scan can't use TIM1: its ADC triggers (CC1..CC3) drive the "
+                          f"compare outputs, and PA9/PA10 are USART1's (valid: {', '.join(ok)})")
+    elif name not in ok:
+        close = difflib.get_close_matches(str(x), ok, 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(path, line, f"unknown timer '{d.raw_of('timer')}' ({hint}valid: {', '.join(ok)})")
+    dev.hw_timer[scan] = (int(name[3:]) if name in ok and name != "auto" else None, path, line)
 
 
 def fmt_us(us):
@@ -1420,42 +1468,144 @@ def validate(data, file=None):
     return (None if errors(v.diags) else dev), v.diags
 
 
+def tim_req(t, q):
+    """Timer t's DMA request q (0 = update, k = compare k) -> its name in STM32F1_DMA."""
+    return f"TIM{t}_" + ("UP" if q == 0 else f"CH{q}")
+
+
+def tim_requests(t):
+    """'UP 7, CH1 1, CH2 4, CH3 5': timer t's DMA requests and their channels, for messages."""
+    return ", ".join(f"{n[5:]} {ch}" for n, ch in STM32F1_DMA.items() if n.startswith(f"TIM{t}_"))
+
+
+def scan_options(dev, scan, t, pre=None):
+    """Timer t's ways to run a hardware scan, in the order auto tries them:
+    [(scan, t, {role: request}, [(channel, request, role)])]. Within one option the channels differ."""
+    out = []
+    if scan == "analog":
+        for q in HW_ADC_MUX.get(t, []):
+            out.append((scan, t, {"mux": q}, [(1, "ADC1", "ADC1"), (STM32F1_DMA[tim_req(t, q)], tim_req(t, q),
+                                                                      "mux")]))
+        return out
+    roles = ["sel", "in", "rd", "pre"] if (dev.hw_scan[2] if pre is None else pre) else ["sel", "rd"]
+    for reqs in itertools.product(*(HW_SCAN_ROLES[r] for r in roles)):
+        names = [tim_req(t, q) for q in reqs]
+        if len(set(reqs)) < len(reqs) or any(n not in STM32F1_DMA for n in names):
+            continue
+        chans = [STM32F1_DMA[n] for n in names]
+        if len(set(chans)) == len(chans):
+            out.append((scan, t, dict(zip(roles, reqs)), list(zip(chans, names, roles))))
+    return out
+
+
+def scan_choices(dev, scans, auto=False, pre=None):
+    """Per scan, its options on its YAML timer (every timer with auto, or when `auto`)."""
+    return [[o for t in ([dev.hw_timer.get(s, (None,))[0]] if not auto and dev.hw_timer.get(s, (None,))[0]
+                         else HW_SCAN_TIMERS[s])
+             for o in scan_options(dev, s, t, pre)] for s in scans]
+
+
+def dma_search(choices, taken):
+    """The first pick of one option per scan (choices in order) with its own timer and channels, none
+    of them in `taken`; or None."""
+    for pick in itertools.product(*choices):
+        timers = [o[1] for o in pick]
+        chans = [ch for o in pick for ch, _r, _role in o[3]]
+        if len(set(timers)) == len(timers) and len(set(chans)) == len(chans) and not set(chans) & taken:
+            return pick
+    return None
+
+
+def pick_text(pick):
+    return ", ".join(f"{o[0]} on TIM{o[1]}" for o in pick)
+
+
 def allocate_dma(v, dev, data):
-    """stm32f1: give each DMA user its channels (STM32F1_DMA) -> dev.dma_map [(channel, request, user)].
-    The scans claim theirs first, so a clash is reported on the optional user (a dma: switch)."""
-    dev.dma_map = []
+    """stm32f1: give each DMA user its channels -> dev.dma_map [(channel, request, user)] and the
+    timers -> dev.scan_timers. The serial users' requests have fixed channels (STM32F1_DMA); the hardware
+    scans pick a timer (hardware_scan.*.timer, or the first that fits with auto) whose requests land
+    on free ones. When nothing fits, the clash is reported on the optional user (a dma: switch)."""
+    dev.dma_map, dev.scan_timers = [], {}
     if dev.platform.name != "stm32f1":
         return
-    hs = data.get("hardware_scan") if isinstance(data.get("hardware_scan"), dict) else LDict()
-    users = []                          # (user, path, line, requests, how to free it)
-    if dev.hw_scan:
-        reqs = ["TIM1_UP", "TIM1_CH2"] + (["TIM1_CH1", "TIM1_CH3"] if dev.hw_scan[2] else [])
-        users.append(("hardware_scan.matrix", "hardware_scan.matrix", hs.line_of("matrix"), reqs, None))
-    if dev.hw_adc:
-        users.append(("hardware_scan.analog", "hardware_scan.analog", hs.line_of("analog"),
-                      ["ADC1", "TIM4_CH2"], None))
+    serial = []                         # (user, path, line, requests, how to free it)
     for h in dev.hubs:
         if h.type == "rgb_serial" and h.dma:
             line = h.raw.line_of("dma") if "dma" in h.raw else h.line
-            users.append((f"rgb_serial '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
-                          "set dma: false on it (interrupt-driven)"))
+            serial.append((f"rgb_serial '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
+                           "set dma: false on it (interrupt-driven)"))
     if dev.din is not None and dev.din.dma:
         d = data["din_midi"]
-        users.append(("din_midi", "din_midi.dma", d.line_of("dma"),
-                      ["USART1_TX"] + (["USART1_RX"] if dev.din.rx is not None else []),
-                      "set din_midi dma: false (interrupt-driven, the default)"))
-    taken = {}
-    for user, path, line, reqs, how in users:
+        serial.append(("din_midi", "din_midi.dma", d.line_of("dma"),
+                       ["USART1_TX"] + (["USART1_RX"] if dev.din.rx is not None else []),
+                       "set din_midi dma: false (interrupt-driven, the default)"))
+    taken = {STM32F1_DMA[r]: (user, r) for user, _p, _l, reqs, _h in serial for r in reqs}
+    scans = [s for s, on in (("matrix", dev.hw_scan), ("analog", dev.hw_adc)) if on]
+    pick = dma_search(scan_choices(dev, scans), set(taken))
+    if pick is None:
+        dma_clash(v, dev, scans, serial, taken)
+        return
+    for scan, t, roles, claims in pick:
+        dev.scan_timers[scan] = (t, roles)
+        for ch, r, role in claims:
+            dev.dma_map.append((ch, r, f"hardware_scan.{scan}" + (f" {HW_SCAN_ROLE_NAMES[role]}"
+                                                                    if role in HW_SCAN_ROLE_NAMES else "")))
+    used = {o[1] for o in pick}
+    dev.scan_timers["tick"] = next(t for t in TICK_TIMERS if t not in used)
+    dev.dma_map += [(STM32F1_DMA[r], r, user) for user, _p, _l, reqs, _h in serial for r in reqs]
+    dev.dma_map.sort()
+
+
+def dma_clash(v, dev, scans, serial, taken):
+    """allocate_dma found no fit: say why."""
+    alone = dma_search(scan_choices(dev, scans), set())
+    if alone is None:
+        # Only explicit timers do this (TIM1 + TIM4 always fit): two on one timer, or one whose
+        # requests can't make a scan.
+        (mt, mpath, mline), (at, apath, aline) = dev.hw_timer.get("matrix", (None, "", 0)), \
+            dev.hw_timer.get("analog", (None, "", 0))
+        auto = dma_search(scan_choices(dev, scans, auto=True), set(taken))
+        hint = f" (timer: auto picks {pick_text(auto)})" if auto else ""
+        if mt is not None and mt == at:
+            v.err(apath, aline, f"TIM{at} is hardware_scan.matrix's timer too: each scan needs its own{hint}")
+        elif mt is not None and not dma_search(scan_choices(dev, ["matrix"]), {1} if dev.hw_adc else set()):
+            k = len(scan_options(dev, "matrix", 1)[0][2])
+            steps = ", ".join(HW_SCAN_ROLE_NAMES[r] for r in scan_options(dev, "matrix", 1)[0][2])
+            chans = [ch for n, ch in STM32F1_DMA.items() if n.startswith(f"TIM{mt}_")]
+            notes = [f"two share channel {c}" for c in sorted(set(chans)) if chans.count(c) > 1]
+            if dev.hw_adc and 1 in chans:
+                notes.append("channel 1 is ADC1's, for hardware_scan.analog")
+            note = f" ({'; '.join(notes)})" if notes else ""
+            v.err(mpath, mline, f"TIM{mt} can't pace the matrix scan: it needs {k} DMA requests of one "
+                                f"timer on different channels ({steps}; only the select may be the "
+                                f"update), and TIM{mt} has {tim_requests(mt)}{note}{hint}")
+        else:
+            v.err(apath if at is not None else mpath, aline if at is not None else mline,
+                  f"hardware_scan.matrix on {f'TIM{mt}' if mt else 'auto'} and hardware_scan.analog on "
+                  f"{f'TIM{at}' if at else 'auto'} can't both have their DMA channels{hint}")
+        return
+    # The scans fit by themselves: the serial users clash with every way they can run. Report the
+    # clashes with the first, and what would fit instead.
+    hint = ""
+    explicit = any(dev.hw_timer.get(s, (None,))[0] for s in scans)
+    auto = explicit and dma_search(scan_choices(dev, scans, auto=True), set(taken))
+    if auto:
+        hint = f"; or set the hardware_scan timers to auto (it finds: {pick_text(auto)})"
+    elif dev.hw_scan and dev.hw_scan[2] and dma_search(scan_choices(dev, scans, auto=True, pre=False),
+                                                        set(taken)):
+        hint = ("; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels "
+                "instead of 4, and that fits (set a longer row_time and settle)")
+    elif scans:
+        hint = "; no hardware_scan timer choice leaves it free"
+    users = {ch: (f"hardware_scan.{o[0]}", r) for o in alone for ch, r, _role in o[3]}
+    for user, path, line, reqs, how in serial:
         for r in reqs:
             ch = STM32F1_DMA[r]
-            if ch in taken:
-                other, oreq = taken[ch]
+            if ch in users:
+                other, oreq = users[ch]
                 v.err(path, line, f"needs DMA1 channel {ch} ({r}), which {other} uses ({oreq}): "
-                                  f"{how or 'turn one of them off'}, or turn {other} off")
-                continue
-            taken[ch] = (user, r)
-            dev.dma_map.append((ch, r, user))
-    dev.dma_map.sort()
+                                  f"{how}, or turn {other} off{hint}")
+                hint = ""                   # once is enough
 
 
 def dma_text(dev):
@@ -1465,6 +1615,16 @@ def dma_text(dev):
     used = ", ".join(f"{ch} {r} ({u})" for ch, r, u in dev.dma_map) or "none"
     free = [str(c) for c in range(1, STM32F1_DMA_CHANNELS + 1) if c not in {ch for ch, _r, _u in dev.dma_map}]
     return f"DMA1 channels: {used}; free: {', '.join(free) or 'none'}"
+
+
+def timers_text(dev):
+    """'timers: TIM1 hardware_scan.matrix, TIM2 scan tick, ...' for the build output."""
+    if not dev.scan_timers:
+        return ""
+    names = {"matrix": "hardware_scan.matrix",
+             "analog": "hardware_scan.analog (ADC1 started by {trig})", "tick": "scan tick"}
+    ts = sorted((t if s == "tick" else t[0], s) for s, t in dev.scan_timers.items())
+    return "timers: " + ", ".join(f"TIM{t} " + names[s].format(trig=HW_ADC_TRIGGER.get(t)) for t, s in ts)
 
 
 def validate_timeout(v, d, key, path, default):
@@ -3474,11 +3634,13 @@ def generate(dev, source="device.yaml"):
          f"#define GM_HW_ADC {1 if dev.hw_adc else 0} /* hardware_scan.analog */"]
     if dma_text(dev):
         h.append(f"/* {dma_text(dev)} */")
+        h.append(f"/* {timers_text(dev)} */")
     if dev.hw_scan:
         row, settle, pre = dev.hw_scan
         h += [f"#define GM_HW_SCAN_ROW_NS {row}",
               f"#define GM_HW_SCAN_SETTLE_NS {settle}",
               f"#define GM_HW_SCAN_PRECHARGE {1 if pre else 0}"]
+    h += timer_defines(dev)
     tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
         h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
@@ -3687,6 +3849,29 @@ def led_fb_rows(dev):
             special = True
         rows.append((src, owner, timeout))
     return rows if special else None
+
+
+def timer_defines(dev):
+    """stm32f1: the timers and DMA requests allocate_dma picked (platform/stm32f1/include/dma_map.h).
+    Requests: 0 = update, k = compare k; a _CH is its DMA1 channel (0 = not used)."""
+    h = []
+    if "matrix" in dev.scan_timers:
+        t, roles = dev.scan_timers["matrix"]
+        h.append(f"#define GM_HW_SCAN_TIM {t} /* hardware_scan.matrix on TIM{t} */")
+        for role in ("sel", "in", "rd", "pre"):
+            q = roles.get(role)
+            what = f"{tim_req(t, q)}: {HW_SCAN_ROLE_NAMES[role]}" if q is not None else "no precharge"
+            h += [f"#define GM_HW_SCAN_{role.upper()} {q or 0} /* {what} */",
+                  f"#define GM_HW_SCAN_{role.upper()}_CH {STM32F1_DMA[tim_req(t, q)] if q is not None else 0}"]
+    if "analog" in dev.scan_timers:
+        t, roles = dev.scan_timers["analog"]
+        q = roles["mux"]
+        h += [f"#define GM_HW_ADC_TIM {t} /* hardware_scan.analog on TIM{t}: ADC1 by {HW_ADC_TRIGGER[t]} */",
+              f"#define GM_HW_ADC_MUX {q} /* {tim_req(t, q)}: mux step */",
+              f"#define GM_HW_ADC_MUX_CH {STM32F1_DMA[tim_req(t, q)]}"]
+    if "tick" in dev.scan_timers:
+        h.append(f"#define GM_SCAN_TICK_TIM {dev.scan_timers['tick']} /* the scan tick interrupt */")
+    return h
 
 
 def feedback_defines(dev):

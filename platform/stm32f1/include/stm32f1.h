@@ -183,7 +183,9 @@
 #define ADC_CR2_CAL     (1u << 2)
 #define ADC_CR2_RSTCAL  (1u << 3)
 #define ADC_CR2_EXTSEL_SWSTART (7u << 17)
-#define ADC_CR2_EXTSEL_TIM4_CC4 (5u << 17) /* regular group trigger (RM0008 11.12.3) */
+#define ADC_CR2_EXTSEL_TIM2_CC2 (3u << 17) /* regular group triggers (RM0008 11.12.3) */
+#define ADC_CR2_EXTSEL_TIM3_TRGO (4u << 17)
+#define ADC_CR2_EXTSEL_TIM4_CC4 (5u << 17)
 #define ADC_CR2_DMA     (1u << 8)
 #define ADC_CR1_SCAN    (1u << 8)
 #define ADC_CR2_EXTTRIG (1u << 20)
@@ -228,12 +230,42 @@
 #define TIM_CCR2(t)     REG32((t) + 0x38u)
 #define TIM_CCR3(t)     REG32((t) + 0x3Cu)
 #define TIM_CCR4(t)     REG32((t) + 0x40u)
+#define TIM_CCR(t, n)   REG32((t) + 0x30u + 4u * (n))   /* CCR1..CCR4 */
 #define TIM_DIER_UDE    (1u << 8)          /* update -> DMA request */
 #define TIM_DIER_CC1DE  (1u << 9)          /* compare n -> DMA request */
 #define TIM_DIER_CC2DE  (1u << 10)
 #define TIM_DIER_CC3DE  (1u << 11)
+#define TIM_DIER_DE(q)  (1u << (8u + (q))) /* request q: 0 = update, n = compare n */
+#define TIM_CCMR1_OC2M_PWM2 (7u << 12)     /* OC2REF rises at CNT = CCR2 */
 #define TIM_CCMR2_OC4M_PWM2 (7u << 12)     /* OC4REF rises at CNT = CCR4 */
+#define TIM_CCER_CC2E   (1u << 4)
 #define TIM_CCER_CC4E   (1u << 12)
+#define TIM_CR2_MMS_OC2REF (5u << 4)       /* TRGO = OC2REF */
+
+/* Timer n (1..4): its registers, its update IRQ (TIM2..4), and clock on + reset. */
+#define TIM_BASE_N(n)   ((n) == 1 ? TIM1_BASE : (n) == 2 ? TIM2_BASE : (n) == 3 ? TIM3_BASE : TIM4_BASE)
+#define IRQ_TIM(n)      (26 + (n))         /* TIM2..TIM4 = 28..30 */
+static inline void tim_clock_reset(uint32_t n)
+{
+    if (n == 1u) {
+        RCC_APB2ENR |= RCC_APB2_TIM1;
+        RCC_APB2RSTR |= RCC_APB2_TIM1;
+        RCC_APB2RSTR &= ~RCC_APB2_TIM1;
+    } else {
+        uint32_t b = 1u << (n - 2u);       /* RCC_APB1_TIM2..4 */
+        RCC_APB1ENR |= b;
+        RCC_APB1RSTR |= b;
+        RCC_APB1RSTR &= ~b;
+    }
+}
+
+/* The DMA1 channel of timer t's request q (0 = update, n = compare n), or 0
+ * if it has none (RM0008 table 78; tools/builder STM32F1_DMA is the same). */
+#define DMA1_TIM_CH(t, q) \
+    ((t) == 1 ? ((q) == 0 ? 5 : (q) == 1 ? 2 : (q) == 2 ? 3 : (q) == 3 ? 6 : (q) == 4 ? 4 : 0) : \
+     (t) == 2 ? ((q) == 0 ? 2 : (q) == 1 ? 5 : (q) == 2 ? 7 : (q) == 3 ? 1 : (q) == 4 ? 7 : 0) : \
+     (t) == 3 ? ((q) == 0 ? 3 : (q) == 1 ? 6 : (q) == 3 ? 2 : (q) == 4 ? 3 : 0) : \
+     (t) == 4 ? ((q) == 0 ? 7 : (q) == 1 ? 1 : (q) == 2 ? 4 : (q) == 3 ? 5 : 0) : 0)
 
 /* ---- debug MCU (RM0008 31.6) ------------------------------------------ */
 /* DBGMCU_IDCODE: DEV_ID [11:0], REV_ID [31:16]. Note ST errata (ES0340
@@ -279,8 +311,13 @@
 /* IRQ numbers (RM0008 table 63, connectivity-line-free F101/F103) */
 #define IRQ_USB_HP_CAN1_TX  19
 #define IRQ_USB_LP_CAN1_RX0 20
+#define IRQ_DMA1_CH(n)      (10 + (n))     /* DMA1 channel n = 11..17 */
 #define IRQ_DMA1_CH1        11
+#define IRQ_DMA1_CH2        12
 #define IRQ_DMA1_CH3        13
+#define IRQ_DMA1_CH5        15
+#define IRQ_DMA1_CH6        16
+#define IRQ_DMA1_CH7        17
 #define IRQ_TIM2            28
 #define IRQ_TIM3            29
 #define IRQ_TIM4            30

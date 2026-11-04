@@ -5,6 +5,8 @@
 #
 # test_controller: the Keystation config (devices/keystation-mini32-mk3.yaml),
 #                  with its presets
+# test_controller_wtf: the same with write_to_flash: { last_preset: true }
+#                  (the YAML plus that line, written into the build dir)
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
@@ -49,6 +51,8 @@ DINP_DEVICE := din-port-test.yaml
 DINP_DEV    := $(BUILD)/device-din-port
 DINM_DEVICE := din-merge-test.yaml
 DINM_DEV    := $(BUILD)/device-din-merge
+WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
+WTF_DEV    := $(BUILD)/device-wtf
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -86,6 +90,12 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DINM
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DINM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(DEVICE); echo 'write_to_flash: { last_preset: true }'; } > $(WTF_DEVICE).new && \
+                     { cmp -s $(WTF_DEVICE).new $(WTF_DEVICE) || mv $(WTF_DEVICE).new $(WTF_DEVICE); } && rm -f $(WTF_DEVICE).new && \
+                     python3 $(ROOT)/tools/builder/gemifi_build.py generate $(WTF_DEVICE) -o $(WTF_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(WTF_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(LED_DEVICE) -o $(LED_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(LED_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
@@ -104,6 +114,7 @@ CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/a
              fake_config_store.c
 
 SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
+WTF_SRCS := test_controller.c $(CORE_SRCS) $(WTF_DEV)/gm_device_config.c
 
 FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 
@@ -118,11 +129,12 @@ LED_SRCS := test_leds.c $(CORE_SRCS) $(LED_DEV)/gm_device_config.c
 LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
+	$(BUILD)/test_controller_wtf
 	$(BUILD)/test_feedback
 	$(BUILD)/test_matrix
 	GM_TEST_FAST_COLS=1 $(BUILD)/test_matrix
@@ -142,6 +154,10 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(DEV) $(SRCS) -Wl,--wrap=gm_display_message -o $@
+
+$(BUILD)/test_controller_wtf: $(WTF_SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(WTF_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(WTF_DEV) $(WTF_SRCS) -Wl,--wrap=gm_display_message -o $@
 
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

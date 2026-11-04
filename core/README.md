@@ -380,6 +380,7 @@ scan_interval: 125us           # matrix/encoder scan period
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
 boot_combo: [pitch_down, pitch_up]  # button ids
+write_to_flash: false          # what the device stores on its own (below); host saves always work
 
 cd74hc4051:
   - id: faders
@@ -474,6 +475,24 @@ key_matrix:
 - At least one of the two. With only a `name`, the id is derived from it (lowercase, every run of other characters → `_`: "Pitch Down" → `pitch_down`); two derived ids that collide are an error naming both entries.
 - Only names reach the firmware (buttons, analog inputs and encoders; LEDs have no name in the tables, since nothing shows one). Ids are a build-time thing and appear only in comments in the generated C.
 
+### Writes the device makes on its own
+
+`write_to_flash:` says what the device may write to its flash **on its own**, without a host asking. A flash write can need a page erase, which stops the CPU, and with it the key scan, for 20-40 ms: one that lands while you play can lose notes or get a velocity wrong. So these writes are off unless the YAML turns them on, and the ones that are on wait until the controller has been left alone.
+
+```yaml
+write_to_flash:
+  last_preset: true   # remember the selected preset across power cycles (default false)
+  delay: 10s          # wait this long after the last change (default 10s, 1s..1h)
+  idle: 3s            # and until nothing has been played or touched for this long (default 3s, 100ms..10min)
+```
+
+- **`write_to_flash: true` / `false`** is the short form: every item (today only `last_preset`) on or off, with the default timings. Leaving the key out is `false`.
+- **`last_preset`**: store `preset.active` after a preset switch, so the device powers up on the preset used last. The write waits until both hold: `delay` has passed since the last switch, and for `idle` no key or button has been held and nothing has been played (keys, buttons, encoders, pads, or an analog input moving enough to send; ADC noise doesn't count). Until then it stays pending, and goes in the next quiet moment. Off (the default): a switch on the device never writes, and the device always powers up on preset 1, whatever an older firmware stored.
+- **Host saves always work.** The host's commands write whenever they are sent, whatever this says: COMMIT, PRESET_SAVE, PRESET_NAME, PRESET_DELETE, PRESET_MOVE, PRESET_RESET and FACTORY_RESET (protocol/sysex.md §4.5). They store `preset.count` too. A COMMIT also stores `preset.active` (and clears a pending `last_preset` write), but with `last_preset` off the power-up ignores it.
+- `delay` or `idle` with nothing turned on is a warning; so is `last_preset` on a device with one preset (there is nothing to remember, so it stays off).
+- **Generated code:** `GM_WRITE_LAST_PRESET` (0/1), `GM_WRITE_DELAY_MS` and `GM_WRITE_IDLE_MS` in `gm_device_config.h`. With `GM_WRITE_LAST_PRESET` 0 the timer and the idle tracking are left out; with 1 the controller keeps a last-input time and a count of keys held (5 bytes of RAM, `gm_idle_ms()`). New items go next to `last_preset` and share `delay` and `idle`.
+- **Tests:** `core/test` `test_controller` (the Keystation, off: a switch never writes, a boot ignores a stored `preset.active`) and `test_controller_wtf` (the same YAML with `last_preset: true`: the delay, keys and buttons held, a knob turned, ADC noise, COMMIT), and the NUC host-sim `run_presets.py` (on, with the real journal and reboots).
+
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
 
 ## Presets
@@ -504,6 +523,7 @@ presets:
 - **Slot 1** is the first list entry (or "Default" when the list is empty); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (one preset: they do nothing). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
 - **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `cc`, `note`, `preset`, `mcu`), `analog.cc`/`analog.mode`, `encoder.cc`/`encoder.mode`, `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
+- **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
 - **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its one 1 KB page: there the Code 61 takes up to 3 slots.
 
 **Generated code** (`gm_device.h` `gm_preset_def_t`): `GM_N_PRESETS` (slots; 1 without `presets:`) and `GM_PRESETS_REVISION` in `gm_device_config.h`, and in `gm_device_config.c` `gm_presets[GM_N_PRESETS]` (slot n = `gm_presets[n - 1]`) with one sorted `{ param id, index, value }` array per preset that has overrides:
@@ -805,6 +825,10 @@ encoders:
 #define GM_ANALOG_TOUCH 0                 /* 1: gm_analog_touch[] (analog touch:) */
 #define GM_MCU 0                          /* 1: mcu: (then also GM_MCU_CABLE, GM_MCU_ID) */
 #define GM_USB_DAW_PORT 0                 /* 1: second USB-MIDI cable (then also GM_DAW_PORT_NAME) */
+/* write_to_flash ("Writes the device makes on its own") */
+#define GM_WRITE_LAST_PRESET 0            /* 1: store preset.active on its own once quiet */
+#define GM_WRITE_DELAY_MS 10000u          /* write_to_flash.delay */
+#define GM_WRITE_IDLE_MS 3000u            /* write_to_flash.idle */
 /* ESP only: */
 #define GM_MIDI_TRANSPORT GM_MIDI_USB     /* GM_MIDI_USB / _SERIAL / _BLE, values in gm_hal.h */
 #define GM_I2C_SDA 8                      /* GPIO numbers, when i2c: is given; */

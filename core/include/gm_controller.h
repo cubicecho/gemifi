@@ -128,6 +128,13 @@ uint32_t gm_buttons_now(void);
  * released. Sends on the current (old) channel. */
 void gm_release_all(void);
 
+/* Core internal (src/presets.c, write_to_flash: GM_WRITE_LAST_PRESET only):
+ * ms since the last local input (a key, button, encoder, pad, or an analog
+ * input that moved enough to send), 0 while a key or button is held. A
+ * device-initiated flash write waits for this, since its page erase stalls
+ * the scan. */
+uint32_t gm_idle_ms(void);
+
 #ifdef __cplusplus
 }
 #endif

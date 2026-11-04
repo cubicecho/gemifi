@@ -37,15 +37,19 @@ typedef struct {
 } preset_info_t;
 
 /* gm_init: params_defaults(), then (unless safe) the stored globals (slot
- * 0, including preset.active), then the active slot. safe = ignore the
- * store when loading (it is still written by COMMIT). */
+ * 0), then the active slot: the stored preset.active with
+ * write_to_flash.last_preset (GM_WRITE_LAST_PRESET), else slot 1. safe =
+ * ignore the store when loading (it is still written by COMMIT). */
 void presets_boot(int safe);
 
-/* gm_poll: writes preset.active once it has been stable for 10 s. */
+/* gm_poll. With write_to_flash.last_preset: writes preset.active once the
+ * switch is GM_WRITE_DELAY_MS old and gm_idle_ms() >= GM_WRITE_IDLE_MS.
+ * Without it: nothing (a switch never writes). */
 void presets_poll(uint32_t now_ms);
 
-/* Write preset.active now if it is still waiting for those 10 s (before a
- * power-off). Unsaved edits stay unsaved: those are only stored by COMMIT. */
+/* Write preset.active now if it is still waiting to be written (before a
+ * power-off; nothing without write_to_flash.last_preset). Unsaved edits
+ * stay unsaved: those are only stored by COMMIT. */
 void presets_flush(void);
 
 /* Switch (device or host): release everything held, load the slot, send

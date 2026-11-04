@@ -361,7 +361,7 @@ check([x.slot for x in changed(u)] == [1], "preset next wraps 8 -> 1 (unsaved ed
 d.select(8); check(d.get(P_ACTION, MOD) == 3, "slot 8's unsaved mod action is gone")
 
 # ---- 7. preset.active debounce -------------------------------------------
-print("-- preset.active is stored after 10 s")
+print("-- preset.active is stored after 10 s (write_to_flash: { last_preset: true })")
 d.select(1); d.commit(); d.advance(11000); d.take()
 p0 = d.programs
 _, u, _ = d.press(MOD); d.release(MOD)
@@ -377,6 +377,13 @@ d.advance(15000); check(d.programs == p1, "written once only")
 d.reboot(); check(d.get(P_ACTIVE) == 2 and d.get(P_ACTION, MOD) == ACT_PRESET_NEXT, "reboot: slot 2 active (stored by the debounce)")
 d.select(2); d.advance(12000); check(d.programs == p1, "re-selecting the stored slot writes nothing")
 d.select(3); d.select(2); d.advance(12000); check(d.programs == p1, "flipping back within 10 s writes nothing")
+# write_to_flash.idle: not while a key is held, nor until 3 s after the last input
+d.select(3); d.key(0, True); d.advance(15000); d.take()
+check(d.programs == p1, "a key held through the delay: nothing written")
+d.key(0, False); d.advance(2500); d.take(); check(d.programs == p1, "2.5 s after its release: still nothing")
+d.advance(600); p2 = d.programs; check(p2 > p1, "idle for 3 s: preset.active written")
+d.reboot(); check(d.get(P_ACTIVE) == 3, "reboot: slot 3 (stored once idle)")
+p1 = p2
 d.select(4); d.advance(5000); d.set(P_GLIDE, 0, 7); d.advance(5100)
 check(d.programs > p1 and d.get(P_DIRTY) == 1, "the debounce write leaves unsaved edits alone (still dirty)")
 d.reboot(); check(d.get(P_ACTIVE) == 4 and d.get(P_GLIDE) == 80, "reboot: slot 4, the unsaved edit not stored")

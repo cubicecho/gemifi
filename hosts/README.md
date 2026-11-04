@@ -22,6 +22,7 @@ A component's `role` (YAML `daw:`, else its `mcu:` name) says what a script conn
 | Mixer strips 1–8, in the current bank (buttons / LEDs) | `mute_N`, `solo_N`, `arm_N`, `select_N`, `bank_prev`, `bank_next` |
 | Mixer strips 1–8 (analog / encoders) | `volume_N`, `pan_N` |
 | Master (analog / encoders) | `master_volume`, `cue_volume`, `crossfader`, `tempo` (encoder) |
+| Master (buttons / LEDs) | `master_mute` |
 | Selected device (analog / encoders) | `device_param_N` (1–8) |
 | Selected device (buttons / LEDs) | `device_prev`, `device_next`, `device_bank_prev`, `device_bank_next`, `device_on` |
 | Session (buttons / LEDs) | `scene_launch`, `scene_prev`, `scene_next`, `stop_all_clips` |

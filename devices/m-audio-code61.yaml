@@ -1,8 +1,13 @@
 # M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
 # Runs under the gemifi bootloader (bootloader/stm32f1). Working on hardware
 # (2026-11-03): keys with velocity, panel buttons, encoders, faders, wheels,
-# aftertouch, pads, LEDs, the display, presets on Up / Down and settings
-# saving. Values still tagged [guess] below are untuned.
+# aftertouch, the XY pad, pads with their LEDs, the button LEDs (lit while
+# idle), the display (preset names, "CH <n>"), the rear MIDI jacks, presets on
+# Up / Down (Channel held: the MIDI channel), the soft power button (hold 2 s
+# to switch off) and settings saving. Values still tagged [guess] below are
+# untuned. DAW scripts (Bitwig, Live; hosts/README.md) find the transport,
+# faders, encoders and B1-B9 by their daw: roles; without a script those send
+# their CCs as usual.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -24,9 +29,9 @@
 gemifi: 2
 name: m-audio-code61
 friendly_name: Code 61
-description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, pads, LEDs and display"
+description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.74
+  version: 0.2.75
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -212,15 +217,15 @@ leds:
 # used as the range. [likely] Which slot is which physical fader is [guess]:
 # slot 0 is the one direct fader (PA6), slots 1-8 come from the mux.
 analog:
-  - { id: fader_1, pin: { cd74hc4051: fader_mux, number: 0 }, cc: 20, adc_min: 80, adc_max: 4000 }   # [guess] position
-  - { id: fader_2, pin: { cd74hc4051: fader_mux, number: 1 }, cc: 21, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_3, pin: { cd74hc4051: fader_mux, number: 2 }, cc: 22, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_4, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 23, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_5, pin: { cd74hc4051: fader_mux, number: 4 }, cc: 24, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_6, pin: { cd74hc4051: fader_mux, number: 5 }, cc: 25, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000 }   # [guess]
-  - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000 }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
+  - { id: fader_1, pin: { cd74hc4051: fader_mux, number: 0 }, cc: 20, adc_min: 80, adc_max: 4000, daw: volume_1 }   # [guess] position
+  - { id: fader_2, pin: { cd74hc4051: fader_mux, number: 1 }, cc: 21, adc_min: 80, adc_max: 4000, daw: volume_2 }   # [guess]
+  - { id: fader_3, pin: { cd74hc4051: fader_mux, number: 2 }, cc: 22, adc_min: 80, adc_max: 4000, daw: volume_3 }   # [guess]
+  - { id: fader_4, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 23, adc_min: 80, adc_max: 4000, daw: volume_4 }   # [guess]
+  - { id: fader_5, pin: { cd74hc4051: fader_mux, number: 4 }, cc: 24, adc_min: 80, adc_max: 4000, daw: volume_5 }   # [guess]
+  - { id: fader_6, pin: { cd74hc4051: fader_mux, number: 5 }, cc: 25, adc_min: 80, adc_max: 4000, daw: volume_6 }   # [guess]
+  - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000, daw: volume_7 }   # [guess]
+  - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000, daw: volume_8 }   # [guess]
+  - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000, daw: master_volume }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
   # Wheels on PA4 (ch4) and PA5 (ch5) [sure]; the panel has pitch then mod,
   # left to right [sure, 2026-11-03: PA4 = pitch, analog 9].
   # The pitch wheel's resting reading at power-up is its centre.
@@ -251,9 +256,10 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders,
-# 29 = button mode). Slots 38 and 39 have no button (placeholders). A
-# switch_matrix takes at most 32 switches, so row 20 is its own.
+# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders:
+# b1 under the master fader, b2-b9 under faders 1-8; 29 = button mode).
+# Slots 38 and 39 have no button (placeholders). A switch_matrix takes at
+# most 32 switches, so row 20 is its own.
 switch_matrix:
   - id: panel
     rows: { decoder: rows, first: 16, count: 4 }
@@ -346,28 +352,28 @@ buttons:
   - { id: num_2, name: "2", pin: { switch_matrix: panel, number: 7 }, action: cc_momentary, cc: 107, led: num_2_led }
   - { id: num_3, name: "3", pin: { switch_matrix: panel, number: 8 }, action: cc_momentary, cc: 108, led: num_3_led }
   - { id: num_4, name: "4", pin: { switch_matrix: panel, number: 9 }, action: cc_momentary, cc: 109, led: num_4_led }
-  - { id: rewind, name: "Rewind", pin: { switch_matrix: panel, number: 10 }, action: cc_momentary, cc: 110 }
-  - { id: fast_forward, name: "Fast forward", pin: { switch_matrix: panel, number: 11 }, action: cc_momentary, cc: 111 }
-  - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112 }
-  - { id: play, name: "Play", pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113 }
-  - { id: record, name: "Record", pin: { switch_matrix: panel, number: 14 }, action: cc_momentary, cc: 114 }
+  - { id: rewind, name: "Rewind", pin: { switch_matrix: panel, number: 10 }, action: cc_momentary, cc: 110, daw: rewind }
+  - { id: fast_forward, name: "Fast forward", pin: { switch_matrix: panel, number: 11 }, action: cc_momentary, cc: 111, daw: fast_forward }
+  - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112, daw: stop }
+  - { id: play, name: "Play", pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113, daw: play }
+  - { id: record, name: "Record", pin: { switch_matrix: panel, number: 14 }, action: cc_momentary, cc: 114, daw: record }
   - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: cc_momentary, cc: 115 }
   - { id: pad_octave_up, name: "Pad octave +", pin: { switch_matrix: panel, number: 16 }, action: cc_momentary, cc: 116 }
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
-  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led }   # under fader 1
-  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led }   # under fader 2
-  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led }   # under fader 3
-  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led }   # under fader 4
-  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led }   # under fader 5
-  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led }   # under fader 6
-  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led }   # under fader 7
-  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led }   # under fader 8
-  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led }   # under fader 9
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led, daw: master_mute }   # under the master fader
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led, daw: mute_1 }   # under fader 1
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led, daw: mute_2 }   # under fader 2
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led, daw: mute_3 }   # under fader 3
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led, daw: mute_4 }   # under fader 4
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led, daw: mute_5 }   # under fader 5
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led, daw: mute_6 }   # under fader 6
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led, daw: mute_7 }   # under fader 7
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led, daw: mute_8 }   # under fader 8
   - { id: button_mode, name: "Button mode", pin: { switch_matrix: panel, number: 29 }, action: cc_momentary, cc: 84, led: button_mode_led }
-  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led }
-  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led }
+  - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led, daw: bank_prev }
+  - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led, daw: bank_next }
   - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96, led: fader_mode_led }
   - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97, led: encoder_mode_led }
   - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98, led: x_mode_led }
@@ -379,14 +385,14 @@ buttons:
 
 # x1 decoding in the stock firmware: one step per A rising edge. [guess] 4 quadrature steps per detent.
 encoders:
-  - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70 }
-  - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71 }
-  - { id: encoder_3, name: "E3", pin_a: { switch_matrix: encoder_rows, number: 4 }, pin_b: { switch_matrix: encoder_rows, number: 5 }, cc: 72 }
-  - { id: encoder_4, name: "E4", pin_a: { switch_matrix: encoder_rows, number: 6 }, pin_b: { switch_matrix: encoder_rows, number: 7 }, cc: 73 }
-  - { id: encoder_5, name: "E5", pin_a: { switch_matrix: encoder_rows, number: 8 }, pin_b: { switch_matrix: encoder_rows, number: 9 }, cc: 74 }
-  - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75 }
-  - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76 }
-  - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77 }
+  - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70, daw: device_param_1 }
+  - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71, daw: device_param_2 }
+  - { id: encoder_3, name: "E3", pin_a: { switch_matrix: encoder_rows, number: 4 }, pin_b: { switch_matrix: encoder_rows, number: 5 }, cc: 72, daw: device_param_3 }
+  - { id: encoder_4, name: "E4", pin_a: { switch_matrix: encoder_rows, number: 6 }, pin_b: { switch_matrix: encoder_rows, number: 7 }, cc: 73, daw: device_param_4 }
+  - { id: encoder_5, name: "E5", pin_a: { switch_matrix: encoder_rows, number: 8 }, pin_b: { switch_matrix: encoder_rows, number: 9 }, cc: 74, daw: device_param_5 }
+  - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75, daw: device_param_6 }
+  - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76, daw: device_param_7 }
+  - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77, daw: device_param_8 }
 
 # Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
 # right. Pad k is pad_k. Mapped on hardware (2026-11-03): the mux slots count
@@ -423,12 +429,12 @@ pad_settings:
   retrigger: 20ms          # no new hit for 20 ms after a release
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
-# display shows the name. The STM32F1's 1 KB settings page holds 3 slots at
-# most. Slots 2 and 3 start free: make, rename and delete presets on the
-# web page's Presets tab (also reorder them there), or with
+# display shows the name. The settings store (3 pages of 1 KB) holds 5 slots
+# at most; 4 keeps it under 85% at worst case. Slots 2-4 start free: make,
+# rename, reorder and delete presets on the web page's Presets tab, or with
 # `gemifi.py preset save/rename/move/delete`.
 presets:
-  slots: 3
+  slots: 4
   list:
     - name: Default
 

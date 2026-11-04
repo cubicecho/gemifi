@@ -230,7 +230,7 @@ DAW_ROLES = {
     "track_prev", "track_next", "track_mute", "track_solo", "track_arm",
     "track_volume", "track_pan", "send_a", "send_b",
     *(f"{r}_{i}" for r in ("mute", "solo", "arm", "select", "volume", "pan", "device_param") for i in range(1, 9)),
-    "bank_prev", "bank_next", "master_volume", "cue_volume", "crossfader", "tempo",
+    "bank_prev", "bank_next", "master_volume", "master_mute", "cue_volume", "crossfader", "tempo",
     "device_prev", "device_next", "device_bank_prev", "device_bank_next", "device_on",
     "scene_launch", "scene_prev", "scene_next", "stop_all_clips",
 }

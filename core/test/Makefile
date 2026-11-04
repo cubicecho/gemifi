@@ -157,7 +157,7 @@ $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_conf
 
 $(BUILD)/test_controller_wtf: $(WTF_SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(WTF_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(WTF_DEV) $(WTF_SRCS) -o $@
+	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(WTF_DEV) $(WTF_SRCS) -Wl,--wrap=gm_display_message -o $@
 
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

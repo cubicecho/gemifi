@@ -1575,6 +1575,8 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
 
 void gm_host_release(uint32_t what)
 {
+    if (what == 0 || what == 3)
+        gm_display_host_release();
     if (what == 0 || what == 1)
         for (uint32_t i = 0; i < gm_device.n_leds; i++) {
             led_host_lv[i] = HOST_NONE;

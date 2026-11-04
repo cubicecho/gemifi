@@ -87,8 +87,7 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
 void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..127, absolute mode */
 void gm_host_release(uint32_t what);                           /* FB_RELEASE: 0 all, 1 LEDs, 2 values */
 
-/* app_proto.c: optional hook (weak, does nothing) for FB_TEXT, until there
- * are display components. */
+/* app_proto.c: FB_TEXT goes to the display (core/src/display.c). */
 void gm_host_on_text(uint32_t display, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n);
 
 #ifdef __cplusplus

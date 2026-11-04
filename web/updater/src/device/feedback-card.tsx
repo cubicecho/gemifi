@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { SysexClient } from '../protocol/client.ts';
 import {
   COMPONENT_KIND_NAMES,
   COMPONENT_KINDS,
@@ -35,12 +34,12 @@ import {
 } from '../protocol/feedback.ts';
 import { noteName } from '../protocol/schema.ts';
 import { ComponentKind, FB_TEXT_MAX, LedColours, LedLevel, Notification, RingMode } from '../protocol/wire.ts';
-import { type FeedbackController, useFeedback } from './use-feedback.ts';
+import type { FeedbackController } from './use-feedback.ts';
 
 /** Props of {@link FeedbackCard}. */
 export interface FeedbackCardProps {
-  /** The connected device, which has HELLO caps bit 6. */
-  client: SysexClient;
+  /** The component list and the sender (`useFeedback`), shared with the Feedback demo card. */
+  feedback: FeedbackController;
 }
 
 /** A 14-bit slider's starting point: the middle, where a boost/cut ring is empty. */
@@ -365,11 +364,10 @@ function KindSection({
  * The device's components as GET_COMPONENT lists them, with test controls that send the FB_*
  * notifications a DAW script would (§4.6). The device keeps those states until Release all.
  *
- * @param props - The client.
+ * @param props - The feedback controller.
  * @returns The card.
  */
-export function FeedbackCard({ client }: FeedbackCardProps) {
-  const feedback = useFeedback(client);
+export function FeedbackCard({ feedback }: FeedbackCardProps) {
   const { state } = feedback;
   const groups =
     state.kind === 'ready'

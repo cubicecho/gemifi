@@ -3997,6 +3997,8 @@ def component_tables(dev):
            for x in dev.leds])
     m = dev.matrix
     table("gm_comp_matrix", "1", [("keys", "Keys", comp_role(m))] if m else [])
+    table("gm_comp_displays", "GM_N_DISPLAYS",
+          [(x.id, x.id.replace("_", " ").capitalize() or f"Display {i + 1}", "") for i, x in enumerate(dev.displays)])
     c.append("")
     return c
 

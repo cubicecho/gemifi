@@ -12,6 +12,15 @@
 #include "gm_settings.h"
 #include "gm_feedback.h"
 #include "gm_vpin.h"
+#include "gm_display.h"
+#include "gm_device_config.h"
+
+#ifndef GM_N_DISPLAYS
+#define GM_N_DISPLAYS 0                 /* a config generated before displays */
+#endif
+#if GM_N_DISPLAYS > 0
+extern const gm_display_t gm_displays[GM_N_DISPLAYS];   /* generated config */
+#endif
 
 #define REBOOT_DELAY_MS 50u
 #define BOOTED_DELAY_MS 1500u        /* BOOTED once USB is normally up (sysex.md 4.6.3) */
@@ -496,7 +505,11 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         count = gm_device.n_leds;
         c = gm_comp_leds;
         break;
-    default:                                /* displays: none yet */
+    case GSX_KIND_DISPLAY:
+        count = GM_N_DISPLAYS;
+        c = gm_comp_displays;
+        break;
+    default:
         break;
     }
     if (index >= count)
@@ -551,6 +564,13 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put(t, GM_LED_OWNER);
 #endif
         break;
+#if GM_N_DISPLAYS > 0
+    case GSX_KIND_DISPLAY:                      /* 14-segment: one row of characters */
+        gsx_put(t, gm_displays[index].n_chars);
+        gsx_put(t, 1);
+        gsx_put(t, 1);
+        break;
+#endif
     default:
         break;
     }
@@ -602,16 +622,6 @@ static void notify(const gsx_frame_t *f)
     }
 }
 #endif
-
-__attribute__((weak)) void gm_host_on_text(uint32_t display, uint32_t row, uint32_t col,
-                                           const uint8_t *text, uint32_t n)
-{
-    (void)display;
-    (void)row;
-    (void)col;
-    (void)text;
-    (void)n;
-}
 
 static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
 {

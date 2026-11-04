@@ -2,7 +2,7 @@
 
 **The base for every gemifi DAW integration:** the Ableton Live script, the Bitwig extension, a Zynthian driver, and any new one. It describes everything a script needs to find a gemifi device, learn its controls, hear them, and drive its LEDs, knobs and rings, without reading the rest of the gemifi codebase.
 
-- **Status:** protocol v1, host feedback as merged (2026-11-03), plus pads, pad and encoder twins, touch, display roles and the new roles (2026-11-04, #21). Meters and motor faders are reserved: no firmware has them yet. Implemented by the firmware, `tools/host`, `web/updater`, [`hosts/ableton-live`](../hosts/ableton-live/), [`hosts/bitwig`](../hosts/bitwig/) and the Zynthian driver ([`hosts/zynthian`](../hosts/zynthian/), code in a zynthian-ui fork). Not yet run on hardware or in a DAW (gemifi #26).
+- **Status:** protocol v1, host feedback as merged (2026-11-03), plus pads, pad and encoder twins, touch, display roles and the new roles (2026-11-04, #21), and cycle layers, the `layer` byte and EVENT 8 (2026-11-04, encoder modes). Meters and motor faders are reserved: no firmware has them yet. Implemented by the firmware, `tools/host`, `web/updater`, [`hosts/ableton-live`](../hosts/ableton-live/), [`hosts/bitwig`](../hosts/bitwig/) and the Zynthian driver ([`hosts/zynthian`](../hosts/zynthian/), code in a zynthian-ui fork). Not yet run on hardware or in a DAW (gemifi #26).
 - **Normative source:** [`sysex.md`](sysex.md), mostly §1–§3 and §4.6. This guide restates the parts a script needs, in the order a script uses them. If the two ever disagree, `sysex.md` wins; please report it.
 - **Plain MIDI feedback and Mackie Control** (what a device does *without* a script) are in [`host-feedback.md`](host-feedback.md). A script doesn't need them.
 
@@ -148,6 +148,7 @@ script                                   device
   │ ◀──────────────────── count, id, role … │  … every index of every kind
   │  GET_PARAM debug.events ──────────────▶ │  (remember the old value)
   │  SET_PARAM debug.events = 1 ──────────▶ │
+  │ ◀────────── EVENT 8 for each layer on   │  the replay, before or after the OK
   │ ◀───────────────────────────────── OK   │
   │  FB_* (initial state of everything) ──▶ │  ready
   │                                         │
@@ -169,6 +170,8 @@ script                                   device
    - otherwise the reply's `count` says how many, so ask for indexes 1..count−1.
    - Keep each component's fields (§4.4).
 3. **Enable EVENTs.** GET_PARAM `debug.events` (param id **13**, index 0) and remember the value, then SET_PARAM it to 1.
+   - Setting it to 1 makes the device **replay its layers**: one EVENT 8 with value 1 for each mode that is on (§4.5). That tells the script which twins are live (§5.11).
+   - The replay can arrive before the SET_PARAM reply. Keep EVENT 8 from the moment you send the SET_PARAM, not only once ready.
 4. **Ready.** Bind roles to DAW functions (§6), then send the current state of everything (§5).
 5. **Run:**
    - **EVENTs** → DAW actions.
@@ -239,17 +242,18 @@ Then, by kind:
 
 | kind | Extra fields, in order |
 |---|---|
-| 1 button | `led` u14: the index of its LED (kind 5), or 0x3FFF for none |
+| 1 button | `led` u14: the index of its LED (kind 5), or 0x3FFF for none; `layer` byte |
 | 2 key matrix | `keys` u14, `first_note` byte |
 | 3 analog | `takeover` byte: 0 none, 1 pick-up, 2 motor (reserved); `touch` byte: 0 none, 1 sensor, 2 from movement |
-| 4 encoder | `ring` byte (ring LEDs, 0 = none), `center` u14 (centre LED, 0x3FFF = none), `mode` byte: 0 absolute, 1 relative two's complement, 2 relative offset 64, 3 Mackie Control V-Pot |
-| 5 LED | `colours` byte: 1 single, 2 bicolour, 3 RGB (reserved); `owner` byte: 0 host_then_local, 1 host, 2 local |
+| 4 encoder | `ring` byte (ring LEDs, 0 = none), `center` u14 (centre LED, 0x3FFF = none), `mode` byte: 0 absolute, 1 relative two's complement, 2 relative offset 64, 3 Mackie Control V-Pot; `layer` byte |
+| 5 LED | `colours` byte: 1 single, 2 bicolour, 3 RGB (reserved); `owner` byte: 0 host_then_local, 1 host, 2 local; `layer` byte |
 | 6 display | `cols` byte, `rows` byte, `type` byte: 1 characters, 2 segments |
-| 7 pad | `led` u14: the index of its LED (kind 5), or 0x3FFF for none, as for a button |
+| 7 pad | `led` u14: the index of its LED (kind 5), or 0x3FFF for none, as for a button; `layer` byte |
 | 8 meter (reserved) | `segments` byte; `type` byte: 1 LED bar, 2 encoder ring, 3 display row |
 
 Notes:
-- **Fields added later.** `takeover`, `mode` and `owner` were added after the first release, and `touch` after them; older firmware doesn't send them. **Treat a missing field as "not reported"** and assume FB_VALUE / FB_LED apply. **Ignore bytes after the fields you know**, since more may follow.
+- **Fields added later.** `takeover`, `mode` and `owner` were added after the first release, `touch` after them, and `layer` last (on buttons after `led`, encoders after `mode`, LEDs after `owner`, pads after `led`). Older firmware doesn't send them. **Treat a missing field as "not reported"**: assume FB_VALUE / FB_LED apply, and a missing `layer` means 0. **Ignore bytes after the fields you know**, since more may follow.
+- **`layer`:** 0 = always there (not a twin). n = a twin in mode n − 1, live only while that mode is on (§5.11). Firmware from before the byte already had twins; it doesn't say which they are, so a script treats everything as live.
 - **No component has index 0x3FFF**, so 0x3FFF always means "none".
 - **One LED index space.** A button's or pad's `led` and an encoder's `center` index into the kind-5 list, and so do the encoder's ring LEDs. They're ordinary LEDs, so FB_LED can set them too.
 - **Kinds 7 and 8 are newer.** Firmware from before them answers BAD_PARAM: treat that as "none of that kind". Current firmware also answers BAD_PARAM for kind 8 (no meters yet).
@@ -272,6 +276,14 @@ reply: pad 28 of 32 (16 pads, then 16 twins), id "pad_13_pads", name "Pad 13", r
   F0 7D 67 6D 01 51 51 24 00 00 07 1C 00 20 00 0B 70 61 64 5F 31 33 5F 70 61 64 73 06 50 61 64 20 31 33 08 63 6C 69 70 5F 31 5F 31 34 00 37 F7
 request pad 0, seq 0x52, to firmware from before pads:  F0 7D 67 6D 01 11 52 03 00 07 00 00 6E F7
   reply BAD_PARAM (no pads):  F0 7D 67 6D 01 51 52 01 00 0A 2F F7
+button 9 of 12, id "b2_arm", name "B2", role "arm_1", LED 20, layer 1 (a twin in mode 0):
+  F0 7D 67 6D 01 51 55 19 00 00 01 09 00 0C 00 06 62 32 5F 61 72 6D 02 42 32 05 61 72 6D 5F 31 14 00 01 6F F7
+button 1 of 12, id "b2", name "B2", role "mute_1", LED 13, layer 0 (always there):
+  F0 7D 67 6D 01 51 56 16 00 00 01 01 00 0C 00 02 62 32 02 42 32 06 6D 75 74 65 5F 31 0D 00 00 36 F7
+encoder 12 of 24, id "enc5_zyn", name "Encoder 5", role "device_param_1", no ring, no centre, mode 1, layer 3 (a twin in mode 2):
+  F0 7D 67 6D 01 51 57 2D 00 00 04 0C 00 18 00 08 65 6E 63 35 5F 7A 79 6E 09 45 6E 63 6F 64 65 72 20 35 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 00 7F 7F 01 03 4F F7
+LED 4 of 30, id "led_4", no role, colours 2, owner 0, layer 0:
+  F0 7D 67 6D 01 51 58 11 00 00 05 04 00 1E 00 05 6C 65 64 5F 34 00 00 02 00 00 31 F7
 ```
 
 ### 4.5 EVENT (0x61, unsolicited)
@@ -286,11 +298,16 @@ request pad 0, seq 0x52, to firmware from before pads:  F0 7D 67 6D 01 11 52 03 
 | 4 | encoder | the change in **detents** since the last EVENT, 14-bit two's complement (≥ 8192 means negative: subtract 16384) |
 | 5 | touch | `index` is the analog's index. 1 touched, 0 released. Only from analogs with `touch` ≠ 0 (§4.4) |
 | 7 | pad | `index` is the pad's index (kind 7, twins included). The peak reading × 4 on a hit (1..16380), 0 on release. **Only pad twins send it** |
+| 8 | layer | `index` is a mode index: the n − 1 of a twin's `layer` n (§4.4). 1 the mode turned on, 0 off |
 
 Other types are reserved; ignore them.
 
 - **Touch from movement** (`touch` 2): "touched" comes just before the first analog EVENT of a movement, and "released" once the reading has been still for 300 ms.
 - **Pads:** a base pad (not a twin) only plays its note and sends no EVENT. A pad twin, while its layer is active, sends EVENT 7 and plays no note. Treat value > 0 as a press, 0 as the release.
+- **Layers (type 8):**
+  - sent when a mode turns on or off: a toggle, a hold, a cycle step (§6, "Layers"). A cycle step change sends 0 for the old step, then 1 for the new one;
+  - **the replay:** when the host sets `debug.events` to 1, the device sends value 1 once for each mode that is on (§3, step 3);
+  - a mode may have no twins (the Code 61's MIDI step): its EVENT 8 matches no `layer`, so nothing changes. Ignore it.
 
 ```
 button 2 down:     F0 7D 67 6D 01 61 07 09 00 01 02 00 01 00 52 09 00 00 51 F7
@@ -300,6 +317,8 @@ analog 2 touched:  F0 7D 67 6D 01 61 0A 09 00 05 02 00 01 00 08 27 00 00 2C F7
 analog 2 released: F0 7D 67 6D 01 61 0B 09 00 05 02 00 00 00 2C 2A 00 00 53 F7
 pad 28 hit, 9000:  F0 7D 67 6D 01 61 0C 09 00 07 1C 00 28 46 70 2E 00 00 26 F7
 pad 28 released:   F0 7D 67 6D 01 61 0D 09 00 07 1C 00 00 00 40 2F 00 00 0A F7
+mode 2 on:         F0 7D 67 6D 01 61 0E 09 00 08 02 00 01 00 70 2E 00 00 22 F7
+mode 1 off:        F0 7D 67 6D 01 61 0F 09 00 08 01 00 00 00 70 2E 00 00 21 F7
 ```
 
 ### 4.6 BOOTED (0x64, unsolicited)
@@ -417,6 +436,14 @@ A display (kind 6) with a role shows what the role says. Write it with FB_TEXT (
 
 A script may leave a display without a role alone: it keeps the device's own text.
 
+### 5.11 Layers
+- **Live components.** A component with `layer` 0 (or no `layer` byte) is always live. One with `layer` n > 0 is a twin, live only while mode n − 1 is on (§6, "Layers").
+- **Tracking it.** Start with no mode on. The replay after SET_PARAM `debug.events` = 1 (§3, step 3) fills in the modes that are on; each EVENT 8 after that turns one on or off. Start again empty after BOOTED or a new enumeration.
+- **A script may ignore layers entirely.** The device sends EVENTs only from live components, so binding every component by its role already works. Feedback to a twin that isn't live is harmless: the device keeps its LED state and value and shows them when it is.
+- **One role on several components.** Two twins in different modes may have the same role (`device_param_1` on a twin in mode 2 and another in mode 3), and so may a base and a twin. Bind each one: both drive the role, and both get its LED, FB_VALUE and ring state.
+- **Using it.** A script may page by what is live. E.g. `device_bank_prev` / `device_bank_next` step by the number of live `device_param_N`: on the Code 61, 4 in its ZYN encoder mode and 8 in DEVICE (§6). The Zynthian driver pages this way, and so does the Live script on firmware that sends `layer` (pages of 8 otherwise); the Bitwig extension keeps Bitwig's remote-control pages of 8.
+- **A limit.** The `layer` byte doesn't say which physical control a twin takes over. A base component counts as live even while a twin has its control.
+
 ## 6. Roles
 
 The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder accepts these names, plus `x_<anything>` for a script's own use and `<host>.<command>` (below). A script **must ignore** roles it doesn't know or doesn't support, logging each one once.
@@ -448,7 +475,7 @@ The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder acc
 | Displays (§5.10) | `time`, `track_name`, `param`, `status` | displays (kind 6) only | |
 | Meters (§5.8, reserved) | `meter_N` (N = 1..8), `master_meter` | meters (kind 8) only | |
 
-**Host commands.** A role `<host>.<command>` runs one of a host's own commands, e.g. `zynthian.toggle_audio_play`. Both parts are lower case: `[a-z][a-z0-9]*\.[a-z0-9_]+`. The host names so far: `live`, `bitwig`, `zynthian`.
+**Host commands.** A role `<host>.<command>` runs one of a host's own commands, e.g. `zynthian.toggle_audio_play`, or `zynthian.zynpot_1` on an encoder (Zynthian's knob 1). Both parts are lower case: `[a-z][a-z0-9]*\.[a-z0-9_]+`. The host names so far: `live`, `bitwig`, `zynthian`.
 - A script handles only its own host's namespace. It ignores the others without logging them, as it does `x_` roles.
 - A command it doesn't know in its own namespace is an unknown role: ignore it and log it once.
 
@@ -469,10 +496,23 @@ The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder acc
 
 Lower-case roles before matching.
 
-**Layers (button, pad and encoder twins).** A device may give a physical button, pad or encoder a second meaning while one of its modes is active (core/README.md "Button layers"): a *twin*, listed as its own component of the same kind, after the YAML's, with its own role. Treat it like any other component.
+**Layers (button, pad and encoder twins).** A device may give a physical button, pad or encoder a second meaning while one of its modes is active (core/README.md "Button layers"): a *twin*, listed as its own component of the same kind, after the YAML's, with its own role. Its `layer` byte (§4.4) names its mode. Treat it like any other component (§5.11).
+- **How modes turn on.** A toggle (a button, maybe with a `with:` button such as Shift), a hold (while a button is held), or a **cycle group**: several modes, exactly one on at a time, and one button steps to the next. Each step is a mode of its own, with its own twins. Layers are independent: a toggle layer, a hold layer and a cycle step can all be on at once. Each change sends EVENT 8 (§4.5).
+- **Which twin wins.** When two modes that are on both have a twin of the same control, one takes it (the order is in core/README.md "Button layers"). Only that one sends EVENTs.
+- **Example: the Code 61's encoder modes,** a cycle group. Shift + Encoder mode steps the 8 encoders through:
+
+  | Step | E1–E4 | E5–E8 | Bank left / right |
+  |---|---|---|---|
+  | MIDI (blue) | plain CC 70–73, no role | plain CC 74–77, no role | `bank_prev` / `bank_next` |
+  | ZYN (cyan) | `zynthian.zynpot_1..4` | `device_param_1..4` | `device_bank_prev` / `device_bank_next` |
+  | DEVICE (green) | `device_param_1..4` | `device_param_5..8` | `device_bank_prev` / `device_bank_next` |
+  | PAN (red) | `pan_1..4` | `pan_5..8` | `bank_prev` / `bank_next` |
+
+  The ZYN, DEVICE and PAN encoders are twins with `cc: none`. The display shows the step's name and the Encoder mode LED its colour. Each step can be turned off in the config (PAN is off by default); the cycle skips the ones that are off, and starts at the first one that is on after power-on. The Arm layer (Shift + Button mode) and the pad grid (Shift + Pad octave −) are layers of their own, independent of the cycle.
 - **Button twins** have their own LED (for example `b2` with `mute_1` and `b2_arm` with `arm_1`, on the same switch and the same LED pins). Only the live one sends EVENTs; set both LEDs anyway: the device keeps each state and shows the live one.
 - **Pad twins** (kind 7, after the pads; id `<pad>_<mode>`) have their own LED too. Only twins send EVENTs (§5.9): while the layer is active the pad sends EVENT 7 with the twin's index and plays no note. Set the twin's LED anyway; the device shows it while the layer is active.
 - **Encoder twins** (kind 4, after the encoders; id `<encoder>_<mode>`) have their own CC and role, and no ring. While the layer is active, turns send the twin's CC and EVENTs with the twin's index; FB_VALUE to an absolute twin sets the twin's value. The base's value is kept for when it comes back.
+- **Twins with `cc: none`** (encoders) send no CC at all, only EVENTs. They exist for the script: without one, they do nothing.
 
 **Which component drives an LED.** A button or pad with a role and an LED shows that role's state on its LED. An LED component (kind 5) with its own role shows that role's state. If both apply to the same LED, the button's or pad's role wins.
 
@@ -503,13 +543,15 @@ Port the first three from either implementation (MIT), then write the adapter fo
 - [ ] **Nothing in 0x20–0x3F unless caps bit 6 is set** (§3, §8).
 - [ ] Bootloader (`role` 1) and no-reply cases handled (idle, retry).
 - [ ] Enumeration walks every kind it uses from index 0 using `count`; BAD_PARAM = none (older firmware for kinds 7 and 8).
-- [ ] Unknown trailing bytes ignored; missing added fields = "not reported" (§4.4).
+- [ ] Unknown trailing bytes ignored; missing added fields = "not reported" (§4.4); a missing `layer` = 0.
+- [ ] EVENT 8 kept from the SET_PARAM `debug.events` = 1 on (the replay may come first), or ignored if the script doesn't use layers (§5.11).
+- [ ] Two components with one role both bound (§5.11).
 - [ ] `debug.events` remembered, set to 1, restored on exit.
 - [ ] BOOTED → re-enumerate and re-send; keep-alive as a fallback (~30 s with BOOTED/added fields seen, ~5 s otherwise).
 - [ ] No FB_VALUE to `takeover` 0 analogs or relative encoders; no FB_LED to `owner` 2 LEDs (§5).
 - [ ] Change-only output; FB_LEDS for runs.
 - [ ] Unknown and unsupported roles ignored (logged once); other hosts' `<host>.<command>` roles ignored quietly; `mcu:` names mapped (§6).
-- [ ] EVENT types it doesn't use (touch, pad, reserved) ignored (§4.5).
+- [ ] EVENT types it doesn't use (touch, pad, layer, reserved) ignored (§4.5).
 - [ ] Meters: FB_METER rises only, ≤ ~25/s each (§5.8).
 - [ ] FB_RELEASE 0 on exit.
 - [ ] The codec tested against [`test-vectors.json`](test-vectors.json): the `frames` and `bad_frames` sections, and the `feedback` section (every GET_COMPONENT reply, with and without the added fields, every FB_\*, and BOOTED).
@@ -530,7 +572,7 @@ Port the first three from either implementation (MIT), then write the adapter fo
 - **New components, roles and messages:**
   - new kinds answer BAD_PARAM on older firmware;
   - new roles are strings a script ignores until it supports them;
-  - new EVENT types and new unsolicited messages (`0x60–0x7F`) should be ignored;
+  - new EVENT types (such as 8, layer) and new unsolicited messages (`0x60–0x7F`) should be ignored;
   - new notifications (FB_METER) are dropped by older firmware.
 - **`proto_version` 1** covers everything here. A change that isn't backward compatible would bump it; a script should then stay idle on a version it doesn't know.
 - **The manufacturer ID will change** from `0x7D` to a 3-byte ID (#3) before public releases. With the ID in one constant and offsets derived from it (§2.1), that's a one-line change.

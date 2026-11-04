@@ -103,7 +103,7 @@ Unsolicited device → host messages (no reply expected):
 | cmd | Name | Payload |
 |---|---|---|
 | 0x60 | LOG | `level` (0 error, 1 warn, 2 info, 3 debug), `t_ms` u28, text (≤ 64 bytes of 7-bit ASCII) |
-| 0x61 | EVENT | `type`, `index` u14, `value` u14, `t_ms` u28. Types: 1 button (value 1 down, 0 up), 2 key (value = velocity, 0 = release), 3 analog: pot, slider, fader, expression input (value = raw reading scaled to 0..16383), 4 encoder (value = signed delta, 14-bit two's complement), 5 touch (index = the analog's; value 1 touched, 0 released; §4.6.1 `touch`), 7 pad (index = the pad's, twins included; value = the hit's peak reading × 4, 1..16380; 0 = release; only pad twins send it, §4.6.1). Other types are reserved; hosts show them as numbers. |
+| 0x61 | EVENT | `type`, `index` u14, `value` u14, `t_ms` u28. Types: 1 button (value 1 down, 0 up), 2 key (value = velocity, 0 = release), 3 analog: pot, slider, fader, expression input (value = raw reading scaled to 0..16383), 4 encoder (value = signed delta, 14-bit two's complement), 5 touch (index = the analog's; value 1 touched, 0 released; §4.6.1 `touch`), 7 pad (index = the pad's, twins included; value = the hit's peak reading × 4, 1..16380; 0 = release; only pad twins send it, §4.6.1), 8 layer (index = a mode index; value 1 on, 0 off; §4.6.1 `layer`). Other types are reserved; hosts show them as numbers. |
 | 0x62 | PARAM_CHANGED | `id` u14, `index` u14, `value` s32. Sent when the device changes a param by itself (e.g. the octave buttons change `midi.octave`), so an open editor can follow. Not sent for changes the host made itself (SET_PARAM, SET_PARAMS, FACTORY_RESET); after FACTORY_RESET the host reloads. |
 | 0x63 | PRESET_CHANGED | `slot` u14 (the active preset), `dirty` (1 byte: 1 = unsaved edits, 0 = none). Sent each time the active preset or its dirty flag changes, whoever caused it (§4.5). |
 | 0x64 | BOOTED | The fields of a HELLO reply without its status byte: `role`, `board_id` u14, `fw_version` u32, `proto_version`, `max_chunk` u14, `caps` u14, `uid` (packed, 14 bytes), then `node` when the app has one (§4.1.1). Sent once, about 1.5 s after the app starts (once USB is normally up), and only by an app with caps bit 6 (§4.6.3). A host can treat it exactly like a HELLO reply. |
@@ -305,14 +305,14 @@ To restore, for each slot: if it is free, PRESET_NAME it (so it is in use); PRES
 
 ### 4.6 Host feedback (app)
 
-**Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`, `hosts/bitwig`); not yet run on hardware or in a DAW. Pads, touch and display roles added 2026-11-04 (#21); meters (kind 8, FB_METER) and motor faders are reserved. **Writing a DAW script?** [`daw-scripts.md`](daw-scripts.md) is the guide built on this section. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
+**Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`, `hosts/bitwig`); not yet run on hardware or in a DAW. Pads, touch and display roles added 2026-11-04 (#21); the `layer` byte and EVENT 8 later that day (encoder modes); meters (kind 8, FB_METER) and motor faders are reserved. **Writing a DAW script?** [`daw-scripts.md`](daw-scripts.md) is the guide built on this section. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
 
 A script in the DAW (a Live Remote Script, a Bitwig extension) drives the device's LEDs, values and displays with these messages. It addresses everything by **component index**, not by MIDI note or CC. That way it works for any gemifi device without knowing its mapping, and a preset that changes CC numbers doesn't break it. A device with this feature sets HELLO caps bit 6.
 
 The script's side of the loop:
 1. **Find the device:** HELLO on each port, looking for caps bit 6.
 2. **Learn its controls:** GET_COMPONENT for each kind and index (§4.6.1). The `role` of each component tells the script what to connect it to.
-3. **Hear presses and moves by index:** SET_PARAM `debug.events` (id 13) = 1 turns on EVENT messages (0x61). Those carry the button, key, analog or encoder index; the control's normal MIDI goes out as well.
+3. **Hear presses and moves by index:** SET_PARAM `debug.events` (id 13) = 1 turns on EVENT messages (0x61). Those carry the button, key, analog or encoder index; the control's normal MIDI goes out as well. The device then replays its layers: EVENT type 8, value 1, for each mode that is on (§4.6.1 `layer`).
 4. **Drive feedback:** the FB_* notifications below.
 5. **Hand back on exit:** FB_RELEASE when the script stops (Live closing, the device unselected).
 6. **Start again after a reboot:** when BOOTED arrives (§4.6.3), the device has lost every FB_* state and `debug.events` is back at 0, so the script re-sends its state.
@@ -325,18 +325,22 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 
 | kind | Extra fields |
 |---|---|
-| 1 button | `led` u14 (its LED's index, or 0x3FFF for none) |
+| 1 button | `led` u14 (its LED's index, or 0x3FFF for none), `layer` (1 byte) |
 | 2 key matrix | `keys` u14, `first_note` (1 byte) |
 | 3 analog | `takeover` (1 byte: 0 none, 1 pick-up, 2 motor (reserved)), `touch` (1 byte: 0 none, 1 sensor (reserved), 2 from movement) |
-| 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF), `mode` (1 byte, below) |
-| 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB), `owner` (1 byte: 0 host_then_local, 1 host, 2 local) |
+| 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF), `mode` (1 byte, below), `layer` (1 byte) |
+| 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB), `owner` (1 byte: 0 host_then_local, 1 host, 2 local), `layer` (1 byte) |
 | 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
-| 7 pad | `led` u14 (its LED's index, or 0x3FFF for none) |
+| 7 pad | `led` u14 (its LED's index, or 0x3FFF for none), `layer` (1 byte) |
 | 8 meter (reserved) | `segments` (1 byte), `type` (1 byte: 1 LED bar, 2 encoder ring, 3 display row) |
 
 An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 9 and up; 7 and up in firmware from before pads), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields. A request that isn't 3 bytes replies BAD_LEN. The reply echoes the request's `kind` and `index`. A host ignores bytes after the fields it knows for a kind, so fields can be added later. The LEDs of an encoder's ring (and its centre LED) are ordinary LEDs: they're in the kind-5 list, and FB_LED can set them too.
 
-**Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind, and `touch` after `takeover` later (2026-11-04). Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything).
+**Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind, `touch` after `takeover` later (2026-11-04), and `layer` after that (on buttons and pads after `led`, encoders after `mode`, LEDs after `owner`). Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything). A missing `layer` is 0.
+
+**`layer`** says whether the component is a layer twin (`core/README.md` "Button layers"): 0 = always there (not a twin); n = a twin in mode n − 1 (the firmware's mode index), live only while that mode is on. The device only sends EVENTs from live components, so a host may ignore layers. Firmware from before the byte has twins but doesn't mark them.
+
+**EVENT type 8 (layer)** reports the modes: index = the mode index, value 1 on, 0 off. Like every EVENT, only while `debug.events` is 1. It is sent when a layer turns on or off: a toggle, a hold, a cycle step (0 for the old step, then 1 for the new one). When a host sets `debug.events` to 1, the device sends EVENT 8 value 1 once for each mode that is on, so the host learns the current state; these may come before the SET_PARAM reply. A mode without twins may send EVENT 8 too; no `layer` matches it.
 
 **`takeover`** is the analog input's YAML `takeover:` (MCU faders default to pick-up). FB_VALUE only does something with 1, and with 2 (motor, reserved: FB_VALUE moves the fader; no firmware has it yet).
 
@@ -344,9 +348,11 @@ An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so
 
 **Pads (kind 7).** `count` covers the YAML's pads, then the pad twins (a mode's `layer:`, `core/README.md` "Button layers"; id `<pad>_<mode>`). `role` is the YAML `daw:`; `led` is the pad's LED, or for a twin its twin LED. A base pad plays its note and sends no EVENT. A twin, while its layer is active, takes the physical pad: it sends EVENT type 7 with its own index and plays no note.
 
+**Encoder twins with `cc: none`** send no CC, only EVENTs (their `layer.encoder.cc` is −1).
+
 **Meters (kind 8)** are reserved. No firmware has them; current firmware replies BAD_PARAM for kind 8.
 
-**`mode`** is how the encoder sends: 0 absolute (`encoder.mode` 0), 1 relative two's complement (`encoder.mode` 1), 2 relative offset 64 (`encoder.mode` 2), 3 Mackie Control V-Pot (an encoder with `mcu:`: relative, on the MCU port, whatever `encoder.mode` says). It's the value in effect when the host asks, so it follows SET_PARAM and preset changes; a host that cares re-reads it after a PRESET_CHANGED (a change made by another host, e.g. an editor's SET_PARAM, sends nothing). FB_VALUE only does something with 0, and hosts treat every other value, including ones added later, as relative.
+**`mode`** is how the encoder sends: 0 absolute (`encoder.mode` 0), 1 relative two's complement (`encoder.mode` 1), 2 relative offset 64 (`encoder.mode` 2), 3 Mackie Control V-Pot (an encoder with `mcu:`: relative, on the MCU port, whatever `encoder.mode` says). For an encoder twin it's the twin's `layer.encoder.mode`, a global setting. It's the value in effect when the host asks, so it follows SET_PARAM and preset changes; a host that cares re-reads it after a PRESET_CHANGED (a change made by another host, e.g. an editor's SET_PARAM, sends nothing). FB_VALUE only does something with 0, and hosts treat every other value, including ones added later, as relative.
 
 **`owner`** is who drives the LED (`owner:` in `core/README.md` "LED ownership"): the LED's own `owner:`, else `feedback.led_owner`, except that LEDs driven by Mackie Control (a `feedback: { mcu: … }` source, a V-Pot ring or centre) default to 1. FB_LED, FB_LED_RGB, FB_LEDS and FB_RING have no effect on an LED with 2. An LED with 0 that no button uses has no local state, so it behaves like 1.
 

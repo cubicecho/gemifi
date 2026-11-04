@@ -57,6 +57,12 @@
 #if GM_N_MODES > 0 && (!GM_HAS_MATRIX || GM_N_BUTTONS == 0)
 #error "modes need a key matrix and a toggle button (the builder checks this)"
 #endif
+#ifndef GM_LAYERS
+#define GM_LAYERS 0                 /* layer twins (modes: layer:), core/README.md "Button layers" */
+#endif
+#if GM_LAYERS && GM_N_MODES == 0
+#error "button layers belong to modes (the builder checks this)"
+#endif
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
@@ -152,6 +158,11 @@ static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled mode; GM_MODE_
 static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
 static uint32_t keys_mode(void);
 static void mode_key(uint32_t mi, uint32_t k);
+#endif
+#if GM_LAYERS
+static void layers_update(void);
+#else
+#define layers_update() ((void)0)
 #endif
 
 static volatile uint32_t ticks;
@@ -689,6 +700,15 @@ static void keys_off(void)
 
 #if GM_N_BUTTONS > 0
 static uint64_t btn_stable, btn_toggled;   /* bit = button (at most 64) */
+/* Held, and the press went to this button: a layer twin and its base read
+ * the same pin, but only the live one takes the press (and its release). */
+static uint64_t btn_held;
+#if GM_LAYERS
+static uint64_t btn_live = ~0ull;   /* layers_update() */
+#define BTN_LIVE(i) ((btn_live >> (i)) & 1u)
+#else
+#define BTN_LIVE(i) 1u
+#endif
 static uint64_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
@@ -709,7 +729,7 @@ static uint64_t read_buttons(void)
 static int held_with_action(int32_t act, uint32_t except)
 {
     for (uint32_t i = 0; i < GM_N_BUTTONS; i++)
-        if (i != except && ((btn_stable >> i) & 1u) && gm_cfg.btn_action[i] == act)
+        if (i != except && ((btn_held >> i) & 1u) && gm_cfg.btn_action[i] == act)
             return 1;
     return 0;
 }
@@ -855,6 +875,17 @@ static int mode_button(uint32_t i, int down)
         const gm_mode_t *md = &gm_modes[m];
         if (md->toggle != i)
             continue;
+        if (md->with && !md->hold) {
+            /* toggle: { button, with }: only with that button held; a plain
+             * press is the button's own (its release too). */
+            uint64_t bit = 1ull << i;
+            if (down ? !((btn_held >> (md->with - 1u)) & 1u) : !(btn_in_mode & bit))
+                return 0;
+            if (down)
+                btn_in_mode |= bit;
+            else
+                btn_in_mode &= ~bit;
+        }
         event(EV_BUTTON, i, (uint32_t)down);
         if (md->hold) {
             if (down) {
@@ -866,6 +897,7 @@ static int mode_button(uint32_t i, int down)
             } else if (hold_cur == m) {
                 hold_cur = GM_MODE_NONE;
             }
+            layers_update();
             app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? ": mode on" : ": mode off");
             return 1;
         }
@@ -878,6 +910,7 @@ static int mode_button(uint32_t i, int down)
                 keys_off();
             mode_cur = (uint8_t)m;
         }
+        layers_update();
         app_log(LOG_DEBUG, gm_device.buttons[i].name, mode_cur == GM_MODE_NONE ? ": mode off" : ": mode on");
         return 1;
     }
@@ -1035,22 +1068,31 @@ static void buttons_sample(void)
         for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             if (!((diff >> i) & 1u))
                 continue;
+            int down = (s >> i) & 1u;
+            if (down ? !BTN_LIVE(i) : !((btn_held >> i) & 1u))
+                continue;                     /* the press is the live twin's (or a hidden one's release) */
+            if (down)
+                btn_held |= 1ull << i;
+            else
+                btn_held &= ~(1ull << i);
             if ((btn_ignore >> i) & 1u) {
                 btn_ignore &= ~(1ull << i);   /* released after a preset switch */
 #if GM_N_MODES > 0
-                if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].toggle == i)
+                if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].toggle == i) {
                     hold_cur = GM_MODE_NONE;  /* a hold mode still ends with its button */
+                    layers_update();
+                }
                 btn_in_mode &= ~(1ull << i);
 #endif
                 continue;
             }
 #if GM_N_MODES > 0
-            if (mode_button(i, (s >> i) & 1u))
+            if (mode_button(i, down))
                 continue;
-            if (mode_btn(i, (s >> i) & 1u))
+            if (mode_btn(i, down))
                 continue;
 #endif
-            button_changed(i, (s >> i) & 1u);
+            button_changed(i, down);
         }
     }
 }
@@ -1061,7 +1103,7 @@ static void ramps_ms(uint32_t now)
     for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
         if (gm_cfg.btn_action[i] != ACT_CC_RAMP)
             continue;
-        int32_t target = ((btn_stable >> i) & 1u) ? (127 << 8) : 0;
+        int32_t target = ((btn_held >> i) & 1u) ? (127 << 8) : 0;
         int32_t step = gm_cfg.ramp_time > 0 ? (127 << 8) / gm_cfg.ramp_time : (127 << 8);
         if (step < 1)
             step = 1;
@@ -1631,8 +1673,16 @@ static int led_blinks(const gm_led_t *l, uint32_t level)
     return !vpin_is_none(l->pin2) && vpin_is_none(l->pin3) && level >= 4u;
 }
 
+#if GM_LAYERS
+static uint8_t led_dead[GM_ARR(GM_N_LEDS)];   /* a layer twin (or its base) not shown now */
+#endif
+
 static void led_set(uint32_t i, uint32_t level, int blink_on)
 {
+#if GM_LAYERS
+    if (led_dead[i])
+        return;                     /* its twin has the pins */
+#endif
     /* The blink phase is only part of the key for a blinking level: a
      * steady LED isn't written again every 500 ms. */
     int ph = led_blinks(&gm_device.leds[i], level) && blink_on;
@@ -1642,6 +1692,60 @@ static void led_set(uint32_t i, uint32_t level, int blink_on)
     led_shown[i] = key;
     led_show(&gm_device.leds[i], level, blink_on);
 }
+
+#if GM_LAYERS
+/* The layer whose twins are live: the held hold mode's, else the toggled
+ * mode's (its root's, from a sub-mode); 0 = none (layer numbers are mode
+ * index + 1). */
+static uint32_t layer_on(uint32_t layer)
+{
+    uint32_t m = layer - 1u;
+    if (hold_cur != GM_MODE_NONE && hold_cur == m)
+        return 1;
+    return mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m;
+}
+
+/* Which of each base and its twins is live (core/README.md "Button layers"):
+ * the twin of an active layer, the held hold mode's first; else the base.
+ * An LED that changes hands is drawn again. */
+static void layers_update(void)
+{
+    uint64_t live = 0;
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
+        if (!gm_device.buttons[i].layer)
+            live |= 1ull << i;
+    for (uint32_t pass = 0; pass < 2; pass++)       /* toggled, then held: the hold mode wins */
+        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
+            const gm_button_t *b = &gm_device.buttons[i];
+            uint32_t m = b->layer - 1u;
+            if (!b->layer || !layer_on(b->layer) || (pass == 1) != (hold_cur == m))
+                continue;
+            for (uint32_t j = 0; j < GM_N_BUTTONS && j < 64; j++)
+                if (j == b->base || (gm_device.buttons[j].layer && gm_device.buttons[j].base == b->base))
+                    live &= ~(1ull << j);
+            live |= 1ull << i;
+        }
+    btn_live = live;
+    uint8_t on[GM_ARR(GM_N_LEDS)];
+    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+        on[i] = !gm_device.leds[i].layer;
+    for (uint32_t pass = 0; pass < 2; pass++)
+        for (uint32_t i = 0; i < GM_N_LEDS; i++) {
+            const gm_led_t *l = &gm_device.leds[i];
+            if (!l->layer || !layer_on(l->layer) || (pass == 1) != (hold_cur == l->layer - 1u))
+                continue;
+            for (uint32_t j = 0; j < GM_N_LEDS; j++)
+                if (j == l->base || (gm_device.leds[j].layer && gm_device.leds[j].base == l->base))
+                    on[j] = 0;
+            on[i] = 1;
+        }
+    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+        if (led_dead[i] != !on[i]) {
+            led_dead[i] = !on[i];
+            led_shown[i] = 0xFFFFu;     /* drawn again once it is live */
+        }
+}
+#endif
 
 #if GM_HOST_LEDS
 /* leds_update() works out the buttons' and pads' own levels every 10 ms;
@@ -1705,7 +1809,7 @@ static void leds_update(uint32_t now)
             continue;
         uint32_t level = 0;
 #if GM_N_BUTTONS > 0
-        int held = (btn_stable >> i) & 1u;
+        int held = (btn_held >> i) & 1u;
         switch (gm_cfg.btn_action[i]) {
         case ACT_OCTAVE_DOWN:
             level = gm_cfg.octave < 0 ? (uint32_t)-gm_cfg.octave : 0;
@@ -1943,7 +2047,7 @@ void gm_release_all(void)
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
-        int held = (btn_stable >> i) & 1u;
+        int held = (btn_held >> i) & 1u;
         int32_t act = gm_cfg.btn_action[i];
         if (btn_note[i] != NOTE_NONE) {
             midi3(0x80 | btn_chan[i], btn_note[i], 0);
@@ -1960,7 +2064,7 @@ void gm_release_all(void)
         ramp_q8[i] = 0;
         ramp_sent[i] = 0;
     }
-    btn_ignore = btn_stable;
+    btn_ignore = btn_held;
     btn_toggled = 0;
     if (bend_sent != 0x7FFFFFFF && bend_sent != 0)
         midi3(0xE0 | chan(), 0, 0x40);      /* centre */
@@ -2018,6 +2122,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
+    layers_update();                /* no mode yet: every base live, every twin hidden */
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         vpin_output(gm_device.leds[i].pin);
         if (!vpin_is_none(gm_device.leds[i].pin2))

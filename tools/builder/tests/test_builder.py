@@ -718,9 +718,9 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(gen_dir(dev, tmp), "gm_device_config.c")) as f:
                 c = f.read()
-        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0) }, /* s: PB0 */", c)
-        self.assertRegex(c, r"GM_NO_PIN, 0 \}, /\* bi: PB1 \*/")
-        self.assertIn("GM_LED_LOOKS(4, 7) }, /* rgb: PB3 */", c)
+        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0), 0, 0 }, /* s: PB0 */", c)
+        self.assertRegex(c, r"GM_NO_PIN, 0, 0, 0 \}, /\* bi: PB1 \*/")
+        self.assertIn("GM_LED_LOOKS(4, 7), 0, 0 }, /* rgb: PB3 */", c)
 
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
@@ -1817,6 +1817,44 @@ class TestModes(unittest.TestCase):
     def warns(self, text):
         return [d.msg for d in self.errs(text, level="warning")]
 
+    def test_layer_and_with(self):
+        base = MODES_NUC.replace(
+            "  - { id: other, pin: PA3, action: note, note: 60 }\n",
+            "  - { id: other, pin: PA3, action: note, note: 60 }\n"
+            "  - { id: shift, pin: PA4, action: cc_momentary, cc: 5 }\n"
+            "  - { id: mute, pin: PA5, action: cc_toggle, cc: 6, led: lamp, daw: mute_1 }\n"
+            "  - { id: sel, pin: PA6, action: cc_momentary, cc: 8 }\n")
+        arm = "- id: arm\n  toggle: { button: sel, with: shift }\n  led: menu_led\n  layer:\n"
+        text = modes(arm + "    mute: { cc: 7, daw: arm_1, active: off, idle: on }\n", base)
+        self.assertClean(text)
+        dev, h, c = self.gen(text)
+        self.assertIn("#define GM_LAYERS 1 ", h)
+        # the twin: after the YAML's buttons, the mute switch and a new LED (index 2), layer 1 (mode 0 + 1),
+        # base 4 (mute); its LED the lamp's pins, base LED 1
+        self.assertIn('{ { 0, 0, 5 }, "Mute arm", 2, 1, 4 }, /* mute_arm: PA5 */', c)
+        self.assertRegex(c, r"\{ \{ 0, 0, 13 \}, GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS\(1, 0\), 1, 1 \}, /\* lamp_arm")
+        self.assertIn('{ "mute_arm", "Mute arm", "arm_1" }', c)
+        # it keeps cc_toggle (action 2), with CC 7; sel (5) toggles with shift (3 + 1) held, sel keeps CC 8
+        self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 1, 0, 4, 1, 2, 1, 2 }", c)
+        self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 1, 0, 60, 5, 6, 8, 7 }", c)
+        self.assertIn("{ 5, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 4 }, /* arm */", c)
+        self.assertNotIn("GM_LAYERS", self.gen(MODES_NUC)[1])
+        # checks
+        self.assertError(modes("- id: arm\n  toggle: { button: sel }\n  layer: { mute: { cc: 7 } }\n", base),
+                         "its own action would never run")
+        self.assertError(modes("- id: arm\n  hold: { button: menu, with: shift }\n  layer: { mute: { cc: 7 } }\n",
+                               base), "unknown key")
+        self.assertError(modes(arm + "    sel: { cc: 9 }\n", base), "enters a mode")
+        self.assertError(modes(arm + "    shift: { cc: 9 }\n", base), "enters a mode")
+        self.assertError(modes(arm + "    mute: { cc: 7 }\n  buttons: { mute: channel_up }\n", base),
+                         "also in this mode's buttons")
+        self.assertError(modes(arm + "    nope: { cc: 7 }\n", base), "no button with id 'nope'")
+        self.assertError(modes(arm + "    mute: { cc: 7, active: purple }\n", base), "unknown look 'purple'")
+        self.assertError(modes(ROOT + "    E3: { mode: pick }\n- id: pick\n  parent: menu\n  keys: { C3: octave_up }\n"
+                               "  layer: { mute: { cc: 7 } }\n", base), "only a root mode")
+        self.assertTrue(any("has no LED" in w for w in self.warns(modes(arm + "    other: { note: 61, active: on }\n",
+                                                                        base))))
+
     def test_no_modes(self):
         _dev, h, c = self.gen(MODES_NUC)
         self.assertIn("#define GM_N_MODES 0", h)
@@ -1852,9 +1890,9 @@ class TestModes(unittest.TestCase):
             (24, 10, 1, "C5: channel 1"), (25, 10, 2, "C#5: channel 2"), (26, 10, 3, "D5: channel 3")])
         # toggle, parent, root, led, blink, count LED, done LED, n, keys
         # ..., hold, n_buttons, buttons
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0 }, /* menu */", c)
-        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0 }, /* pick */", c)   # parent's LED, blinking
-        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0 }, /* chan */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0, 0 }, /* menu */", c)
+        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0, 0 }, /* pick */", c)   # parent's LED, blinking
+        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0, 0 }, /* chan */", c)
         self.assertEqual(dev.modes[2].root, 0)
 
     def test_modes_compile(self):
@@ -1975,10 +2013,10 @@ class TestModes(unittest.TestCase):
         self.assertEqual([(int(k), int(op), int(a), t) for k, op, a, t in rows], [
             (0, 2, 0, "a: preset_next"), (2, 10, 3, "other: channel 3"), (0, 14, 0, "a: channel_down")])
         # the hold button's LED is lit while it is held; hold = 1; no keys: the keyboard plays
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons }, /* hold */", c)
-        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons }, /* edit */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons, 0 }, /* hold */", c)
+        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons, 0 }, /* edit */", c)
         self.assertEqual(self.warns(modes("- { id: x, hold: menu, buttons: { a: channel_up } }")), [])
-        self.assertTrue(any("has no keys or buttons" in w for w in self.warns(modes("- { id: x, hold: menu }"))))
+        self.assertTrue(any("has no keys, buttons or layer" in w for w in self.warns(modes("- { id: x, hold: menu }"))))
 
     def test_hold_and_buttons_errors(self):
         self.assertError(modes("- { id: x, hold: { button: a }, buttons: { other: channel_up } }"),
@@ -2012,7 +2050,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes(base + "  preset_blink: [lamp, menu_led, lamp]"), r"needs one or two LED ids")
         self.assertError(modes(base + "  preset_blink: [lmp]"), r"no LED with id 'lmp'")
         _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0 }", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0 }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 

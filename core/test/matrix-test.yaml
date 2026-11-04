@@ -1,4 +1,5 @@
-# Test device for core/test/test_matrix.c: a Code 61-style matrix.
+# Test device for core/test/test_matrix.c: a Code 61-style matrix, and a
+# button layer (modes: layer:, toggled with Shift held).
 # matrix-hw-test.yaml is the same board on stm32f1 with hardware_scan:, for
 # the hardware-scan build of the same test. A decoder
 # hub selects the rows (3 address lines, 3 groups on 2 enable lines), the keys
@@ -51,15 +52,27 @@ buttons:
   - { id: up,   pin: { switch_matrix: panel, number: 0 }, action: cc_momentary, cc: 20 }
   - { id: down, pin: { switch_matrix: panel, number: 1 }, action: cc_momentary, cc: 21 }
   - { id: chan, pin: { switch_matrix: panel, number: 2 }, led: chan_led }   # holds the channel mode
+  - { id: shift, pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 22 }
+  - { id: lmode, pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 23 }   # Shift + it: the arm layer
+  - { id: mute, pin: { switch_matrix: panel, number: 7 }, action: cc_toggle, cc: 24, led: mute_led }
 
 leds:
   - { id: chan_led, pin: PC0 }
+  - { id: mute_led, pin: PC1, pin2: PC2, active: colour1 }
+  - { id: arm_led, pin: PC3 }
 
 # While chan is held, up / down change the channel; the keys keep playing.
 modes:
   - id: channel
     hold: { button: chan }
     buttons: { up: channel_up, down: channel_down }
+  # Shift + lmode switches the arm layer on and off (lmode alone: CC 23); in
+  # it, mute is its twin: CC 25, its own toggle state, colour 2 on the LED.
+  - id: arm
+    toggle: { button: lmode, with: shift }
+    led: arm_led
+    layer:
+      mute: { cc: 25, daw: arm_1, active: colour2 }
 
 encoders:
   - { id: enc, pin_a: { switch_matrix: panel, number: 4 }, pin_b: { switch_matrix: panel, number: 5 }, cc: 30 }

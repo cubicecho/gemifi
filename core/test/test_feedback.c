@@ -537,7 +537,7 @@ int main(void)
         CHECK(lstr_is(&r, "toggle"), "id toggle");
         r += 1 + r[0];                          /* name */
         CHECK(lstr_is(&r, "track_mute"), "role from daw:");
-        CHECK(gsx_get_u(r, 2) == 1, "its LED is LED 1");
+        CHECK(gsx_get_u(r, 2) == 1 && r[2] == 0, "its LED is LED 1; layer 0");
 
         q[1] = 0;
         gsx_request(GSX_CMD_GET_COMPONENT, q, 3, &r, &rn);
@@ -553,13 +553,13 @@ int main(void)
         r += 1 + r[0];
         CHECK(lstr_is(&r, "device_param_1"), "role device_param_1");
         CHECK(r[0] == 3 && gsx_get_u(r + 1, 2) == GSX_NONE_INDEX, "ring of 3, no centre");
-        CHECK(r[3] == ENC_ABSOLUTE && r + 4 == out + find_sysex(GSX_CMD_GET_COMPONENT | GSX_REPLY) + 1 +
-              GSX_OFF_PAYLOAD + 1 + rn, "mode 0 (absolute), the last field");
+        CHECK(r[3] == ENC_ABSOLUTE && r[4] == 0 && r + 5 == out + find_sysex(GSX_CMD_GET_COMPONENT | GSX_REPLY) + 1 +
+              GSX_OFF_PAYLOAD + 1 + rn, "mode 0 (absolute), then layer 0 (not a twin), the last field");
         /* `mode` follows encoder.mode */
         uint8_t sp[9] = { P_ENC_MODE, 0, 2, 0, ENC_REL_OFFSET, 0, 0, 0, 0 };
         CHECK(gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0) == GSX_OK, "encoder.mode[2] = relative offset");
         gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
-        CHECK(rn >= 4 && r[rn - 1] == ENC_REL_OFFSET, "mode 2 after SET_PARAM");
+        CHECK(rn >= 5 && r[rn - 2] == ENC_REL_OFFSET, "mode 2 after SET_PARAM");
         sp[4] = ENC_ABSOLUTE;
         gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0);
         qe[1] = 1;
@@ -571,14 +571,14 @@ int main(void)
         CHECK(r[3] == GSX_ENC_MODE_MCU, "a V-Pot reports mode 3");
         qe[1] = 0;
         gsx_request(GSX_CMD_GET_COMPONENT, qe, 3, &r, &rn);
-        CHECK(rn >= 4 && r[rn - 1] == ENC_ABSOLUTE, "enc: mode 0");
+        CHECK(rn >= 5 && r[rn - 2] == ENC_ABSOLUTE, "enc: mode 0");
 
         uint8_t ql[3] = { GSX_KIND_LED, 15, 0 };
         CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK, "GET_COMPONENT LED 15");
         r += 5;
         CHECK(lstr_is(&r, "bi") && lstr_is(&r, "Bicolour"), "id bi, name Bicolour");
         r += 1 + r[0];
-        CHECK(r[0] == 2 && r[1] == GM_OWNER_HOST_THEN_LOCAL, "two colours, owner host_then_local");
+        CHECK(r[0] == 2 && r[1] == GM_OWNER_HOST_THEN_LOCAL && r[2] == 0, "two colours, owner host_then_local, layer 0");
         /* `owner`: the LED's own, MCU-driven ones host (sysex.md 4.6.1) */
         static const struct { uint8_t led, owner; } owners[] = {
             { PLAY, GM_OWNER_HOST },            /* the play button's mcu: LED */
@@ -588,8 +588,8 @@ int main(void)
         for (unsigned k = 0; k < sizeof owners / sizeof owners[0]; k++) {
             ql[0] = GSX_KIND_LED;
             ql[1] = owners[k].led;
-            CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK && r[rn - 1] == owners[k].owner,
-                  "LED %d owner %d (got %d)", owners[k].led, owners[k].owner, r[rn - 1]);
+            CHECK(gsx_request(GSX_CMD_GET_COMPONENT, ql, 3, &r, &rn) == GSX_OK && r[rn - 2] == owners[k].owner,
+                  "LED %d owner %d (got %d)", owners[k].led, owners[k].owner, r[rn - 2]);
         }
 
         uint8_t qa[3] = { GSX_KIND_ANALOG, 1, 0 };

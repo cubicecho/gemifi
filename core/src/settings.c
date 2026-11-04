@@ -58,10 +58,14 @@ gm_settings_t gm_cfg;
 #endif
 
 enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS, G_PADS };
+#define G_LAYERS (G_PADS + (GM_N_PADS > 0))
 static const char *const groups[] = {
     "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug", "Presets",
 #if GM_N_PADS > 0
     "Pads",                          /* only with pads: other schemas stay as they were */
+#endif
+#if GM_LAYER_PARAMS
+    "Layers",                        /* only with layers or cycles */
 #endif
 };
 
@@ -97,6 +101,12 @@ static const char *pad_labels[GM_N_PADS];
 static const char *const analog_mode_opts[] = { "CC", "Pitch bend", "Channel pressure" };
 #endif
 
+#if GM_LAYER_PARAMS
+static const char *mode_labels[GM_N_MODES];
+/* the YAML's enabled: (gm_device_config.h; true unless a step says false) */
+static const int32_t mode_enabled_defs[GM_N_MODES] = { GM_MODES_ENABLED };
+#endif
+
 #if GM_N_ENCODERS > 0
 static const int32_t enc_mode_defs[GM_N_ENCODERS] = { 0 };
 static const char *const enc_mode_opts[] = {
@@ -115,6 +125,10 @@ void gm_settings_init(void)
 #if GM_N_PADS > 0
     for (uint32_t i = 0; i < GM_N_PADS; i++)
         pad_labels[i] = gm_pads[i].name;
+#endif
+#if GM_LAYER_PARAMS
+    for (uint32_t i = 0; i < GM_N_MODES; i++)
+        mode_labels[i] = gm_modes[i].name;
 #endif
 }
 
@@ -159,14 +173,16 @@ static const param_def_t params[] = {
       .name = "velocity.slow", .label = "Key time for velocity 1", .values = &gm_cfg.vel_slow },
 #endif
 
-#if GM_N_BUTTONS > 0
-    { .id = P_BTN_ACTION, .flags = PF_PRESET, .type = PT_ENUM, .group = G_BUTTONS, .count = GM_N_BUTTONS,
+#if GM_N_OWN_BUTTONS > 0
+    { .id = P_BTN_ACTION, .flags = PF_PRESET, .type = PT_ENUM, .group = G_BUTTONS, .count = GM_N_OWN_BUTTONS,
       .min = 0, .max = N_ACTIONS - 1, .defs = gm_button_action_defaults,
       .options = action_opts, .option_count = N_ACTIONS, .index_labels = button_labels,
       .name = "button.action", .label = "Action", .values = gm_cfg.btn_action },
-    { .id = P_BTN_NUMBER, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = GM_N_BUTTONS,
+    { .id = P_BTN_NUMBER, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = GM_N_OWN_BUTTONS,
       .min = 0, .max = 127, .defs = gm_button_number_defaults, .index_labels = button_labels,
       .name = "button.number", .label = "CC / note number", .values = gm_cfg.btn_number },
+#endif
+#if GM_N_BUTTONS > 0
     { .id = P_BEND_GLIDE, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 0, .max = 2000, .def = 80, .unit = "ms",
       .name = "bend.glide", .label = "Pitch bend glide", .values = &gm_cfg.bend_glide },
@@ -185,11 +201,11 @@ static const param_def_t params[] = {
       .name = "analog.mode", .label = "Mode", .values = gm_cfg.analog_mode },
 #endif
 
-#if GM_N_ENCODERS > 0
-    { .id = P_ENC_CC, .flags = PF_PRESET, .type = PT_INT, .group = G_ENCODERS, .count = GM_N_ENCODERS,
+#if GM_N_OWN_ENCODERS > 0
+    { .id = P_ENC_CC, .flags = PF_PRESET, .type = PT_INT, .group = G_ENCODERS, .count = GM_N_OWN_ENCODERS,
       .min = 0, .max = 127, .defs = gm_encoder_cc_defaults, .index_labels = encoder_labels,
       .name = "encoder.cc", .label = "CC", .values = gm_cfg.enc_cc },
-    { .id = P_ENC_MODE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_ENCODERS, .count = GM_N_ENCODERS,
+    { .id = P_ENC_MODE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_ENCODERS, .count = GM_N_OWN_ENCODERS,
       .min = 0, .max = 2, .defs = enc_mode_defs, .options = enc_mode_opts, .option_count = 3,
       .index_labels = encoder_labels,
       .name = "encoder.mode", .label = "Mode", .values = gm_cfg.enc_mode },
@@ -218,6 +234,36 @@ static const param_def_t params[] = {
     { .id = P_PRESET_COUNT, .flags = PF_READ_ONLY, .type = PT_INT, .group = G_PRESETS, .count = 1,
       .min = 1, .max = GM_N_PRESETS, .def = GM_PRESETS_IN_USE,
       .name = "preset.count", .label = "Presets in use", .values = &gm_cfg.preset_count },
+#endif
+
+#if GM_LAYER_PARAMS
+    /* layers: global, stored once with the other globals. The twins' values
+     * are the tails of the button / encoder arrays. */
+    { .id = P_LAYER_ENABLED, .type = PT_BOOL, .group = G_LAYERS, .count = GM_N_MODES,
+      .min = 0, .max = 1, .defs = mode_enabled_defs, .index_labels = mode_labels,
+      .name = "layer.enabled", .label = "Mode enabled", .values = gm_cfg.layer_enabled },
+#if GM_BTN_TWINS > 0
+    { .id = P_LAYER_BTN_ACTION, .type = PT_ENUM, .group = G_LAYERS, .count = GM_BTN_TWINS,
+      .min = 0, .max = N_ACTIONS - 1, .defs = gm_button_action_defaults + GM_N_OWN_BUTTONS,
+      .options = action_opts, .option_count = N_ACTIONS, .index_labels = button_labels + GM_N_OWN_BUTTONS,
+      .name = "layer.button.action", .label = "Twin action", .values = gm_cfg.btn_action + GM_N_OWN_BUTTONS },
+    { .id = P_LAYER_BTN_NUMBER, .type = PT_INT, .group = G_LAYERS, .count = GM_BTN_TWINS,
+      .min = 0, .max = 127, .defs = gm_button_number_defaults + GM_N_OWN_BUTTONS,
+      .index_labels = button_labels + GM_N_OWN_BUTTONS,
+      .name = "layer.button.number", .label = "Twin CC / note number",
+      .values = gm_cfg.btn_number + GM_N_OWN_BUTTONS },
+#endif
+#if GM_ENC_TWINS > 0
+    { .id = P_LAYER_ENC_CC, .type = PT_INT, .group = G_LAYERS, .count = GM_ENC_TWINS,
+      .min = -1, .max = 127, .defs = gm_encoder_cc_defaults + GM_N_OWN_ENCODERS,
+      .index_labels = encoder_labels + GM_N_OWN_ENCODERS,
+      .name = "layer.encoder.cc", .label = "Twin CC (-1 = none: EVENTs only)",
+      .values = gm_cfg.enc_cc + GM_N_OWN_ENCODERS },
+    { .id = P_LAYER_ENC_MODE, .type = PT_ENUM, .group = G_LAYERS, .count = GM_ENC_TWINS,
+      .min = 0, .max = 2, .defs = enc_mode_defs + GM_N_OWN_ENCODERS, .options = enc_mode_opts, .option_count = 3,
+      .index_labels = encoder_labels + GM_N_OWN_ENCODERS,
+      .name = "layer.encoder.mode", .label = "Twin mode", .values = gm_cfg.enc_mode + GM_N_OWN_ENCODERS },
+#endif
 #endif
 
 #if GM_N_PADS > 0

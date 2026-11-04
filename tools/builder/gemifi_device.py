@@ -51,6 +51,21 @@ def _vel(dev):
     return 1 if dev.matrix is not None and dev.matrix.kind == "velocity" else 0
 
 
+def _own(lst):
+    """The YAML's own components of a list: the layer twins (after them) have the layer.* params."""
+    return sum(1 for x in lst if not getattr(x, "layer", 0))
+
+
+def _twins(lst):
+    return len(lst) - _own(lst)
+
+
+def _layer_modes(dev):
+    """layer.enabled: one per mode, on a device with layer twins or a cycle (core/README.md "Cycles")."""
+    has = dev.n_cycles or _twins(dev.buttons) or _twins(dev.encoders) or dev.pad_twins
+    return len(dev.modes) if has else 0
+
+
 PARAMS = [  # (name, id, scope, count(dev))
     ("midi.channel", 1, PRESET, lambda d: 1),
     ("midi.transpose", 2, PRESET, lambda d: 1),
@@ -60,14 +75,14 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("velocity.fast", 6, GLOBAL, _vel),
     ("velocity.slow", 7, GLOBAL, _vel),
     ("analog.cc", 8, PRESET, lambda d: len(d.analogs)),
-    ("button.action", 9, PRESET, lambda d: len(d.buttons)),
-    ("button.number", 10, PRESET, lambda d: len(d.buttons)),
+    ("button.action", 9, PRESET, lambda d: _own(d.buttons)),
+    ("button.number", 10, PRESET, lambda d: _own(d.buttons)),
     ("bend.glide", 11, PRESET, lambda d: 1 if d.buttons else 0),
     ("ramp.time", 12, PRESET, lambda d: 1 if d.buttons else 0),
     ("debug.events", 13, GLOBAL, lambda d: 1),
     ("debug.log_level", 14, GLOBAL, lambda d: 1),
-    ("encoder.cc", 15, PRESET, lambda d: len(d.encoders)),
-    ("encoder.mode", 16, PRESET, lambda d: len(d.encoders)),
+    ("encoder.cc", 15, PRESET, lambda d: _own(d.encoders)),
+    ("encoder.mode", 16, PRESET, lambda d: _own(d.encoders)),
     ("preset.active", 17, GLOBAL, lambda d: 1),
     ("preset.program", 18, PRESET, lambda d: 1 if d.n_presets > 1 else 0),
     ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.n_presets > 1 else 0),
@@ -81,6 +96,12 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
     ("preset.count", 33, GLOBAL, lambda d: 1 if d.n_presets > 1 else 0),
+    # layers (core/README.md "Button layers", "Cycles"): global, so they count once in the budget
+    ("layer.enabled", 34, GLOBAL, _layer_modes),
+    ("layer.button.action", 35, GLOBAL, lambda d: _twins(d.buttons)),
+    ("layer.button.number", 36, GLOBAL, lambda d: _twins(d.buttons)),
+    ("layer.encoder.cc", 37, GLOBAL, lambda d: _twins(d.encoders)),
+    ("layer.encoder.mode", 38, GLOBAL, lambda d: _twins(d.encoders)),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
@@ -756,7 +777,8 @@ class Device:
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
-        self.modes = []              # Hub per mode (validate_modes), in YAML order
+        self.modes = []              # Hub per mode (validate_modes), in YAML order; a cycle's steps in a row
+        self.n_cycles = 0            # modes: cycle: groups
         self.pads = []               # Hub per pad (validate_pads), in YAML order
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
@@ -3021,6 +3043,12 @@ def preset_values(v, dev, d, p):
                 v.warn(cp, cl, "changes nothing")
                 continue
             line = lambda k: o.line_of(k) if k in o else o.line   # noqa: E731
+            twin = sec in ("buttons", "encoders") and getattr((dev.buttons if sec == "buttons" else dev.encoders)[idx],
+                                                              "layer", 0)
+            if twin:
+                v.err(cp, cl, f"'{cid}' is a layer twin: its settings are global (layer.{kind}.*), the same in "
+                              "every preset; set them in the mode's layer:")
+                continue
             if sec == "buttons" and idx in v.mode_toggles:
                 v.err(cp, cl, f"button '{cid}' toggles mode '{v.mode_toggles[idx]}', so presets can't change it "
                               "(modes are the same in every preset, so a preset can't lock you out of them)")
@@ -3093,7 +3121,10 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel": (10, "channel"), "velocity_curve": (11, "curve"),
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
-MODE_KEYS = ["id", "toggle", "hold", "parent", "led", "preset_blink", "keys", "buttons", "layer"]
+MODE_KEYS = ["id", "toggle", "hold", "parent", "cycle", "led", "preset_blink", "keys", "buttons", "layer", "steps"]
+STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (core/README.md "Cycles")
+MAX_STEPS = 8
+MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
 # modes[].layer.<button, pad or encoder id>: what its twin is (core/README.md "Button layers")
 LAYER_KEYS = ["name", "action", "cc", "note", "preset", "daw", "idle", "active"]
 LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
@@ -3213,38 +3244,56 @@ def validate_modes(v, dev, data):
                                               "key_matrix")
         return
     n_errors = len(errors(v.diags))
-    # pass 1: ids, toggles and parents
-    modes, by_id = [], {}
+    # pass 1: ids, toggles and parents; a cycle: becomes its steps, one root mode each
+    modes, by_id, cycles, seen = [], {}, [], {}
+
+    def new_id(d, p, what):
+        if "id" not in d:
+            v.err(p, d.line, f"needs id: (e.g. `id: {what}`)")
+            return None
+        mid = d["id"]
+        why = id_problem(mid, d.raw_of("id"))
+        if why:
+            v.err(f"{p}.id", d.line_of("id"), why)
+            return None
+        if mid in seen:
+            v.err(f"{p}.id", d.line_of("id"), f"mode '{mid}' is already {seen[mid]}: mode ids (and cycle "
+                                              "and step ids) are unique")
+            return None
+        seen[mid] = p
+        return mid
+
+    def new_mode(mid, p, d):
+        m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
+                root=None, led=None, blink=False, show=None, keys=[], buttons=[], with_=None, twins=0,
+                cycle=0, colour=0, name=None, enabled=True, step=False)
+        modes.append(m)
+        by_id[mid] = m
+        return m
+
     for i, d in enumerate(lst):
         p = f"modes[{i}]"
         d = v.mapping(d, p, lst.line_of(i), MODE_KEYS)
         if d is None:
             continue
-        if "id" not in d:
-            v.err(p, d.line, "needs id: (e.g. `id: edit`; keys go to a sub-mode by its id)")
+        mid = new_id(d, p, "edit; keys go to a sub-mode by its id")
+        if mid is None:
             continue
-        mid = d["id"]
-        why = id_problem(mid, d.raw_of("id"))
-        if why:
-            v.err(f"{p}.id", d.line_of("id"), why)
+        given = [k for k in ("toggle", "hold", "parent", "cycle") if d.get(k) is not None]
+        if "cycle" in given or d.get("steps") is not None:
+            mode_cycle(v, dev, d, p, mid, given, cycles, new_id, new_mode)
             continue
-        if mid in by_id:
-            v.err(f"{p}.id", d.line_of("id"), f"mode '{mid}' is already {by_id[mid].path}: mode ids are unique")
-            continue
-        m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
-                root=None, led=None, blink=False, show=None, keys=[], buttons=[], with_=None, twins=0)
-        given = [k for k in ("toggle", "hold", "parent") if d.get(k) is not None]
+        m = new_mode(mid, p, d)
         if len(given) != 1:
             v.err(p, d.line, f"mode '{mid}' needs " + (
                 f"one of toggle:, hold: or parent:, not {' and '.join(given)}" if given else
                 "toggle: { button: <id> } (the button that enters and leaves it), hold: { button: <id> } "
-                "(active while that button is held) or parent: <mode id> (a sub-mode, entered from a key "
-                "of another mode)"))
+                "(active while that button is held), cycle: { button: <id> } with steps: (layers in turn) "
+                "or parent: <mode id> (a sub-mode, entered from a key of another mode)"))
         elif given[0] != "parent":
             m.hold = given[0] == "hold"
             mode_toggle(v, dev, m, d, p, given[0])
-        modes.append(m)
-        by_id[mid] = m
+    dev.n_cycles = len(cycles)
     for m in modes:
         d = m.d
         if d.get("parent") is None or d.get("toggle") is not None or d.get("hold") is not None:
@@ -3286,7 +3335,7 @@ def validate_modes(v, dev, data):
         if d.get("layer") is not None:
             mode_layer(v, dev, m, d["layer"], f"{p}.layer", d.line_of("layer"))
         if keys is None:
-            if d.get("buttons") is None and d.get("layer") is None:
+            if d.get("buttons") is None and d.get("layer") is None and not m.step:
                 v.warn(p, d.line, f"mode '{m.id}' has no keys, buttons or layer: it does nothing")
         elif not isinstance(keys, dict):
             v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
@@ -3318,12 +3367,90 @@ def validate_modes(v, dev, data):
     dev.modes = modes
 
 
+def mode_cycle(v, dev, d, p, cid, given, cycles, new_id, new_mode):
+    """cycle: { button, with } + steps: (core/README.md "Cycles"): each press moves to the next enabled
+    step. Each step is a root mode of its own (its own index, layer and LED colour), all with the cycle's
+    button as toggle / with and cycle = the group number + 1."""
+    if given != ["cycle"] or d.get("steps") is None:
+        others = [k for k in given if k != "cycle"]
+        v.err(p, d.line, f"cycle '{cid}' needs " + (
+            f"cycle: and steps: only, not {' and '.join(others)}:" if others else
+            "cycle: { button: <id>, with: <id> } (the button that moves to the next step)" if "cycle" not in given
+            else "steps: (2 to 8 of { id, name, colour, enabled, layer })"))
+        return
+    for k in ("hold", "parent", "keys", "buttons", "layer", "preset_blink"):
+        if d.get(k) is not None:
+            v.err(f"{p}.{k}", d.line_of(k), f"a cycle has no {k}: of its own: give each step its layer:")
+            return
+    cyc = Hub(id=cid, path=p, toggle=None, with_=None)
+    mode_toggle(v, dev, cyc, d, p, "cycle")
+    led = None
+    if d.get("led") is not None:
+        r = mode_led_ref(v, d, f"{p}.led")
+        if r:
+            led = r[0]
+    elif cyc.toggle is not None and dev.buttons[cyc.toggle].led >= 0:
+        led = dev.buttons[cyc.toggle].led
+    steps, sl = d["steps"], d.line_of("steps")
+    lst = v.seq(steps, f"{p}.steps", sl)
+    if isinstance(steps, list) and not 2 <= len(lst) <= MAX_STEPS:
+        v.err(f"{p}.steps", sl, f"{len(lst)} step{'s' if len(lst) != 1 else ''}: a cycle has 2 to {MAX_STEPS}")
+        return
+    group = len(cycles) + 1
+    out = []
+    for j, s in enumerate(lst):
+        sp = f"{p}.steps[{j}]"
+        s = v.mapping(s, sp, lst.line_of(j), STEP_KEYS)
+        if s is None:
+            continue
+        sid = new_id(s, sp, "enc_midi")
+        if sid is None:
+            continue
+        m = new_mode(sid, sp, s)
+        m.step, m.cycle, m.root = True, group, m.index
+        m.toggle, m.with_, m.led = cyc.toggle, cyc.with_, led
+        m.enabled = v.boolean(s, "enabled", sp, default=True)
+        name = v.string(s, "name", sp)
+        if name is not None and (len(name) > MODE_NAME_LEN or any(not 32 <= ord(c) <= 126 for c in name)):
+            v.err(f"{sp}.name", s.line_of("name"), f"'{name}': at most {MODE_NAME_LEN} ASCII characters (the display "
+                                                   "shows as much as fits)")
+        m.name = name
+        if s.get("colour") is not None:
+            m.colour = step_colour(v, dev, s, sp, led)
+        out.append(m)
+    if out and not any(m.enabled for m in out):
+        v.err(f"{p}.steps", sl, f"cycle '{cid}': every step has enabled: false; at least one must be enabled")
+    cycles.append(cyc)
+
+
+def step_colour(v, dev, s, sp, led):
+    """A step's colour: an LED look for the cycle's LED, resolved for its kind like led_defaults ->
+    0x80 | pin mask (gm_mode_t.colour), 0 after an error."""
+    cp, cl = f"{sp}.colour", s.line_of("colour")
+    if led is None:
+        v.err(cp, cl, "the cycle has no LED to show it: add led: <LED id> to the cycle (or give its button an LED)")
+        return 0
+    w = look_word(s, "colour")
+    x = dev.leds[led]
+    kind = led_kind(x.pin2, x.pin3)
+    if w not in LED_LOOKS[kind] and w not in LED_LOOK_NAMES:
+        close = difflib.get_close_matches(w, list(LED_LOOKS[kind]), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(cp, cl, f"unknown colour '{w}' for LED '{x.id}' ({hint}valid: {', '.join(LED_LOOKS[kind])})")
+        return 0
+    if w not in LED_LOOKS[kind]:
+        v.warn(cp, cl, f"LED '{x.id}' ({kind}) can't show {w}: it shows the nearest it can (valid: "
+                       f"{', '.join(LED_LOOKS[kind])})")
+    return 0x80 | resolve_led_default(kind, w)
+
+
 def mode_toggle(v, dev, m, d, p, key="toggle"):
     """toggle: { button: <id> } (or toggle: <id>): the button that enters and leaves a root mode;
-    hold: the same form, the button that keeps a hold mode active while it is held."""
+    hold: the same form, the button that keeps a hold mode active while it is held; cycle: the same as
+    toggle:, the button that moves a cycle to its next step."""
     t, tl = d[key], d.line_of(key)
     if isinstance(t, dict):
-        if v.mapping(t, f"{p}.{key}", tl, ["button", "with"] if key == "toggle" else ["button"]) is None:
+        if v.mapping(t, f"{p}.{key}", tl, ["button", "with"] if key in ("toggle", "cycle") else ["button"]) is None:
             return
         if "button" not in t:
             v.err(f"{p}.{key}", tl, f"needs button: (e.g. `{key}: {{ button: edit }}`)")
@@ -3336,7 +3463,7 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
     if idx is None:
         return
     b = dev.buttons[idx]
-    verb = "toggles" if key == "toggle" else "holds"
+    verb = {"toggle": "toggles", "hold": "holds", "cycle": "cycles"}[key]
     if holder.get("with") is not None:
         # toggle: { button, with }: the mode only with `with` held; a plain press keeps the button's action
         w = v.ref(holder, "with", f"{p}.{key}.with", holder.line_of("with"), "button", "buttons")
@@ -3499,12 +3626,15 @@ def layer_pad(v, dev, m, idx, e, path, line):
 
 def layer_encoder(v, dev, m, idx, e, path, line):
     """An encoder's twin: turns go to it (its CC, its EVENT index) while the layer is active. Same pins, not
-    scanned again; encoder.mode starts as the base's."""
+    scanned again; layer.encoder.mode starts as absolute. cc: none sends no CC, only EVENTs."""
     x = dev.encoders[idx]
     if x.ring or x.ring_center is not None:
         v.err(path, line, "a ring encoder can't have a layer twin yet")
         return
-    cc = v.integer(e, "cc", path, 0, 127, default=x.cc)
+    if isinstance(e.get("cc"), str) and e["cc"].strip().lower() == "none":
+        cc = -1                  # cc: none: only EVENTs (layer.encoder.cc -1)
+    else:
+        cc = v.integer(e, "cc", path, 0, 127, default=x.cc)
     tid = v.register(f"{x.id}_{m.id}", path, line, "encoder", len(dev.encoders))
     if tid is None:
         return
@@ -3665,10 +3795,10 @@ def mode_tables(dev):
         parent = "GM_MODE_NONE" if m.parent is None else m.parent
         rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
                     f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr}"
-                    f", {0 if m.with_ is None else m.with_ + 1} }}, "
-                    f"/* {_comment(m.id)} */")
-    c += ["/* { toggle/hold button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys, hold, "
-          "n_buttons, buttons, with } */",
+                    f", {0 if m.with_ is None else m.with_ + 1}, {m.cycle}, 0x{m.colour:02X}, "
+                    f"{c_str(m.name if m.name is not None else m.id)} }}, /* {_comment(m.id)} */")
+    c += ["/* { toggle/hold/cycle button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys, "
+          "hold, n_buttons, buttons, with, cycle, colour, name } */",
           "const gm_mode_t gm_modes[GM_N_MODES] = {", *rows, "};", ""]
     return c
 
@@ -3884,6 +4014,14 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
     if enc_twins:
         h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
+    btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
+    if btn_twins:
+        h.append(f"#define GM_BTN_TWINS {btn_twins} /* the last buttons: layer twins (layer.button.*) */")
+    if dev.modes:
+        h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
+                 "/* layer.enabled defaults, per mode */")
+    if getattr(dev, "n_cycles", 0):
+        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (core/README.md \"Cycles\") */")
     if dev.pad_twins:
         h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pad_defines(dev)

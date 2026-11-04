@@ -51,6 +51,13 @@ enum {
     P_DIN_OUT = 31,
     P_DIN_USB = 32,                  /* din_midi.mode usb_merge only */
     P_PRESET_COUNT = 33,             /* presets in use (GM_N_PRESETS > 1) */
+    /* layers (GM_LAYER_PARAMS): global, stored once (core/README.md
+     * "Button layers", "Cycles") */
+    P_LAYER_ENABLED = 34,            /* per mode (index = mode index) */
+    P_LAYER_BTN_ACTION = 35,         /* per button twin (GM_BTN_TWINS) */
+    P_LAYER_BTN_NUMBER = 36,
+    P_LAYER_ENC_CC = 37,             /* per encoder twin (GM_ENC_TWINS); -1 = none */
+    P_LAYER_ENC_MODE = 38,
 };
 
 #ifndef GM_N_PADS
@@ -59,6 +66,27 @@ enum {
 #ifndef GM_DIN
 #define GM_DIN 0                     /* no din_midi: */
 #endif
+#ifndef GM_N_MODES
+#define GM_N_MODES 0                 /* a config generated before modes */
+#endif
+#ifndef GM_LAYERS
+#define GM_LAYERS 0                  /* layer twins (all kinds) */
+#endif
+#ifndef GM_BTN_TWINS
+#define GM_BTN_TWINS 0               /* the last GM_BTN_TWINS buttons are twins */
+#endif
+#ifndef GM_ENC_TWINS
+#define GM_ENC_TWINS 0               /* the last GM_ENC_TWINS encoders are twins */
+#endif
+#ifndef GM_N_CYCLES
+#define GM_N_CYCLES 0                /* modes: cycle: groups */
+#endif
+/* layer.enabled (one per mode) on a device with layer twins or a cycle. */
+#define GM_LAYER_PARAMS (GM_N_MODES > 0 && (GM_LAYERS > 0 || GM_N_CYCLES > 0))
+/* The YAML's own buttons / encoders: button.* / encoder.* (per preset). The
+ * twins after them share the arrays below, under the layer.* params. */
+#define GM_N_OWN_BUTTONS (GM_N_BUTTONS - GM_BTN_TWINS)
+#define GM_N_OWN_ENCODERS (GM_N_ENCODERS - GM_ENC_TWINS)
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
 
@@ -102,6 +130,8 @@ typedef struct {
     int32_t vel_slow;                /* 0.1 ms: this slow or slower = 1   */
     int32_t analog_cc[GM_ARR(GM_N_ANALOGS)];
     int32_t analog_mode[GM_ARR(GM_N_ANALOGS)];   /* AN_MODE_* */
+    /* buttons, then their twins: button.* is [0, GM_N_OWN_BUTTONS), the
+     * twins' layer.button.* the rest; encoders likewise (enc_cc -1 = none) */
     int32_t btn_action[GM_ARR(GM_N_BUTTONS)];
     int32_t btn_number[GM_ARR(GM_N_BUTTONS)];
     int32_t enc_cc[GM_ARR(GM_N_ENCODERS)];
@@ -118,6 +148,9 @@ typedef struct {
     int32_t din_thru;                /* DIN In -> DIN Out              */
     int32_t din_out;                 /* the controller -> DIN Out      */
     int32_t din_usb;                 /* usb_merge: host -> DIN Out     */
+#endif
+#if GM_LAYER_PARAMS
+    int32_t layer_enabled[GM_N_MODES];   /* 0: a cycle skips the step, a toggle / hold can't enter */
 #endif
 #if GM_N_PADS > 0                    /* no RAM on devices without pads */
     int32_t pad_note[GM_N_PADS];

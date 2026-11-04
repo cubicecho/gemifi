@@ -99,6 +99,10 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
 void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..127, absolute mode */
 void gm_host_release(uint32_t what);                           /* FB_RELEASE: 0 all, 1 LEDs, 2 values */
 
+/* controller.c: the host set debug.events to 1: send EVENT 8 (layer) value
+ * 1 for each mode that is on, from the next gm_poll (sysex.md 4.6). */
+void gm_layers_report(void);
+
 /* app_proto.c: FB_TEXT goes to the display (core/src/display.c). */
 void gm_host_on_text(uint32_t display, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n);
 

@@ -34,6 +34,7 @@ extern "C" {
 #define EV_ENCODER 4
 #define EV_TOUCH   5    /* analog index; 1 touched, 0 released */
 #define EV_PAD     7    /* pad twins only: value = peak reading x 4 on a hit, 0 on release */
+#define EV_LAYER   8    /* mode index; 1 its layer turned on, 0 off (core/README.md "Cycles") */
 
 /* has_config: the app has a params.h table (and config_store). Caps and
  * the upload role come from that and hal_fw_ops(). */

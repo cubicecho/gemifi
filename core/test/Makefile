@@ -144,11 +144,11 @@ $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV
 
 $(BUILD)/test_matrix: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MX_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(MX_DEV) $(MX_SRCS) -o $@
+	$(CC) $(CFLAGS) -I$(MX_DEV) $(MX_SRCS) -Wl,--wrap=gm_display_message -o $@
 
 $(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(HW_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -DHW_SCAN_TEST -I$(HW_DEV) $(HW_SRCS) -o $@
+	$(CC) $(CFLAGS) -DHW_SCAN_TEST -I$(HW_DEV) $(HW_SRCS) -Wl,--wrap=gm_display_message -o $@
 
 $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

@@ -157,16 +157,33 @@ static uint8_t knote[NK], kchan[NK];
 #endif
 
 #if GM_N_MODES > 0
-static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled mode; GM_MODE_NONE = none */
+/* Which modes are on (core/README.md "Modes", "Cycles"): the key modes
+ * (keys:, buttons:, sub-modes) share mode_cur, one at a time; a held hold
+ * mode is hold_cur. With layers or cycles (GM_LAYER_PARAMS), each
+ * layer-only toggle mode has its own on/off (solo_on) and each cycle its
+ * current step (cyc_cur), so any of them can be on together. */
+static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled key mode; GM_MODE_NONE = none */
 static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
 static uint32_t keys_mode(void);
 static void mode_key(uint32_t mi, uint32_t k);
 #endif
-#if GM_LAYERS
+#if GM_LAYER_PARAMS
+static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), gm_init */
+static uint64_t solo_on;            /* ... the ones that are on */
+static uint64_t modes_was;          /* modes on at the last layers_update: EVENT 8 on a change */
+static uint8_t report_due;          /* gm_layers_report: the EVENT 8 replay, from gm_poll */
+#if GM_N_CYCLES
+static uint8_t cyc_cur[GM_N_CYCLES];   /* each cycle's current step (mode index) */
+#endif
 static void layers_update(void);
 #else
 #define layers_update() ((void)0)
 #endif
+
+/* LED levels (see led_show below): LV_BLINK | level blinks it; LV_RGB | m
+ * lights the pins in mask m (an RGB colour, or a cycle step's colour). */
+#define LV_BLINK 0x80u
+#define LV_RGB 0x40u
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
@@ -874,11 +891,67 @@ static int binds_channel(const gm_mode_key_t *b, uint32_t n)
     return 0;
 }
 
+#if GM_LAYER_PARAMS
+/* How strongly root mode m's layer holds, 0 = off. When layers on at once
+ * have twins of the same component, the strongest wins: the held hold
+ * mode, then the toggled key mode, then cycle steps, then layer-only
+ * toggles, each in mode order (core/README.md "Cycles"). */
+static uint32_t layer_rank(uint32_t m)
+{
+    if (hold_cur == m)
+        return 255u;
+    if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m)
+        return 254u;
+#if GM_N_CYCLES
+    uint32_t g = gm_modes[m].cycle;
+    if (g && cyc_cur[g - 1u] == m)
+        return 200u - m;            /* GM_N_MODES <= 64 */
+#endif
+    if ((solo_on >> m) & 1u)
+        return 128u - m;
+    return 0;
+}
+
+#if GM_N_CYCLES
+/* The step of cycle g (1..) after mode from: the next enabled one, round
+ * the group; GM_MODE_NONE: the first enabled one (power-on). Every step
+ * disabled: the first step. */
+static uint32_t cycle_after(uint32_t g, uint32_t from)
+{
+    uint32_t first = 0;
+    while (first < GM_N_MODES - 1u && gm_modes[first].cycle != g)
+        first++;
+    uint32_t s = from == GM_MODE_NONE ? first + GM_N_MODES - 1u : from;
+    for (uint32_t k = 1; k <= GM_N_MODES; k++) {
+        uint32_t m = (s + k) % GM_N_MODES;
+        if (gm_modes[m].cycle == g && gm_cfg.layer_enabled[m])
+            return m;
+    }
+    return first;
+}
+
+/* The cycle button: the next enabled step's layer, its name on the
+ * display, its colour on the cycle's LED (mode_led), EVENT 8 for the old
+ * step (0) and the new one (1) (layers_update). */
+static void cycle_press(uint32_t g)
+{
+    uint32_t m = cycle_after(g, cyc_cur[g - 1u]);
+    cyc_cur[g - 1u] = (uint8_t)m;
+    layers_update();
+    if (gm_modes[m].name)
+        gm_display_message(gm_modes[m].name);
+}
+#endif
+#endif
+
 /* The toggle or hold button of a root mode. Toggle: enters the mode (held
  * keys get their Note Off first, if it has keys), or leaves it from the
  * mode or any of its sub-modes. Hold: the mode is active while the button
  * is down. Its own action never runs. Returns 0 if button i is neither.
- * A twin of a toggle: { button, with } button toggles the mode as well. */
+ * A twin of a toggle: { button, with } button toggles the mode as well.
+ * A cycle's button (on each of its steps) moves it to its next step. A
+ * disabled mode (layer.enabled 0) can't be entered: its button is as if
+ * it weren't there (it can still be left). */
 static int mode_button(uint32_t i, int down)
 {
 #if GM_LAYERS
@@ -891,6 +964,10 @@ static int mode_button(uint32_t i, int down)
         const gm_mode_t *md = &gm_modes[m];
         if (md->toggle != base || (base != i && !md->with))
             continue;
+#if GM_LAYER_PARAMS
+        if (!md->cycle && !gm_cfg.layer_enabled[m] && !layer_rank(m) && !(btn_in_mode & (1ull << i)))
+            continue;
+#endif
         if (md->with && !md->hold) {
             /* toggle: { button, with }: only with that button held; a plain
              * press is the button's own (its release too). */
@@ -903,6 +980,13 @@ static int mode_button(uint32_t i, int down)
                 btn_in_mode &= ~bit;
         }
         event(EV_BUTTON, i, (uint32_t)down);
+#if GM_N_CYCLES
+        if (md->cycle) {
+            if (down)
+                cycle_press(md->cycle);
+            return 1;
+        }
+#endif
         if (md->hold) {
             if (down) {
                 if (md->n_keys && keys_mode() == GM_MODE_NONE)
@@ -919,6 +1003,14 @@ static int mode_button(uint32_t i, int down)
         }
         if (!down)
             return 1;
+#if GM_LAYER_PARAMS
+        if ((solo_mask >> m) & 1u) {
+            solo_on ^= 1ull << m;           /* a layer of its own: the others stay */
+            layers_update();
+            app_log(LOG_DEBUG, gm_device.buttons[i].name, ((solo_on >> m) & 1u) ? ": layer on" : ": layer off");
+            return 1;
+        }
+#endif
         if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m) {
             mode_cur = GM_MODE_NONE;
         } else {
@@ -1062,6 +1154,16 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
         return gm_modes[hold_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
     if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
         return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
+#if GM_LAYER_PARAMS
+    for (uint32_t m = 0; m < GM_N_MODES; m++) {     /* cycle steps and layer-only toggles */
+        const gm_mode_t *md = &gm_modes[m];
+        if (md->led != (int8_t)li || !(md->cycle || ((solo_mask >> m) & 1u)) || !layer_rank(m))
+            continue;
+        if (md->colour)
+            return LV_RGB | (md->colour & 7u);       /* the step's colour */
+        return md->led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
+    }
+#endif
     return level;
 }
 #define MODE_LED(li, level, now) mode_led(li, level, now)
@@ -1564,6 +1666,8 @@ static void encoders_poll(void)
             continue;
         }
 #endif
+        if (gm_cfg.enc_cc[i] < 0)
+            continue;               /* a twin's cc: none: the EVENT only */
         uint32_t num = (uint32_t)gm_cfg.enc_cc[i];
         switch (gm_cfg.enc_mode[i]) {
         case ENC_REL_TWOS:
@@ -1598,9 +1702,6 @@ static void encoders_poll(void)
  * any other level > 0 is white. Off (0) and a plain on (1; any on level of
  * a single-colour or RGB LED) show the LED's idle and active looks
  * (gm_led_t.looks); a blink's dark half is the idle look. */
-#define LV_BLINK 0x80u
-#define LV_RGB 0x40u
-
 /* Light the pins in mask m (bit 0 pin, 1 pin2, 2 pin3), the others dark. */
 static void led_pins(const gm_led_t *l, uint32_t m)
 {
@@ -1628,8 +1729,10 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
     uint32_t m;
     if (level == 0)
         m = led_look(l, 0);
+    else if (level & LV_RGB)
+        m = level & 7u;             /* these pins, whatever the kind */
     else if (!vpin_is_none(l->pin3))
-        m = (level & LV_RGB) ? level & 7u : led_look(l, 1);
+        m = led_look(l, 1);
     else if (vpin_is_none(l->pin2) || level == 1)
         m = led_look(l, 1);
     else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
@@ -1753,7 +1856,7 @@ static int led_blinks(const gm_led_t *l, uint32_t level)
     if (level & LV_BLINK)
         return 1;
 #endif
-    return !vpin_is_none(l->pin2) && vpin_is_none(l->pin3) && level >= 4u;
+    return !vpin_is_none(l->pin2) && vpin_is_none(l->pin3) && level >= 4u && !(level & LV_RGB);
 }
 
 #if GM_LAYERS
@@ -1776,79 +1879,100 @@ static void led_set(uint32_t i, uint32_t level, int blink_on)
     led_show(&gm_device.leds[i], level, blink_on);
 }
 
-#if GM_LAYERS
-/* Whether a twin of this layer (mode index + 1, 0 = not a twin) takes over
- * in this pass: pass 0 the toggled mode's layer (its root's, from a
- * sub-mode), pass 1 the held hold mode's, so that one wins. */
-static int twin_pass(uint32_t layer, uint32_t pass)
-{
-    uint32_t m = layer - 1u;
-    if (!layer)
-        return 0;
-    if (pass)
-        return hold_cur != GM_MODE_NONE && hold_cur == m;
-    return hold_cur != m && mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m;
-}
-
+#if GM_LAYER_PARAMS
 /* Which of each base and its twins is live (core/README.md "Button layers"):
- * the twin of an active layer, the held hold mode's first; else the base.
- * An LED that changes hands is drawn again. */
+ * the twin of the strongest layer that is on (layer_rank), else the base.
+ * An LED that changes hands is drawn again. Then EVENT 8 for each mode
+ * that went off (0), then each that came on (1). */
 static void layers_update(void)
 {
+#if GM_LAYERS
+#define RANK(layer) ((layer) ? layer_rank((layer) - 1u) : 0u)
 #if GM_PAD_TWINS
+    uint8_t pr[GM_N_PADS];
     for (uint32_t i = 0; i < GM_N_PADS; i++)
-        pad_live[i] = 0;
-#endif
-#if GM_ENC_TWINS
-    for (uint32_t i = 0; i < NE_HW; i++)
-        enc_live[i] = (uint8_t)i;
-#endif
-    uint64_t live = 0;
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
-        if (!gm_device.buttons[i].layer)
-            live |= 1ull << i;
-    for (uint32_t pass = 0; pass < 2; pass++) {     /* toggled, then held: the hold mode wins */
-#if GM_PAD_TWINS
-        for (uint32_t t = 0; t < GM_PAD_TWINS; t++)
-            if (twin_pass(gm_pad_twins[t].layer, pass))
-                pad_live[gm_pad_twins[t].base] = (uint8_t)(t + 1u);
-#endif
-#if GM_ENC_TWINS
-        for (uint32_t i = NE_HW; i < GM_N_ENCODERS; i++)
-            if (twin_pass(gm_device.encoders[i].layer, pass))
-                enc_live[gm_device.encoders[i].base] = (uint8_t)i;
-#endif
-        for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
-            const gm_button_t *b = &gm_device.buttons[i];
-            if (!twin_pass(b->layer, pass))
-                continue;
-            for (uint32_t j = 0; j < GM_N_BUTTONS && j < 64; j++)
-                if (j == b->base || (gm_device.buttons[j].layer && gm_device.buttons[j].base == b->base))
-                    live &= ~(1ull << j);
-            live |= 1ull << i;
+        pad_live[i] = pr[i] = 0;
+    for (uint32_t t = 0; t < GM_PAD_TWINS; t++) {
+        uint32_t b = gm_pad_twins[t].base, r = RANK(gm_pad_twins[t].layer);
+        if (r > pr[b]) {
+            pr[b] = (uint8_t)r;
+            pad_live[b] = (uint8_t)(t + 1u);
         }
     }
-    btn_live = live;
-    uint8_t on[GM_ARR(GM_N_LEDS)];
-    for (uint32_t i = 0; i < GM_N_LEDS; i++)
-        on[i] = !gm_device.leds[i].layer;
-    for (uint32_t pass = 0; pass < 2; pass++)
-        for (uint32_t i = 0; i < GM_N_LEDS; i++) {
-            const gm_led_t *l = &gm_device.leds[i];
-            if (!twin_pass(l->layer, pass))
-                continue;
-            for (uint32_t j = 0; j < GM_N_LEDS; j++)
-                if (j == l->base || (gm_device.leds[j].layer && gm_device.leds[j].base == l->base))
-                    on[j] = 0;
-            on[i] = 1;
+#endif
+#if GM_ENC_TWINS
+    uint8_t er[NE_HW];
+    for (uint32_t i = 0; i < NE_HW; i++) {
+        enc_live[i] = (uint8_t)i;
+        er[i] = 0;
+    }
+    for (uint32_t i = NE_HW; i < GM_N_ENCODERS; i++) {
+        uint32_t b = gm_device.encoders[i].base, r = RANK(gm_device.encoders[i].layer);
+        if (r > er[b]) {
+            er[b] = (uint8_t)r;
+            enc_live[b] = (uint8_t)i;
         }
-    for (uint32_t i = 0; i < GM_N_LEDS; i++)
-        if (led_dead[i] != !on[i]) {
-            led_dead[i] = !on[i];
+    }
+#endif
+    /* buttons: the twins are the last GM_BTN_TWINS */
+    uint8_t br[NB], bl[NB];
+    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+        br[i] = 0;
+        bl[i] = (uint8_t)i;
+    }
+    for (uint32_t i = GM_N_OWN_BUTTONS; i < GM_N_BUTTONS; i++) {
+        uint32_t b = gm_device.buttons[i].base, r = RANK(gm_device.buttons[i].layer);
+        if (r > br[b]) {
+            br[b] = (uint8_t)r;
+            bl[b] = (uint8_t)i;
+        }
+    }
+    uint64_t live = 0;
+    for (uint32_t i = 0; i < GM_N_OWN_BUTTONS && i < 64; i++)
+        live |= 1ull << bl[i];
+    btn_live = live;
+    uint8_t lr[GM_ARR(GM_N_LEDS)], ll[GM_ARR(GM_N_LEDS)];
+    for (uint32_t i = 0; i < GM_N_LEDS; i++) {
+        lr[i] = 0;
+        ll[i] = (uint8_t)i;
+    }
+    for (uint32_t i = 0; i < GM_N_LEDS; i++) {
+        const gm_led_t *l = &gm_device.leds[i];
+        uint32_t r = RANK(l->layer);
+        if (l->layer && r > lr[l->base]) {
+            lr[l->base] = (uint8_t)r;
+            ll[l->base] = (uint8_t)i;
+        }
+    }
+    for (uint32_t i = 0; i < GM_N_LEDS; i++) {
+        const gm_led_t *l = &gm_device.leds[i];
+        uint8_t dead = ll[l->layer ? l->base : i] != i;
+        if (led_dead[i] != dead) {
+            led_dead[i] = dead;
             led_shown[i] = 0xFFFFu;     /* drawn again once it is live */
         }
+    }
+#undef RANK
+#endif
+    uint64_t on = 0;
+    for (uint32_t m = 0; m < GM_N_MODES; m++)
+        if (layer_rank(m))
+            on |= 1ull << m;
+    uint64_t d = on ^ modes_was;
+    modes_was = on;
+    for (uint32_t v = 0; v < 2u; v++)
+        for (uint32_t m = 0; m < GM_N_MODES; m++)
+            if (((d >> m) & 1u) && ((on >> m) & 1u) == v)
+                event(EV_LAYER, m, v);
 }
 #endif
+
+void gm_layers_report(void)
+{
+#if GM_LAYER_PARAMS
+    report_due = 1;
+#endif
+}
 
 #if GM_HOST_LEDS
 /* leds_update() works out the buttons' and pads' own levels every 10 ms;
@@ -2235,6 +2359,10 @@ void gm_init(uint32_t fw_version, int safe_mode)
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
+#if GM_N_CYCLES
+    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
+        cyc_cur[g] = GM_MODE_NONE;  /* set once the settings are loaded (below) */
+#endif
     layers_update();                /* no mode yet: every base live, every twin hidden */
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         vpin_output(gm_device.leds[i].pin);
@@ -2309,6 +2437,15 @@ void gm_init(uint32_t fw_version, int safe_mode)
     show_n = 0;
     btn_in_mode = 0;
 #endif
+#if GM_LAYER_PARAMS
+    /* layer-only toggles: no keys or buttons (so no sub-modes either) */
+    solo_mask = solo_on = 0;
+    for (uint32_t m = 0; m < GM_N_MODES; m++) {
+        const gm_mode_t *md = &gm_modes[m];
+        if (md->toggle != GM_MODE_NONE && !md->hold && !md->cycle && !md->n_keys && !md->n_buttons)
+            solo_mask |= 1ull << m;
+    }
+#endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < NB; i++) {
         btn_note[i] = NOTE_NONE;
@@ -2337,6 +2474,11 @@ void gm_init(uint32_t fw_version, int safe_mode)
 
     gm_settings_init();
     presets_boot(safe);
+#if GM_N_CYCLES
+    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
+        cyc_cur[g] = (uint8_t)cycle_after(g + 1u, GM_MODE_NONE);   /* the first enabled step */
+#endif
+    layers_update();
     app_log_limit = (uint8_t)gm_cfg.log_level;
     app_proto_init(fw_version, 1);
 
@@ -2373,6 +2515,14 @@ void gm_poll(void)
     uint32_t tc = hal_cycles();
 
     app_proto_poll();
+#if GM_LAYER_PARAMS
+    if (report_due) {               /* debug.events set to 1: every mode that is on */
+        report_due = 0;
+        for (uint32_t m = 0; m < GM_N_MODES; m++)
+            if ((modes_was >> m) & 1u)
+                event(EV_LAYER, m, 1);
+    }
+#endif
     gm_din_poll(now);
     presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;

@@ -2514,6 +2514,28 @@ void gm_poll(void)
     uint32_t now = hal_millis();
     uint32_t tc = hal_cycles();
 
+    /* Keys and buttons first, and their MIDI to the host at once: nothing
+     * below (protocol, presets, analog, LEDs, the display, the TM1628 bus)
+     * stands between a key and its USB packet. Keys still go before buttons,
+     * as before. Part numbers name the part, not the order. */
+#if GM_HAS_MATRIX
+    keys_poll();
+#endif
+#if GM_N_BUTTONS > 0
+    if (now - t_btn >= BTN_SAMPLE_MS) {
+        t_btn = now;
+        buttons_sample();           /* I2C hub inputs: as refreshed on an earlier pass */
+    }
+    if (now - t_ms > 50u)
+        t_ms = now - 1u;            /* first call, or a long stall (flash erase) */
+    while (t_ms != now) {
+        t_ms++;
+        ramps_ms(now);
+    }
+#endif
+    hal_midi_poll();
+    poll_part_done(1, &tc);
+
     app_proto_poll();
 #if GM_LAYER_PARAMS
     if (report_due) {               /* debug.events set to 1: every mode that is on */
@@ -2526,29 +2548,12 @@ void gm_poll(void)
     gm_din_poll(now);
     presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;
-    poll_part_done(0, &tc);
-
     if (has_i2c_hubs && now - t_i2c >= I2C_MS) {
         t_i2c = now;
         vpin_flush_i2c();
         vpin_refresh_i2c();
     }
-#if GM_HAS_MATRIX
-    keys_poll();
-#endif
-#if GM_N_BUTTONS > 0
-    if (now - t_btn >= BTN_SAMPLE_MS) {
-        t_btn = now;
-        buttons_sample();
-    }
-    if (now - t_ms > 50u)
-        t_ms = now - 1u;            /* first call, or a long stall (flash erase) */
-    while (t_ms != now) {
-        t_ms++;
-        ramps_ms(now);
-    }
-#endif
-    poll_part_done(1, &tc);
+    poll_part_done(0, &tc);
 #if GM_N_ANALOGS > 0
     if (now - t_analog >= (gm_adc_hw() ? 1u : ANALOG_MS)) {
         t_analog = now;
@@ -2566,6 +2571,7 @@ void gm_poll(void)
 #if GM_N_ENCODERS > 0
     encoders_poll();
 #endif
+    hal_midi_poll();                /* analog, pads, encoders, DIN merged in: before the LEDs too */
     poll_part_done(4, &tc);
     int led_pass = 0;
     if (now - t_led >= LED_MS) {

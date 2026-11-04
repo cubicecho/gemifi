@@ -124,6 +124,11 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 /* A free-running CPU cycle counter, for timing the scan (gm_scan_part_max).
  * A weak default returning 0 is in core/src/controller.c. */
 uint32_t hal_cycles(void);
+/* Optional: how many hal_cycles() counts make ns (< 1000000, rounded up),
+ * for short waits on hal_cycles() (the TM1628 bit timing); 0 if hal_cycles()
+ * doesn't count. Must not divide at run time on a chip without a fast
+ * divider. A weak default returning 0 is in core/src/vpin.c. */
+uint32_t hal_ns_to_cycles(uint32_t ns);
 
 /* A set/reset register for pin's port, where writing 1 << *bit sets the pin
  * and 1 << (*bit + 16) clears it (the STM32 BSRR), so several pins of one

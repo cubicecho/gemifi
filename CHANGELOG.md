@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.25.0](https://github.com/cubicecho/gemifi/compare/v0.24.0...v0.25.0) (2026-11-04)
+
+
+### Features
+
+* **web:** Presets tab with a slot list, New preset and a pinned save bar ([f2c6f7c](https://github.com/cubicecho/gemifi/commit/f2c6f7c9438c08514d5ab43dce0c0369e7136e61))
+
 # [0.24.0](https://github.com/cubicecho/gemifi/compare/v0.23.0...v0.24.0) (2026-11-04)
 
 

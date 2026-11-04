@@ -6,9 +6,14 @@
  * clears 1 KB. A power cut after the Nth halfword program stops the write
  * there (longjmp), as a reset would.
  *
+ * A power cut in an erase leaves the first half of the page erased and the
+ * rest as it was.
+ *
  * Covers the packed v3 groups (widths, gaps, limits), the Code 61's worst
- * case (3 presets + the globals in one page), old v2 records, CRC-valid
- * records with bad groups, junk pages, and power cuts through page swaps.
+ * case (5 presets + the globals on 3 pages), the old two-page layout, old v2
+ * records, CRC-valid records with bad groups, junk pages, power cuts through
+ * compactions (also a second cut while recovering), and how often a typical
+ * save erases a page.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -23,8 +28,8 @@
 
 uint8_t sim_flash[BOARD_CONFIG_PAGES * BOARD_FLASH_PAGE];
 
-static long cut_after = -1;
-static long sim_erases;                    /* page erases so far */                /* halfword programs left; -1 = no cut */
+static long cut_after = -1;               /* halfword programs + erases left; -1 = no cut */
+static long sim_erases;                    /* page erases so far */
 static jmp_buf cut_jb;
 static int fails;
 
@@ -41,8 +46,25 @@ static int fails;
 void flash_unlock(void) {}
 void flash_lock(void) {}
 
+static int out_of_range(uint32_t addr, uint32_t len)
+{
+    if (addr >= BOARD_CONFIG_BASE && addr + len <= BOARD_CONFIG_BASE + sizeof(sim_flash))
+        return 0;
+    fails++;
+    printf("FAIL: flash access outside the config pages at 0x%08X\n", addr);
+    return 1;
+}
+
 int flash_erase_page(uint32_t addr)
 {
+    if (out_of_range(addr, BOARD_FLASH_PAGE) || addr % BOARD_FLASH_PAGE)
+        return -1;
+    if (cut_after == 0) {
+        memset(sim_flash + (addr - BOARD_CONFIG_BASE), 0xFF, BOARD_FLASH_PAGE / 2u);
+        longjmp(cut_jb, 1);
+    }
+    if (cut_after > 0)
+        cut_after--;
     sim_erases++;
     memset(sim_flash + (addr - BOARD_CONFIG_BASE), 0xFF, BOARD_FLASH_PAGE);
     return 0;
@@ -50,6 +72,8 @@ int flash_erase_page(uint32_t addr)
 
 int flash_program_half(uint32_t addr, uint16_t v)
 {
+    if (out_of_range(addr, 2))
+        return -1;
     if (cut_after == 0)
         longjmp(cut_jb, 1);
     if (cut_after > 0)
@@ -106,15 +130,15 @@ static int write_n(uint8_t slot, int32_t v, uint32_t n, const char *name)
 }
 
 /* The Code 61's worst case (devices/m-audio-code61.yaml, core/src/settings.c):
- * every per-preset value of a preset (with preset.program: 134), or every
- * global (10), each at a value of its full range. v varies them. */
+ * every per-preset value of a preset (with preset.program: 153), or every
+ * global (12), each at a value of its full range. v varies them. */
 static uint32_t code61_preset(cs_entry_t *e, int32_t v)
 {
     static const struct { uint16_t id, count; int32_t lo, hi; } p[] = {
         { 1, 1, 1, 16 }, { 2, 1, -24, 24 }, { 3, 1, -4, 4 }, { 4, 1, 0, 3 }, { 5, 1, 1, 127 },
-        { 8, 9, 0, 127 }, { 9, 41, 0, 15 }, { 10, 41, 0, 127 }, { 11, 1, 0, 2000 },
+        { 8, 14, 0, 127 }, { 9, 41, 0, 15 }, { 10, 41, 0, 127 }, { 11, 1, 0, 2000 },
         { 12, 1, 0, 5000 }, { 15, 8, 0, 127 }, { 16, 8, 0, 2 }, { 18, 1, -1, 127 },
-        { 20, 16, 0, 127 }, { 21, 1, 0, 16 }, { 22, 1, 0, 3 }, { 23, 1, 0, 1 },
+        { 20, 16, 0, 127 }, { 21, 1, 0, 16 }, { 22, 1, 0, 3 }, { 23, 1, 0, 1 }, { 29, 14, 0, 2 },
     };
     uint32_t n = 0;
     for (uint32_t k = 0; k < sizeof(p) / sizeof(p[0]); k++)
@@ -134,6 +158,7 @@ static uint32_t code61_globals(cs_entry_t *e, int32_t v)
     const cs_entry_t g[] = {
         { 6, 0, 500 }, { 7, 0, 2000 }, { 13, 0, 1 }, { 14, 0, 4 }, { 17, 0, 3 },
         { 24, 0, 4095 }, { 25, 0, 4094 }, { 26, 0, 4095 }, { 27, 0, 50 }, { 28, 0, 500 },
+        { 30, 0, 1 }, { 31, 0, 1 },
     };
     uint32_t n = sizeof(g) / sizeof(g[0]);
     for (uint32_t i = 0; i < n; i++)
@@ -251,13 +276,14 @@ static void test_packing(void)
     CHECK(config_store_read(4, 0, collect, &g) == 1 && g.n == 384 && g.e[383].value == 83, "384 back");
 }
 
-/* Many rewrites: every page swap must keep the other slots. */
-static void test_swaps(void)
+/* Many rewrites: every compaction must keep the other slots. */
+static void test_compaction(void)
 {
     fresh();
     CHECK(write_n(1, 100, 40, "Keys") == GSX_OK, "preset 1");
     CHECK(write_n(3, 300, 10, 0) == GSX_OK, "preset 3");
     CHECK(write_n(2, 200, 5, 0) == GSX_OK && config_store_erase_slot(2) == GSX_OK, "preset 2, then reset");
+    sim_erases = 0;
     for (int i = 0; i < 500; i++) {
         if (write_n(0, i, 40, 0) != GSX_OK) {
             CHECK(0, "rewrite %d failed", i);
@@ -269,47 +295,156 @@ static void test_swaps(void)
         }
     }
     cs_slot_info_t info;
-    CHECK(config_store_read(1, &info, 0, 0) == 1 && strcmp(info.name, "Keys") == 0, "name kept over swaps");
+    CHECK(config_store_read(1, &info, 0, 0) == 1 && strcmp(info.name, "Keys") == 0, "name kept over compactions");
+    /* 500 x 29 words; the two-page swap erased a page every 7 (the free space of one page) */
+    CHECK(sim_erases > 0 && sim_erases <= 500 / 8, "%ld erases for 500 rewrites", sim_erases);
 }
 
-/* The Code 61's worst case: 134 per-preset values in 276 B, the globals in
- * 84 B. 3 presets + the globals fit the page (912 B); a 4th fails with
- * GSX_BAD_LEN, before anything is erased. */
+/* The Code 61's worst case: 153 per-preset values in 304 B, the 12 globals
+ * in 92 B. 5 presets + the globals (1612 B) keep every rewrite working on
+ * the 3 pages (the builder's rule: 1612 + 304 <= 2 x 1024); more slots work
+ * until a write can't fit, which fails with GSX_BAD_LEN before anything is
+ * erased or written. */
 static void test_code61(void)
 {
     fresh();
-    CHECK(write_code61(0, 1) == GSX_OK && rd(12) == 16 && rd(4 * 21) == 0xFFFFFFFFu,
-          "globals: 16 group words, 21 in all (got %u)", rd(12));
-    CHECK(write_code61(1, 1) == GSX_OK && rd(84 + 12) == 60 && rd(84 + 4 * 69) == 0xFFFFFFFFu,
-          "preset: 60 group words, 69 in all (got %u)", rd(84 + 12));
-    CHECK(write_code61(2, 2) == GSX_OK && write_code61(3, 3) == GSX_OK, "presets 2 and 3");
-    int32_t cur[4] = { 1, 1, 2, 3 };
-    for (int round = 0; round < 40; round++) {
-        uint8_t slot = (uint8_t)(round % 4);
+    CHECK(write_code61(0, 1) == GSX_OK && rd(12) == 18 && rd(4 * 23) == 0xFFFFFFFFu,
+          "globals: 18 group words, 23 in all (got %u)", rd(12));
+    CHECK(write_code61(1, 1) == GSX_OK && rd(92 + 12) == 67 && rd(92 + 4 * 76) == 0xFFFFFFFFu,
+          "preset: 67 group words, 76 in all (got %u)", rd(92 + 12));
+    int32_t cur[6] = { 1, 1, 2, 3, 4, 5 };
+    for (uint8_t s = 2; s <= 5; s++)
+        CHECK(write_code61(s, cur[s]) == GSX_OK, "preset %u", s);
+    sim_erases = 0;
+    uint32_t rnd = 1;
+    for (int round = 0; round < 600; round++) {
+        rnd = rnd * 1103515245u + 12345u;
+        uint8_t slot = (uint8_t)((rnd >> 16) % 6u);
         if (write_code61(slot, 10 + round) != GSX_OK) {
             CHECK(0, "rewrite %d of slot %u failed", round, slot);
             break;
         }
         cur[slot] = 10 + round;
         int ok = 1;
-        for (uint8_t s = 0; s < 4; s++)
+        for (uint8_t s = 0; s < 6; s++)
             ok &= is_code61(s, cur[s]);
         if (!ok) {
             CHECK(0, "after rewrite %d of slot %u", round, slot);
             break;
         }
     }
+    printf("code61 worst case, 5 presets: 600 rewrites, %ld erases\n", sim_erases);
     static uint8_t before[sizeof(sim_flash)];
-    memcpy(before, sim_flash, sizeof(sim_flash));
-    CHECK(write_code61(4, 4) == GSX_BAD_LEN, "a 4th preset doesn't fit");
+    int st = GSX_OK;
+    uint8_t s;
+    for (s = 6; s < 20 && st == GSX_OK; s++) {
+        memcpy(before, sim_flash, sizeof(sim_flash));
+        st = write_code61(s, s);
+    }
+    s--;
+    CHECK(st == GSX_BAD_LEN && s >= 6, "preset %u doesn't fit (%d)", s, st);
     CHECK(memcmp(before, sim_flash, sizeof(sim_flash)) == 0, "and nothing was erased or written");
-    CHECK(config_store_erase_slot(3) == GSX_OK && write_code61(4, 4) == GSX_OK && is_code61(4, 4) &&
-          value_of(3) == -1 && is_code61(0, cur[0]) && is_code61(1, cur[1]) && is_code61(2, cur[2]),
-          "it fits once preset 3 is reset");
+    int ok = 1;
+    for (uint8_t k = 0; k < s; k++)
+        ok &= is_code61(k, k < 6 ? cur[k] : k);
+    CHECK(ok, "every slot written before it still reads back");
+    for (uint8_t k = 6; k < s; k++)
+        CHECK(config_store_erase_slot(k) == GSX_OK, "reset preset %u", k);
+    CHECK(write_code61(5, 77) == GSX_OK && is_code61(5, 77) && is_code61(0, cur[0]), "fits again after resets");
+}
+
+/* A v3 record of `groups` int8 entries (ids 10.., index 0, all v; 5 +
+ * groups words), written at off by hand. Returns the offset after it. */
+static uint32_t raw_recg(uint32_t off, uint32_t seq, uint8_t slot, int8_t v, uint32_t groups)
+{
+    uint32_t crc = CRC32_INIT;
+    wr(&off, 0x33464347u, &crc);
+    wr(&off, seq, &crc);
+    wr(&off, slot, &crc);
+    wr(&off, groups, &crc);
+    for (uint32_t g = 0; g < groups; g++)
+        wr(&off, (10u + g) | (uint32_t)(uint8_t)v << 24, &crc);
+    wr(&off, ~crc, 0);
+    return off;
+}
+
+static void raw_rec(uint32_t off, uint32_t seq, uint8_t slot, int8_t v)
+{
+    raw_recg(off, seq, slot, v, 1);
+}
+
+/* A page filled to its last word: records end exactly at the page end and
+ * nothing may run on into the next page (the two-page swap did: its walk
+ * of a full first page went on into the second, and a swap then copied
+ * its own copies on past the config pages). */
+static void test_full_page(void)
+{
+    for (uint32_t p = 0; p < BOARD_CONFIG_PAGES; p++) {
+        fresh();
+        uint32_t off = p * BOARD_FLASH_PAGE, seq = 1;
+        for (int i = 0; i < 41; i++)
+            off = raw_recg(off, seq++, (uint8_t)(1 + i % 3), (int8_t)i, 1);
+        off = raw_recg(off, seq++, 0, 99, 5);
+        CHECK(off == (p + 1) * BOARD_FLASH_PAGE, "page %u filled exactly (%u)", p, off);
+        CHECK(value_of(0) == 99 && value_of(1) == 39 && value_of(2) == 40 && value_of(3) == 38,
+              "full page %u reads", p);
+        int ok = 1;
+        for (int i = 0; i < 200 && ok; i++) {
+            uint8_t s = (uint8_t)(i % 4);
+            ok = write_n(s, i, 20, 0) == GSX_OK && value_of(s) == i;
+        }
+        CHECK(ok, "writes after a full page %u", p);
+    }
+}
+
+/* What the two-page swap of earlier firmware leaves: page 1 active (every
+ * slot's newest record; slot 3's a copy, same seq, of the one on page 0),
+ * page 0 the old page, the third page as the stock app left it (blank, or
+ * junk). It reads as it is and keeps working. */
+static void test_old_layout(void)
+{
+    for (int junk = 0; junk < 2; junk++) {
+        fresh();
+        raw_rec(0, 1, 0, 1);
+        raw_rec(24, 2, 1, 2);
+        raw_rec(48, 3, 3, 33);
+        raw_rec(72, 4, 0, 4);
+        raw_rec(1024, 2, 1, 2);            /* the swap's copies */
+        raw_rec(1024 + 24, 3, 3, 33);
+        raw_rec(1024 + 48, 5, 0, 5);       /* the record that made page 1 active */
+        raw_rec(1024 + 72, 6, 1, 6);
+        if (junk)
+            for (uint32_t i = 2048; i < sizeof(sim_flash); i++)
+                sim_flash[i] = (uint8_t)(i * 13u + 5u);
+        CHECK(value_of(0) == 5 && value_of(1) == 6 && value_of(3) == 33 && value_of(2) == -1,
+              "old layout reads (junk %d): %d %d %d", junk, value_of(0), value_of(1), value_of(3));
+        int ok = 1;
+        for (int i = 0; i < 300 && ok; i++) {
+            uint8_t s = (uint8_t)(i % 2 ? 0 : 1);
+            ok = write_n(s, i, 30, 0) == GSX_OK && value_of(s) == i && value_of(3) == 33;
+        }
+        CHECK(ok, "old layout keeps working (junk %d)", junk);
+    }
+}
+
+/* How often a typical COMMIT erases a page: a preset with 12 changed values
+ * and a name, then the globals with 4 changed values, presets 1-5 in turn. */
+static void test_wear(void)
+{
+    fresh();
+    sim_erases = 0;
+    int saves = 2000;
+    for (int i = 0; i < saves; i++) {
+        CHECK(write_n((uint8_t)(1 + i % 5), i, 12, "Preset") == GSX_OK, "save %d", i);
+        CHECK(write_n(0, i, 4, 0) == GSX_OK, "globals %d", i);
+    }
+    printf("typical saves: %d saves, %ld erases (%.1f saves per erase)\n", saves, sim_erases,
+           (double)saves / (double)sim_erases);
+    CHECK(sim_erases * 9 < saves, "%ld erases", sim_erases);  /* the two-page swap: 1 in 7.7 */
 }
 
 /* v2 records (2 words per entry) from earlier firmware still load, survive
- * swaps as they are, and give way to v3 on the slot's next write. */
+ * compactions as they are, and give way to v3 on the slot's next write. */
 static void test_v2(void)
 {
     fresh();
@@ -335,7 +470,7 @@ static void test_v2(void)
         CHECK(write_code61(0, i) == GSX_OK, "globals %d", i);
     g.n = 0;
     CHECK(config_store_read(1, &info, collect, &g) == 1 && g.n == 2 && g.e[1].value == 70000 &&
-          strcmp(info.name, "Old") == 0, "v2 kept over swaps");
+          strcmp(info.name, "Old") == 0, "v2 kept over compactions");
     CHECK(is_code61(0, 59), "globals v3");
     CHECK(write_code61(1, 1) == GSX_OK && is_code61(1, 1), "v2 slot rewritten as v3");
 }
@@ -371,60 +506,101 @@ static void test_malformed(void)
           "writes over junk pages");
 }
 
-/* A power cut at every halfword of a run of writes that includes page
- * swaps: the slot being written reads its old or its new record, the others
- * always read as before, and the store keeps working afterwards. Records
- * are the Code 61's worst case (3 presets + the globals: 89% of the page). */
+/* A power cut at every halfword program and erase of a run of writes that
+ * includes compactions, at the Code 61's worst case (5 presets + the
+ * globals): the slot being written reads its old or its new record, the
+ * others always read as before, and the store keeps working afterwards,
+ * also when a second cut hits the next write. */
+#define PC_WRITES 14
+static const uint8_t pc_slot[6] = { 0, 2, 4, 1, 5, 3 };
+static int32_t pc_cur[6];
+
+static int pc_check(int cut_slot, int32_t cut_v)
+{
+    for (uint8_t s = 0; s < 6; s++)
+        if (!is_code61(s, pc_cur[s]) && !(s == cut_slot && is_code61(s, cut_v)))
+            return 0;
+    return 1;
+}
+
 static void test_power_cuts(void)
 {
-    volatile int ran = 0, in_swap = 0;
-    for (volatile long cut = 0; cut < 50000; cut++) {
+    volatile int ran = 0, in_compaction = 0, second = 0;
+    for (volatile long cut = 0; cut < 100000; cut++) {
         fresh();
-        write_code61(1, 100);
-        write_code61(2, 200);
-        write_code61(3, 300);
-        write_code61(0, 0);
+        for (uint8_t s = 0; s <= 5; s++) {
+            write_code61(s, 100 + s);
+            pc_cur[s] = 100 + s;
+        }
         volatile int done = 0, last = 0;
         sim_erases = 0;
         cut_after = cut;
         if (!setjmp(cut_jb)) {
-            for (int k = 1; k <= 6; k++) {  /* odd k: slot 0, even k: slot 2 */
-                if (write_code61(k % 2 ? 0 : 2, k) != GSX_OK)
+            for (int k = 1; k <= PC_WRITES; k++) {
+                if (write_code61(pc_slot[k % 6], k) != GSX_OK)
                     break;
+                pc_cur[pc_slot[k % 6]] = k;
                 last = k;
             }
             done = 1;
         }
         cut_after = -1;
         if (sim_erases > 0 && !done)
-            in_swap++;
-        int v0 = last >= 5 ? 5 : last >= 3 ? 3 : last >= 1 ? 1 : 0;
-        int v2 = last >= 6 ? 6 : last >= 4 ? 4 : last >= 2 ? 2 : 200;
-        int next = last + 1;                /* the write that was cut */
-        int ok0 = is_code61(0, v0) || (!done && next % 2 && is_code61(0, next));
-        int ok2 = is_code61(2, v2) || (!done && !(next % 2) && is_code61(2, next));
-        CHECK(ok0 && ok2, "cut %ld: written slots wrong (last %d)", cut, last);
-        CHECK(is_code61(1, 100) && is_code61(3, 300), "cut %ld: other slots lost", cut);
+            in_compaction++;
+        int next = last + 1;               /* the write that was cut */
+        int cs = done ? -1 : pc_slot[next % 6];
+        if (!pc_check(cs, next)) {
+            CHECK(0, "cut %ld: slots wrong (last %d)", cut, last);
+            break;
+        }
         if (done)
-            CHECK(last == 6, "the writes failed at %d", last + 1);
-        CHECK(write_code61(3, 88) == GSX_OK && is_code61(3, 88) && is_code61(1, 100), "cut %ld: store broken",
-              cut);
+            CHECK(last == PC_WRITES, "the writes failed at %d", last + 1);
+        if (cs >= 0 && is_code61((uint8_t)cs, next))
+            pc_cur[cs] = next;
+        /* a second cut, somewhere in the next write (a worst-case compaction is ~900 steps) */
+        volatile int cut2_done = 0;
+        cut_after = (cut * 7919) % 1000;
+        if (!setjmp(cut_jb)) {
+            write_code61(3, 88);
+            cut2_done = 1;
+        }
+        cut_after = -1;
+        if (!cut2_done)
+            second++;
+        if (!pc_check(3, 88)) {
+            CHECK(0, "cut %ld + second cut: slots wrong", cut);
+            break;
+        }
+        if (write_code61(3, 89) != GSX_OK || write_code61(1, 90) != GSX_OK) {
+            CHECK(0, "cut %ld: store broken", cut);
+            break;
+        }
+        pc_cur[3] = 89;
+        pc_cur[1] = 90;
+        if (!pc_check(-1, 0)) {
+            CHECK(0, "cut %ld: slots wrong after recovery", cut);
+            break;
+        }
         ran++;
         if (done)
             break;                         /* the writes finished before the cut: every point covered */
     }
-    CHECK(in_swap > 100 && ran > 1000, "only %d cut points (%d after a swap began)", ran, in_swap);
-    printf("power cuts: %d points, %d after a swap began\n", ran, in_swap);
+    CHECK(in_compaction > 1000 && ran > 3000 && second > 1000,
+          "only %d cut points (%d after a compaction began, %d second cuts)", ran, in_compaction, second);
+    printf("power cuts: %d points, %d after a compaction began, %d second cuts\n", ran, in_compaction, second);
 }
 
 int main(void)
 {
     test_basics();
     test_packing();
-    test_swaps();
+    test_compaction();
     test_code61();
+    test_old_layout();
+    test_full_page();
     test_v2();
     test_malformed();
+    test_wear();
     test_power_cuts();
     printf("%s\n", fails ? "FAILED" : "cs_test ok");
     return fails != 0;

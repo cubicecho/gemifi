@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.20.0](https://github.com/cubicecho/gemifi/compare/v0.19.0...v0.20.0) (2026-11-04)
+
+
+### Features
+
+* **stm32f1:** DMA channel allocator; dma: switches for rgb_serial and din_midi ([343d4cd](https://github.com/cubicecho/gemifi/commit/343d4cd7cf03f95cb9318261afc395880d2d03cb))
+
 # [0.19.0](https://github.com/cubicecho/gemifi/compare/v0.18.0...v0.19.0) (2026-11-04)
 
 

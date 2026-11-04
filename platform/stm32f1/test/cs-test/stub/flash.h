@@ -1,5 +1,6 @@
-/* Host test stand-in for flash.h: two pages of simulated F1 flash, with a
- * power cut after a set number of halfword programs (cs_test.c). */
+/* Host test stand-in for flash.h: the config pages of simulated F1 flash,
+ * with a power cut after a set number of halfword programs and erases
+ * (cs_test.c). */
 #ifndef FLASH_H
 #define FLASH_H
 #include <stdint.h>

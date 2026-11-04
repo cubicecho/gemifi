@@ -1,25 +1,50 @@
 /*
  * config_store.c: per-slot settings records (core/include/config_store.h) in
- * main flash: BOARD_CONFIG_PAGES (2) pages of BOARD_FLASH_PAGE bytes from
+ * main flash: BOARD_CONFIG_PAGES pages of BOARD_FLASH_PAGE bytes from
  * BOARD_CONFIG_BASE, inside the vendor "EEPROM" area, outside the
- * checksummed app range. Words are programmed as two halfwords (the F1
- * flash programs 16 bits at a time); a torn word fails the record CRC.
+ * checksummed app range (Code 61: the three pages the stock app never
+ * uses, 0x0801EC00-0x0801F7FF). Words are programmed as two halfwords (the
+ * F1 flash programs 16 bits at a time); a torn word fails the record CRC.
  *
- * Two pages, one of them active: the page holding the newest record. The
- * active page always holds the newest record of every slot. A write is
- * appended to it; when it is full, the other page is erased, the newest
- * record of every other slot is copied there unchanged (same seq), and the
- * new record goes last. The new record is what makes the other page the
- * active one, so a power cut before it lands leaves the old page active and
- * complete, and the copies on the other page only tie with their originals.
- * A write that can't fit next to the other slots' records fails with
- * GSX_BAD_LEN before anything is erased.
+ * A log over the pages, with no page order: a record goes wherever it fits,
+ * and the newest record of a slot (highest seq) wins wherever it is. A copy
+ * of a record (same slot, same seq, same words) only ties with it.
  *
- * This needs every slot's worst-case record to fit one page together; the
- * builder checks it (tools/builder/gemifi_device.py STORE_BUDGETS, stm32f1,
- * which computes the packed sizes below). A third page (the Code 61 has one
- * more free page) would not add room: a swap needs a whole erased page per
- * live page, so 3 pages still hold 1 page of live records.
+ * "Only-live": a slot's newest record when no other page holds a copy of
+ * it. A page with no only-live record is a spare: erasing it loses nothing.
+ * The rules, checked against what is in flash at every write (scan()):
+ *
+ *   1. Append: a record goes after the last programmed word of a page with
+ *      room for it, but only while another page is a spare. That holds
+ *      before the write and so also after a write that a power cut tears.
+ *   2. Compact, when no page can take it: pick a spare, and the page with
+ *      the fewest only-live words besides the slot's own (the victim; at
+ *      most 1/(pages - 1) of them). Erase the spare (skipped if blank),
+ *      copy the victim's only-live records into it unchanged (same seq),
+ *      then write the new record last. The victim is then a spare too,
+ *      erased only when a later compaction needs it.
+ *
+ * Nothing is erased while it holds the only copy of a slot's newest record,
+ * so a power cut anywhere (an erase, a copy, the new record) loses at most
+ * the write in progress, and the next write starts over from what is in
+ * flash. A torn record or a half-erased page is just unused words: the scan
+ * resyncs on the next magic + CRC, and appends go after the last programmed
+ * word. A write that can't fit fails with GSX_BAD_LEN before anything is
+ * erased or written.
+ *
+ * Room: compaction always works while, with M the largest record of any
+ * slot and L all slots' records together, (L - M) / (pages - 1) + M fits a
+ * page, i.e. L + (pages - 2) * M <= (pages - 1) * page. With two pages that
+ * is every slot in one page (the former swap scheme); each more page adds
+ * one page less one record. The builder checks it at worst case
+ * (tools/builder/gemifi_device.py STORE_BUDGETS, stm32f1, which computes
+ * the packed sizes below). Erases: one page per compaction, which comes
+ * once the free space of every non-spare page is used up, so far less often
+ * than with two pages.
+ *
+ * Old layouts: the two-page swap of earlier firmware (the active page holds
+ * every slot's newest record, the other only older copies) is a valid state
+ * of this log, so it is read as it is, with no migration step.
  *
  * Record v3, packed (this platform only; the NUC and ESP keep v2), words:
  *
@@ -42,8 +67,8 @@
  * 255 or indices above 0x3FFF can't be stored (GSX_BAD_LEN).
  *
  * Old records: v2 ('GCF2', 2 words per entry) still load and are copied
- * as they are on a swap; the next write of a slot replaces it with v3.
- * v1 ('GCFG') records are not read: no Code 61 has stored any.
+ * as they are by a compaction; the next write of a slot replaces it with
+ * v3. v1 ('GCFG') records are not read: no Code 61 has stored any.
  *
  * Erases stall the CPU (~20-40 ms per 1 KB page); flash.c kicks the IWDG.
  *
@@ -57,14 +82,17 @@
 
 #define CS_BASE   BOARD_CONFIG_BASE
 #define CS_PAGE   BOARD_FLASH_PAGE
-#define CS_SIZE   (BOARD_CONFIG_PAGES * CS_PAGE)
+#define CS_PAGES  BOARD_CONFIG_PAGES
+#define CS_SIZE   (CS_PAGES * CS_PAGE)
+#define CS_SLOTS  65u                      /* slot 0 + presets 1..64 (gemifi_device.py MAX_PRESETS) */
 
 /* Stay inside the vendor EEPROM area: never the checksummed app range
- * (below 0x0801B400) nor the update-request flag page (0x0801FC00). */
-_Static_assert(CS_BASE >= 0x0801B400u && CS_BASE + CS_SIZE <= 0x0801FC00u,
-               "config pages must lie in 0x0801B400-0x0801FBFF");
+ * (below 0x0801B400), the vendor's preset-names page (0x0801F800) nor the
+ * update-request flag page (0x0801FC00). */
+_Static_assert(CS_BASE >= 0x0801B400u && CS_BASE + CS_SIZE <= 0x0801F800u,
+               "config pages must lie in 0x0801B400-0x0801F7FF");
 _Static_assert(CS_BASE % CS_PAGE == 0, "config base must be page aligned");
-_Static_assert(BOARD_CONFIG_PAGES == 2u, "the store swaps between exactly two pages");
+_Static_assert(CS_PAGES >= 2u && CS_PAGES <= 8u, "2 to 8 config pages");
 
 #define MAGIC_V3    0x33464347u            /* 'GCF3' */
 #define HDR_WORDS   4u                     /* magic, seq, slot | flags | revision, count */
@@ -74,6 +102,8 @@ _Static_assert(BOARD_CONFIG_PAGES == 2u, "the store swaps between exactly two pa
 #define V2_MAX      ((DATA_MAX - NAME_WORDS) / 2u)               /* entries of a v2 record */
 #define SPAN_MAX    0x4000u
 #define W_INVALID   3u
+#define NO_SLOT     0xFFu
+#define NO_PAGE     0xFFu
 
 typedef struct {
     uint32_t addr;
@@ -94,9 +124,9 @@ static uint32_t page_of(uint32_t a)
     return a & ~(CS_PAGE - 1u);
 }
 
-static uint32_t other_page(uint32_t pg)
+static uint32_t page_addr(uint32_t p)
 {
-    return pg == CS_BASE ? CS_BASE + CS_PAGE : CS_BASE;
+    return CS_BASE + p * CS_PAGE;
 }
 
 static int seq_newer(uint32_t a, uint32_t b)
@@ -284,55 +314,120 @@ static int rec_check(uint32_t a, rec_t *r)
     return 1;
 }
 
-/* Walk a page's records (packed from its start, up to the first word that
- * doesn't start one). Returns the address after the last one. */
-static uint32_t walk(uint32_t pg, void (*fn)(const rec_t *r, void *ctx), void *ctx)
+/* What scan() found: the newest record of every slot, and how full each
+ * page is. RAM: about 0.7 KB. */
+static struct {
+    uint32_t seq[CS_SLOTS];
+    uint32_t addr[CS_SLOTS];               /* one copy of it */
+    uint16_t words[CS_SLOTS];
+    uint8_t pages[CS_SLOTS];               /* bit p: page p holds a copy; 0 = no record */
+    uint32_t used[CS_PAGES];               /* words up to the last programmed one */
+    uint32_t top;                          /* the newest seq of all */
+    uint8_t top_page;
+    uint8_t any;
+} ix;
+
+static void note(const rec_t *r, uint32_t p)
 {
-    uint32_t a = pg;
+    uint8_t s = REC_SLOT(r);
+    if (!ix.any || seq_newer(r->seq, ix.top)) {
+        ix.top = r->seq;
+        ix.top_page = (uint8_t)p;
+        ix.any = 1;
+    }
+    if (s >= CS_SLOTS)
+        return;                            /* not a slot of ours: never copied */
+    if (!ix.pages[s] || seq_newer(r->seq, ix.seq[s])) {
+        ix.seq[s] = r->seq;
+        ix.addr[s] = r->addr;
+        ix.words[s] = (uint16_t)r->words;
+        ix.pages[s] = (uint8_t)(1u << p);
+    } else if (r->seq == ix.seq[s]) {
+        ix.pages[s] |= (uint8_t)(1u << p);
+    }
+}
+
+/* Walk page p: records are found by magic + CRC wherever they start (a
+ * torn record or old junk in between is skipped a word at a time). fn (may
+ * be NULL) gets each; it returns nonzero to stop there. Returns the address
+ * after the last programmed word (or of the record fn stopped at). */
+static uint32_t walk(uint32_t p, int (*fn)(const rec_t *r, uint32_t p, void *ctx), void *ctx)
+{
+    uint32_t pg = page_addr(p), a = pg, last = pg;
     rec_t r;
-    while (rec_check(a, &r)) {
-        if (fn)
-            fn(&r, ctx);
-        a += 4u * r.words;
+    while (a < pg + CS_PAGE) {
+        if (rec_check(a, &r)) {
+            if (fn && fn(&r, p, ctx))
+                return a;
+            a += 4u * r.words;
+            last = a;
+            continue;
+        }
+        if (flash_read(a) != 0xFFFFFFFFu)
+            last = a + 4u;
+        a += 4u;
     }
-    return a;
+    return last;
 }
 
-typedef struct {
-    int all;                               /* any slot (find the newest record of all) */
-    uint8_t slot;
-    int found;
-    rec_t best;
-} find_t;
-
-static void find_cb(const rec_t *r, void *ctx)
+static int note_cb(const rec_t *r, uint32_t p, void *ctx)
 {
-    find_t *f = ctx;
-    if (!f->all && REC_SLOT(r) != f->slot)
-        return;
-    if (!f->found || seq_newer(r->seq, f->best.seq)) {
-        f->best = *r;
-        f->found = 1;
-    }
+    (void)ctx;
+    note(r, p);
+    return 0;
 }
 
-/* The newest record of `slot` (all = 0) or of any slot (all = 1). */
-static int newest(int all, uint8_t slot, rec_t *out)
+/* Read every page into ix. */
+static void scan(void)
 {
-    find_t f = { all, slot, 0, { 0 } };
-    walk(CS_BASE, find_cb, &f);
-    walk(CS_BASE + CS_PAGE, find_cb, &f);
-    if (f.found)
-        *out = f.best;
-    return f.found;
+    for (uint32_t s = 0; s < CS_SLOTS; s++)
+        ix.pages[s] = 0;
+    ix.any = 0;
+    ix.top_page = 0;
+    for (uint32_t p = 0; p < CS_PAGES; p++)
+        ix.used[p] = (walk(p, note_cb, 0) - page_addr(p)) / 4u;
 }
 
-static int blank(uint32_t a, uint32_t words)
+static int is_newest_cb(const rec_t *r, uint32_t p, void *ctx)
 {
-    for (uint32_t i = 0; i < words; i++)
-        if (flash_read(a + 4u * i) != 0xFFFFFFFFu)
-            return 0;
-    return 1;
+    (void)p;
+    uint32_t s = *(const uint32_t *)ctx;
+    return REC_SLOT(r) == s && r->seq == ix.seq[s];
+}
+
+/* The address of slot s's newest record on page p (ix.addr may be a copy
+ * on another page). */
+static uint32_t locate(uint32_t p, uint32_t s)
+{
+    return walk(p, is_newest_cb, &s);
+}
+
+static uint32_t room(uint32_t p)
+{
+    return PAGE_WORDS - ix.used[p];
+}
+
+/* Words of page p's only-live records, leaving out slot `skip` and counting
+ * copies on page `gone` (about to be erased) as not there. */
+static uint32_t only_live(uint32_t p, uint32_t skip, uint32_t gone)
+{
+    uint32_t n = 0;
+    uint8_t keep = (uint8_t)~(gone < CS_PAGES ? 1u << gone : 0u);
+    for (uint32_t s = 0; s < CS_SLOTS; s++)
+        if (s != skip && (ix.pages[s] & keep) == (uint8_t)(1u << p))
+            n += ix.words[s];
+    return n;
+}
+
+/* A spare (a page with no only-live record) other than page `not`, or NO_PAGE.
+ * A blank one first: it needs no erase. */
+static uint32_t spare(uint32_t not)
+{
+    uint32_t best = NO_PAGE;
+    for (uint32_t p = 0; p < CS_PAGES; p++)
+        if (p != not && only_live(p, NO_SLOT, NO_PAGE) == 0 && (best == NO_PAGE || !ix.used[p]))
+            best = p;
+    return best;
 }
 
 typedef struct {
@@ -360,59 +455,66 @@ static int emit(uint32_t a, uint32_t seq, const new_rec_t *nr)
     return rec_check(a, &check) ? 0 : -1;
 }
 
-typedef struct {
-    uint8_t skip;                          /* the slot being written */
-    int dry;                               /* only add up the words */
-    uint32_t to;                           /* next free word on the new page */
-    int err;
-} copy_t;
-
-/* Copy r to the new page if it is the newest record of its slot. */
-static void copy_cb(const rec_t *r, void *ctx)
+/* Copy `words` words from `from` to `to`, read back. */
+static int copy_words(uint32_t to, uint32_t from, uint32_t words)
 {
-    copy_t *c = ctx;
-    rec_t best;
-    if (c->err || REC_SLOT(r) == c->skip || !newest(0, REC_SLOT(r), &best) || best.seq != r->seq)
-        return;
-    for (uint32_t i = 0; i < r->words; i++) {
-        uint32_t w = flash_read(r->addr + 4u * i);
-        if (!c->dry && (flash_program_word(c->to, w) != 0 || flash_read(c->to) != w)) {
-            c->err = 1;
-            return;
+    for (uint32_t i = 0; i < words; i++) {
+        uint32_t w = flash_read(from + 4u * i);
+        if (flash_program_word(to + 4u * i, w) != 0 || flash_read(to + 4u * i) != w)
+            return -1;
+    }
+    return 0;
+}
+
+static int store(uint8_t slot, const new_rec_t *nr)
+{
+    scan();
+    uint32_t seq = ix.any ? ix.top + 1u : 1u, n = nr->words;
+
+    /* 1. append: the page of the newest record first, then the fullest */
+    uint32_t t = NO_PAGE;
+    for (uint32_t p = 0; p < CS_PAGES; p++) {
+        if (room(p) < n || spare(p) == NO_PAGE)
+            continue;
+        if (t == NO_PAGE || (t != ix.top_page && (p == ix.top_page || ix.used[p] > ix.used[t])))
+            t = p;
+    }
+    if (t != NO_PAGE)
+        return emit(page_addr(t) + 4u * ix.used[t], seq, nr) ? GSX_FLASH_ERR : GSX_OK;
+
+    /* 2. compact the victim into a spare, the new record last */
+    uint32_t sp = spare(NO_PAGE), v = NO_PAGE, vw = 0;
+    if (sp == NO_PAGE)
+        return GSX_BAD_LEN;                /* only after writes the budget rules out */
+    for (uint32_t p = 0; p < CS_PAGES; p++) {
+        uint32_t w = only_live(p, slot, sp);
+        if (p != sp && (v == NO_PAGE || w < vw)) {
+            v = p;
+            vw = w;
         }
-        c->to += 4u;
     }
-}
-
-static int append(uint8_t slot, const new_rec_t *nr)
-{
-    rec_t last;
-    uint32_t seq = 1, act = CS_BASE + CS_PAGE;     /* empty store: start on CS_BASE */
-    if (newest(1, 0, &last)) {
-        seq = last.seq + 1u;
-        act = page_of(last.addr);
-        uint32_t a = walk(act, 0, 0);
-        if (a + 4u * nr->words <= act + CS_PAGE && blank(a, nr->words))
-            return emit(a, seq, nr) ? GSX_FLASH_ERR : GSX_OK;
-    }
-    uint32_t to = other_page(act);
-    copy_t c = { slot, 1, 0, 0 };
-    walk(act, copy_cb, &c);                /* the other slots' words */
-    if (c.to + 4u * nr->words > CS_PAGE)
+    if (vw + n > PAGE_WORDS)
         return GSX_BAD_LEN;                /* the builder's budget rules this out */
-    if (flash_erase_page(to) != 0)
+    uint32_t to = page_addr(sp);
+    if (ix.used[sp] && flash_erase_page(to) != 0)
         return GSX_FLASH_ERR;
-    c = (copy_t){ slot, 0, to, 0 };
-    walk(act, copy_cb, &c);
-    if (c.err || c.to + 4u * nr->words > to + CS_PAGE)
-        return GSX_FLASH_ERR;
-    return emit(c.to, seq, nr) ? GSX_FLASH_ERR : GSX_OK;
+    uint8_t keep = (uint8_t)~(1u << sp);
+    for (uint32_t s = 0; s < CS_SLOTS; s++) {
+        if (s == slot || (ix.pages[s] & keep) != (uint8_t)(1u << v))
+            continue;
+        if (copy_words(to, locate(v, s), ix.words[s]) != 0)
+            return GSX_FLASH_ERR;
+        to += 4u * ix.words[s];
+    }
+    return emit(to, seq, nr) ? GSX_FLASH_ERR : GSX_OK;
 }
 
-static int locked_append(uint8_t slot, const new_rec_t *nr)
+static int locked_store(uint8_t slot, const new_rec_t *nr)
 {
+    if (slot >= CS_SLOTS)
+        return GSX_BAD_LEN;
     flash_unlock();
-    int st = append(slot, nr);
+    int st = store(slot, nr);
     flash_lock();
     return st;
 }
@@ -433,7 +535,16 @@ int config_store_write(uint8_t slot, uint16_t revision, const char *name,
         return GSX_BAD_LEN;
     nr.dwords = o.words;
     nr.words = HDR_WORDS + (nr.name ? NAME_WORDS : 0u) + nr.dwords + 1u;
-    return locked_append(slot, &nr);
+    return locked_store(slot, &nr);
+}
+
+/* The newest record of slot, if it has one (a tombstone counts). */
+static int newest(uint8_t slot, rec_t *r)
+{
+    if (slot >= CS_SLOTS)
+        return 0;
+    scan();
+    return ix.pages[slot] && rec_check(ix.addr[slot], r);
 }
 
 static int tombstone(const rec_t *r)
@@ -444,7 +555,7 @@ static int tombstone(const rec_t *r)
 int config_store_read(uint8_t slot, cs_slot_info_t *info, entry_cb cb, void *ctx)
 {
     rec_t r;
-    if (!newest(0, slot, &r) || tombstone(&r))
+    if (!newest(slot, &r) || tombstone(&r))
         return 0;
     if (info) {
         uint32_t named = (r.hdr >> 8) & CS_F_NAME;
@@ -470,18 +581,18 @@ int config_store_read(uint8_t slot, cs_slot_info_t *info, entry_cb cb, void *ctx
 int config_store_erase_slot(uint8_t slot)
 {
     rec_t r;
-    if (!newest(0, slot, &r) || tombstone(&r))
+    if (!newest(slot, &r) || tombstone(&r))
         return GSX_OK;                     /* nothing stored: nothing to hide */
     new_rec_t nr = { (uint32_t)slot | CS_F_TOMBSTONE << 8, HDR_WORDS + 1u, 0, 0, 0, 0 };
-    return locked_append(slot, &nr);
+    return locked_store(slot, &nr);
 }
 
 int config_store_erase(void)
 {
     int st = GSX_OK;
     flash_unlock();
-    for (uint32_t pg = CS_BASE; pg < CS_BASE + CS_SIZE; pg += CS_PAGE)
-        if (flash_erase_page(pg) != 0)
+    for (uint32_t p = 0; p < CS_PAGES; p++)
+        if (flash_erase_page(page_addr(p)) != 0)
             st = GSX_FLASH_ERR;
     flash_lock();
     return st;

@@ -53,7 +53,7 @@ It checks: the format version (`gemifi: 2`; a format 1 file gets one error per o
 | nuvoton-nuc1xx | data-flash journal | 6 usable 512 B pages (7, one kept spare); a record ≤ 512 B and never spans a page |
 | esp32 / esp32s2 / esp32s3 | NVS, a blob per slot | 12 KB in all, a blob ≤ 1984 B |
 | esp8266 | EEPROM sector | 4096 B for every slot together |
-| stm32f1 | two 1 KB config pages, swapped | 1024 B for every slot together. Records are packed (v3, one group per param: int8 or int16 values with a bitmap of the stored indices, `packed_record_bytes()`; `WIDE_PARAMS` lists the int16 ones). Code 61: a preset ≤ 276 B, the globals ≤ 100 B, so up to 3 slots (2 under 85%) |
+| stm32f1 | a log over 3 config pages of 1 KB, one kept spare for compaction | every slot's record together (L) and the largest one (M): L ≤ 2 × 1024 − M B (`pages - 1` pages, less one record per page beyond two). Records are packed (v3, one group per param: int8 or int16 values with a bitmap of the stored indices, `packed_record_bytes()`; `WIDE_PARAMS` lists the int16 ones). Code 61: a preset ≤ 304 B, the globals ≤ 108 B (counted with a name), so 3 slots use 1020 of 1744 B (58%), up to 5 fit (4 under 85%) |
 
 Not fitting is an error that says the largest `slots` that fits; using more than 85% is a warning (a fuller store means more erase cycles) that also says how many slots stay under 85%. Without `presets:`, a record that doesn't fit is only a warning (it was so with the old record format). The summary line shows the numbers:
 

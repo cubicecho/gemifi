@@ -1528,8 +1528,9 @@ list:
             self.assertEqual(gd.STORE_BUDGETS[plat], gd.STORE_BUDGETS["esp32"])
 
     def test_budget_stm32f1(self):
-        """STM32F1: packed (v3) records, all slots in one 1 KB page. The Code 61's worst case is the
-        one platform/stm32f1/test/cs-test writes: 60 group words a preset, 16 for the globals."""
+        """STM32F1: packed (v3) records in a log over 3 pages of 1 KB, one kept spare: every slot's record
+        together (L) and the largest (M) need L + M <= 2048 B. The Code 61's worst case is the one
+        platform/stm32f1/test/cs-test writes: 67 group words a preset, 18 for the globals."""
         path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -1543,18 +1544,22 @@ list:
         # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
         self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 18)))   # globals + midi.thru, midi.din_out (din_midi:)
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (408, 1024, 1024))
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (408, 2048 - 300, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
-        self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (3, 2))
+        self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (5, 4))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
-        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"]), (4 * (9 + 67), 716))  # + program
-        self.assertFalse([d for d in self.errs(with_slots(2), level="warning") if "config page" in d.msg])
-        w = [str(d) for d in self.errs(with_slots(3), level="warning") if "config page" in d.msg]
-        self.assertTrue(w and "presets use 99% of the stm32f1 config page" in w[0], w)
-        e = self.assertError(with_slots(4), r"presets don't fit the stm32f1 config page", path="presets.slots")
-        self.assertIn("1324 of 1024 B", e.msg)
-        self.assertIn("At most 3 slots fit", e.msg)
+        self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"], dev2.budget["capacity"]),
+                         (4 * (9 + 67), 716, 2048 - 304))  # + program
+        for n in (2, 3, 4):           # the Code 61's 3 slots: 1020 of 1744 B (58%), was 99% of one page
+            self.assertFalse([d for d in self.errs(with_slots(n), level="warning") if "config page" in d.msg], n)
+        w = [str(d) for d in self.errs(with_slots(5), level="warning") if "config page" in d.msg]
+        self.assertTrue(w and "presets use 93% of the stm32f1 config pages" in w[0] and
+                        "1628 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
+                        "Up to 5 slots fit; 4 or fewer stay under 85%" in w[0], w)
+        e = self.assertError(with_slots(6), r"presets don't fit the stm32f1 config pages", path="presets.slots")
+        self.assertIn("1932 of 1744 B", e.msg)
+        self.assertIn("At most 5 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
 

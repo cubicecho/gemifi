@@ -156,9 +156,10 @@ STORE_BUDGETS = {
     # journal: `pages` pages of `page` bytes, `spare` of them kept free (one erase spare, one for a
     # slot's old and new copy while it is rewritten); a record never spans a page
     "nuvoton-nuc1xx": {"kind": "journal", "page": 512, "pages": 7, "spare": 2, "what": "data-flash journal"},
-    # two 1 KB pages swapped on a rewrite: the newest record of every slot must fit one page together
-    # (platform/stm32f1/src/config_store.c), the same rule as one image; records are packed (v3)
-    "stm32f1": {"kind": "image", "total": 1024, "format": "packed", "what": "config page"},
+    # log: `pages` pages of `page` bytes, one kept spare for compaction, which always works while every
+    # slot's newest record together (L) and the largest one (M) give L + (pages - 2) * M <= (pages - 1) *
+    # page (platform/stm32f1/src/config_store.c). Records are packed (v3). Code 61: 3 pages
+    "stm32f1": {"kind": "log", "page": 1024, "pages": 3, "format": "packed", "what": "config pages"},
     # nvs: one blob per slot (each <= record bytes), all of them <= total bytes
     **{p: {"kind": "nvs", "record": 1984, "total": 12 * 1024, "what": "NVS"}
        for p in ("esp32", "esp32s2", "esp32s3")},
@@ -3340,6 +3341,9 @@ def storage_need(plat_name, preset_rec, global_rec, slots):
             pages += 1
         return True, pages, b["pages"] - b["spare"], "pages"
     total = slots * preset_rec + global_rec
+    if b["kind"] == "log":
+        page, n = b["page"], b["pages"]
+        return big <= page, total, (n - 1) * page - (n - 2) * big, "B"
     limit = b.get("record", b["total"])
     return big <= limit, total, b["total"], "B"
 
@@ -3364,7 +3368,7 @@ def storage_budget(dev):
             "worst_bytes": dev.n_presets * prec + grec, "used": used, "capacity": cap, "unit": unit,
             "fits": ok and used <= cap, "max_slots": max(fits) if fits else 0,
             "max_slots_calm": max(calm) if calm else 0, "store": b and b["what"],
-            "page": b and b.get("page")}
+            "page": b and b.get("page"), "pages": b and b.get("pages"), "kind": b and b["kind"]}
 
 
 def budget_text(bd):
@@ -3399,6 +3403,9 @@ def check_budget(v, dev, data):
     if bd["unit"] == "pages":
         need = (f"{bd['slots']} presets + the globals need up to {bd['used']} of the {bd['capacity']} usable "
                 f"{bd['page']} B pages (2 of {bd['capacity'] + 2} are kept free for rewrites)")
+    elif bd["kind"] == "log":
+        need = (f"{bd['slots']} presets + the globals need up to {bd['worst_bytes']} of {bd['capacity']} B "
+                f"({bd['pages']} pages of {bd['page']} B, less the room one compaction needs)")
     else:
         need = f"{bd['slots']} presets + the globals need up to {bd['worst_bytes']} of {bd['capacity']} B"
     if not bd["fits"]:

@@ -33,23 +33,26 @@
  * settings writer is 1 KB aligned). The probe app logs the size register. */
 #define BOARD_FLASH_PAGE 1024u
 
-/* Profile journal (config_store.c): pages inside the vendor "EEPROM" area
+/* Settings log (config_store.c): pages inside the vendor "EEPROM" area
  * 0x0801B400-0x0801FBFF, outside the checksummed app range.
- * 0x0801EC00 and 0x0801F000: the pages the research draft (devices/
- * m-audio-code61.yaml, hw-map.md) found the stock app never touches, so
- * its per-unit calibration survives and a return to stock finds its own
- * pages intact. Not yet confirmed on hardware.
- * Capacity: one page of live records (the other is the swap target), in
- * packed v3 records: a worst-case preset (every value changed, a name) is
- * 276 B, the globals 84 B, so 3 presets + the globals fit (912 B). The third
- * free page, 0x0801F400, is left alone: with whole-page swaps it adds no
- * room. Under gemifi's own bootloader the vendor pages are free too, so a
- * larger layout could use them, but stock-bootloader units can't. */
+ * 0x0801EC00, 0x0801F000 and 0x0801F400: the three pages the research
+ * (hw-map.md section 3) found the stock app never touches, so its per-unit
+ * calibration and its 12 preset pages (0x0801BC00-0x0801EBFF) survive and
+ * a return to stock finds its own pages intact. Earlier firmware used the
+ * first two as a swap pair; that layout is read as it is.
+ * Capacity: the newest records of every slot must leave room for one
+ * compaction: L + M <= 2 x 1024 B (L: every slot's record, M: the largest
+ * one). In packed v3 records a worst-case preset (every value changed, a
+ * name) is 304 B, the globals 92 B, so 5 presets + the globals fit
+ * (1612 + 304 <= 2048). Under gemifi's own bootloader the vendor pages are
+ * free too, so a larger layout could use them, but stock-bootloader units
+ * can't. */
 #define BOARD_CONFIG_BASE  0x0801EC00u
-#define BOARD_CONFIG_PAGES 2u
-/* (0x0801F800 is the vendor's preset-names page: never use it.) These two
- * pages may hold old data on a real unit; config_store only trusts
- * magic + CRC records and erases a page before writing into it. */
+#define BOARD_CONFIG_PAGES 3u
+/* (0x0801F800 is the vendor's preset-names page: never use it;
+ * config_store.c asserts the pages end below it.) These pages may hold old
+ * data on a real unit; config_store only trusts magic + CRC records and
+ * erases a page before writing into it again. */
 
 /* ---- pins the platform drives ------------------------------------------ */
 #define BOARD_USB_PULLUP_PIN 8          /* PA8, high = D+ pull-up on (usbd.c) */

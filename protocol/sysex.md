@@ -236,7 +236,7 @@ Rules:
 - COMMIT, PRESET_SAVE and a PRESET_RESET that reloads the active preset clear it.
 
 **Storing.**
-- **COMMIT** stores the globals (with `preset.active`) and the active preset. A preset is stored as the values that differ from its YAML values, so an untouched preset costs nothing.
+- **COMMIT** stores the globals (with `preset.active`) and the active preset. A preset is stored as the values that differ from its YAML values, so an untouched preset costs nothing; the globals as the values that differ from their defaults. A record that is already stored as it is isn't written again (flash wear).
 - **PRESET_SAVE** `slot` does the same into `slot` ("save as"), then makes `slot` active. The live values stay as they are: they are now that slot's values. Dirty is cleared. The slot keeps its name. `slot` = the active one is the same as COMMIT.
 - **`preset.active`** is stored by COMMIT and PRESET_SAVE. After a switch, the device also stores it once it has been stable for about 10 s, so flipping through presets doesn't wear the flash. Power-up loads the stored active preset.
 

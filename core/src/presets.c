@@ -238,6 +238,45 @@ void presets_host_set(uint16_t id, uint16_t index)
 
 /* ---- storing ------------------------------------------------------------ */
 
+typedef struct {
+    const cs_entry_t *e;
+    uint32_t n;
+    uint32_t seen;
+    int diff;
+} same_t;
+
+/* Store callback: is this stored entry one of c->e, with the same value? */
+static void same_cb(const cs_entry_t *e, void *ctx)
+{
+    same_t *c = ctx;
+    c->seen++;
+    for (uint32_t k = 0; k < c->n; k++)
+        if (c->e[k].id == e->id && c->e[k].index == e->index) {
+            if (c->e[k].value != e->value)
+                c->diff = 1;
+            return;
+        }
+    c->diff = 1;
+}
+
+/* Does slot's stored record already hold exactly these entries, under this
+ * revision and name (NULL: none)? No record counts as an empty one. Then a
+ * save writes nothing (flash wear: COMMIT rewrites both records). */
+static int stored_same(uint32_t slot, uint16_t revision, const char *name, const cs_entry_t *e, uint32_t n)
+{
+    same_t c = { e, n, 0, 0 };
+    cs_slot_info_t info;
+    info.flags = 0;
+    info.name[0] = 0;
+    if (!config_store_read((uint8_t)slot, &info, same_cb, &c))
+        return !n && !name;
+    const char *a = name ? name : "", *b = (info.flags & CS_F_NAME) ? info.name : "";
+    uint32_t i = 0;
+    while (a[i] && a[i] == b[i])
+        i++;
+    return !c.diff && c.seen == n && info.revision == revision && a[i] == b[i];
+}
+
 /* The stored name of a slot ("" if none), and whether it has a record. */
 static int stored_info(uint32_t slot, cs_slot_info_t *info)
 {
@@ -269,11 +308,14 @@ static int write_preset(uint32_t slot)
     int has = stored_info(slot, &info);
     if (!n && !info.name[0])
         return has ? config_store_erase_slot((uint8_t)slot) : GSX_OK;
-    return config_store_write((uint8_t)slot, GM_PRESETS_REVISION,
-                              info.name[0] ? info.name : 0, e, n);
+    const char *name = info.name[0] ? info.name : 0;
+    if (stored_same(slot, GM_PRESETS_REVISION, name, e, n))
+        return GSX_OK;
+    return config_store_write((uint8_t)slot, GM_PRESETS_REVISION, name, e, n);
 }
 
-/* Write slot 0: every global value. */
+/* Write slot 0: the global values that differ from their defaults (a boot
+ * loads the defaults first; preset.active 1 is the default too). */
 static int write_globals(void)
 {
     cs_entry_t e[MAX_ENTRIES];
@@ -283,9 +325,11 @@ static int write_globals(void)
         if (is_preset(p) || !storable(p))
             continue;
         for (uint32_t i = 0; i < p->count; i++)
-            put(e, &n, p->id, i, p->values[i]);
+            if (p->values[i] != params_default_at(p, i))
+                put(e, &n, p->id, i, p->values[i]);
     }
-    int st = config_store_write(CS_SLOT_GLOBAL, GM_PRESETS_REVISION, 0, e, n);
+    int st = stored_same(CS_SLOT_GLOBAL, GM_PRESETS_REVISION, 0, e, n) ? GSX_OK :
+             config_store_write(CS_SLOT_GLOBAL, GM_PRESETS_REVISION, 0, e, n);
     if (st == GSX_OK)
         active_pending = 0;
     return st;
@@ -307,7 +351,10 @@ static void write_active(void)
     if (k < c.n) {
         if (e[k].value == (int32_t)cur)
             return;
-        e[k].value = (int32_t)cur;
+        if (cur == 1u)
+            e[k] = e[--c.n];                /* the default: not stored */
+        else
+            e[k].value = (int32_t)cur;
     } else {
         if (cur == 1u)
             return;                         /* the default: nothing to store */

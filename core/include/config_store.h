@@ -3,14 +3,16 @@
  * §4 and §10.3). Implemented per platform:
  *   - NUC1xx data-flash journal (platform/nuvoton-nuc1xx/src/config_store.c)
  *   - ESP32 NVS / ESP8266 EEPROM sector (platform/esp/config_store_esp.cpp)
- *   - STM32F1 two swapped main-flash pages (platform/stm32f1/src/config_store.c),
- *     in a packed record v3 of its own (one group per param id, int8/int16
- *     values and an index bitmap; it still reads v2)
+ *   - STM32F1 a log over main-flash pages with one spare kept for compaction
+ *     (platform/stm32f1/src/config_store.c), in a packed record v3 of its own
+ *     (one group per param id, int8/int16 values and an index bitmap; it
+ *     still reads v2)
  *
  * The store is dumb: it keeps tagged records and never interprets values.
  * The core (src/presets.c) decides what goes in a record: for slot 0 the
- * global params, for slot n the per-preset values that differ from preset
- * n's YAML values. The newest record of a slot wins.
+ * global values that differ from their defaults, for slot n the per-preset
+ * values that differ from preset n's YAML values; it doesn't rewrite a
+ * record that is already stored as it is. The newest record of a slot wins.
  *
  * Record v2, in 32-bit words (NUC journal; the ESP stores the same words):
  *
@@ -33,7 +35,8 @@
  * Power cuts: the newest record of every slot is never erased before a
  * newer copy of it exists (NUC: compaction copies live records forward
  * before a page is erased; ESP32: NVS writes are atomic; ESP8266: the one
- * EEPROM sector is rewritten, so a cut there can lose everything).
+ * EEPROM sector is rewritten, so a cut there can lose everything; STM32F1:
+ * a page is erased only when it holds no slot's only copy).
  *
  * Capacity (§10.5): config_store_max_entries() is 59 on the NUC (a named
  * record fills one 512 B page: 4 + 4 + 2 x 59 + 1 = 127 words), 243 on
@@ -42,8 +45,9 @@
  * packed whole into pages, must fit in 5 (one page is the erase spare,
  * one is room for a slot's old and new copy while it is rewritten).
  * STM32F1: 82 as a lower bound (the real number depends on the ids and
- * values; the Code 61's 134 per-preset values take 276 B); every slot's
- * newest record must fit one 1 KB page together.
+ * values; the Code 61's 153 per-preset values take 304 B); on 3 pages of
+ * 1 KB, every slot's newest record together (L) and the largest (M) need
+ * L + M <= 2048 B.
  *
  * NUC1xx: needs fmc_open() first. Erases stall the CPU (about 20-40 ms per page).
  *

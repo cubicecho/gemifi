@@ -429,10 +429,22 @@ static void test_presets(void)
     CHECK(fake_cs_count(1) == 2 && fake_cs_get(1, P_CHANNEL, 0, &v) && v == 3 &&
           fake_cs_get(1, P_BTN_NUMBER, 6, &v) && v == 21, "slot 1 record = 2 changed values (%d)",
           fake_cs_count(1));
-    CHECK(fake_cs_get(0, P_VEL_FAST, 0, &v) && v == 30 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) &&
-          v == 1 && !fake_cs_get(0, P_CHANNEL, 0, 0) && !fake_cs_get(0, P_PRESET_DIRTY, 0, 0),
-          "slot 0 = globals (incl. preset.active, not dirty)");
+    CHECK(fake_cs_count(0) == 1 && fake_cs_get(0, P_VEL_FAST, 0, &v) && v == 30 &&
+          !fake_cs_get(0, P_PRESET_ACTIVE, 0, 0) && !fake_cs_get(0, P_CHANNEL, 0, 0) &&
+          !fake_cs_get(0, P_PRESET_DIRTY, 0, 0),
+          "slot 0 = the globals that differ from their defaults (not preset.active 1, not dirty)");
     CHECK(fake_cs_revision(1) == GM_PRESETS_REVISION, "record revision");
+
+    /* a COMMIT with nothing new writes nothing (flash wear) */
+    int wc = fake_cs_writes;
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && fake_cs_writes == wc, "unchanged COMMIT: no writes");
+    set_param(P_VEL_FAST, 0, GM_VEL_FAST_DEFAULT);
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && fake_cs_writes == wc + 1 && fake_cs_count(0) == 0 &&
+          fake_cs_count(1) == 2, "globals back to defaults: an empty slot 0, slot 1 not rewritten");
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && fake_cs_writes == wc + 1, "and again: no writes");
+    set_param(P_VEL_FAST, 0, 30);
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && fake_cs_writes == wc + 2 && fake_cs_count(0) == 1,
+          "velocity.fast 30 again: only slot 0 rewritten");
 
     /* slot 2: a value equal to its YAML value is not stored */
     set_param(P_PRESET_ACTIVE, 0, 2);

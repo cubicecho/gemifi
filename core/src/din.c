@@ -11,7 +11,6 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#include <string.h>
 #include "gm_din.h"
 #include "gm_hal.h"
 #include "gm_settings.h"
@@ -97,7 +96,8 @@ static void send_short(uint8_t src, const uint8_t *m, uint32_t n)
         return;
     }
     pend[pend_n][0] = (uint8_t)n;
-    memcpy(pend[pend_n] + 1, m, n);
+    for (uint32_t i = 0; i < n; i++)
+        pend[pend_n][1 + i] = m[i];
     pend_n++;
 }
 

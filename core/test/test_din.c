@@ -66,7 +66,7 @@ static uint16_t open_tx, open_rx;
 static uint32_t open_baud, open_flags;
 static uint8_t dout[16384], din[4096];
 static int dout_n, din_n, din_at;
-static int dq, dq_size = 512;
+static int dq, dq_size = 512, dq_max;
 static uint32_t dq_rate, dq_acc;
 int hal_din_open(uint16_t tx, uint16_t rx, uint32_t baud, uint32_t flags) { open_tx = tx; open_rx = rx; open_baud = baud; open_flags = flags; return 1; }
 int hal_din_write(const uint8_t *b, uint32_t n)
@@ -76,6 +76,8 @@ int hal_din_write(const uint8_t *b, uint32_t n)
     memcpy(dout + dout_n, b, n);
     dout_n += (int)n;
     dq += (int)n;
+    if (dq > dq_max)
+        dq_max = dq;
     return 1;
 }
 uint32_t hal_din_tx_queued(void) { return (uint32_t)dq; }
@@ -156,6 +158,39 @@ static void dump_dout(void)
     for (int i = 0; i < dout_n; i++)
         printf(" %02X", dout[i]);
     printf("\n");
+}
+
+/* DIN Out read back as a receiver would: the channel messages, running
+ * status applied (realtime, SysEx and system common skipped). */
+static uint8_t rx[8192][3];
+
+static int rx_msgs(void)
+{
+    int n = 0, k = 0, need = 0, sx = 0;
+    uint8_t st = 0;
+    for (int i = 0; i < dout_n && n < 8192; i++) {
+        uint8_t b = dout[i];
+        if (b >= 0xF8)
+            continue;
+        if (b & 0x80) {
+            sx = b == 0xF0;
+            st = b < 0xF0 ? b : 0;
+            need = !st ? 0 : (b & 0xE0) == 0xC0 ? 1 : 2;
+            k = 0;
+            continue;
+        }
+        if (sx || !st)
+            continue;
+        rx[n][0] = st;
+        rx[n][1 + k++] = b;
+        if (k == need) {
+            if (need == 1)
+                rx[n][2] = 0;
+            n++;
+            k = 0;
+        }
+    }
+    return n;
 }
 
 /* ---- tests ------------------------------------------------------------ */
@@ -314,6 +349,7 @@ int main(void)
     local(0x80, 62, 64, 3);
     local(0x80, 64, 30, 3);             /* a real release velocity: kept */
     local(0x80, 65, 30, 3);
+    run_ms(1);                          /* sent: CCs wait while 16 bytes do */
     local(0xB0, 1, 10, 3);
     local(0xB0, 1, 20, 3);
     local(0xB1, 1, 20, 3);              /* another channel: another status */
@@ -368,6 +404,88 @@ int main(void)
     run_ms(260);
     local(0xB0, 1, 1, 3);
     DOUT_IS(1, 0, 0xB0, 1, 1);
+
+    /* Coalescing, at the real 31250 baud: a pitch bend sweep with the mod
+     * wheel and channel pressure, each every ms, is 6 bytes a ms with running
+     * status, and DIN carries 3.1. The queue stays short and the latest
+     * values win; each controller's values still only rise. */
+    idle();
+    dq_rate = 3125;
+    dq_max = 0;
+    {
+        uint32_t d0 = gm_din_out_drops;
+        for (int i = 0; i < 160; i++) {
+            uint32_t bend = (uint32_t)i * 103u, v = (uint32_t)i * 127u / 159u;
+            local(0xE0, (uint8_t)(bend & 0x7F), (uint8_t)(bend >> 7), 3);
+            local(0xB0, 1, (uint8_t)v, 3);
+            local(0xD0, (uint8_t)v, 0, 2);
+            run_ms(1);
+        }
+        run_ms(50);
+        int n = rx_msgs(), ok = 1;
+        uint32_t last[3] = { 0, 0, 0 }, cnt[3] = { 0, 0, 0 };
+        for (int i = 0; i < n; i++) {
+            int c = rx[i][0] == 0xE0 ? 0 : rx[i][0] == 0xB0 ? 1 : rx[i][0] == 0xD0 ? 2 : -1;
+            uint32_t v = c == 0 ? (uint32_t)rx[i][1] | (uint32_t)rx[i][2] << 7 : c == 1 ? rx[i][2] : rx[i][1];
+            if (c < 0 || (c == 1 && rx[i][1] != 1) || (cnt[c] && v < last[c]))
+                ok = 0;
+            else
+                last[c] = v, cnt[c]++;
+        }
+        CHECK(ok && last[0] == 159u * 103u && last[1] == 127 && last[2] == 127,
+              "coalesced: in order, ending on the latest values (%u %u %u)", (unsigned)last[0],
+              (unsigned)last[1], (unsigned)last[2]);
+        CHECK(n < 3 * 160 && cnt[0] > 40 && cnt[1] > 40 && cnt[2] > 40,
+              "fewer messages, every controller still moving (%d: %u %u %u)", n, (unsigned)cnt[0],
+              (unsigned)cnt[1], (unsigned)cnt[2]);
+        CHECK(dq_max <= 20, "the queue stays short (%d bytes at most)", dq_max);
+        CHECK(gm_din_out_drops == d0, "nothing dropped");
+    }
+    /* switch-type CCs (sustain) are never coalesced */
+    idle();
+    {
+        for (int i = 0; i < 40; i++) {
+            local(0xB0, 64, 127, 3);
+            local(0xB0, 64, 0, 3);
+        }
+        run_ms(100);
+        int n = rx_msgs(), ok = n == 80;
+        for (int i = 0; ok && i < n; i++)
+            ok = rx[i][0] == 0xB0 && rx[i][1] == 64 && rx[i][2] == (i & 1 ? 0 : 127);
+        CHECK(ok, "40 sustain presses: all 80 CC 64s, in order (%d)", n);
+    }
+    /* a coalesced CC goes out before the note that came after it */
+    idle();
+    {
+        for (int i = 0; i < 8; i++)
+            local(0x90, (uint8_t)(60 + i), 100, 3);     /* 17 bytes: past OUT_WM */
+        local(0xB0, 1, 5, 3);
+        local(0xB0, 1, 6, 3);
+        local(0xB0, 7, 80, 3);
+        local(0x80, 60, 0, 3);
+        local(0xB0, 1, 9, 3);
+        run_ms(20);
+        DOUT_IS(0x90, 60, 100, 61, 100, 62, 100, 63, 100, 64, 100, 65, 100, 66, 100, 67, 100,
+                0xB0, 1, 6, 7, 80, 0x80, 60, 0, 0xB0, 1, 9);
+    }
+    dq_rate = 0;
+    /* while the thru's SysEx goes out, the controller's bends wait in their
+     * slot, not in the 16-message queue */
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        const uint8_t b[] = { 0xF0, 0x7D, 1 };
+        din_bytes(b, 3);
+        for (int i = 0; i < 100; i++)
+            local(0xE0, (uint8_t)i, 64, 3);
+        local(0xB0, 64, 127, 3);
+        const uint8_t e[] = { 2, 0xF7 };
+        din_bytes(e, 2);
+        DOUT_IS(0xF0, 0x7D, 1, 2, 0xF7, 0xB0, 64, 127, 0xE0, 99, 64);
+        CHECK(gm_din_out_drops == d0, "100 bends during a SysEx: none dropped");
+    }
+    gm_cfg.din_thru = 0;
 
 #if PORT
     /* USB cable 1 -> DIN Out: short messages and SysEx */

@@ -133,6 +133,71 @@ static int out_sx(uint8_t b)
     return out(&b, 1);
 }
 
+/* Coalescing. Pitch bend, channel pressure and the continuous CCs only
+ * matter by their latest value. Such a message goes into a slot for its
+ * (channel, controller), replacing the value waiting there, and the slots go
+ * out in turn while fewer than OUT_WM bytes wait to go out (and no SysEx
+ * is). So a wheel or aftertouch faster than DIN can carry doesn't pile up
+ * ahead of the notes, and an idle DIN sends it at once. All the slots go out
+ * before any other message, so they keep their place ahead of a note that
+ * follows. CCs whose order counts are never coalesced: bank select (0, 32),
+ * data entry (6, 38), increment / decrement and (N)RPN (96-101), the
+ * switches (64-69), the high-resolution velocity prefix (88) and channel
+ * mode (120-127). */
+#define OUT_WM 16u                  /* ~5 ms of DIN Out */
+#define N_SLOT 8u
+
+static uint8_t slot[N_SLOT][3];     /* a message; [0] = 0: free */
+static uint8_t slot_at;             /* the next to go out: round robin */
+
+static int continuous(const uint8_t *m, uint32_t n)
+{
+    uint8_t t = m[0] & 0xF0, c = m[1];
+    if (t == 0xE0)
+        return n == 3;
+    if (t == 0xD0)
+        return n == 2;
+    return t == 0xB0 && n == 3 && c != 0 && c != 6 && c != 32 && c != 38 && c != 88 && (c < 64 || c > 69) &&
+           (c < 96 || c > 101) && c < 120;
+}
+
+/* The slots out while the queue is short; force: all of them, whatever the
+ * queue. Not while a SysEx is going out. */
+static void drain(int force)
+{
+    for (uint32_t k = 0; k < N_SLOT && sx_owner == SRC_NONE; k++) {
+        uint8_t *s = slot[slot_at];
+        if (s[0]) {
+            if ((!force && hal_din_tx_queued() >= OUT_WM) || !put(s, (s[0] & 0xF0) == 0xD0 ? 2u : 3u))
+                return;
+            s[0] = 0;
+        }
+        slot_at = (uint8_t)((slot_at + 1u) % N_SLOT);
+    }
+}
+
+/* 0 = no slot free: m goes as any other message. */
+static int coalesce(const uint8_t *m, uint32_t n)
+{
+    uint8_t *f = 0;
+    for (uint32_t i = 0; i < N_SLOT; i++) {
+        uint8_t *s = slot[i];
+        if (s[0] == m[0] && ((m[0] & 0xF0) != 0xB0 || s[1] == m[1])) {
+            f = s;                          /* its own */
+            break;
+        }
+        if (!s[0] && !f)
+            f = s;
+    }
+    if (!f)
+        return 0;
+    f[0] = m[0];
+    f[1] = m[1];
+    f[2] = n > 2 ? m[2] : 0;
+    drain(0);
+    return 1;
+}
+
 static void sysex_done(void)
 {
     sx_owner = SRC_NONE;
@@ -150,7 +215,14 @@ static void send_short(uint8_t src, const uint8_t *m, uint32_t n)
         out(&f7, 1);
         sysex_done();
     }
-    if (m[0] >= 0xF8 || sx_owner == SRC_NONE) {
+    if (m[0] >= 0xF8) {
+        put(m, n);                          /* realtime: between any two bytes */
+        return;
+    }
+    if (continuous(m, n) && coalesce(m, n))
+        return;
+    if (sx_owner == SRC_NONE) {
+        drain(1);
         put(m, n);
         return;
     }
@@ -365,6 +437,8 @@ void gm_din_init(void)
     sx_owner = SRC_NONE;
     pend_n = 0;
     rs = 0;
+    for (uint32_t i = 0; i < N_SLOT; i++)
+        slot[i][0] = 0;
     in_n = in_need = in_sx = 0;
 #ifndef GM_DIN_DMA
 #define GM_DIN_DMA 0
@@ -388,6 +462,7 @@ void gm_din_poll(uint32_t now)
         out(&f7, 1);
         sysex_done();
     }
+    drain(0);
 }
 
 void gm_din_local(const uint8_t *m, uint32_t n)

@@ -2,6 +2,29 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.30.0](https://github.com/cubicecho/gemifi/compare/v0.29.0...v0.30.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **din:** the controller's notes first, Note Offs never dropped ([ba20ff5](https://github.com/cubicecho/gemifi/commit/ba20ff53aa323483384cf84574c8c3a2a583f7a7))
+* **usb:** don't stall the main loop when the host isn't reading ([0e6a6b7](https://github.com/cubicecho/gemifi/commit/0e6a6b79b228f101bab302ab6b35d5a3b8832932))
+
+
+### Features
+
+* **din:** coalesce continuous messages on DIN out ([8378ac2](https://github.com/cubicecho/gemifi/commit/8378ac2c138cdaa72b2898be8a43a14676603487))
+* **din:** running status on DIN out ([fa256ab](https://github.com/cubicecho/gemifi/commit/fa256abf1c1681249647b64e5f890115afc43b03))
+* **hal:** hal_din_tx_queued, how much DIN Out has still to send ([6d2f709](https://github.com/cubicecho/gemifi/commit/6d2f70926c4842902acc83354f4bc155d99591b8))
+
+
+### Performance Improvements
+
+* **core:** build preset save records in one static buffer ([7854fe5](https://github.com/cubicecho/gemifi/commit/7854fe579540dd9c1f01b6a54498107c66f57a3f))
+* **core:** index labels from builder tables in flash, not RAM ([7a3fb5c](https://github.com/cubicecho/gemifi/commit/7a3fb5c39f48403cb3fabf66f229804a75c844f9))
+* **stm32f1:** keep the config store index between reads ([a38e59a](https://github.com/cubicecho/gemifi/commit/a38e59a3ab2a75f126184e87e5f4c608d9d3ab9e))
+* **stm32f1:** pack the config store index to 3 bytes a slot ([78e2795](https://github.com/cubicecho/gemifi/commit/78e27958fbb29df424999ccc2f966a227d88c057))
+
 # [0.29.0](https://github.com/cubicecho/gemifi/compare/v0.28.0...v0.29.0) (2026-11-04)
 
 

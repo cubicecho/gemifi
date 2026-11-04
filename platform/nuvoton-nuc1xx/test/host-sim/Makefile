@@ -78,7 +78,7 @@ $(DEV_DIR)/gm_device_config.c: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py) 
 	$(PYTHON) $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV_DIR) >/dev/null
 
 $(BUILD)/libctl.so: $(CTL_SRCS) $(wildcard $(ROOT)/core/include/*.h $(PLAT)/include/*.h) | $(BUILD)
-	$(HOSTCC) $(CFLAGS) -shared -I$(DEV_DIR) $(CTL_SRCS) -o $@
+	$(HOSTCC) $(CFLAGS) -shared -DHAL_APP_FW_UPLOAD=0 -I$(DEV_DIR) $(CTL_SRCS) -o $@
 
 # CS_ARGS=-q: fewer power-cut sweeps; -long: 20x the writes, no sweeps.
 cs-test: $(BUILD)/cs_test

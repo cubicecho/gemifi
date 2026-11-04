@@ -8,7 +8,9 @@
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
-# test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml)
+# test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml); run again with
+#                  GM_TEST_BSRR=1 for the set/reset store path, and with
+#                  GM_TEST_NO_CYCLES=1 too for stores without a cycle counter
 # test_pads:       velocity pads on shared-select muxes (pads-test.yaml)
 # test_matrix_hw:  test_matrix.c with the hardware scan's frames
 #                  (matrix-hw-test.yaml)
@@ -119,6 +121,7 @@ LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
 test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
+	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	python3 -I check_schema.py $(BUILD)/schema.bin
 	$(BUILD)/test_feedback
 	$(BUILD)/test_matrix
@@ -126,6 +129,8 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 	GM_TEST_FAST_COLS=1 GM_TEST_BSRR=1 $(BUILD)/test_matrix
 	$(BUILD)/test_matrix_hw
 	$(BUILD)/test_tm1628
+	GM_TEST_BSRR=1 $(BUILD)/test_tm1628
+	GM_TEST_BSRR=1 GM_TEST_NO_CYCLES=1 $(BUILD)/test_tm1628
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
 	$(BUILD)/test_display
@@ -136,7 +141,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUI
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(DEV) $(SRCS) -Wl,--wrap=gm_display_message -o $@
+	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(DEV) $(SRCS) -Wl,--wrap=gm_display_message -o $@
 
 $(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -152,7 +157,7 @@ $(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(HW_DE
 
 $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(TM_DEV) $(TM_SRCS) -o $@
+	$(CC) $(CFLAGS) -DGM_TEST_STORE -I$(TM_DEV) $(TM_SRCS) -o $@
 
 $(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

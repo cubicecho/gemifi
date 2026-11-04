@@ -56,7 +56,8 @@ static inline void sys_iwdg_kick(void) { IWDG_KR = IWDG_KEY_RELOAD; }
 __attribute__((noreturn)) void sys_reset(void);
 
 /* Apps (src/hal.c): set up the hal_delay_us() cycle counter (DWT CYCCNT,
- * SysTick fallback). Call once after sys_tick_init(). */
+ * SysTick fallback) and hal_delay_ns(). Call once after sys_clock_init()
+ * and sys_tick_init(): it keeps the HCLK MHz the delays count in. */
 void hal_delay_calibrate(void);
 
 #endif

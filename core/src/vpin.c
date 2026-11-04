@@ -1007,57 +1007,144 @@ void vpin_scan_feed(const uint16_t *frame)
 /* ---- TM1628 LED drivers ------------------------------------------------ */
 
 #if GM_TM1628_RAM > 0
-/* One byte, LSB first: DIO is set while CLK is low and taken on the rising
- * edge. 1 us per half clock keeps well inside the datasheet (CLK <= 1 MHz,
- * PWCLK >= 400 ns) with a slow pull-up on an open-drain DIO. */
-static void tm_byte(const gm_hub_t *h, uint32_t v)
+/* Bus timing, from the datasheet: CLK <= 1 MHz, PWCLK >= 400 ns high and
+ * low, DIO setup and hold >= 100 ns around the CLK rising edge, PWSTB
+ * >= 1 us, CLK rising to STB rising >= 1 us. DIO is set at the start of the
+ * CLK low phase, so TM_CLK_LOW_NS is also its setup time: an open-drain DIO
+ * (the Code 61's) has to rise through its pull-up within it (R * C: 10 kOhm
+ * and 30 pF is 300 ns to 63 %, 360 ns to the TM1628's 0.7 VDD). Raise it if
+ * LEDs or the display show garbage. Each phase is counted on hal_cycles()
+ * from just after its edge, so the code around only adds to it. Without a
+ * cycle counter (hal_ns_to_cycles 0) or set/reset registers, each phase is
+ * hal_delay_us(1), as before. */
+#ifndef TM_CLK_LOW_NS
+#define TM_CLK_LOW_NS 600u
+#endif
+#ifndef TM_CLK_HIGH_NS
+#define TM_CLK_HIGH_NS 450u
+#endif
+#define TM_STB_US 1u                /* STB low to the first bit, last bit to STB high, STB high */
+
+__attribute__((weak)) uint32_t hal_ns_to_cycles(uint32_t ns)
 {
+    (void)ns;
+    return 0;
+}
+
+/* CLK, DIO and STB of a TM1628 hub: a set/reset register store each
+ * (hal_pin_bsrr), or hal_pin_write where the platform has none. Looked up
+ * when a chip is written (a few calls, against ~100 us of bus time), so
+ * it takes no RAM. */
+#define TM_CLK 0u
+#define TM_DIO 1u
+#define TM_STB 2u
+typedef struct {
+    volatile uint32_t *reg[3];      /* 0 = hal_pin_write(pin[k]) */
+    uint16_t pin[3];
+    uint16_t set[3];                /* 1 << bit; clear = set << 16 */
+    uint32_t low, high;             /* CLK phases in hal_cycles(), 0 = none: hal_delay_us */
+} tm_io_t;
+
+#ifdef GM_TEST_STORE                /* host tests: see each store (test_tm1628.c) */
+void gm_test_store(volatile uint32_t *reg, uint32_t w);
+#define TM_STORE(reg, w) gm_test_store(reg, w)
+#else
+#define TM_STORE(reg, w) (*(reg) = (w))
+#endif
+
+static void tm_io_init(tm_io_t *io, const gm_hub_t *h)
+{
+    const gm_pin_t p[3] = { h->clock, h->data, h->latch };
+    volatile uint32_t *reg[3];
+    uint32_t bit[3], fast = 1;
+    for (uint32_t k = 0; k < 3u; k++) {
+        bit[k] = 0;
+        reg[k] = p[k].hub ? 0 : hal_pin_bsrr(p[k].num, &bit[k]);
+        fast &= reg[k] != 0 && bit[k] < 16u;
+        io->pin[k] = p[k].num;
+    }
+    for (uint32_t k = 0; k < 3u; k++) {     /* all three fast, or none */
+        io->reg[k] = fast ? reg[k] : 0;
+        io->set[k] = (uint16_t)(1u << (bit[k] & 15u));
+    }
+    io->low = hal_ns_to_cycles(TM_CLK_LOW_NS);
+    io->high = io->low ? hal_ns_to_cycles(TM_CLK_HIGH_NS) : 0;
+}
+
+static inline __attribute__((always_inline)) void tm_pin(const tm_io_t *io, uint32_t k, uint32_t level)
+{
+    if (io->reg[k])
+        TM_STORE(io->reg[k], level ? io->set[k] : (uint32_t)io->set[k] << 16);
+    else
+        hal_pin_write(io->pin[k], (int)level);
+}
+
+/* One byte, LSB first: DIO is set while CLK is low and taken on the rising
+ * edge. With set/reset stores and a cycle counter (the STM32) the loop keeps
+ * everything in registers: about 1.3 us a bit at 72 MHz, the two counted
+ * phases plus ~15 cycles. Otherwise hal_pin_write and 1 us a phase. */
+static void tm_byte(const tm_io_t *io, uint32_t v)
+{
+    if (io->reg[TM_CLK] && io->low) {
+        volatile uint32_t *clk = io->reg[TM_CLK], *dio = io->reg[TM_DIO];
+        uint32_t c1 = io->set[TM_CLK], c0 = c1 << 16, d1 = io->set[TM_DIO], d0 = d1 << 16;
+        uint32_t low = io->low, high = io->high;
+        for (uint32_t b = 0; b < 8u; b++, v >>= 1) {
+            uint32_t d = (v & 1u) ? d1 : d0;
+            TM_STORE(clk, c0);
+            TM_STORE(dio, d);
+            uint32_t t = hal_cycles();
+            while (hal_cycles() - t < low) {
+            }
+            TM_STORE(clk, c1);
+            t = hal_cycles();
+            while (hal_cycles() - t < high) {
+            }
+        }
+        return;
+    }
     for (uint32_t b = 0; b < 8u; b++) {
-        hal_pin_write(h->clock.num, 0);
-        hal_pin_write(h->data.num, (v >> b) & 1u);
+        tm_pin(io, TM_CLK, 0);
+        tm_pin(io, TM_DIO, (v >> b) & 1u);
         hal_delay_us(1);
-        hal_pin_write(h->clock.num, 1);
+        tm_pin(io, TM_CLK, 1);
         hal_delay_us(1);
     }
 }
 
-static void tm_start(const gm_hub_t *h)
+static void tm_start(const tm_io_t *io)
 {
-    hal_pin_write(h->latch.num, 0);
-    hal_delay_us(1);
+    tm_pin(io, TM_STB, 0);
+    hal_delay_us(TM_STB_US);
 }
 
-/* STB high ends a command; PWSTB >= 1 us before the next one. */
-static void tm_end(const gm_hub_t *h)
+/* STB high ends a command: 1 us after the last CLK rising edge, and PWSTB
+ * >= 1 us before the next one. */
+static void tm_end(const tm_io_t *io)
 {
-    hal_pin_write(h->latch.num, 1);
-    hal_pin_write(h->data.num, 1);
-    hal_delay_us(1);
+    hal_delay_us(TM_STB_US);
+    tm_pin(io, TM_STB, 1);
+    tm_pin(io, TM_DIO, 1);
+    hal_delay_us(TM_STB_US);
 }
 
-static void tm_cmd(const gm_hub_t *h, uint32_t cmd)
+static void tm_cmd(const tm_io_t *io, uint32_t cmd)
 {
-    tm_start(h);
-    tm_byte(h, cmd);
-    tm_end(h);
+    tm_start(io);
+    tm_byte(io, cmd);
+    tm_end(io);
 }
 
-/* What a chip still needs, in bytes on the bus (budget units). A whole-RAM
- * write: 0x40, C0 + every byte; fixed addresses: 0x44, then C0|a + byte for
- * each changed byte. */
-static uint32_t tm_changed(const hub_state_t *s, uint32_t n)
-{
-    uint32_t c = 0;
-    for (uint32_t k = 0; k < n; k++)
-        c += tm_ram[s->tm_off + k] != ram_sent[s->tm_off + k];
-    return c;
-}
-
-/* Write what changed in each chip, at most `budget` bus bytes (each about
- * 17 us) per call; what's left stays dirty for the next call. A chip's first
- * write is its whole RAM plus the display mode and control commands (they
- * stay set in the chip); after that only changed bytes go out, one at a
- * time at a fixed address, or the whole RAM when that is shorter. */
+/* Write what changed in each chip, at most `budget` bytes on the bus per
+ * call; what's left stays dirty for the next call. A chip's first write is
+ * its whole RAM plus the display mode and control commands (they stay set in
+ * the chip). After that: the data command 0x40 (write, auto-increment), then
+ * each run of changed bytes as one command, 0xC0 | its first address and its
+ * bytes. A run goes on over one unchanged byte (rewriting it costs a bus
+ * byte, as a new address command would, and saves the strobe); two or more
+ * end it. A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a
+ * fixed address. A run the budget cuts short goes on at its next address
+ * (a new 0xC0 | address) on the next call. */
 static void tm_flush(uint32_t budget)
 {
     for (uint32_t i = 0; i < gm_device.n_hubs && budget; i++) {
@@ -1069,46 +1156,46 @@ static void tm_flush(uint32_t budget)
         if (s->tm_off + n > GM_TM1628_RAM)
             n = GM_TM1628_RAM - s->tm_off;
         uint8_t *ram = &tm_ram[s->tm_off], *sent = &ram_sent[s->tm_off];
-        uint32_t c = s->never ? n : tm_changed(s, n);
-        if (s->never || (2u + n < 1u + 2u * c && 2u + n <= budget)) {
-            if (s->never && h->grids >= 4u && h->grids <= 7u)
-                tm_cmd(h, h->grids - 4u);
-            tm_cmd(h, 0x40u);           /* auto-increment from address 0 */
-            tm_start(h);
-            tm_byte(h, 0xC0u);
-            for (uint32_t k = 0; k < n; k++) {
-                tm_byte(h, ram[k]);
-                sent[k] = ram[k];
+        tm_io_t bus;
+        const tm_io_t *io = &bus;
+        tm_io_init(&bus, h);
+        uint32_t k = 0, open = 0, left = budget;
+        if (s->never) {                         /* all of it now, whatever the budget */
+            if (h->grids >= 4u && h->grids <= 7u)
+                tm_cmd(io, h->grids - 4u);
+            for (k = 0; k < n; k++)
+                sent[k] = (uint8_t)~ram[k];     /* every byte "changed": one run */
+            k = 0;
+            budget = 0xFFFFFFFFu;
+        }
+        for (;;) {
+            while (k < n && ram[k] == sent[k])
+                k++;
+            if (k == n || budget < 3u - open)   /* 0x40 once, then C0|a and a byte */
+                break;
+            if (!open) {
+                tm_cmd(io, 0x40u);
+                budget--;
+                open = 1;
             }
-            tm_end(h);
-            if (s->never)
-                tm_cmd(h, 0x88u | (h->brightness & 7u));
+            tm_start(io);
+            tm_byte(io, 0xC0u | k);
+            budget--;
+            do {
+                tm_byte(io, ram[k]);
+                sent[k] = ram[k];
+                k++;
+                budget--;
+            } while (budget && k < n &&
+                     (ram[k] != sent[k] || (k + 1u < n && ram[k + 1u] != sent[k + 1u])));
+            tm_end(io);
+        }
+        s->tm_dirty = k < n;
+        if (s->never) {
+            tm_cmd(io, 0x88u | (h->brightness & 7u));
             s->never = 0;
-            s->tm_dirty = 0;
-            budget = budget > 2u + n ? budget - 2u - n : 0u;
-            continue;
+            budget = left > 3u + n ? left - 3u - n : 0u;
         }
-        if (c == 0) {
-            s->tm_dirty = 0;
-            continue;
-        }
-        if (budget < 3u)
-            break;
-        tm_cmd(h, 0x44u);               /* fixed address */
-        budget--;
-        for (uint32_t k = 0; k < n && budget >= 2u; k++) {
-            if (ram[k] == sent[k])
-                continue;
-            uint8_t v = ram[k];
-            tm_start(h);
-            tm_byte(h, 0xC0u | k);
-            tm_byte(h, v);
-            tm_end(h);
-            sent[k] = v;
-            budget -= 2u;
-            c--;
-        }
-        s->tm_dirty = c != 0;
     }
 }
 
@@ -1117,8 +1204,9 @@ void vpin_flush_tm1628(void)
     tm_flush(0xFFFFFFFFu);
 }
 
-/* About 9 bus bytes: ~150 us at most per main-loop pass, and a single LED
- * change (3 bytes, ~50 us) always goes out at once. */
+/* 9 bus bytes: ~110 us at most per main-loop pass on the STM32 (a byte is
+ * ~11 us, a command ~3 us more), and a single LED change (3 bytes in two
+ * commands, ~40 us) always goes out at once. */
 #define TM_POLL_BUDGET 9u
 
 void vpin_poll_tm1628(void)

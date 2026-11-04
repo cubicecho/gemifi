@@ -93,6 +93,9 @@ const SLOW_COMMANDS: ReadonlySet<number> = new Set([
   Command.FwEnd,
   Command.Commit,
   Command.FactoryReset,
+  Command.PresetSave,
+  Command.PresetReset,
+  Command.PresetName,
 ]);
 
 /** Statuses after which the same request is worth sending again. */

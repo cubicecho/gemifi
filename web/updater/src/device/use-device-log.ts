@@ -29,7 +29,7 @@ function timeColumn(tMs: number): string {
 }
 
 /**
- * One LOG, EVENT or PARAM_CHANGED as a line of text.
+ * One LOG, EVENT, PARAM_CHANGED, BOOTED or PRESET_CHANGED as a line of text.
  *
  * @param message - The message.
  * @returns E.g. `[    1234 ms] INFO  oct- down`.
@@ -43,6 +43,10 @@ export function formatDeviceMessage(message: DeviceMessage): string {
   if (message.kind === 'booted') {
     const blank = ' '.repeat(timeColumn(0).length);
     return `${blank} BOOTED ${message.hello.nodeName ?? 'device'} ${formatVersion(message.hello.fwVersion)}`;
+  }
+  if (message.kind === 'preset') {
+    const blank = ' '.repeat(timeColumn(0).length);
+    return `${blank} PRESET ${message.slot}${message.dirty ? ' (unsaved edits)' : ''}`;
   }
   const time = timeColumn(message.tMs);
   if (message.kind === 'log') {

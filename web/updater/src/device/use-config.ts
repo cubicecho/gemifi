@@ -10,8 +10,9 @@ import {
   valueKey,
 } from '../protocol/config.ts';
 import type { HelloInfo } from '../protocol/messages.ts';
+import { offersPresets } from '../protocol/presets.ts';
 import { applyImport, exportProfile, planImport } from '../protocol/profile.ts';
-import { isVolatile, type ParamSpec, type Schema } from '../protocol/schema.ts';
+import { isPreset, isVolatile, type ParamSpec, type Schema } from '../protocol/schema.ts';
 import { Capability, Role, Status } from '../protocol/wire.ts';
 
 /** Where loading the schema and values is. */
@@ -42,7 +43,10 @@ export interface ConfigController {
   state: ConfigState;
   /** Per-value errors, by `valueKey`. */
   fieldErrors: ReadonlyMap<string, string>;
-  /** Values were set since the last COMMIT or FACTORY_RESET. */
+  /**
+   * Values were set since the last COMMIT or FACTORY_RESET. On a device with presets this counts
+   * only the global params: the active preset's own edits are the device's `dirty` (PRESET_CHANGED).
+   */
   isDirty: boolean;
   action: ConfigAction | null;
   actionError: string | null;
@@ -52,6 +56,8 @@ export interface ConfigController {
   /** Shows (or clears, with null) an error for a value that could not be sent at all. */
   setFieldError: (param: ParamSpec, index: number, message: string | null) => void;
   reload: () => void;
+  /** Reads every value again, keeping the schema and the form on screen (another preset loaded). */
+  refreshValues: () => void;
   save: () => void;
   reset: () => void;
   importText: (text: string) => void;
@@ -125,6 +131,12 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
   const [actionError, setActionError] = useState<string | null>(null);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const hasPresets = offersPresets(device);
+  /** Whether a stored edit of this param counts towards {@link ConfigController.isDirty}. */
+  const countsAsEdit = useCallback(
+    (param: ParamSpec) => isVolatile(param) === false && (hasPresets === false || isPreset(param) === false),
+    [hasPresets],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the reload trigger.
   useEffect(() => {
@@ -182,7 +194,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
           setState((prev) =>
             prev.kind === 'ready' ? { ...prev, values: withEntry(prev.values, key, inEffect) } : prev,
           );
-          if (isVolatile(param) === false) {
+          if (countsAsEdit(param)) {
             setIsDirty(true);
           }
         },
@@ -194,7 +206,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
         },
       );
     },
-    [client],
+    [client, countsAsEdit],
   );
 
   const run = useCallback((name: ConfigAction, work: () => Promise<void>) => {
@@ -210,6 +222,18 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
     setActionError(null);
     setAttempt((n) => n + 1);
   }, []);
+
+  const refreshValues = useCallback(() => {
+    const current = state;
+    if (current.kind !== 'ready') {
+      return;
+    }
+    setFieldErrors(new Map());
+    readAllValues(client, current.schema).then(
+      (values) => setState((prev) => (prev.kind === 'ready' ? { ...prev, values } : prev)),
+      (error: unknown) => setActionError(`The values could not be read again: ${messageOf(error)}`),
+    );
+  }, [client, state]);
 
   const save = useCallback(() => {
     run('save', async () => {
@@ -256,7 +280,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
         const byId = new Map(current.schema.params.map((param) => [param.id, param]));
         const touchesStored = result.applied.some(({ id }) => {
           const param = byId.get(id);
-          return param !== undefined && isVolatile(param) === false;
+          return param !== undefined && countsAsEdit(param);
         });
         if (touchesStored) {
           setIsDirty(true);
@@ -270,7 +294,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
         });
       });
     },
-    [client, device.boardId, run, state],
+    [client, countsAsEdit, device.boardId, run, state],
   );
 
   const exportJson = useCallback(() => {
@@ -291,6 +315,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
     setValue,
     setFieldError,
     reload,
+    refreshValues,
     save,
     reset,
     importText,

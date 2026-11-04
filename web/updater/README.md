@@ -28,6 +28,12 @@ hand the built image to the Firmware or first-install card. The page finds the b
 alone. `npm run dev` proxies `/api` and `/download` to `GEMIFI_BUILDER_URL`
 (default `http://127.0.0.1:6055`), so the dev server works against a running builder.
 
+**Presets.** On a device with presets (HELLO caps bit 5) the Config card starts with the active
+preset: a picker that asks before dropping unsaved edits, Rename, Save as (into another slot) and
+Reset. Settings that belong to a preset are marked "per preset". The page follows switches made on
+the device (PRESET_CHANGED) and reads the values again. Save to device stores the active preset
+with the globals.
+
 Web MIDI only works in a **secure context**: HTTPS, or `localhost`. Opening `dist/index.html` from
 `file://` does not work; use `npm run preview` to serve a build.
 
@@ -159,6 +165,8 @@ src/
     ab-image.ts        A/B (ESP) images: padding, CRC, version parsing, planLinearChunks, isAbDevice
     stream.ts          SysexStreamParser: whole SysEx messages out of a raw byte stream (serial)
     client.ts          SysexClient: stop-and-wait requests over any Transport
+    config.ts          GET_SCHEMA, GET/SET_PARAM(S), COMMIT, FACTORY_RESET
+    presets.ts         PRESET_INFO / SAVE / RESET / NAME and selecting a preset (§4.5)
     flash.ts           hello(), reboot(), flashFirmware(), flashAbFirmware(): the upload sequences over a DeviceLink
     ports.ts           tells app / bootloader / other ports apart by name
     defaults.ts        tunable timings (reply timeout, retries, reboot wait)

@@ -16,7 +16,9 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import type { SysexClient } from '../protocol/client.ts';
 import { type ParamValues, valueKey } from '../protocol/config.ts';
 import type { HelloInfo } from '../protocol/messages.ts';
+import { offersPresets } from '../protocol/presets.ts';
 import {
+  isPreset,
   isReadOnly,
   isVolatile,
   layoutSchema,
@@ -25,8 +27,10 @@ import {
   type SchemaItem,
   type SchemaSection,
 } from '../protocol/schema.ts';
-import { ParamType } from '../protocol/wire.ts';
+import { ParamType, PresetParam } from '../protocol/wire.ts';
+import { PresetControls } from './preset-controls.tsx';
 import { type ConfigController, type ImportReport, useConfig } from './use-config.ts';
+import { type PresetsController, usePresets } from './use-presets.ts';
 
 /** Props of {@link ConfigCard}. */
 export interface ConfigCardProps {
@@ -149,6 +153,9 @@ function paramNote(param: ParamSpec): string | undefined {
   if (isVolatile(param)) {
     return 'Live only: not stored by Save to device.';
   }
+  if (isPreset(param)) {
+    return 'Per preset.';
+  }
   return undefined;
 }
 
@@ -180,7 +187,13 @@ function ParamField({ param, values, config }: { param: ParamSpec; values: Param
  */
 function columnTitle(param: ParamSpec): string {
   const unit = param.unit === null ? '' : ` (${param.unit})`;
-  const note = isReadOnly(param) ? ', read-only' : isVolatile(param) ? ', live only' : '';
+  const note = isReadOnly(param)
+    ? ', read-only'
+    : isVolatile(param)
+      ? ', live only'
+      : isPreset(param)
+        ? ', per preset'
+        : '';
   return `${param.label}${unit}${note}`;
 }
 
@@ -254,19 +267,21 @@ function ParamTable({
 /**
  * One group: its plain params in a grid, its tables full width, in schema order.
  *
- * @param props - The section, the values and the controller.
+ * @param props - The section, the values, the controller, and what goes first (the preset picker).
  * @returns The section.
  */
 function GroupSection({
   section,
   values,
   config,
+  leadSlot,
 }: {
   section: SchemaSection;
   values: ParamValues;
   config: ConfigController;
+  leadSlot?: ReactElement | undefined;
 }) {
-  const blocks: ReactElement[] = [];
+  const blocks: ReactElement[] = leadSlot === undefined ? [] : [leadSlot];
   let fields: ParamSpec[] = [];
   const flushFields = () => {
     if (fields.length > 0) {
@@ -299,6 +314,53 @@ function GroupSection({
   }
   flushFields();
   return <Section title={section.title} level={3} contentClassName="gap-4" contentSlot={blocks} />;
+}
+
+/** The preset params the picker stands for: the active slot and its dirty flag (§4.5). */
+const PICKER_PARAMS: ReadonlySet<number> = new Set([PresetParam.Active, PresetParam.Dirty]);
+
+/**
+ * @param section - A schema section.
+ * @returns Whether it holds `preset.active`, so it is the presets group.
+ */
+function isPresetSection(section: SchemaSection): boolean {
+  return section.items.some((item) => item.kind === 'param' && item.param.id === PresetParam.Active);
+}
+
+/**
+ * The schema's sections, with the presets group first and the params the picker stands for left
+ * out of it, when the device has presets.
+ *
+ * @param sections - From `layoutSchema`.
+ * @param hasPresets - The device has presets.
+ * @returns The sections to draw, and which one gets the picker.
+ */
+function arrangeSections(
+  sections: SchemaSection[],
+  hasPresets: boolean,
+): Array<{ section: SchemaSection; isPresets: boolean }> {
+  if (hasPresets === false) {
+    return sections.map((section) => ({ section, isPresets: false }));
+  }
+  const presets = sections.filter(isPresetSection).map((section) => ({
+    section: {
+      ...section,
+      items: section.items.filter((item) => item.kind !== 'param' || PICKER_PARAMS.has(item.param.id) === false),
+    },
+    isPresets: true,
+  }));
+  const rest = sections
+    .filter((section) => isPresetSection(section) === false)
+    .map((section) => ({ section, isPresets: false }));
+  return [...presets, ...rest];
+}
+
+/**
+ * @param presets - The presets controller.
+ * @returns Whether the active preset has unsaved edits.
+ */
+function isPresetDirty(presets: PresetsController): boolean {
+  return presets.state.kind === 'ready' && presets.state.dirty;
 }
 
 /**
@@ -345,24 +407,34 @@ function ImportSummary({ report }: { report: ImportReport }) {
  */
 export function ConfigCard({ client, device }: ConfigCardProps) {
   const config = useConfig(client, device);
+  const hasPresets = offersPresets(device);
+  const presets = usePresets(client, hasPresets, config.refreshValues);
   const { state, action } = config;
   const isReady = state.kind === 'ready';
-  const isBusy = action !== null;
+  const isBusy = action !== null || presets.action !== null;
+  const hasUnsaved = config.isDirty || isPresetDirty(presets);
   return (
     <CardLayout
       title="Config"
       iconSlot={<Settings />}
-      description="Changes take effect on the device as you make them. Save to device keeps them after a power cycle."
+      description={
+        hasPresets
+          ? 'Changes take effect on the device as you make them. Save to device keeps them after a power cycle: the per-preset ones in the active preset.'
+          : 'Changes take effect on the device as you make them. Save to device keeps them after a power cycle.'
+      }
       actionSlot={
         <>
-          {config.isDirty ? <Badge variant="warning-soft">Unsaved changes</Badge> : null}
+          {hasUnsaved ? <Badge variant="warning-soft">Unsaved changes</Badge> : null}
           <Button
             size="icon-sm"
             variant="outline"
             aria-label="Read the config again"
             iconSlot={<RefreshCw />}
             disabled={isBusy}
-            onClick={config.reload}
+            onClick={() => {
+              config.reload();
+              presets.reload();
+            }}
           />
         </>
       }
@@ -373,8 +445,18 @@ export function ConfigCard({ client, device }: ConfigCardProps) {
             <Alert variant="destructive" title="The config could not be read" description={state.message} />
           ) : null}
           {state.kind === 'ready'
-            ? layoutSchema(state.schema).map((section) => (
-                <GroupSection key={section.title} section={section} values={state.values} config={config} />
+            ? arrangeSections(layoutSchema(state.schema), hasPresets).map(({ section, isPresets }) => (
+                <GroupSection
+                  key={section.title}
+                  section={section}
+                  values={state.values}
+                  config={config}
+                  leadSlot={
+                    isPresets ? (
+                      <PresetControls key="preset-controls" controller={presets} disabled={action !== null} />
+                    ) : undefined
+                  }
+                />
               ))
             : null}
           {config.importReport === null ? null : <ImportSummary report={config.importReport} />}
@@ -391,9 +473,16 @@ export function ConfigCard({ client, device }: ConfigCardProps) {
             loading={action === 'reset'}
             loadingLabel="Resetting…"
             title="Reset every setting to its default?"
-            description="Every value on the device goes back to its firmware default and the stored profile is erased. Export JSON first to keep a copy."
+            description={
+              hasPresets
+                ? 'Every value on the device goes back to its firmware default, and every stored preset and preset name is erased. Export JSON first to keep a copy of the active preset.'
+                : 'Every value on the device goes back to its firmware default and the stored profile is erased. Export JSON first to keep a copy.'
+            }
             confirmLabel="Reset"
-            onConfirm={config.reset}
+            onConfirm={() => {
+              config.reset();
+              presets.reload();
+            }}
           />
           <FilePickerButton
             variant="outline"

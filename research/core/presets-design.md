@@ -219,7 +219,7 @@ For the Code 61: Up / Down step through the presets, and with Channel held they 
    - Tests: core host tests, the host-sim journal (power cut during compaction), and the builder.
    - On hardware: the Keystation with the presets on buttons.
 2. **Modes.** YAML `modes:`, the key-layer state machine, the Keystation Edit → E → white-keys flow and the LED feedback. Hardware-test on the Keystation. **Implemented (§6.1); not yet tested on hardware.**
-3. **Web editor:** the preset UI.
+3. **Web editor:** the preset UI. **Implemented 2026-11-03** (`web/updater`: picker, rename, save as, reset, per-preset marks, follows PRESET_CHANGED); not yet tried against a device.
 4. **Code 61,** after the STM32 platform lands: the preset button, the display, and optionally importing the 12 stock presets (decoding the vendor preset format from the disassembly).
 
 Each phase is usable on its own: 1 already gives presets switchable from buttons and from the web.

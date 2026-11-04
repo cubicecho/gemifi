@@ -69,8 +69,17 @@ export interface BootedMessage {
   hello: HelloInfo;
 }
 
+/** A PRESET_CHANGED message (0x63, §4.5): the active preset or its dirty flag changed. */
+export interface PresetChangedMessage {
+  kind: 'preset';
+  /** The active slot, 1-based. */
+  slot: number;
+  /** It has unsaved edits. */
+  dirty: boolean;
+}
+
 /** Any unsolicited message this module understands. */
-export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage | BootedMessage;
+export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage | BootedMessage | PresetChangedMessage;
 
 /**
  * The REBOOT request payload.
@@ -332,6 +341,10 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
   }
   if (frame.cmd === Unsolicited.Booted) {
     return { kind: 'booted', hello: parseHello(frame.payload) };
+  }
+  if (frame.cmd === Unsolicited.PresetChanged) {
+    const reader = new PayloadReader(frame.payload);
+    return { kind: 'preset', slot: reader.u14(), dirty: reader.byte() !== 0 };
   }
   return null;
 }

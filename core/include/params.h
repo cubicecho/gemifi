@@ -77,7 +77,10 @@ const param_def_t *params_find(uint16_t id);
 int params_get(uint16_t id, uint16_t index, int32_t *out);
 int params_set(uint16_t id, uint16_t index, int32_t value, int from_host);
 
-/* Schema blob: total size, and a window of it (returns bytes copied). */
+/* Schema blob: total size, and a window of it (returns bytes copied). The
+ * size is worked out once: call params_schema_measure() again if the table
+ * (labels, ...) changes after the first params_schema_size(). */
+void params_schema_measure(void);
 uint32_t params_schema_size(void);
 uint32_t params_schema_read(uint32_t offset, uint8_t *dst, uint32_t max);
 

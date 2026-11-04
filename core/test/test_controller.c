@@ -998,6 +998,20 @@ int main(int argc, char **argv)
         put_u(p + 4, 65, 2);
         CHECK(request(GSX_CMD_GET_SCHEMA, p, 6, 0) == GSX_BAD_LEN, "GET_SCHEMA max 65");
     }
+    {
+        /* every window (the walk stops at its end) is that part of the whole */
+        static const uint32_t maxes[] = { 1, 2, 13, 63, 64 };
+        int bad = 0;
+        for (uint32_t m = 0; m < sizeof maxes / sizeof maxes[0]; m++)
+            for (uint32_t off = 0; off <= ssize + 1u; off++) {
+                uint8_t data[64];
+                uint32_t want = off >= ssize ? 0 : ssize - off < maxes[m] ? ssize - off : maxes[m];
+                uint32_t n = params_schema_read(off, data, maxes[m]);
+                if (n != want || (n && memcmp(data, schema + off, n) != 0))
+                    bad++;
+            }
+        CHECK(bad == 0 && params_schema_size() == ssize, "every schema window matches the whole (%d differ)", bad);
+    }
 
     /* keys and velocity */
     int d1, d2;

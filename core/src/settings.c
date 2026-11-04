@@ -130,6 +130,7 @@ void gm_settings_init(void)
     for (uint32_t i = 0; i < GM_N_MODES; i++)
         mode_labels[i] = gm_modes[i].name;
 #endif
+    params_schema_measure();        /* the labels are in: the schema is fixed now */
 }
 
 static const param_def_t params[] = {

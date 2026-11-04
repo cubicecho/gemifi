@@ -267,6 +267,14 @@ extern const int32_t gm_analog_cc_defaults[];
 extern const int32_t gm_analog_mode_defaults[];   /* AN_MODE_* (gm_settings.h) */
 extern const int32_t gm_encoder_cc_defaults[];
 
+/* The params' index labels (core/src/settings.c): each component's display
+ * name, as in gm_device (gm_pad_names: with pads; gm_mode_names: with modes). */
+extern const char *const gm_button_names[];
+extern const char *const gm_analog_names[];
+extern const char *const gm_encoder_names[];
+extern const char *const gm_pad_names[];     /* GM_N_PADS entries */
+extern const char *const gm_mode_names[];    /* GM_N_MODES entries */
+
 /* Feedback / MCU tables (see above), each sized by its component count. */
 extern const gm_led_fb_t gm_led_fb[];        /* GM_LED_FB: per LED            */
 extern const uint8_t gm_analog_pickup[];     /* GM_ANALOG_PICKUP: 1 = pick-up */

@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.22.0](https://github.com/cubicecho/gemifi/compare/v0.21.0...v0.22.0) (2026-11-04)
+
+
+### Features
+
+* **stm32f1:** movable hardware scan timers; DMA allocator searches ([e8eed0b](https://github.com/cubicecho/gemifi/commit/e8eed0b7c21bd4db7b3eb91dc249bc37eb5cfbc8))
+
 # [0.21.0](https://github.com/cubicecho/gemifi/compare/v0.20.0...v0.21.0) (2026-11-04)
 
 

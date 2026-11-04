@@ -2,8 +2,9 @@
  * presets.c: preset load, switch, dirty tracking and storage
  * (research/core/presets-design.md §3, §10.3; gm_presets.h).
  *
- * RAM: a few bytes. Records are built on the stack (one cs_entry_t per
- * param value at most) only while writing.
+ * RAM: one record of entries (rec[], one cs_entry_t per param value at
+ * most) that every save builds its record in, and a few bytes. Moving a
+ * preset also holds it on the stack while the others move.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -30,6 +31,15 @@
 #define LAYER_ENTRIES (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u)
 #define MAX_ENTRIES (2u * GM_ARR(GM_N_BUTTONS) + GM_ARR(GM_N_ANALOGS) + \
                      2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES)
+
+/* The record a save builds: write_values(), write_globals(), write_state()
+ * and presets_rename() build theirs here, check it with stored_same() and
+ * write it. Static: as an array on each one's stack it took 1.9 KB on the
+ * Code 61, and two of them were live at once under presets_rename() and
+ * presets_move() (with write_state() or write_values()). The saves never
+ * nest: each is done with rec[] when it returns, and none is called while
+ * another builds (the store callbacks only read it). */
+static cs_entry_t rec[MAX_ENTRIES];
 
 static uint8_t cur;                  /* active slot, 1..GM_N_PRESETS */
 static uint8_t no_store;             /* safe mode: loads ignore the store */
@@ -320,7 +330,7 @@ static int stored_info(uint32_t slot, cs_slot_info_t *info)
  * writes nothing if it has none). */
 static int write_values(uint32_t slot, const char *name, uint32_t yaml_of)
 {
-    cs_entry_t e[MAX_ENTRIES];
+    cs_entry_t *e = rec;
     uint32_t n = 0;
     for (uint32_t k = 0; k < app_params.param_count; k++) {
         const param_def_t *p = &app_params.params[k];
@@ -353,7 +363,7 @@ static int write_preset(uint32_t slot)
  * loads the defaults first; preset.active 1 is the default too). */
 static int write_globals(void)
 {
-    cs_entry_t e[MAX_ENTRIES];
+    cs_entry_t *e = rec;
     uint32_t n = 0;
     for (uint32_t k = 0; k < app_params.param_count; k++) {
         const param_def_t *p = &app_params.params[k];
@@ -395,7 +405,7 @@ static void set_entry(cs_entry_t *e, uint32_t *n, uint16_t id, int32_t value)
  * that would not change is not written (flash wear). */
 static int write_state(void)
 {
-    cs_entry_t e[MAX_ENTRIES];
+    cs_entry_t *e = rec;
     collect_t c = { e, 0, 0 };
     cs_slot_info_t info;
     int has = config_store_read(CS_SLOT_GLOBAL, &info, collect_cb, &c);
@@ -497,7 +507,7 @@ int presets_rename(uint32_t slot, const char *name, uint32_t len)
         gm_cfg.preset_count = (int32_t)slot;
         return write_state();
     }
-    cs_entry_t e[MAX_ENTRIES];
+    cs_entry_t *e = rec;
     collect_t c = { e, 0, 1 };
     cs_slot_info_t info;
     int has = config_store_read((uint8_t)slot, &info, collect_cb, &c);
@@ -572,7 +582,7 @@ int presets_move(uint32_t from, uint32_t to)
         return GSX_OK;
     uint32_t was = cur;
     gm_release_all();
-    cs_entry_t held[MAX_ENTRIES];
+    cs_entry_t held[MAX_ENTRIES];        /* not rec[]: write_values() builds there meanwhile */
     uint32_t n_held = 0;
     char name[PRESET_NAME_MAX + 1];
     cs_slot_info_t info;

@@ -221,6 +221,24 @@ class DemoDevice {
     );
   }
 
+  /** PRESET_MOVE: the preset in `from` goes to `to`, the ones between shift towards `from`. */
+  #move(from: number, to: number): void {
+    const order = Array.from({ length: this.#used }, (_, i) => ({
+      name: this.#stored.get(i + 1)?.name ?? (i < YAML_NAMES.length ? (YAML_NAMES[i] ?? null) : null),
+      values: this.#valuesOf(i + 1),
+      isActive: i + 1 === this.#active,
+    }));
+    const [moving] = order.splice(from - 1, 1);
+    if (moving === undefined) {
+      return;
+    }
+    order.splice(to - 1, 0, moving);
+    order.forEach((preset, i) => {
+      this.#stored.set(i + 1, { name: preset.name, values: preset.values });
+    });
+    this.#load(order.findIndex((preset) => preset.isActive) + 1);
+  }
+
   /** PRESET_DELETE: the later presets move up, the last one in use is freed. */
   #delete(slot: number): void {
     for (let s = slot; s < this.#used; s++) {
@@ -422,6 +440,18 @@ class DemoDevice {
           return;
         }
         this.#delete(slot);
+        reply(Status.Ok);
+        this.#changed();
+        return;
+      }
+      case Command.PresetMove: {
+        const from = reader.u14();
+        const to = reader.u14();
+        if (from < 1 || from > this.#used || to < 1 || to > this.#used) {
+          reply(Status.BadParam);
+          return;
+        }
+        this.#move(from, to);
         reply(Status.Ok);
         this.#changed();
         return;

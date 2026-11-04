@@ -65,6 +65,7 @@ int presets_save(uint32_t slot);                 /* PRESET_SAVE */
 int presets_reset(uint32_t slot);                /* PRESET_RESET, 0 = all */
 int presets_rename(uint32_t slot, const char *name, uint32_t len);   /* PRESET_NAME */
 int presets_delete(uint32_t slot);               /* PRESET_DELETE */
+int presets_move(uint32_t from, uint32_t to);    /* PRESET_MOVE */
 
 /* app_proto, before a host SET of (id, value) that passed the range check:
  * 0 when presets refuse it (preset.active on a slot not in use). */

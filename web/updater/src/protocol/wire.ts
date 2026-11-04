@@ -60,6 +60,7 @@ export const Command = {
   Reboot: 0x10,
   GetComponent: 0x11,
   PresetDelete: 0x12,
+  PresetMove: 0x13,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,

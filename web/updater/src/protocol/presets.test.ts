@@ -8,6 +8,7 @@ import {
   getPresetInfo,
   isPresetDirty,
   isPresetStored,
+  movePreset,
   offersPresets,
   type PresetInfo,
   parsePresetInfo,
@@ -141,6 +142,13 @@ class FakePresetDevice {
         reply([]);
         return;
       }
+      case Command.PresetMove: {
+        const to = decodeU14(payload, 2);
+        const [name] = this.names.splice(slot - 1, 1);
+        this.names.splice(to - 1, 0, name ?? '');
+        reply([]);
+        return;
+      }
       case Command.PresetDelete:
         if (isSlot === false) {
           reply([], Status.BadParam);
@@ -242,6 +250,14 @@ describe('presets (§4.5)', () => {
     expect(device.names).toEqual(['Default', 'Preset 3']);
     expect(device.received.at(-1)).toEqual({ cmd: Command.PresetDelete, payload: [2, 0] });
     await expect(deletePreset(client, 9)).rejects.toBeInstanceOf(RequestError);
+  });
+
+  it('moves with PRESET_MOVE, from and to', async () => {
+    const device = new FakePresetDevice();
+    const client = new SysexClient(device.transport(), FAST);
+    await movePreset(client, 3, 1);
+    expect(device.names).toEqual(['Preset 3', 'Default', 'Preset 2']);
+    expect(device.received.at(-1)).toEqual({ cmd: Command.PresetMove, payload: [3, 0, 1, 0] });
   });
 
   it('sorts the slots into presets in use and free ones', () => {

@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { FormElement } from '@/components/ui/form-element';
-import { Ellipsis, Pencil, Plus, Tag, Trash2, Undo2 } from '@/components/ui/icons';
+import { ChevronDown, ChevronUp, Ellipsis, Pencil, Plus, Tag, Trash2, Undo2 } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { isPresetEmpty, isPresetStored, type PresetInfo, presetNameProblem, presetSlots } from '../protocol/presets.ts';
 import { PRESET_NAME_MAX } from '../protocol/wire.ts';
@@ -190,6 +190,7 @@ type OpenDialog =
   | { kind: 'rename'; slot: number }
   | { kind: 'reset'; slot: number }
   | { kind: 'delete'; slot: number }
+  | { kind: 'move'; slot: number; to: number }
   | { kind: 'switch'; slot: number };
 
 /**
@@ -241,7 +242,17 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
   };
   const about = (slot: number) => presets.find((info) => info.slot === slot);
   const target = dialog !== null && dialog.kind !== 'new' ? about(dialog.slot) : undefined;
-  const rows = inUse.map((info) => {
+  /** Moves a preset one place, asking first when the active one's unsaved edits would go. */
+  const shift = (slot: number, to: number) => {
+    if (isDirty) {
+      setDialog({ kind: 'move', slot, to });
+      return;
+    }
+    controller.move(slot, to);
+  };
+  const rows = inUse.map((info, position) => {
+    const above = inUse[position - 1];
+    const below = inUse[position + 1];
     const isActive = info.slot === active?.slot;
     const badges = [
       isActive ? (
@@ -287,6 +298,22 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
                 label="Rename…"
                 onSelect={() => setDialog({ kind: 'rename', slot: info.slot })}
               />
+              {canDelete ? (
+                <>
+                  <MenuItem
+                    iconSlot={<ChevronUp />}
+                    label="Move up"
+                    disabled={above === undefined}
+                    onSelect={() => (above === undefined ? null : shift(info.slot, above.slot))}
+                  />
+                  <MenuItem
+                    iconSlot={<ChevronDown />}
+                    label="Move down"
+                    disabled={below === undefined}
+                    onSelect={() => (below === undefined ? null : shift(info.slot, below.slot))}
+                  />
+                </>
+              ) : null}
               <MenuItem
                 iconSlot={<Undo2 />}
                 label="Reset…"
@@ -393,6 +420,19 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
             onConfirm={() => {
               if (target !== undefined) {
                 controller.remove(target.slot);
+              }
+              close();
+            }}
+          />
+          <ConfirmDialog
+            open={dialog?.kind === 'move' && target !== undefined}
+            onOpenChange={(open) => (open ? null : close())}
+            title={`Move "${target?.name ?? ''}"?`}
+            description={`Moving presets reloads "${active?.name ?? ''}", so its unsaved edits are dropped. Save to device first to keep them.`}
+            confirmLabel="Move preset"
+            onConfirm={() => {
+              if (dialog?.kind === 'move') {
+                controller.move(dialog.slot, dialog.to);
               }
               close();
             }}

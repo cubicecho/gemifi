@@ -148,8 +148,10 @@ class SimDevice:
             if self.role != gp.ROLE_APP or not self.schema:
                 return bytes([gp.BAD_CMD])
             return self.config(f.cmd, p)
-        if f.cmd in (gp.PRESET_INFO, gp.PRESET_SAVE, gp.PRESET_RESET, gp.PRESET_NAME, gp.PRESET_DELETE):
-            if self.role != gp.ROLE_APP or self.presets is None or (f.cmd == gp.PRESET_DELETE and not self.has_count):
+        if f.cmd in (gp.PRESET_INFO, gp.PRESET_SAVE, gp.PRESET_RESET, gp.PRESET_NAME, gp.PRESET_DELETE,
+                     gp.PRESET_MOVE):
+            if self.role != gp.ROLE_APP or self.presets is None or (
+                    f.cmd in (gp.PRESET_DELETE, gp.PRESET_MOVE) and not self.has_count):
                 return bytes([gp.BAD_CMD])
             return self.preset_cmd(f.cmd, p)
         if f.cmd == gp.GET_COMPONENT:
@@ -485,6 +487,10 @@ class SimDevice:
                              program, (rec or {}).get("name") or self.yaml_names[slot])
 
     def preset_cmd(self, cmd, p):
+        if cmd == gp.PRESET_MOVE:
+            if len(p) != 4:
+                return bytes([gp.BAD_LEN])
+            return bytes([self.move(gp.dec_u14(p[0:2]), gp.dec_u14(p[2:4]))])
         if cmd == gp.PRESET_NAME:
             if len(p) < 3 or len(p) != 3 + p[2]:
                 return bytes([gp.BAD_LEN])
@@ -556,6 +562,39 @@ class SimDevice:
         self.set_used(n - 1)
         nxt = (slot if slot <= n - 1 else n - 1) if was == slot else was - 1 if was > slot else was
         self.select(nxt)
+        self.write_state()
+        return gp.OK
+
+    def move(self, src, dst):
+        """PRESET_MOVE (presets.c presets_move()): the preset in src goes to dst, the ones between shift one
+        slot towards src; the active preset follows, its unsaved edits dropped."""
+        n = self.used()
+        if not (1 <= src <= n and 1 <= dst <= n):
+            return gp.BAD_PARAM
+        if src == dst:
+            return gp.OK
+        was = self.active
+        held_name = self.moved_name(src, dst)
+        held = self.slot_values(src)
+        step = 1 if src < dst else -1
+        for s in range(src, dst, step):
+            name = self.moved_name(s + step, s)
+            vals = self.slot_values(s + step)
+            self.put_record(s, {k: v for k, v in vals.items() if v != self.yaml_value(s, k)}, name)
+        self.put_record(dst, {k: v for k, v in held.items() if v != self.yaml_value(dst, k)}, held_name)
+        if was == src:
+            nxt = dst
+        elif src < dst and src < was <= dst:
+            nxt = was - 1
+        elif src > dst and dst <= was < src:
+            nxt = was + 1
+        else:
+            nxt = was
+        self.select(nxt)
+        if nxt != was:
+            self.useq = (self.useq + 1) & 0x7F
+            self.outbox.append(gp.build_frame(gp.PARAM_CHANGED, self.useq,
+                                              gp._param_value_bytes(gp.P_PRESET_ACTIVE, 0, nxt)))
         self.write_state()
         return gp.OK
 

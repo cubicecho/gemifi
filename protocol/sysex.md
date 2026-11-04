@@ -28,7 +28,7 @@ Every byte between `F0` and `F7` is 7-bit.
 **Retries:**
 - On a timeout, BAD_CHECKSUM or BUSY, the host resends the same request with the **same** `seq`, up to 5 resends (6 sends in total).
 - The device only counts a request as *completed* (and so a same-`seq` repeat as a duplicate) after it has replied OK or a final error. A BUSY or BAD_CHECKSUM reply doesn't complete it.
-- **Timeouts:** 200 ms for most requests, **2000 ms for FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME and PRESET_DELETE** (page erases, read-back and CRC). A device that needs longer may reply BUSY, and the host resends.
+- **Timeouts:** 200 ms for most requests, **2000 ms for FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME, PRESET_DELETE and PRESET_MOVE** (page erases, read-back and CRC). A device that needs longer may reply BUSY, and the host resends.
 - **REBOOT:** the reply may be lost as the device resets. Hosts treat a REBOOT timeout as success and then wait for the port to reappear.
 
 The flow itself is stop-and-wait. The host sends one request and waits for its reply (`cmd|0x40`, same `seq`). If there's no reply within 200 ms, it resends the same request with the same `seq`. A device that receives a repeated `seq` for the command it just completed replies again without redoing the work. That matters for `FW_DATA`, where the device must not program the same chunk twice.
@@ -92,6 +92,7 @@ Specific cases:
 | 0x0D | PRESET_RESET | presets | – | `slot` u14 (0 = every slot) | – (OK, or FLASH_ERR): drop the slot's stored edits and name |
 | 0x0E | PRESET_NAME | presets | – | `slot` u14 (1..count), `name` string | – (OK, or FLASH_ERR): store a new name (empty = back to the firmware's name); a free slot becomes a new preset |
 | 0x12 | PRESET_DELETE | presets | – | `slot` u14 (1..in use) | – (OK, BAD_STATE for the last preset, or FLASH_ERR): delete a preset; the later ones move up (§4.5) |
+| 0x13 | PRESET_MOVE | presets | – | `from` u14, `to` u14 (both 1..in use) | – (OK, or FLASH_ERR): move a preset to another slot; the ones between shift by one (§4.5) |
 | 0x11 | GET_COMPONENT | feedback | – | `kind` (1 byte), `index` u14 | the component's description (§4.6.1) |
 | 0x05, 0x06, 0x0F | GET_BLOB, SET_BLOB, LOG_LEVEL | reserved | – | see `research/core/bootloader-design.md` §6 | |
 
@@ -210,6 +211,7 @@ A **preset** is a named set of values for what the controls do: which CC or note
   - unsaved edits of the active preset are dropped (the moves load each preset);
   - PRESET_CHANGED is sent, and `preset.count` and `preset.active` are stored.
   The last preset can't be deleted (BAD_STATE). A free slot or 0 → BAD_PARAM.
+- **PRESET_MOVE** `from` `to` moves the preset in `from` to slot `to` (values and name); the presets between shift one slot towards `from`, so the order changes and nothing else does. The active preset keeps playing wherever it ends up (`preset.active` follows it, with PARAM_CHANGED if its slot changed), its unsaved edits are dropped, PRESET_CHANGED is sent and `preset.active` is stored. `from` = `to` does nothing. A slot that isn't in use → BAD_PARAM; a payload other than 4 bytes → BAD_LEN.
 - PRESET_RESET 0 (every slot) also puts the YAML's list back in use.
 - A store written before `preset.count` existed keeps every slot with stored edits in use: at power-up the count is raised to the highest stored slot.
 

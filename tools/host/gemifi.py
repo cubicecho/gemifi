@@ -31,6 +31,7 @@ Presets (sysex.md 4.5; HELLO caps bit 5):
   gemifi.py preset reset N|NAME|all [--yes]      back to the firmware's preset (stored edits and name dropped)
   gemifi.py preset rename N|NAME NEWNAME         ("" = back to the firmware's name; a free slot becomes a preset)
   gemifi.py preset delete N|NAME [--yes]         remove a preset: the later ones move up (firmware with PRESET_DELETE)
+  gemifi.py preset move N|NAME TO|up|down [--yes]  reorder: the preset goes to slot TO, the ones between shift by one
   flash takes --backup FILE / --no-backup and --keep-presets / --use-firmware-presets (see tools/README.md)
 
 Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY are an index or a component id:
@@ -283,6 +284,12 @@ class Session:
     def preset_delete(self, slot):
         """PRESET_DELETE: the later presets move up one slot; unsaved edits of the active one are dropped."""
         expect_ok(self.request(gp.PRESET_DELETE, gp.req_preset_delete(slot)), f"PRESET_DELETE {slot}")
+
+    def preset_move(self, from_slot, to_slot):
+        """PRESET_MOVE: the preset in from_slot goes to to_slot, the ones between shift one slot towards
+        from_slot. The active preset follows; its unsaved edits are dropped."""
+        expect_ok(self.request(gp.PRESET_MOVE, gp.req_preset_move(from_slot, to_slot)),
+                  f"PRESET_MOVE {from_slot} -> {to_slot}")
 
 
     # -- host feedback (sysex.md 4.6) --
@@ -1185,6 +1192,30 @@ def cmd_preset(a, backend):
             now = s.preset_info(0)
             print(f"{name}: preset {n} ({gone}) deleted; {last - 1} in use, preset {now.slot} ({now.name}) active")
             return 0
+        if what == "move":
+            if not gp.tracks_in_use(infos):
+                raise GemifiError(f"{name}: this firmware can't move presets (no PRESET_MOVE); update it first")
+            used = gp.presets_in_use(infos)
+            n = slot_arg(infos, a.slot, in_use=True)
+            t = a.to.strip().lower()
+            to = n - 1 if t == "up" else n + 1 if t == "down" else int(t) if t.isdigit() else None
+            if to is None or not 1 <= to <= len(used):
+                raise GemifiError(f"{name}: move to {a.to!r}: give a slot 1..{len(used)}, up or down")
+            moving = next(i.name for i in infos if i.slot == n)
+            if to == n:
+                print(f"{name}: preset {n} ({moving}) is already there")
+                return 0
+            if cur.dirty and not a.yes and not confirm(
+                    f"{name}: moving presets drops the unsaved edits to {cur.name}."):
+                print("cancelled")
+                return 1
+            s.preset_move(n, to)
+            order = s.preset_infos()
+            now = next(i for i in order if i.is_active)
+            print(f"{name}: preset {moving} moved {n} -> {to}; preset {now.slot} ({now.name}) active")
+            for i in gp.presets_in_use(order):
+                print(f"  {'*' if i.is_active else ' '} {i.slot:2d}  {i.name}")
+            return 0
         if what == "rename":
             n = slot_arg(infos, a.slot)
             gp_check_name(a.name)
@@ -1716,7 +1747,7 @@ def build_parser():
     c.add_argument("file", metavar="IN.json")
     c.add_argument("--commit", action="store_true", help="store in flash afterwards (presets are always stored)")
     sub.add_parser("presets", help="list the preset slots")
-    c = sub.add_parser("preset", help="select, save, reset, rename or delete a preset")
+    c = sub.add_parser("preset", help="select, save, reset, rename, delete or move a preset")
     ps = c.add_subparsers(dest="preset_cmd", required=True)
     x = ps.add_parser("select", help="make a preset active (drops unsaved edits of the current one)")
     x.add_argument("slot", metavar="N|NAME")
@@ -1730,6 +1761,10 @@ def build_parser():
     x = ps.add_parser("delete", help="remove a preset: the later ones move up one slot, the last slot is freed")
     x.add_argument("slot", metavar="N|NAME")
     x.add_argument("--yes", action="store_true", help="don't ask")
+    x = ps.add_parser("move", help="reorder presets: one goes to slot TO, the ones between shift one slot")
+    x.add_argument("slot", metavar="N|NAME")
+    x.add_argument("to", metavar="TO|up|down", help="the slot it goes to (in use), or one step up or down")
+    x.add_argument("--yes", action="store_true", help="don't ask when the active preset has unsaved edits")
     x = ps.add_parser("rename", help="give a preset a new name (\"\" = back to the firmware's name; a free slot "
                       "becomes a new preset, a copy of preset 1's firmware values)")
     x.add_argument("slot", metavar="N|NAME")

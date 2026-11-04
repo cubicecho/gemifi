@@ -601,6 +601,39 @@ static void test_presets(void)
     set_param(P_PRESET_ACTIVE, 0, 3);
     CHECK(gm_cfg.channel == 1 && gm_cfg.btn_action[6] == ACT_CC_RAMP && gm_cfg.analog_cc[0] == 7,
           "slot 3: Lead's values (a copy of Default)");
+    /* PRESET_MOVE: Default, DAW, Lead (active, made distinct) */
+    set_param(P_ANALOG_CC, 0, 21);
+    request(GSX_CMD_COMMIT, 0, 0, 0);
+    {
+        uint8_t p[4];
+        put_u(p, 3, 2);
+        put_u(p + 2, 1, 2);
+        out_n = 0;
+        CHECK(request(GSX_CMD_PRESET_MOVE, p, 4, 0) == GSX_OK, "PRESET_MOVE 3 -> 1");
+        CHECK(preset_changed_msg(&slot, &dirty) && slot == 1 && dirty == 0, "PRESET_CHANGED: Lead, now slot 1");
+        CHECK(gm_cfg.preset_active == 1 && gm_cfg.analog_cc[0] == 21, "the active Lead keeps playing, in slot 1");
+        CHECK(preset_info(1, &in) == GSX_OK && !strcmp(in.name, "Lead") && preset_info(2, &in) == GSX_OK &&
+              !strcmp(in.name, "Default") && preset_info(3, &in) == GSX_OK && !strcmp(in.name, "DAW"),
+              "order: Lead, Default, DAW");
+        set_param(P_PRESET_ACTIVE, 0, 3);
+        CHECK(gm_cfg.analog_cc[0] == 11 && gm_cfg.btn_action[6] == ACT_CC_TOGGLE, "slot 3: DAW's values");
+        set_param(P_PRESET_ACTIVE, 0, 2);
+        CHECK(gm_cfg.analog_cc[0] == 7 && gm_cfg.channel == 1, "slot 2: Default's values");
+        put_u(p, 1, 2);
+        put_u(p + 2, 3, 2);
+        CHECK(request(GSX_CMD_PRESET_MOVE, p, 4, 0) == GSX_OK && gm_cfg.preset_active == 1 &&
+              gm_cfg.analog_cc[0] == 7, "PRESET_MOVE 1 -> 3: the active Default shifts up to 1");
+        CHECK(preset_info(1, &in) == GSX_OK && !strcmp(in.name, "Default") && preset_info(2, &in) == GSX_OK &&
+              !strcmp(in.name, "DAW") && preset_info(3, &in) == GSX_OK && !strcmp(in.name, "Lead"),
+              "order: Default, DAW, Lead again");
+        CHECK(!fake_cs_name(1) || !fake_cs_name(1)[0], "Default back in slot 1 stores no name of its own");
+        put_u(p + 2, 4, 2);
+        CHECK(request(GSX_CMD_PRESET_MOVE, p, 4, 0) == GSX_BAD_PARAM, "PRESET_MOVE to a free slot -> BAD_PARAM");
+        CHECK(request(GSX_CMD_PRESET_MOVE, p, 2, 0) == GSX_BAD_LEN, "PRESET_MOVE 2 bytes -> BAD_LEN");
+        put_u(p + 2, 1, 2);
+        CHECK(request(GSX_CMD_PRESET_MOVE, p, 4, 0) == GSX_OK, "PRESET_MOVE to itself: OK, nothing moves");
+    }
+    set_param(P_PRESET_ACTIVE, 0, 3);
     CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 4, 0) == GSX_BAD_PARAM &&
           preset_cmd(GSX_CMD_PRESET_DELETE, 0, 0) == GSX_BAD_PARAM, "PRESET_DELETE a free slot or 0 -> BAD_PARAM");
     CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 1, 0) == GSX_OK && gm_cfg.preset_active == 2 &&

@@ -393,6 +393,10 @@ static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
         if (f->len != 2)
             return GSX_BAD_LEN;
         return presets_delete(slot);
+    case GSX_CMD_PRESET_MOVE:
+        if (f->len != 4)
+            return GSX_BAD_LEN;
+        return presets_move(slot, gsx_get_u(f->payload + 2, 2));
     default: {                              /* PRESET_NAME */
         if (f->len < 3)
             return GSX_BAD_LEN;
@@ -667,6 +671,7 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_PRESET_RESET:
     case GSX_CMD_PRESET_NAME:
     case GSX_CMD_PRESET_DELETE:
+    case GSX_CMD_PRESET_MOVE:
         return cmd_preset(f, t);
 #if GM_HOST_FB
     case GSX_CMD_GET_COMPONENT:

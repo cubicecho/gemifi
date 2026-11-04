@@ -40,7 +40,7 @@ presets): the device's presets and a card per settings group, with a save bar pi
 **Presets.** On a device with presets (HELLO caps bit 5) the Presets card lists every slot: choose
 one to make it active (the page asks before dropping unsaved edits), **New preset** (a name, a slot,
 and a start from a copy of the current settings or from the firmware's defaults), and Rename,
-Reset or Delete any preset from its menu. Only the presets in use are listed: New preset fills
+Move up / down, Reset or Delete any preset from its menu. Only the presets in use are listed: New preset fills
 the next free slot, and deleting moves the later presets up a slot (firmware with PRESET_DELETE;
 an older one lists every slot). A device with a display shows the name when the preset is chosen,
 and at once when the active one is renamed. Under the card, the settings are split: what each

@@ -216,6 +216,24 @@ export async function deletePreset(client: SysexClient, slot: number, options: R
 }
 
 /**
+ * Moves a preset to another slot: the ones between shift one slot towards `from`. The active preset
+ * keeps playing wherever it ends up; its unsaved edits are dropped.
+ *
+ * @param client - The device.
+ * @param from - The preset's slot, in use.
+ * @param to - Where it goes, in use.
+ * @param options - An abort signal.
+ */
+export async function movePreset(
+  client: SysexClient,
+  from: number,
+  to: number,
+  options: RequestOptions = {},
+): Promise<void> {
+  await client.request(Command.PresetMove, [...encodeU14(from), ...encodeU14(to)], options);
+}
+
+/**
  * Stores a new name for a slot at once (no COMMIT needed). Empty goes back to the firmware's name.
  *
  * @param client - The device.

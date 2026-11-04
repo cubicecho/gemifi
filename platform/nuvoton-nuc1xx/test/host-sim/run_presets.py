@@ -307,6 +307,22 @@ d.reboot()
 check([d.info(n).name for n in (1, 2, 3)] == ["Default", "DAW", "Lead"] and d.get(gp.P_PRESET_COUNT) == 3 and
       d.get(P_ACTIVE) == 2, "the moves, the count and the active slot the delete stored survive a reboot")
 check(d.status(gp.PRESET_DELETE, gp.req_preset_delete(4)) == gp.BAD_PARAM, "PRESET_DELETE a free slot -> BAD_PARAM")
+d.select(3)                                            # Lead (a copy of Default)
+_, u, _ = d.ok(gp.PRESET_MOVE, gp.req_preset_move(3, 1))
+check([d.info(n).name for n in (1, 2, 3)] == ["Lead", "Default", "DAW"], "PRESET_MOVE 3 -> 1: Lead first, the others shift down")
+check(d.get(P_ACTIVE) == 1 and [x.slot for x in changed(u)] == [1] and
+      [(x.id, x.value) for x in param_changed(u)] == [(P_ACTIVE, 1)], "the active Lead follows to slot 1 (PARAM_CHANGED)")
+d.select(3); check(d.get(P_NUMBER, 0) == 66, "slot 3: DAW's values (sustain CC 66)")
+d.select(2); check(d.get(P_NUMBER, 0) == 64 and d.get(P_CHANNEL) == 1, "slot 2: Default's values")
+d.select(1)
+d.ok(gp.PRESET_MOVE, gp.req_preset_move(1, 3))
+check([d.info(n).name for n in (1, 2, 3)] == ["Default", "DAW", "Lead"] and d.get(P_ACTIVE) == 3,
+      "PRESET_MOVE 1 -> 3: back in order, the active Lead in slot 3")
+d.reboot()
+check([d.info(n).name for n in (1, 2, 3)] == ["Default", "DAW", "Lead"] and d.get(P_ACTIVE) == 3 and
+      d.get(gp.P_PRESET_COUNT) == 3, "the order and the active slot survive a reboot")
+d.select(2); check(d.get(P_NUMBER, 0) == 66, "slot 2 is DAW again after the reboot")
+check(d.status(gp.PRESET_MOVE, gp.req_preset_move(4, 1)) == gp.BAD_PARAM, "PRESET_MOVE a free slot -> BAD_PARAM")
 d.ok(gp.FACTORY_RESET)
 d.ok(gp.PRESET_NAME, gp.req_preset_name(8, ""))        # every slot in use for the rest of the script
 check(d.get(gp.P_PRESET_COUNT) == 8, "naming slot 8 puts slots 4..8 in use too")

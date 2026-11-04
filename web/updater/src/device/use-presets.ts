@@ -3,6 +3,7 @@ import type { SysexClient } from '../protocol/client.ts';
 import {
   deletePreset,
   isPresetDirty,
+  movePreset,
   type PresetInfo,
   readPresets,
   renamePreset,
@@ -19,7 +20,7 @@ export type PresetsState =
   | { kind: 'ready'; presets: PresetInfo[]; active: number; dirty: boolean };
 
 /** A preset action that is running. */
-export type PresetAction = 'select' | 'create' | 'reset' | 'rename' | 'delete';
+export type PresetAction = 'select' | 'create' | 'reset' | 'rename' | 'delete' | 'move';
 
 /** What a new preset starts from. */
 export type PresetStart = 'current' | 'defaults';
@@ -50,6 +51,8 @@ export interface PresetsController {
   reset: (slot: number) => void;
   /** Deletes a preset; the later ones move up (§4.5). */
   remove: (slot: number) => void;
+  /** Moves a preset to another slot; the ones between shift by one. */
+  move: (from: number, to: number) => void;
   /** Stores a new name; empty = the firmware's name. */
   rename: (slot: number, name: string) => Promise<void>;
   /** Reads the list again. */
@@ -247,5 +250,21 @@ export function usePresets(
     [run],
   );
 
-  return { state, action, actionError, select, create, reset, rename, remove, reload };
+  const move = useCallback(
+    (from: number, to: number) => {
+      void run(
+        'move',
+        async (device) => {
+          await movePreset(device, from, to);
+          setAttempt((n) => n + 1);
+          // The active preset was reloaded (its unsaved edits dropped), maybe into another slot.
+          onValuesChangedRef.current();
+        },
+        false,
+      );
+    },
+    [run],
+  );
+
+  return { state, action, actionError, select, create, reset, rename, remove, move, reload };
 }

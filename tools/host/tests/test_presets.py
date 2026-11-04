@@ -535,6 +535,69 @@ class TestPresetsInUse(unittest.TestCase):
         dev.boot()
         self.assertEqual((dev.used(), s.preset_info(1).name), (1, "Ableton"))
 
+    def test_move_codec(self):
+        self.assertEqual(gp.PRESET_MOVE, 0x13)
+        self.assertIn(gp.PRESET_MOVE, gp.LONG_TIMEOUT_CMDS)
+        self.assertEqual(gp.req_preset_move(3, 130), b"\x03\x00\x02\x01")
+
+    def test_move(self):
+        dev = new_dev()
+        s = session(dev)
+        s.preset_name(4, "Lead")
+        s.preset_select(2)                                             # Drums active
+        drums = dev.slot_values(2)
+        s.set_param(CH, 0, 3)                                          # unsaved: dropped by the move
+        sent = []                                                      # the session consumes the outbox
+
+        class Recorded(list):
+            def append(self, m):
+                sent.append(m)
+                super().append(m)
+        dev.outbox = Recorded(dev.outbox)
+        s.preset_move(2, 4)                                            # Drums to the end: Ableton, Lead shift up
+        names = [s.preset_info(n).name for n in (1, 2, 3, 4)]
+        self.assertEqual(names, ["Default", "Ableton", "Lead", "Drums"])
+        self.assertEqual((dev.active, dev.dirty, dev.slot_values(4)), (4, False, drums))   # the active one follows
+        msgs = [gp.parse_frame(m).cmd for m in sent]
+        self.assertIn(gp.PRESET_CHANGED, msgs)
+        self.assertIn(gp.PARAM_CHANGED, msgs)                          # preset.active changed 2 -> 4
+        self.assertEqual(dev.stored[(ACTIVE, 0)], 4)
+        s.preset_move(4, 1)                                            # and to the top: the others shift down
+        self.assertEqual([s.preset_info(n).name for n in (1, 2, 3, 4)], ["Drums", "Default", "Ableton", "Lead"])
+        self.assertEqual((dev.active, dev.slot_values(1)), (1, drums))
+        s.preset_select(3)                                             # Ableton
+        s.preset_move(1, 2)                                            # a move that doesn't touch the active slot
+        self.assertEqual((dev.active, s.preset_info(0).name), (3, "Ableton"))
+        s.preset_move(3, 3)                                            # to itself: nothing
+        self.assertEqual(dev.active, 3)
+        for a, b in ((5, 1), (1, 5), (0, 1)):
+            with self.assertRaises(gemifi.StatusError) as e:
+                s.preset_move(a, b)
+            self.assertEqual(e.exception.status, gp.BAD_PARAM, (a, b))
+        self.assertEqual(s.request(gp.PRESET_MOVE, gp.u14(1)).status, gp.BAD_LEN)
+        dev.boot()
+        self.assertEqual([s.preset_info(n).name for n in (1, 2, 3, 4)], ["Default", "Drums", "Ableton", "Lead"])
+
+    def test_move_cli(self):
+        dev = new_dev()
+        rc, out = run_cli(dev, "preset", "move", "ableton", "1")
+        self.assertEqual(rc, 0)
+        self.assertIn("preset Ableton moved 3 -> 1; preset 2 (Default) active", out)
+        self.assertRegex(out, r"  1  Ableton\n  \* +2  Default\n +3  Drums")
+        rc, out = run_cli(dev, "preset", "move", "drums", "up")
+        self.assertEqual([s_name(dev, n) for n in (1, 2, 3)], ["Ableton", "Drums", "Default"])
+        session(dev).set_param(CH, 0, 9)                               # unsaved edits on the active Default
+        with self.assertRaisesRegex(gemifi.GemifiError, r"give a slot 1\.\.3"):
+            run_cli(dev, "preset", "move", "3", "down")                # 3 is the last in use: no slot 4
+        rc, out = run_cli(dev, "preset", "move", "3", "1", stdin="no\n")
+        self.assertEqual((rc, s_name(dev, 1)), (1, "Ableton"))         # asked first, cancelled
+        rc, out = run_cli(dev, "preset", "move", "3", "1", "--yes")
+        self.assertEqual((rc, s_name(dev, 1), dev.dirty), (0, "Default", False))
+        with self.assertRaisesRegex(gemifi.GemifiError, "slot 5 is free"):
+            run_cli(dev, "preset", "move", "5", "1")
+        with self.assertRaisesRegex(gemifi.GemifiError, "can't move presets"):
+            run_cli(make_dev(), "preset", "move", "2", "1")
+
     def test_old_firmware_has_no_delete(self):
         s = session(make_dev())
         self.assertEqual(s.request(gp.PRESET_DELETE, gp.req_preset_delete(2)).status, gp.BAD_CMD)

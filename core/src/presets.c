@@ -557,6 +557,75 @@ int presets_delete(uint32_t slot)
     return write_state();
 }
 
+/* Move one preset to slot `to`: the ones between shift one slot towards
+ * `from`. The moving preset is held as its values that differ from the param
+ * defaults (and its name) while the others are moved, each by loading it and
+ * storing it as its new slot's record. */
+int presets_move(uint32_t from, uint32_t to)
+{
+    uint32_t n = used();
+    if (from < 1u || from > n || to < 1u || to > n)
+        return GSX_BAD_PARAM;
+    if (from == to)
+        return GSX_OK;
+    uint32_t was = cur;
+    gm_release_all();
+    cs_entry_t held[MAX_ENTRIES];
+    uint32_t n_held = 0;
+    char name[PRESET_NAME_MAX + 1];
+    cs_slot_info_t info;
+    const char *nm = moved_name(from, to, &info);
+    uint32_t i = 0;
+    for (; nm && nm[i] && i < PRESET_NAME_MAX; i++)
+        name[i] = nm[i];
+    name[i] = 0;
+    load_slot(from);
+    for (uint32_t k = 0; k < app_params.param_count; k++) {
+        const param_def_t *p = &app_params.params[k];
+        if (is_preset(p) && storable(p))
+            for (uint32_t j = 0; j < p->count; j++)
+                if (p->values[j] != params_default_at(p, j))
+                    put(held, &n_held, p->id, j, p->values[j]);
+    }
+    int st = GSX_OK;
+    int step = from < to ? 1 : -1;
+    for (uint32_t s = from; s != to && st == GSX_OK; s += (uint32_t)step) {
+        uint32_t src = s + (uint32_t)step;
+        const char *mn = moved_name(src, s, &info);
+        load_slot(src);
+        st = write_values(s, mn, 0);
+    }
+    if (st == GSX_OK) {
+        /* The held preset into `to`: defaults, then its values. */
+        for (uint32_t k = 0; k < app_params.param_count; k++) {
+            const param_def_t *p = &app_params.params[k];
+            if (is_preset(p))
+                for (uint32_t j = 0; j < p->count; j++)
+                    p->values[j] = params_default_at(p, j);
+        }
+        for (uint32_t k = 0; k < n_held; k++)
+            params_set(held[k].id, held[k].index, held[k].value, 0);
+        st = write_values(to, name[0] ? name : 0, 0);
+    }
+    /* The active preset keeps playing, wherever it is now. */
+    uint32_t next = was;
+    if (was == from)
+        next = to;
+    else if (from < to && was > from && was <= to)
+        next = was - 1u;
+    else if (from > to && was >= to && was < from)
+        next = was + 1u;
+    if (st != GSX_OK) {
+        load_slot(was);                     /* the store may be half moved */
+        return st;
+    }
+    load_slot(next);
+    preset_changed();
+    if (next != was)
+        app_param_changed(P_PRESET_ACTIVE, 0);
+    return write_state();
+}
+
 typedef struct {
     int32_t program;
 } prog_t;

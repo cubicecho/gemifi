@@ -10,7 +10,7 @@ ROOT   := ../../../..
 PLAT   := ../..
 BUILD  ?= build
 HOSTCC ?= gcc
-CFLAGS := -O1 -g -Wall -Wextra -Werror -Istub -I$(PLAT)/include -I$(ROOT)/core/include
+CFLAGS := -O1 -g -Wall -Wextra -Werror -DCS_TEST -Istub -I$(PLAT)/include -I$(ROOT)/core/include
 
 .PHONY: test clean
 test: $(BUILD)/cs_test

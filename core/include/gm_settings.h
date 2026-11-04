@@ -167,7 +167,10 @@ typedef struct {
 
 extern gm_settings_t gm_cfg;
 
-/* Fills the index-label tables from gm_device; call before params_*. */
-void gm_settings_init(void);
+/* Call before params_*. Nothing to set up any more: the index labels are
+ * the builder's tables in flash (gm_device.h gm_*_names). */
+static inline void gm_settings_init(void)
+{
+}
 
 #endif

@@ -1354,6 +1354,14 @@ class TestFeedback(unittest.TestCase):
         self.assertIn("#define GM_RINGS 1", h)
         self.assertIn('const gm_comp_t gm_comp_buttons[GM_N_BUTTONS] = { { "a", "A", "play" } };', c)
         self.assertIn('gm_comp_matrix[1] = { { "", "", "" } };', c)
+        self.assertIn('gm_comp_displays[1] = { { "", "", "" } };', c)          # no displays
+        # displays (GET_COMPONENT kind 6): the Code 61's one, named after its id
+        path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
+        with open(path, encoding="utf-8") as f:
+            d, diags = gd.load_device(path, f.read())
+        self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
+        c61 = gd.generate(d, "m-audio-code61.yaml")["gm_device_config.c"]
+        self.assertIn('const gm_comp_t gm_comp_displays[GM_N_DISPLAYS] = { { "display", "Display", "" } };', c61)
         h, c = self.header(base + "feedback: { script: false }\n")
         self.assertIn("#define GM_HOST_FB 0", h)
         self.assertNotIn("gm_comp_buttons", c)

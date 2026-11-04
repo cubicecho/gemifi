@@ -187,6 +187,36 @@ int main(void)
     gm_display_poll(now);
     CHECK(shown(1) == DOT && shown(2) == gm_seg14_glyph('2'), "a message's dot takes a place");
 
+    /* FB_TEXT (gm_host_on_text): covers the device's own text until released */
+    gm_display_midi(0xB0, 1, 2);
+    gm_display_poll(now);
+    CHECK(shows("1    2"), "the device's own text first");
+    gm_host_on_text(0, 0, 0, (const uint8_t *)"HOST", 4);
+    gm_display_poll(now);
+    CHECK(shows("HOST  "), "host text from column 0, the rest blank");
+    gm_display_midi(0xB0, 3, 4);
+    gm_display_message("NOPE");
+    gm_display_poll(now);
+    CHECK(shows("HOST  "), "the device's MIDI and messages don't cover it");
+    gm_host_on_text(0, 0, 4, (const uint8_t *)"12345", 5);
+    gm_display_poll(now);
+    CHECK(shows("HOST12"), "from column 4, clipped at the end of the row");
+    gm_host_on_text(0, 0, 1, (const uint8_t *)".", 1);
+    gm_display_poll(now);
+    CHECK(shown(1) == DOT && shown(0) == gm_seg14_glyph('H'), "'.' takes a place of its own");
+    gm_host_on_text(0, 0, 0, (const uint8_t *)"\x01", 1);
+    gm_display_poll(now);
+    CHECK(shown(0) == 0, "a control character shows blank");
+    int w = writes;
+    gm_host_on_text(0, 1, 0, (const uint8_t *)"XX", 2);     /* no row 1 */
+    gm_host_on_text(0, 0, 6, (const uint8_t *)"XX", 2);     /* past the end */
+    gm_host_on_text(1, 0, 0, (const uint8_t *)"XX", 2);     /* no display 1 */
+    gm_display_poll(now);
+    CHECK(writes == w, "a bad row, column or display is dropped");
+    gm_display_host_release();
+    gm_display_poll(now);
+    CHECK(shows("NOPE  "), "released: the device's own text (the last message) again");
+
     printf("test_display: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

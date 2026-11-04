@@ -153,4 +153,4 @@ The `gemifi.py` host tool (`tools/host/`) helps here: `gemifi.py components` lis
 3. **CUIA list:** which CUIAs your Zynthian version has for loop, metronome, tempo, undo/redo; the table above only uses ones seen in existing drivers.
 4. **Mixer value ranges:** `"level"` and `"balance"` value ranges, and the conversion mackiecontrol uses.
 5. **Thread safety:** which thread calls `midi_event` and the queued signal handlers, to size the locking (§3.5).
-6. **Displays:** gemifi devices have none yet (gemifi #18). When they do, FB_TEXT could show the active chain's name.
+6. **Displays:** the Code 61 has a 6-character one (GET_COMPONENT kind 6). FB_TEXT could show the active chain's name.

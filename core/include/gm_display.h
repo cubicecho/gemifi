@@ -59,6 +59,12 @@ void gm_display_midi(uint8_t status, uint8_t a, uint8_t b);
  * takes a place ('.' too). Main loop only; s is copied (at most 24). */
 void gm_display_message(const char *s);
 
+/* FB_TEXT (sysex.md 4.6.2): text from a host at (row, col) on display d.
+ * It covers what the device shows until gm_display_host_release (FB_RELEASE
+ * 0 or 3). Also declared in gm_feedback.h, which app_proto.c calls. */
+void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n);
+void gm_display_host_release(void);
+
 /* Main loop: format a recorded message, step a scrolling one, and write
  * changed segments to the pins. The caller flushes the hubs afterwards
  * (vpin_flush_tm1628 ...). now = hal_millis(). */

@@ -20,6 +20,11 @@ import { encodeSchema, makeParam } from '../protocol/test-support.ts';
 import {
   Capability,
   Command,
+  ComponentKind,
+  LedColours,
+  LedOwner,
+  NOTIFICATION_FIRST,
+  NOTIFICATION_LAST,
   ParamFlag,
   ParamType,
   PresetFlag,
@@ -33,6 +38,18 @@ const P = ParamFlag.Preset;
 const BUTTONS = ['Oct -', 'Oct +', 'Sustain', 'Shift'];
 const ANALOGS = ['Mod wheel', 'Expression'];
 const PADS = ['Pad 1', 'Pad 2', 'Pad 3', 'Pad 4'];
+
+/** Host feedback (§4.6): the Code 61's LEDs, roughly, and its 6-character display. */
+const DEMO_LEDS: readonly { id: string; name: string; colours: number }[] = [
+  ...['Channel', 'Edit', 'Zone', '1', '2', '3', '4'].map((name) => ({
+    id: `${name.toLowerCase()}_led`,
+    name,
+    colours: LedColours.Single,
+  })),
+  ...Array.from({ length: 9 }, (_, i) => ({ id: `b${i + 1}_led`, name: `B${i + 1}`, colours: LedColours.Rgb })),
+  ...Array.from({ length: 16 }, (_, i) => ({ id: `pad${i + 1}_led`, name: `Pad ${i + 1}`, colours: LedColours.Rgb })),
+];
+const DEMO_DISPLAY_COLS = 6;
 
 /** Roughly the Code 61's groups and params, with the per-preset ones flagged. */
 const GROUPS = ['MIDI', 'Velocity', 'Buttons', 'Analog', 'Pads', 'Presets', 'Debug'];
@@ -314,6 +331,10 @@ class DemoDevice {
     const reply = (status: number, fields: number[] = []) =>
       this.#emit(encodeFrame(cmd | 0x40, seq, [status, ...fields]));
     const reader = new PayloadReader(payload);
+    const isNotification = cmd >= NOTIFICATION_FIRST && cmd <= NOTIFICATION_LAST;
+    if (isNotification) {
+      return; // FB_*: never answered; the demo has no LEDs to light
+    }
     switch (cmd) {
       case Command.Hello:
         reply(Status.Ok, [
@@ -322,7 +343,9 @@ class DemoDevice {
           ...encodeU32(0x0002_003e),
           0x01,
           ...encodeU14(256),
-          ...encodeU14(Capability.Config | Capability.Log | Capability.Event | Capability.Presets),
+          ...encodeU14(
+            Capability.Config | Capability.Log | Capability.Event | Capability.Presets | Capability.Feedback,
+          ),
           ...pack([0xde, 0x70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
           14,
           ...Array.from('m-audio-code61', (c) => c.charCodeAt(0)),
@@ -454,6 +477,27 @@ class DemoDevice {
         this.#move(from, to);
         reply(Status.Ok);
         this.#changed();
+        return;
+      }
+      case Command.GetComponent: {
+        const kind = reader.byte();
+        const index = reader.u14();
+        const head = (count: number, id: string, name: string) => [
+          kind,
+          ...encodeU14(index),
+          ...encodeU14(count),
+          ...encodeLstring(id),
+          ...encodeLstring(name),
+          ...encodeLstring(''),
+        ];
+        const led = DEMO_LEDS[index];
+        if (kind === ComponentKind.Led && led !== undefined) {
+          reply(Status.Ok, [...head(DEMO_LEDS.length, led.id, led.name), led.colours, LedOwner.HostThenLocal]);
+        } else if (kind === ComponentKind.Display && index === 0) {
+          reply(Status.Ok, [...head(1, 'display', 'Display'), DEMO_DISPLAY_COLS, 1, 1]);
+        } else {
+          reply(Status.BadParam);
+        }
         return;
       }
       case Command.FactoryReset:

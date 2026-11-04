@@ -387,7 +387,14 @@ static void matrix_scan(void)
 #if GM_N_ENCODERS > 0
 static uint8_t enc_ab[NE];
 static int8_t enc_acc[NE];
-static volatile int16_t enc_delta[NE];
+/* Detents, free running: only encoder_step writes it (the scan interrupt,
+ * or the main loop for I2C hubs, never both for one encoder), and the main
+ * loop takes the turns as count - enc_seen. No read-modify-write from both
+ * sides, so a detent counted between the main loop's load and store isn't
+ * lost (the M0 has no LDREX; a halfword load or store is atomic). Twins
+ * aren't scanned: only the scanned encoders have counts. */
+static volatile uint16_t enc_count[GM_ARR(NE_HW)];
+static uint16_t enc_seen[GM_ARR(NE_HW)];
 static uint8_t enc_i2c[NE];
 static int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
@@ -431,10 +438,10 @@ static void encoder_step(uint32_t i)
     int32_t spd = e->steps_per_detent ? e->steps_per_detent : 4;
     if (enc_acc[i] >= spd) {
         enc_acc[i] = 0;
-        enc_delta[i]++;
+        enc_count[i]++;
     } else if (enc_acc[i] <= -spd) {
         enc_acc[i] = 0;
-        enc_delta[i]--;
+        enc_count[i]--;
     }
 }
 #endif
@@ -1654,10 +1661,11 @@ static void encoders_poll(void)
     for (uint32_t p = 0; p < NE_HW; p++) {
         if (enc_i2c[p])
             encoder_step(p);
-        int16_t d = enc_delta[p];
+        uint16_t c = enc_count[p];
+        int16_t d = (int16_t)(uint16_t)(c - enc_seen[p]);
         if (!d)
             continue;
-        enc_delta[p] = (int16_t)(enc_delta[p] - d);
+        enc_seen[p] = c;
         uint32_t i = ENC_LIVE(p);
         event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
 #if GM_MCU

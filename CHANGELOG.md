@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.32.0](https://github.com/cubicecho/gemifi/compare/v0.31.0...v0.32.0) (2026-11-04)
+
+
+### Features
+
+* **code61:** encoder acceleration on, medium (0.2.84) ([38989bd](https://github.com/cubicecho/gemifi/commit/38989bdf859cc9a3c1966ad38c210dcdcac8410a))
+* **encoders:** acceleration curves (encoder_settings / acceleration:) ([44b2544](https://github.com/cubicecho/gemifi/commit/44b2544a1630f409144f7a6722a189a550c30a88))
+
 # [0.31.0](https://github.com/cubicecho/gemifi/compare/v0.30.0...v0.31.0) (2026-11-04)
 
 

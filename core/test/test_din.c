@@ -487,6 +487,100 @@ int main(void)
     }
     gm_cfg.din_thru = 0;
 
+    /* Priority: the host floods DIN Out (usb_to_din's LED feedback, or the
+     * DIN port) with 10 notes a ms at 31250 baud. Its backlog stays under
+     * 64 bytes, so the controller's notes go out within ~20 ms, and none of
+     * them is lost. */
+#if !PORT
+    gm_cfg.din_usb = 1;
+#endif
+    idle();
+    dq_rate = 3125;
+    {
+        uint32_t d0 = gm_din_out_drops;
+        int qmax = 0, on = 0, off = 0, usb_on = 0;
+        for (int ms = 0; ms < 200; ms++) {
+            for (int i = 0; i < 10; i++)
+                from_usb(CABLE << 4 | 9, 0x91, (uint8_t)((ms * 10 + i) & 0x7F), 127);
+            if (ms >= 50 && ms < 110) {
+                if (dq > qmax)
+                    qmax = dq;
+                local(ms & 1 ? 0x80 : 0x90, (uint8_t)(40 + (ms - 50) / 2), ms & 1 ? 0 : 100, 3);
+            }
+            run_ms(1);
+        }
+        run_ms(100);
+        int n = rx_msgs();
+        for (int i = 0; i < n; i++) {
+            if (rx[i][0] == 0x90 && rx[i][2])
+                on++;
+            else if ((rx[i][0] == 0x90 || rx[i][0] == 0x80) && !rx[i][2])
+                off++;
+            else if (rx[i][0] == 0x91)
+                usb_on++;
+        }
+        CHECK(qmax <= 67, "the host's backlog stays under the 64-byte cap (%d)", qmax);
+        CHECK(on == 30 && off == 30, "every note of the controller's, on and off (%d %d)", on, off);
+        CHECK(usb_on > 100 && usb_on < 2000 && gm_din_out_drops - d0 == (uint32_t)(2000 - usb_on),
+              "the host's notes: what fits, the rest dropped and counted (%d sent)", usb_on);
+    }
+    /* the host's Note Offs pass the cap */
+    dq_rate = 0;
+    idle();
+    {
+        for (int i = 0; i < 40; i++)
+            from_usb(CABLE << 4 | 9, 0x91, (uint8_t)i, 127);
+        from_usb(CABLE << 4 | 8, 0x81, 5, 0);
+        int n = rx_msgs();
+        CHECK(n > 20 && n < 40 && rx[n - 1][0] == 0x91 && rx[n - 1][1] == 5 && rx[n - 1][2] == 0,
+              "capped Note Ons, then the host's Note Off (as Note On velocity 0)");
+    }
+#if !PORT
+    gm_cfg.din_usb = 0;
+#endif
+    /* the controller alone fills the queue (448 of its 512 bytes): Note
+     * Ons stop there, Note Offs have the rest */
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        for (int i = 0; i < 250; i++)
+            local(0x90, (uint8_t)(i & 0x7F), 100, 3);
+        int q_on = dq;
+        for (int i = 0; i < 30; i++)
+            local(0x80, (uint8_t)i, 0, 3);
+        int n = rx_msgs(), off = 0;
+        for (int i = 0; i < n; i++)
+            off += rx[i][2] == 0;
+        CHECK(q_on <= 448 && off == 30 && gm_din_out_drops - d0 == (uint32_t)(250 - (n - 30)),
+              "Note Ons up to 448 bytes (%d), then all 30 Note Offs (%d)", q_on, off);
+    }
+    /* while the thru's SysEx goes out: Note Ons use 12 of the 16 pend
+     * entries, the controller's Note Offs the rest; one that finds it full
+     * ends the SysEx */
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        const uint8_t b[] = { 0xF0, 0x7D, 1 };
+        din_bytes(b, 3);
+        for (int i = 0; i < 20; i++)
+            local(0x90, (uint8_t)(30 + i), 100, 3);
+        for (int i = 0; i < 20; i++)
+            local(0x80, (uint8_t)(30 + i), 0, 3);
+        const uint8_t e[] = { 2, 3, 0xF7 };
+        din_bytes(e, 3);
+        int n = rx_msgs(), on = 0, off = 0, f7 = 0;
+        for (int i = 0; i < n; i++)
+            rx[i][2] ? on++ : off++;
+        for (int i = 0; i < dout_n; i++)
+            f7 += dout[i] == 0xF7;
+        CHECK(dout_n > 4 && dout[3] == 0xF7 && f7 == 1, "SysEx cut short with F7, its rest dropped");
+        CHECK(on == 12 && off == 20 && gm_din_out_drops - d0 == 9,
+              "12 Note Ons (8 dropped), all 20 Note Offs (%d %d, %u drops)", on, off,
+              (unsigned)(gm_din_out_drops - d0));
+    }
+    gm_cfg.din_thru = 0;
+
 #if PORT
     /* USB cable 1 -> DIN Out: short messages and SysEx */
     clear();

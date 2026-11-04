@@ -43,6 +43,10 @@ void presets_boot(int safe);
 /* gm_poll: writes preset.active once it has been stable for 10 s. */
 void presets_poll(uint32_t now_ms);
 
+/* Write preset.active now if it is still waiting for those 10 s (before a
+ * power-off). Unsaved edits stay unsaved: those are only stored by COMMIT. */
+void presets_flush(void);
+
 /* Switch (device or host): release everything held, load the slot, send
  * its Program Change, PRESET_CHANGED. Selecting the active slot reloads
  * it (drops unsaved edits, sysex.md §4.5). GSX_BAD_PARAM for a bad slot. */

@@ -320,9 +320,11 @@ The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10)
 
 | `mode` | The computer sees | DIN In goes to | DIN Out gets |
 |---|---|---|---|
-| `separate_port` (default) | a second USB-MIDI port, `port_name` (default "<friendly_name> MIDI") | that port | everything the computer sends to that port |
-| `usb_merge` | only the device's own port | the device's port, mixed with the keys | the host's channel and realtime messages on the device's port, when `midi.usb_to_din` is on. Never its SysEx: that is the gemifi protocol's |
+| `usb_merge` (default) | only the device's own port | the device's port, mixed with the keys | the host's channel and realtime messages on the device's port, when `midi.usb_to_din` is on. Never its SysEx: that is the gemifi protocol's |
+| `separate_port` | a second USB-MIDI port, `port_name` (default "<friendly_name> MIDI") | that port | everything the computer sends to that port |
 | `din_only` | only the device's own port | nowhere (only the thru) | nothing from USB |
+
+`separate_port` has a known problem: on Windows, a device with two USB-MIDI ports can hang Chrome's Web MIDI (the web updater) for good when it leaves or comes back on USB (issue #54). The builder warns when you choose it.
 
 In every mode, two settings (MIDI group, stored with the globals) decide the rest:
 
@@ -333,7 +335,7 @@ In every mode, two settings (MIDI group, stored with the globals) decide the res
 din_midi:
   tx_pin: PA9
   rx_pin: PA10                 # optional: without it, MIDI Out only
-  mode: separate_port          # separate_port | usb_merge | din_only
+  mode: usb_merge              # usb_merge | separate_port | din_only
   port_name: Code 61 MIDI      # separate_port only
   thru: false                  # start values of the settings
   controller_out: true
@@ -364,7 +366,7 @@ midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub is used
 scan_interval: 125us           # matrix/encoder scan period
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
-din_midi: { tx_pin: PA9, rx_pin: PA10, mode: separate_port }  # stm32f1: 5-pin MIDI ("DIN MIDI")
+din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
 boot_combo: [pitch_down, pitch_up]  # button ids
 
 cd74hc4051:

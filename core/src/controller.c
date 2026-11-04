@@ -1271,6 +1271,11 @@ enum { PAD_BLOCKED, PAD_IDLE, PAD_PEAK, PAD_ON };
 static uint8_t pad_state[NP], pad_note[NP], pad_ch[NP], pad_at[NP];
 static uint16_t pad_peak[NP];
 static uint32_t pad_t[NP];          /* ms: strike start, last aftertouch, or release */
+/* A hit lights its pad's LED (active look) for at least this long: a quick
+ * strike can start and end between two 10 ms LED updates, which left the
+ * pad on its idle look. */
+#define PAD_LED_MIN_MS 80u
+static uint32_t pad_lit[NP];        /* ms of the last hit (| 1), 0 = none */
 static uint8_t pad_order[NP];       /* read order: same mux channel together */
 
 /* Mux pads by channel, so pads behind shared select lines switch them once. */
@@ -1313,6 +1318,7 @@ static void pad_hit(uint32_t i, uint32_t now)
     uint32_t v = pad_velocity(pad_peak[i]);
     pad_state[i] = PAD_ON;
     pad_t[i] = now;
+    pad_lit[i] = now | 1u;
     pad_at[i] = 0;
     pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : chan();
     pad_note[i] = (uint8_t)n;
@@ -1736,7 +1742,8 @@ static void leds_update(uint32_t now)
         int8_t li = gm_pads[i].led;
         if (li < 0 || li >= (int8_t)gm_device.n_leds)
             continue;
-        uint32_t level = pad_state[i] == PAD_ON;
+        uint32_t level = pad_state[i] == PAD_ON ||
+                         (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS);
 #if GM_HOST_LEDS
         local[li] = (uint8_t)level;
         has_local[li] = 1;

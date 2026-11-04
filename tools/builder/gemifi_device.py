@@ -1677,7 +1677,8 @@ def validate_feedback(v, dev, data):
 
 def validate_din(v, dev, data, tr, plat):
     """din_midi: 5-pin DIN MIDI In / Out on a UART (core/README.md "DIN MIDI"). mode: how the jacks reach
-    USB: separate_port (a second USB-MIDI port), usb_merge (on the main port) or din_only. thru,
+    USB: usb_merge (on the main port, the default), separate_port (a second USB-MIDI port: hangs Chrome's
+    Web MIDI on Windows for now, see core/README.md) or din_only. thru,
     controller_out and usb_to_din are the start values of midi.thru, midi.din_out, midi.usb_to_din."""
     if "din_midi" not in data:
         return
@@ -1691,10 +1692,14 @@ def validate_din(v, dev, data, tr, plat):
     rx = None
     if d.get("rx_pin") is not None:
         rx = v.pin(d["rx_pin"], "din_midi.rx_pin", d.line_of("rx_pin"), "in", allow_hub=False)
-    mode = DIN_MODES.index("separate_port")
+    mode = DIN_MODES.index("usb_merge")
     if "mode" in d:
         m = enum_value(v, d, "mode", "din_midi.mode", DIN_MODES)
         mode = mode if m is None else m
+        if m == DIN_MODES.index("separate_port"):
+            v.warn("din_midi.mode", d.line_of("mode"),
+                   "separate_port: on Windows, Chrome's Web MIDI (the web updater) can hang for good when "
+                   "a device with two USB-MIDI ports leaves or comes back; usb_merge has no such problem")
     if tx is not None and (rx is not None or d.get("rx_pin") is None):
         why = plat.din_uart(tx.num, rx.num if rx is not None else None)
         if why:

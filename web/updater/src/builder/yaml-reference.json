@@ -19,13 +19,13 @@
       "title": "DIN MIDI (5-pin In / Out)",
       "summary": "The 5-pin MIDI jacks on a UART at 31250 baud (stm32f1: USART1, tx_pin PA9, rx_pin PA10). rx_pin is optional: without it there is MIDI Out only.",
       "notes": [
-        "mode: separate_port (the default) adds a second USB-MIDI port on cable 1, named port_name (default \"<friendly_name> MIDI\"); DIN In goes to it and what the computer sends to it goes to DIN Out. It can't be combined with the DAW port (mcu:).",
-        "mode: usb_merge mixes DIN In into the device's own port; with usb_to_din the computer's channel and realtime messages on that port also go to DIN Out (never its SysEx). mode: din_only keeps the jacks off USB.",
+        "mode: usb_merge (the default) mixes DIN In into the device's own port; with usb_to_din the computer's channel and realtime messages on that port also go to DIN Out (never its SysEx). mode: din_only keeps the jacks off USB.",
+        "mode: separate_port adds a second USB-MIDI port on cable 1, named port_name (default \"<friendly_name> MIDI\"); DIN In goes to it and what the computer sends to it goes to DIN Out. It can't be combined with the DAW port (mcu:). Known problem: on Windows a device with two USB-MIDI ports can hang Chrome's Web MIDI (this page) when it leaves or comes back, so the builder warns.",
         "thru, controller_out and usb_to_din are the start values of the settings midi.thru, midi.din_out and midi.usb_to_din (MIDI group, global), which the Config card changes live.",
         "dma: false (the default) moves the bytes in the USART1 interrupt. dma: true (stm32f1) needs DMA1 channels 4 and 5, which the hardware scans may already use; the builder says so."
       ],
       "params": ["midi.thru", "midi.din_out", "midi.usb_to_din"],
-      "yaml": "din_midi:\n  tx_pin: PA9\n  rx_pin: PA10                 # optional: without it, MIDI Out only\n  mode: separate_port          # separate_port | usb_merge | din_only\n  port_name: Code 61 MIDI      # separate_port only\n  thru: false                  # start value of midi.thru\n  controller_out: true         # start value of midi.din_out\n  dma: false                   # stm32f1: DMA1 channels 4 and 5\n"
+      "yaml": "din_midi:\n  tx_pin: PA9\n  rx_pin: PA10                 # optional: without it, MIDI Out only\n  mode: usb_merge              # usb_merge | separate_port | din_only\n  usb_to_din: true             # usb_merge only: start value of midi.usb_to_din\n  thru: false                  # start value of midi.thru\n  controller_out: true         # start value of midi.din_out\n  dma: false                   # stm32f1: DMA1 channels 4 and 5\n"
     },
     {
       "id": "dma",

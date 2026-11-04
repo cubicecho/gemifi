@@ -775,7 +775,18 @@ static uint64_t btn_live = ~0ull;   /* layers_update() */
 #else
 #define BTN_LIVE_ALL (~0ull)
 #endif
-static uint64_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
+/* A reading of every button, one bit each, in the narrowest type that holds
+ * GM_N_BUTTONS (64-bit shifts are library calls on a Cortex-M0). */
+#if GM_N_BUTTONS <= 8
+typedef uint8_t btn_bits_t;
+#elif GM_N_BUTTONS <= 16
+typedef uint16_t btn_bits_t;
+#elif GM_N_BUTTONS <= 32
+typedef uint32_t btn_bits_t;
+#else
+typedef uint64_t btn_bits_t;
+#endif
+static btn_bits_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
 static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
 static int16_t ramp_sent[NB];
@@ -783,12 +794,12 @@ static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
-static uint64_t read_buttons(void)
+static btn_bits_t read_buttons(void)
 {
-    uint64_t s = 0;
+    btn_bits_t s = 0;
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
         if (vpin_read(gm_device.buttons[i].pin))
-            s |= 1ull << i;
+            s |= (btn_bits_t)1 << i;
     return s;
 }
 
@@ -1211,13 +1222,14 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 static void buttons_sample(void)
 {
-    uint64_t s = read_buttons();
-    uint64_t recent = s;            /* pressed in any of the last BTN_STABLE samples */
+    btn_bits_t now = read_buttons();
+    btn_bits_t recent = now;        /* pressed in any of the last BTN_STABLE samples */
     for (uint32_t k = 0; k < BTN_STABLE - 1u; k++)
         recent |= btn_hist[k];
     for (uint32_t k = BTN_STABLE - 1u; k > 1u; k--)
         btn_hist[k - 1u] = btn_hist[k - 2u];
-    btn_hist[0] = s;
+    btn_hist[0] = now;
+    uint64_t s = now;
     uint64_t st = s | (btn_stable & recent);
     if (st != btn_stable) {
         uint64_t diff = st ^ btn_stable;

@@ -1772,6 +1772,88 @@ list:
         self.assertEqual(bd["max_slots"], 9)
 
 
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestWriteToFlash(unittest.TestCase):
+    """write_to_flash: what the device stores on its own (core/README.md); off unless given."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+    gen = TestPresets.gen
+    warns = TestPresets.warns
+    BASE = presets("slots: 3")
+    LINE = BASE.count("\n") + 1     # write_to_flash:'s line
+
+    def defines(self, text):
+        """(GM_WRITE_LAST_PRESET, GM_WRITE_DELAY_MS, GM_WRITE_IDLE_MS) as generated."""
+        _dev, h, _c = self.gen(text)
+        d = dict(re.findall(r"#define GM_WRITE_(\w+) (\d+)u? ", h))
+        return int(d["LAST_PRESET"]), int(d["DELAY_MS"]), int(d["IDLE_MS"])
+
+    def test_default_off(self):
+        self.assertEqual(self.defines(self.BASE), (0, 10000, 3000))
+        self.assertEqual(self.defines(self.BASE + "write_to_flash: false\n"), (0, 10000, 3000))
+        self.assertEqual(self.defines(self.BASE + "write_to_flash:\n"), (0, 10000, 3000))
+        self.assertEqual(self.warns(self.BASE + "write_to_flash: false\n"), [])
+        _dev, h, _c = self.gen(self.BASE)
+        self.assertIn("#define GM_WRITE_LAST_PRESET 0 /* write_to_flash.last_preset */", h)
+
+    def test_shorthand_true(self):
+        self.assertEqual(self.defines(self.BASE + "write_to_flash: true\n"), (1, 10000, 3000))
+        self.assertEqual(self.warns(self.BASE + "write_to_flash: true\n"), [])
+
+    def test_mapping(self):
+        on = "write_to_flash: { last_preset: true, delay: 30s, idle: 500ms }\n"
+        self.assertEqual(self.defines(self.BASE + on), (1, 30000, 500))
+        self.assertEqual(self.defines(self.BASE + "write_to_flash:\n  last_preset: true\n  delay: 1min\n"),
+                         (1, 60000, 3000))
+        self.assertEqual(self.defines(self.BASE + "write_to_flash: { last_preset: false }\n")[0], 0)
+        self.assertEqual(self.defines(self.BASE + "write_to_flash: {}\n")[0], 0)
+        # timings without anything to store: a warning, on their line
+        w = [d for d in self.errs(self.BASE + "write_to_flash:\n  delay: 5s\n", level="warning")]
+        self.assertEqual([(d.path, d.line) for d in w], [("write_to_flash.delay", self.LINE + 1)],
+                         [str(d) for d in w])
+        self.assertIn("last_preset: true", w[0].msg)
+
+    def test_bad_values(self):
+        b = self.BASE
+        self.assertError(b + "write_to_flash: yes please\n", r"must be true, false or a mapping", line=self.LINE,
+                         path="write_to_flash")
+        self.assertError(b + "write_to_flash: [last_preset]\n",
+                         r"must be true, false or a mapping like `\{ last_preset: true \}` \(got list\)")
+        self.assertError(b + "write_to_flash: { last_preset: 1 }\n", r"must be true or false",
+                         path="write_to_flash.last_preset")
+        self.assertError(b + "write_to_flash:\n  last_preset: true\n  delay: 10\n", r"needs a unit", line=self.LINE + 2,
+                         path="write_to_flash.delay")
+        self.assertError(b + "write_to_flash: { last_preset: true, delay: 500ms }\n", r"500ms is out of range \(1s..1h\)")
+        self.assertError(b + "write_to_flash: { last_preset: true, delay: 2h }\n", r"must be a time period")
+        self.assertError(b + "write_to_flash: { last_preset: true, delay: 61min }\n", r"out of range \(1s..1h\)")
+        self.assertError(b + "write_to_flash: { last_preset: true, idle: 50ms }\n",
+                         r"50ms is out of range \(100ms..10min\)", path="write_to_flash.idle")
+        self.assertError(b + "write_to_flash: { last_preset: true, idle: soon }\n", r"must be a time period like 10s")
+
+    def test_unknown_keys(self):
+        e = self.assertError(self.BASE + "write_to_flash:\n  last_presets: true\n", r"unknown key",
+                             line=self.LINE + 1, path="write_to_flash.last_presets")
+        self.assertIn("did you mean 'last_preset'", e.msg)
+        self.assertError(self.BASE + "write_to_flash: { settings: true }\n", r"unknown key \(known: last_preset, "
+                                                                              r"delay, idle\)")
+        self.assertError(self.BASE + "write_to_flas: true\n", r"did you mean 'write_to_flash'")
+
+    def test_one_preset(self):
+        """Nothing to remember: a warning, and the code is left out."""
+        text = MINIMAL_NUC + "write_to_flash: true\n"
+        self.assertTrue(any("one preset" in w for w in self.warns(text)))
+        self.assertEqual(self.defines(text)[0], 0)
+
+    def test_devices_leave_it_off(self):
+        for name in sorted(os.listdir(os.path.join(REPO, "devices"))):
+            if name.endswith(".yaml"):
+                with self.subTest(name):
+                    dev, diags = gd.load_device(os.path.join(REPO, "devices", name))
+                    self.assertIsNotNone(dev, [str(d) for d in diags])
+                    self.assertFalse(dev.write_to_flash["last_preset"])
+
+
 @unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
 class TestPresetsCompile(unittest.TestCase):
     setUp = TestGenerateCompiles.setUp

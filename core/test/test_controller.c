@@ -356,6 +356,68 @@ static int has_bytes(const uint8_t *b, int n)
     return 0;
 }
 
+#if GM_WRITE_LAST_PRESET
+/* write_to_flash.last_preset: the write waits for the delay and for the
+ * controller to be idle (nothing held, nothing played for idle). Starts and
+ * ends on slot 3, stored. */
+static void test_write_idle(void)
+{
+    int32_t v;
+    int w = fake_cs_writes;
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    press_key(5, 500);              /* held through the delay */
+    run_ms(12000);
+    CHECK(fake_cs_writes == w, "key held: not written");
+    release_key(5);
+    run_ms(2000);
+    CHECK(fake_cs_writes == w, "2 s after the release: not yet");
+    run_ms(1100);
+    CHECK(fake_cs_writes == w + 1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 2,
+          "idle 3 s: preset.active 2 stored");
+
+    set_param(P_PRESET_ACTIVE, 0, 1);
+    button(2, 1);                   /* oct -: held */
+    run_ms(12000);
+    CHECK(fake_cs_writes == w + 1, "button held: not written");
+    button(2, 0);
+    run_ms(2900);
+    CHECK(fake_cs_writes == w + 1, "under 3 s after the release: not yet");
+    run_ms(200);
+    CHECK(fake_cs_writes == w + 2 && !fake_cs_get(0, P_PRESET_ACTIVE, 0, 0),
+          "then stored (preset.active 1 is the default: left out)");
+
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    for (int i = 0; i < 24; i++) {  /* the volume knob turned for 12 s */
+        adc[0] = (i & 1) ? 3000 : 1000;
+        run_ms(500);
+    }
+    CHECK(fake_cs_writes == w + 2, "knob moving: not written");
+    run_ms(2000);
+    CHECK(fake_cs_writes == w + 2, "2 s after it stopped: not yet");
+    out_n = 0;
+    adc[0] -= 3;                    /* noise: too small to send */
+    run_ms(1100);
+    CHECK(count_msgs(0xB0) == 0 && fake_cs_writes == w + 3 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 3,
+          "idle 3 s (noise doesn't count): stored");
+
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    run_ms(1000);
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    run_ms(9500);
+    CHECK(fake_cs_writes == w + 3, "the delay counts from the last switch");
+    run_ms(600);
+    CHECK(fake_cs_writes == w + 3, "back on the stored slot: nothing to write");
+
+    set_param(P_PRESET_ACTIVE, 0, 1);
+    CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK && fake_cs_writes == w + 4, "COMMIT stores it");
+    run_ms(15000);
+    CHECK(fake_cs_writes == w + 4, "and nothing is left pending");
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    run_ms(13100);
+    CHECK(fake_cs_writes == w + 5 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 3, "slot 3 again");
+}
+#endif
+
 static void test_presets(void)
 {
     int d1, d2, slot, dirty;
@@ -457,9 +519,17 @@ static void test_presets(void)
           fake_cs_get(2, P_PRESET_PROGRAM, 0, &v) && v == 5 && !fake_cs_get(2, P_CHANNEL, 0, 0),
           "slot 2 record: button.number[0], preset.program (got %d)", fake_cs_count(2));
 
-    /* boot: globals, then defaults -> YAML -> stored for the active slot */
+    /* boot: globals, then defaults -> YAML -> stored for the active slot:
+     * the stored preset.active with write_to_flash.last_preset, else slot 1 */
     gm_cfg.vel_fast = 99;
     boot();
+#if !GM_WRITE_LAST_PRESET
+    CHECK(fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 2 && gm_cfg.preset_active == 1 &&
+          gm_cfg.vel_fast == 30 && gm_cfg.channel == 3 && gm_cfg.btn_number[6] == 21,
+          "last_preset off: boot ignores the stored preset.active 2 (slot 1 + stored, globals)");
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    out_n = 0;
+#endif
     CHECK(gm_cfg.preset_active == 2 && gm_cfg.vel_fast == 30 && gm_cfg.channel == 10 &&
           gm_cfg.vel_curve == CURVE_HARD && gm_cfg.btn_number[0] == 40 && gm_cfg.btn_number[6] == 38 && gm_cfg.preset_program == 5 && gm_cfg.preset_dirty == 0,
           "boot loads slot 2: YAML + stored, globals");
@@ -490,6 +560,8 @@ static void test_presets(void)
     out_n = 0;
     button(6, 0);
     CHECK(count_msgs(0xB0) == 0, "held preset button's release: no CC 82");
+#if GM_WRITE_LAST_PRESET
+    CHECK(GM_WRITE_DELAY_MS == 10000u && GM_WRITE_IDLE_MS == 3000u, "write_to_flash delay 10 s, idle 3 s");
     run_ms(5000);
     CHECK(fake_cs_writes == w0, "preset.active not written yet");
     run_ms(5100);
@@ -497,6 +569,15 @@ static void test_presets(void)
           fake_cs_get(0, P_VEL_FAST, 0, &v) && v == 30, "preset.active stored after 10 s (globals kept)");
     run_ms(11000);
     CHECK(fake_cs_writes == w0 + 1, "written once");
+    test_write_idle();
+#else
+    run_ms(25000);
+    CHECK(fake_cs_writes == w0 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 2,
+          "last_preset off: a switch on the device never writes");
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    run_ms(25000);
+    CHECK(fake_cs_writes == w0, "nor one from the host");
+#endif
     set_param(P_BTN_ACTION, 2, ACT_PRESET_PREV);
     set_param(P_BTN_ACTION, 3, ACT_PRESET_SELECT);
     set_param(P_BTN_NUMBER, 3, 1);

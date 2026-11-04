@@ -19,7 +19,14 @@
 #include "app_proto.h"
 #include "gsx.h"
 
-#define ACTIVE_STABLE_MS 10000u
+/* write_to_flash.last_preset (gm_device_config.h; 0 in a config generated
+ * before it): store preset.active on its own, GM_WRITE_DELAY_MS after a
+ * switch and once the controller has been idle for GM_WRITE_IDLE_MS (a page
+ * erase stalls the scan for 20-40 ms). Off: a switch never writes, and a
+ * boot starts on preset 1. */
+#ifndef GM_WRITE_LAST_PRESET
+#define GM_WRITE_LAST_PRESET 0
+#endif
 
 /* Upper bound on the values one record can hold: every param value. The
  * per-component arrays (the layer twins' layer.* included), plus 16 for the
@@ -34,7 +41,9 @@
 static uint8_t cur;                  /* active slot, 1..GM_N_PRESETS */
 static uint8_t no_store;             /* safe mode: loads ignore the store */
 static uint8_t active_pending;       /* preset.active not written yet */
-static uint32_t active_t;
+#if GM_WRITE_LAST_PRESET
+static uint32_t active_t;            /* ms of the switch */
+#endif
 
 static void preset_changed(void);
 
@@ -187,8 +196,8 @@ void presets_boot(int safe)
                 break;
             }
     uint32_t slot = (uint32_t)gm_cfg.preset_active;
-    if (slot < 1u || slot > used())
-        slot = 1;
+    if (!GM_WRITE_LAST_PRESET || slot < 1u || slot > used())
+        slot = 1;                           /* off: a stored preset.active is ignored */
     load_slot(slot);
     active_pending = 0;
 }
@@ -217,8 +226,10 @@ static void do_select(uint32_t slot, int from_host)
     if (presets_info(slot, &info) == GSX_OK)
         gm_display_message(info.name);          /* over the Program Change, if any */
     preset_changed();
+#if GM_WRITE_LAST_PRESET
     active_pending = 1;
     active_t = hal_millis();
+#endif
 }
 
 static int select_from(uint32_t slot, int from_host)
@@ -415,14 +426,22 @@ static int write_state(void)
 
 void presets_poll(uint32_t now)
 {
-    if (active_pending && now - active_t >= ACTIVE_STABLE_MS)
+#if GM_WRITE_LAST_PRESET
+    /* signed: a switch made later in this gm_poll pass than `now` */
+    if (active_pending && (int32_t)(now - active_t) >= (int32_t)GM_WRITE_DELAY_MS &&
+        gm_idle_ms() >= GM_WRITE_IDLE_MS)
         (void)write_state();
+#else
+    (void)now;
+#endif
 }
 
 void presets_flush(void)
 {
+#if GM_WRITE_LAST_PRESET
     if (active_pending)
         (void)write_state();
+#endif
 }
 
 int presets_save(uint32_t slot)

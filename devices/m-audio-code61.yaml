@@ -42,6 +42,15 @@ board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
+# write_to_flash: (core/README.md "Writes the device makes on its own"): what
+# the device stores without a host asking. Left out = off: a preset picked on
+# the device isn't remembered, and power-up is preset 1. A flash page erase
+# stalls the scan for 20-40 ms, so the write waits until nothing is played.
+# Saves from the web page or gemifi.py always work.
+# write_to_flash:
+#   last_preset: true   # power up on the preset used last
+#   delay: 10s          # after the last switch (default)
+#   idle: 3s            # and once nothing has been played for this long (default)
 # Scan time on hardware (fw 0.2.6): ~170 us on average for the 16 key rows,
 # the panel/encoder rows (every other tick) and the encoders. 400 us leaves the
 # main loop (USB, pads, faders) more than half the CPU, and matches the stock

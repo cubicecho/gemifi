@@ -42,7 +42,7 @@ Velocity today: contact time → (calibration: fast/slow → 1..127) → (curve)
 | `adc_min`/`adc_max`, `steps_per_detent` (YAML-only today) | global | hardware calibration; if they ever become params, they stay global |
 | `bend.glide`, `ramp.time` | preset | |
 | `debug.*` | global | |
-| new: `preset.active` | global | the preset to load at power-up (the last one used) |
+| new: `preset.active` | global | the active preset; loaded at power-up only with `write_to_flash: { last_preset: true }` (§4), else power-up is preset 1 |
 
 The pins, the hubs, the matrix shape, the LED wiring and the USB IDs never go in a preset: they stay in the device YAML, as now.
 
@@ -80,7 +80,7 @@ presets:
   2. Load preset n, then reset the toggles and the pick-up state.
   3. Update the LEDs and send PRESET_CHANGED to the host (§5).
   4. Send the preset's Program Change, if it has one (`program:` in the YAML, param `preset.program`, 0 = none).
-  5. Store `preset.active`, but not on every switch (§4, wear).
+  5. With `write_to_flash: { last_preset: true }`: store `preset.active`, but not on every switch, and not while the controller is played (§4: wear, and the page erase stalls the scan). Without it (the default), a switch stores nothing.
 - **Unsaved edits.** A host SET_PARAM changes the live values only. Switching preset without COMMIT discards those edits, like a hardware synth, and the editor gets a `dirty` flag so it can warn first. **Decided 2026-11-02.**
 
 ## 4. Storage
@@ -92,7 +92,7 @@ Proposal:
 - **Record format v2.** Every record carries a `slot` (0xFF = globals, 1..N = preset). A preset record holds only the values that differ from that preset's YAML values, so an untouched preset costs nothing and a typical edit costs a few words.
 - **Loading.** The newest valid record per slot wins.
 - **Compaction.** Before the journal erases a page that holds the newest record of some slot, it copies that record forward. This keeps today's guarantee: the newest copy is never erased before a newer one exists. It needs one spare page, as now.
-- **`preset.active`** is written only when it has been stable for about 10 s, or at COMMIT, so flipping through presets doesn't wear the flash.
+- **`preset.active`** is written by COMMIT (and the other host commands). After a switch on the device it is written only with the device YAML's `write_to_flash: { last_preset: true }`, and then only once it has been stable for `delay` (10 s by default), so flipping through presets doesn't wear the flash, and the controller has been idle for `idle` (3 s: no key or button held, nothing played), since a page erase stalls the CPU and the key scan for 20-40 ms. **Changed 2026-11-04:** off by default; it used to be written 10 s after every switch, even mid-performance. With it off the device powers up on preset 1 (core/README.md "Writes the device makes on its own").
 - **Migration.** An old record (magic `GCFG`, no slot) is read as "globals + preset 1", and the next COMMIT writes v2. FACTORY_RESET erases everything, so the YAML presets return.
 - **Budget.**
   - Keystation: 3.5 KB journal; 8 presets with typical edits plus globals is well under one page each.
@@ -291,13 +291,13 @@ The first list entry is slot 1. Its only allowed keys are `name` and `program`, 
   They go in a new "Presets" group, only when GM_N_PRESETS > 1, except `preset.active`, which is always present.
 - **New button actions:** 13 `preset_next`, 14 `preset_prev`, 15 `preset_select` (`button.number` = slot). Mackie Control moves from 13 to **16**: its value changes, so a stored MCU profile from before needs re-setting. That's acceptable because MCU hasn't been tested on hardware yet.
 - **New `core/src/presets.c` (+ `gm_presets.h`).** At boot:
-  1. load slot 0, then `preset.active`;
+  1. load slot 0, then (with `write_to_flash.last_preset`) `preset.active`, else slot 1;
   2. load the active slot: defaults → YAML overrides → stored record entries;
   3. select = release held notes and buttons, load, reset octave/transpose to the preset's values, send the Program Change, then PARAM_CHANGED and PRESET_CHANGED;
   4. a host SET_PARAM on a PF_PRESET param sets `dirty`.
 - **COMMIT** writes slot 0 (the globals, including `preset.active`) and the active slot's diff (the values that differ from its YAML values).
 - **FACTORY_RESET** = `config_store_erase()`, then reload slot 1.
-- **`preset.active` wear.** A switch writes it only after it has been stable for 10 s (`gm_poll`), or at COMMIT.
+- **`preset.active` wear.** A switch writes it only with `write_to_flash.last_preset` (`GM_WRITE_LAST_PRESET`), once it is `GM_WRITE_DELAY_MS` old and `gm_idle_ms()` ≥ `GM_WRITE_IDLE_MS` (`presets_poll` from `gm_poll`), or at COMMIT. `presets_flush()` writes a pending one at once (the STM32F1 soft power-off).
 
 ### 10.4 Protocol (sysex.md)
 

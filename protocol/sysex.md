@@ -254,7 +254,7 @@ Rules:
 **Storing.**
 - **COMMIT** stores the globals (with `preset.active`) and the active preset. A preset is stored as the values that differ from its YAML values, so an untouched preset costs nothing; the globals as the values that differ from their defaults. A record that is already stored as it is isn't written again (flash wear).
 - **PRESET_SAVE** `slot` does the same into `slot` ("save as"), then makes `slot` active. The live values stay as they are: they are now that slot's values. Dirty is cleared. The slot keeps its name. `slot` = the active one is the same as COMMIT.
-- **`preset.active`** is stored by COMMIT and PRESET_SAVE. After a switch, the device also stores it once it has been stable for about 10 s, so flipping through presets doesn't wear the flash. Power-up loads the stored active preset.
+- **`preset.active`** is stored by COMMIT and PRESET_SAVE. A switch made on the device (or by SET) stores nothing, unless the device YAML has `write_to_flash: { last_preset: true }` (core/README.md "Writes the device makes on its own"): then the device stores it once it has been stable for `delay` (10 s by default) and nothing has been played for `idle` (3 s), so flipping through presets doesn't wear the flash and the write doesn't stall the scan mid-performance. Power-up loads the stored active preset with `last_preset`, else preset 1.
 
 **Reset.** PRESET_RESET `slot` drops the slot's stored edits and its stored name, so it is the firmware's preset again. `slot` 0 = every slot. Globals are not touched. If the active preset is among them, it is reloaded, and its unsaved edits go too.
 

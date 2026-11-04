@@ -327,7 +327,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
-            "displays", "din_midi"]
+            "displays", "din_midi", "write_to_flash"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -1487,6 +1487,7 @@ def validate(data, file=None):
 
     validate_modes(v, dev, data)
     validate_presets(v, dev, data)
+    validate_write_to_flash(v, dev, data)
     check_budget(v, dev, data)
 
     if len(dev.buttons) > 64:
@@ -3086,6 +3087,62 @@ def preset_values(v, dev, d, p):
     return out
 
 
+# ---------------------------------------------------------------------------------------------
+# write_to_flash: what the device stores on its own (core/README.md "Writes the device makes on its own")
+
+# item -> its default (all off). A new item goes here, in WTF_KEYS, and in write_to_flash_defines.
+WTF_ITEMS = {"last_preset": False}
+WTF_KEYS = [*WTF_ITEMS, "delay", "idle"]
+WTF_DELAY = (10_000, 1_000, 3_600_000, "1s..1h")    # ms: default, min, max, range text
+WTF_IDLE = (3_000, 100, 600_000, "100ms..10min")
+
+
+def validate_write_to_flash(v, dev, data):
+    """write_to_flash: true | false | { last_preset, delay, idle } -> dev.write_to_flash (item -> on,
+    plus delay_ms, idle_ms). Only the writes the device makes on its own: host saves always work."""
+    w = dict(WTF_ITEMS, delay_ms=WTF_DELAY[0], idle_ms=WTF_IDLE[0])
+    dev.write_to_flash = w
+    x = data.get("write_to_flash")
+    line = data.line_of("write_to_flash")
+    if x is None:
+        return
+    if isinstance(x, bool):
+        w.update({k: x for k in WTF_ITEMS})
+    else:
+        if not isinstance(x, dict):
+            got = type_name(x) + ("" if isinstance(x, list) else f" {data.raw_of('write_to_flash')!r}")
+            v.err("write_to_flash", line, f"must be true, false or a mapping like `{{ last_preset: true }}` "
+                                          f"(got {got})")
+            return
+        if v.mapping(x, "write_to_flash", line, WTF_KEYS) is None:
+            return
+        for k, dflt in WTF_ITEMS.items():
+            w[k] = v.boolean(x, k, "write_to_flash", default=dflt)
+        for key, (dflt, lo, hi, rng) in (("delay", WTF_DELAY), ("idle", WTF_IDLE)):
+            ms = v.period(x, key, "write_to_flash", 0, 0xFFFFFFFF * 1000, step_us=1000, example="10s")
+            if ms is not None and not lo <= ms <= hi:
+                v.err(f"write_to_flash.{key}", x.line_of(key), f"{x.raw_of(key)} is out of range ({rng})")
+                ms = None
+            w[f"{key}_ms"] = dflt if ms is None else ms
+        if not any(w[k] for k in WTF_ITEMS):
+            for key in ("delay", "idle"):
+                if key in x:
+                    v.warn(f"write_to_flash.{key}", x.line_of(key),
+                           "only used when the device stores something on its own (e.g. last_preset: true)")
+    if w["last_preset"] and dev.n_presets < 2:
+        v.warn("write_to_flash.last_preset", line, "the device has one preset: nothing to remember (ignored)")
+        w["last_preset"] = False
+
+
+def write_to_flash_defines(dev):
+    """GM_WRITE_*: what the device stores on its own (0: nothing; the core leaves that code out)."""
+    w = getattr(dev, "write_to_flash", None) or dict(WTF_ITEMS, delay_ms=WTF_DELAY[0], idle_ms=WTF_IDLE[0])
+    return ["", "/* write_to_flash: writes the device makes on its own (host saves always work) */",
+            f"#define GM_WRITE_LAST_PRESET {int(w['last_preset'])} /* write_to_flash.last_preset */",
+            f"#define GM_WRITE_DELAY_MS {w['delay_ms']}u /* write_to_flash.delay: after the last change */",
+            f"#define GM_WRITE_IDLE_MS {w['idle_ms']}u /* write_to_flash.idle: and nothing played for this long */"]
+
+
 def enum_value(v, d, key, path, options):
     x = d[key]
     if x in options:
@@ -4008,6 +4065,7 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
+    h += write_to_flash_defines(dev)
     enc_twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) + enc_twins
     if twins:

@@ -76,6 +76,21 @@ static uint8_t has_rgb_hubs;        /* RGB_SERIAL: polled on every pass */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
+/* write_to_flash.last_preset: when the last local input was, and the keys
+ * held (gm_idle_ms). One store per message or EVENT; nothing without it. */
+#if GM_WRITE_LAST_PRESET
+static uint32_t in_t;
+#define INPUT_NOW() (in_t = hal_millis())
+#else
+#define INPUT_NOW() ((void)0)
+#endif
+#if GM_WRITE_LAST_PRESET && GM_HAS_MATRIX
+static uint8_t keys_down;
+#define KEY_HELD(on) (keys_down = (uint8_t)((on) ? keys_down + 1u : keys_down ? keys_down - 1u : 0u))
+#else
+#define KEY_HELD(on) ((void)0)
+#endif
+
 static uint8_t chan(void)
 {
     return (uint8_t)((gm_cfg.channel - 1) & 0x0F);
@@ -84,6 +99,7 @@ static uint8_t chan(void)
 static void midi3(uint8_t status, uint32_t a, uint32_t b)
 {
     uint8_t m[3] = { status, (uint8_t)(a & 0x7F), (uint8_t)(b & 0x7F) };
+    INPUT_NOW();
     hal_midi_send(m, 3);
     gm_din_local(m, 3);
     gm_display_midi(m[0], m[1], m[2]);
@@ -106,6 +122,7 @@ static void cc(uint32_t num, uint32_t value)
 
 static void event(uint8_t type, uint32_t index, uint32_t value)
 {
+    INPUT_NOW();
     if (gm_cfg.events)
         app_event(type, index, value);
 }
@@ -680,6 +697,7 @@ static void keys_poll(void)
     while (kq_tail != kq_head) {
         kev_t e = kq[kq_tail];
         kq_tail = (uint8_t)((kq_tail + 1u) & (KQ - 1u));
+        KEY_HELD(e.on);
         if (e.on) {
 #if GM_N_MODES > 0
             uint32_t mi = keys_mode();
@@ -2272,6 +2290,21 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
         if ((uint32_t)gm_cfg.enc_cc[i] == num && gm_cfg.enc_mode[i] == ENC_ABSOLUTE)
             enc_value[i] = (int16_t)v;      /* absolute: carry on from the host's value */
 #endif
+}
+#endif
+
+#if GM_WRITE_LAST_PRESET
+uint32_t gm_idle_ms(void)
+{
+#if GM_HAS_MATRIX
+    if (keys_down)
+        return 0;
+#endif
+#if GM_N_BUTTONS > 0
+    if (btn_stable)
+        return 0;
+#endif
+    return hal_millis() - in_t;
 }
 #endif
 

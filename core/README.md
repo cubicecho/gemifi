@@ -155,7 +155,7 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 | LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `idle:` / `active:` ("LED looks" below), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
 | analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below), optional `takeover:`, `touch:` ("DAW scripts"), `mcu:` | `analog.cc`, `analog.mode` |
 | pad (velocity pad: pressure / FSR) | `id`/`name`, `pin` (ADC pin or mux channel; `inverted: true` if pressure lowers the reading), default `note`, optional `led` (lit while the pad is held); what all pads share goes in the top-level `pad_settings:` ("Pads" below) | `pad.note`, and once per device `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.threshold`, `pad.release`, `pad.full`, `pad.window`, `pad.retrigger` |
-| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:` | `encoder.cc`, `encoder.mode` |
+| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:`, `acceleration:` (the default in the top-level `encoder_settings:`; "Encoder acceleration" below) | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
 
 Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`. The list with ids is in `src/settings.c`; ids never change meaning.
@@ -165,6 +165,34 @@ Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`,
 **Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with 2 or more preset slots (see "Presets") 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
 
 **Encoder modes** (`encoder.mode`): 0 absolute (0..127, sends the value), 1 relative two's complement (1 = +1, 127 = −1), 2 relative offset (65 = +1, 63 = −1).
+
+### Encoder acceleration
+
+Off by default: one step per detent, however fast the knob turns. With `acceleration:`, a quick turn moves more than one step per detent, so a flick sweeps the range and a slow turn stays exact.
+
+```yaml
+encoder_settings: { acceleration: medium }   # every encoder that doesn't set its own (default: off)
+encoders:
+  - { id: encoder_1, pin_a: PB6, pin_b: PB7, cc: 20 }                        # medium, from encoder_settings
+  - { id: encoder_2, pin_a: PB8, pin_b: PB9, cc: 21, acceleration: off }     # always 1 per detent
+  - { id: encoder_3, pin_a: PB10, pin_b: PB11, cc: 22,
+      acceleration: { slow: 100ms, fast: 8ms, max: 16, curve: quadratic } }
+```
+
+- **The curve.** The main loop times each turn: the time per detent since the encoder last moved, smoothed (each turn moves the average half way to the new time). From `slow` (or slower) down to `fast` (or faster), x goes from 0 to 1, and each detent moves 1 + (max − 1) · x steps (`linear`), x² (`quadratic`) or x³ (`cubic`). Steps are counted in 1/16 and the fraction is carried to the next detent, so a speed between gives e.g. 2, 3, 2, 3 for ×2.5.
+- **Precise where it matters.** A detent `slow` or more after the last one moves 1 step and starts the average again from slow, so slow turns are exactly 1 per detent. Turning back does the same and drops the carried fraction: the first detent back is 1 step. A detent never moves less than 1 step.
+- **What it applies to:** the CC in every mode (absolute values clamped to 0..127, relative values to −64..63 per message, as before), the Mackie Control V-Pot (at most 15 per message) and the EVENT a DAW script reads (type 4): all get the same accelerated steps. Twins (layers, cycle steps) share their physical encoder's acceleration and speed; a mode switch in mid-turn carries on at speed. Shift + a cycle's button still moves one step per press: buttons aren't accelerated.
+- **Presets** (`off`, `low`, `medium`, `high`) and what they do on a 24-detent encoder (detents → steps):
+
+| | slow | fast | max | curve | a quick full turn (24 detents, 8 ms apart) | half a turn quickly (12, 8 ms) | a brisk turn (24, 20 ms) | a steady turn (24, 40 ms) |
+|---|---|---|---|---|---|---|---|---|
+| `low` | 60ms | 15ms | 4 | linear | 91 | 43 | 81 | 52 |
+| `medium` | 80ms | 10ms | 8 | quadratic | 174 | 78 | 132 | 71 |
+| `high` | 100ms | 8ms | 16 | quadratic | 343 | 151 | 263 | 157 |
+
+  (absolute values stop at 127). A mapping takes `slow` (2ms..1000ms), `fast` (1ms, shorter than slow), `max` (1..32; 1 is the same as off) and `curve` (`linear`, `quadratic`, `cubic`); keys left out come from `encoder_settings:`'s acceleration, else from `medium`. Bare `off` works with or without quotes.
+- **Build time only, for now:** the settings are in the device tables (flash), not params, so a preset or the web app can't change them yet; a preset's `acceleration:` and a twin's are refused with where to set it.
+- **Generated:** `GM_ENC_ACCEL` in `gm_device_config.h`; with 1, `gm_enc_accel[]` (`gm_enc_accel_t`: slow ms, fast ms, max, curve) has one entry per scanned encoder (off: `{ 0, 0, 1, GM_ACCEL_LINEAR }`). With every encoder off it is 0 and the code compiles to nothing (the same image as before acceleration). RAM with it: 8 bytes per scanned encoder; the divides run only when an encoder moves.
 
 ### LED looks (idle and active)
 
@@ -436,6 +464,8 @@ encoders:
     pin_b: { number: GPIO21, mode: INPUT_PULLUP }
     cc: 30
     steps_per_detent: 4
+    acceleration: medium       # off (default) | low | medium | high | { slow, fast, max, curve }
+encoder_settings: { acceleration: off }   # the default for encoders without their own
 
 key_matrix:
   type: velocity
@@ -826,6 +856,7 @@ encoders:
 #define GM_MCU 0                          /* 1: mcu: (then also GM_MCU_CABLE, GM_MCU_ID) */
 #define GM_USB_DAW_PORT 0                 /* 1: second USB-MIDI cable (then also GM_DAW_PORT_NAME) */
 /* write_to_flash ("Writes the device makes on its own") */
+#define GM_ENC_ACCEL 0                    /* 1: gm_enc_accel[] (encoder acceleration:) */
 #define GM_WRITE_LAST_PRESET 0            /* 1: store preset.active on its own once quiet */
 #define GM_WRITE_DELAY_MS 10000u          /* write_to_flash.delay */
 #define GM_WRITE_IDLE_MS 3000u            /* write_to_flash.idle */
@@ -835,4 +866,4 @@ encoders:
 #define GM_I2C_SCL 9                      /* otherwise the board's default Wire pins */
 ```
 Optional build flags on ESP: `GM_MIDI_BAUD` (serial transport, default 115200), `GM_FW_VERSION` (`major << 24 | minor << 16 | patch`; normally set by the YAML `project: { version }`).
-`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Only when the YAML uses them: `gm_led_fb[]` (`GM_LED_FB`), `gm_analog_pickup[]` (`GM_ANALOG_PICKUP`), `gm_analog_mcu[]`, `gm_encoder_mcu[]`, `gm_encoder_ring[]` (`GM_MCU`). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.
+`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Only when the YAML uses them: `gm_led_fb[]` (`GM_LED_FB`), `gm_analog_pickup[]` (`GM_ANALOG_PICKUP`), `gm_analog_mcu[]`, `gm_encoder_mcu[]`, `gm_encoder_ring[]` (`GM_MCU`), `gm_enc_accel[]` (`GM_ENC_ACCEL`, "Encoder acceleration"). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.

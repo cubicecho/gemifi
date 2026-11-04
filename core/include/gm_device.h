@@ -162,6 +162,18 @@ typedef struct {
     uint8_t base;
 } gm_encoder_t;
 
+/* Encoder acceleration (YAML acceleration:, core/README.md "Encoder
+ * acceleration"), one per scanned encoder (its twins share it), only with
+ * GM_ENC_ACCEL. Detents at least slow_ms apart move 1 step each; at most
+ * fast_ms apart, max steps; in between along the curve. max 1 = off. */
+enum { GM_ACCEL_LINEAR = 0, GM_ACCEL_QUADRATIC = 1, GM_ACCEL_CUBIC = 2 };
+typedef struct {
+    uint16_t slow_ms;
+    uint16_t fast_ms;     /* < slow_ms */
+    uint8_t max;          /* 1..32 */
+    uint8_t curve;        /* GM_ACCEL_* */
+} gm_enc_accel_t;
+
 enum {
     GM_MATRIX_KIND_SWITCH = 0,  /* one contact per key: key = row + rows * col  */
     GM_MATRIX_KIND_VELOCITY = 1 /* two contacts per key (velocity): key k on row
@@ -282,6 +294,7 @@ extern const uint8_t gm_analog_touch[];      /* GM_ANALOG_TOUCH: GM_TOUCH_* per 
 extern const uint8_t gm_analog_mcu[];        /* GM_MCU: fader 0..7, master 8, or GM_MCU_NONE */
 extern const uint8_t gm_encoder_mcu[];       /* GM_MCU: V-Pot 0..7, or GM_MCU_NONE */
 extern const gm_ring_t gm_encoder_ring[];    /* GM_RINGS: ring LEDs per encoder */
+extern const gm_enc_accel_t gm_enc_accel[];  /* GM_ENC_ACCEL: per scanned encoder */
 
 /* GET_COMPONENT descriptions (GM_HOST_FB, sysex.md 4.6.1): the YAML id, the
  * display name and the DAW role (daw:, else the mcu: name, else ""). */

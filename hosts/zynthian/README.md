@@ -124,7 +124,7 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 | `meter_N`, `master_meter`, `scene_N`, `knob_N`, `assign_*`, `view_*`, `flip`, `option` / `control` / `alt`, `send_a_N` / `send_b_N`, `master_solo`, `master_select`, markers, zoom, automation, `save`, `time_format` | | not yet: ignored (logged once) | n/a |
 | keys | | not mapped: the keys play the synths as normal MIDI | n/a |
 
-**EVENT handling:** a button role acts on **press** (`value` 1) unless it's momentary by nature (e.g. `rewind` held). An analog EVENT carries 0..16383 (use the top bits as needed); an encoder EVENT carries a signed detent delta. A pad EVENT (type 7, from pad twins only) is a press when `value` > 0 and the release at 0; a pad with a button role behaves as that button. Touch EVENTs (type 5) are read and ignored for now.
+**EVENT handling:** a button role acts on **press** (`value` 1) unless it's momentary by nature (e.g. `rewind` held). An analog EVENT carries 0..16383 (use the top bits as needed); an encoder EVENT carries a signed delta in steps (one per detent, more on a quick turn with the device's encoder acceleration, already scaled). A pad EVENT (type 7, from pad twins only) is a press when `value` > 0 and the release at 0; a pad with a button role behaves as that button. Touch EVENTs (type 5) are read and ignored for now.
 
 ### 5.1 Clip grid
 

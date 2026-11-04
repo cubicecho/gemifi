@@ -37,7 +37,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.83
+  version: 0.2.84
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -409,6 +409,14 @@ encoders:
   - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75 }
   - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76 }
   - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77 }
+
+# Encoder acceleration (core/README.md "Encoder acceleration"), on all eight
+# and their twins: detents at least 80 ms apart move 1 step each, quicker
+# turns up to 8 steps per detent (medium: slow 80ms, fast 10ms, max 8,
+# quadratic): 24 detents in half a second sweep 0..127. [guess] untried on
+# the hardware: try low / high, or `acceleration: off` on one encoder.
+encoder_settings:
+  acceleration: medium
 
 # Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
 # right. Pad k is pad_k. Mapped on hardware (2026-11-03): the mux slots count

@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.27.0](https://github.com/cubicecho/gemifi/compare/v0.26.0...v0.27.0) (2026-11-04)
+
+
+### Features
+
+* **presets:** delete presets; the later ones move up ([0f0241f](https://github.com/cubicecho/gemifi/commit/0f0241fcdd1c0889b6797133a14a410799f9294d))
+* **presets:** move presets up and down ([fc4c93a](https://github.com/cubicecho/gemifi/commit/fc4c93af4f726d2846e42fd68048d55eb0022365))
+
 # [0.26.0](https://github.com/cubicecho/gemifi/compare/v0.25.0...v0.26.0) (2026-11-04)
 
 

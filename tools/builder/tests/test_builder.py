@@ -2002,7 +2002,7 @@ class TestModes(unittest.TestCase):
         self.assertEqual((m.id, m.hold, dev.buttons[m.toggle].id), ("channel", True, "channel"))
         self.assertEqual([(dev.buttons[b[0]].id, b[3]) for b in m.buttons],
                          [("up", "up: channel_up"), ("down", "down: channel_down")])
-        self.assertEqual(dev.n_presets, 3)
+        self.assertEqual(dev.n_presets, 4)
 
     def test_led_errors(self):
         base = ROOT + "    C3: octave_reset\n"

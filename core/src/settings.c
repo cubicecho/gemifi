@@ -121,6 +121,19 @@ static const param_def_t params[] = {
     { .id = P_OCTAVE, .flags = PF_PRESET, .type = PT_INT, .group = G_MIDI, .count = 1,
       .min = -4, .max = 4, .def = 0,
       .name = "midi.octave", .label = "Octave", .values = &gm_cfg.octave },
+#if GM_DIN
+    { .id = P_DIN_THRU, .type = PT_BOOL, .group = G_MIDI, .count = 1,
+      .min = 0, .max = 1, .def = GM_DIN_THRU_DEFAULT,
+      .name = "midi.thru", .label = "DIN In to DIN Out (thru)", .values = &gm_cfg.din_thru },
+    { .id = P_DIN_OUT, .type = PT_BOOL, .group = G_MIDI, .count = 1,
+      .min = 0, .max = 1, .def = GM_DIN_OUT_DEFAULT,
+      .name = "midi.din_out", .label = "Controller to DIN Out", .values = &gm_cfg.din_out },
+#if GM_DIN_MODE == 2                 /* usb_merge */
+    { .id = P_DIN_USB, .type = PT_BOOL, .group = G_MIDI, .count = 1,
+      .min = 0, .max = 1, .def = GM_DIN_USB_DEFAULT,
+      .name = "midi.usb_to_din", .label = "USB to DIN Out", .values = &gm_cfg.din_usb },
+#endif
+#endif
 
 #if GM_HAS_MATRIX && GM_MATRIX_VELOCITY
     { .id = P_VEL_CURVE, .flags = PF_PRESET, .type = PT_ENUM, .group = G_VELOCITY, .count = 1,

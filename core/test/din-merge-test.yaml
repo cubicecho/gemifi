@@ -1,0 +1,19 @@
+# Test device for core/test/test_din.c: din-port-test.yaml's board (keep the
+# two in step) with the DIN jacks merged onto the main USB port
+# (din_midi.mode usb_merge). Not a real board.
+gemifi: 2
+name: din-test
+friendly_name: DIN Test
+board_id: 0x3F12
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+
+din_midi:
+  tx_pin: PA9
+  rx_pin: PA10
+  mode: usb_merge
+  usb_to_din: false
+
+buttons:
+  - { id: b, pin: PA1, action: cc_momentary, cc: 64 }

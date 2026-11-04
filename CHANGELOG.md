@@ -2,6 +2,18 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.18.0](https://github.com/cubicecho/gemifi/compare/v0.17.0...v0.18.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** din.c without string.h, for the NUC build ([ffce6e8](https://github.com/cubicecho/gemifi/commit/ffce6e8eec502b27cc3a3371cbe8cebbd94f14c5))
+
+
+### Features
+
+* 5-pin DIN MIDI In/Out with thru; Code 61 MIDI jacks ([6f09324](https://github.com/cubicecho/gemifi/commit/6f0932435d2196e633266b74a60ce1554ba70227))
+
 # [0.17.0](https://github.com/cubicecho/gemifi/compare/v0.16.0...v0.17.0) (2026-11-03)
 
 

@@ -47,10 +47,16 @@ enum {
     P_PAD_WINDOW = 27,
     P_PAD_RETRIGGER = 28,
     P_ANALOG_MODE = 29,
+    P_DIN_THRU = 30,                 /* din_midi: (GM_DIN) */
+    P_DIN_OUT = 31,
+    P_DIN_USB = 32,                  /* din_midi.mode usb_merge only */
 };
 
 #ifndef GM_N_PADS
 #define GM_N_PADS 0                  /* a config generated before pads */
+#endif
+#ifndef GM_DIN
+#define GM_DIN 0                     /* no din_midi: */
 #endif
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
@@ -106,6 +112,11 @@ typedef struct {
     int32_t preset_active;           /* 1..GM_N_PRESETS (global)       */
     int32_t preset_program;          /* -1 none, 0..127 (per preset)   */
     int32_t preset_dirty;            /* volatile: unsaved host edits   */
+#if GM_DIN
+    int32_t din_thru;                /* DIN In -> DIN Out              */
+    int32_t din_out;                 /* the controller -> DIN Out      */
+    int32_t din_usb;                 /* usb_merge: host -> DIN Out     */
+#endif
 #if GM_N_PADS > 0                    /* no RAM on devices without pads */
     int32_t pad_note[GM_N_PADS];
     int32_t pad_channel;           /* 1..16; 0 = midi.channel        */

@@ -55,6 +55,7 @@ void DMA1_Channel3_IRQHandler(void) __attribute__((weak, alias("Default_Handler"
 void TIM2_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void TIM3_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void TIM4_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
+void USART1_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 void USBWakeUp_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 
 typedef void (*vector_t)(void);
@@ -85,6 +86,7 @@ const vector_t gemifi_vectors[16 + VECTOR_IRQS] = {
     [16 + IRQ_TIM2] = TIM2_IRQHandler,
     [16 + IRQ_TIM3] = TIM3_IRQHandler,
     [16 + IRQ_TIM4] = TIM4_IRQHandler,
+    [16 + IRQ_USART1] = USART1_IRQHandler,
     [16 + IRQ_USBWAKEUP] = USBWakeUp_IRQHandler,
 };
 

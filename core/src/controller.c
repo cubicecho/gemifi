@@ -28,6 +28,7 @@
 #include "gm_feedback.h"
 #include "gm_mcu.h"
 #include "gm_display.h"
+#include "gm_din.h"
 
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
@@ -75,6 +76,7 @@ static void midi3(uint8_t status, uint32_t a, uint32_t b)
 {
     uint8_t m[3] = { status, (uint8_t)(a & 0x7F), (uint8_t)(b & 0x7F) };
     hal_midi_send(m, 3);
+    gm_din_local(m, 3);
     gm_display_midi(m[0], m[1], m[2]);
 }
 
@@ -83,6 +85,7 @@ static void midi2(uint8_t status, uint32_t a)
 {
     uint8_t m[2] = { status, (uint8_t)(a & 0x7F) };
     hal_midi_send(m, 2);
+    gm_din_local(m, 2);
     gm_display_midi(m[0], m[1], 0);
 }
 #endif
@@ -2003,6 +2006,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
             has_rgb_hubs = 1;
     }
     vpin_init();
+    gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
@@ -2142,6 +2146,7 @@ void gm_poll(void)
     uint32_t tc = hal_cycles();
 
     app_proto_poll();
+    gm_din_poll(now);
     presets_poll(now);
     app_log_limit = (uint8_t)gm_cfg.log_level;
     poll_part_done(0, &tc);

@@ -24,6 +24,7 @@
 #include "gm_device_config.h"
 #include "app_proto.h"
 #include "gm_feedback.h"
+#include "gm_din.h"
 #include "scan_dma.h"
 #include "adc_dma.h"
 
@@ -37,6 +38,12 @@ static char serial[25];
 static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC2(4, 5) };
 static const char *const strings[] = {
     "gemifi", "gemifi (" GM_DEVICE_NAME ")", serial, GM_DEVICE_NAME, GM_DAW_PORT_NAME,
+};
+#elif GM_DIN && GM_DIN_MODE == 1
+/* din_midi: separate_port: cable 1 is the DIN jacks (core/src/din.c). */
+static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC2(4, 5) };
+static const char *const strings[] = {
+    "gemifi", "gemifi (" GM_DEVICE_NAME ")", serial, GM_DEVICE_NAME, GM_DIN_PORT_NAME,
 };
 #else
 static const uint8_t cfg_desc[] = { USB_MIDI_CONFIG_DESC };
@@ -141,6 +148,13 @@ static void report_scan(void)
     app_log(LOG_INFO, fmt_num(a, "poll led writes ", gm_poll_part_max[6] / mhz, " us"),
             fmt_num(b, ", midi out waits ", hal_midi_waits, ""));
     app_log(LOG_INFO, fmt_num(a, "midi out longest wait ", hal_midi_wait_max_us, " us"), "");
+#if GM_DIN
+    {
+        extern volatile uint32_t hal_din_overruns;
+        app_log(LOG_INFO, fmt_num(a, "din out drops ", gm_din_out_drops, ""),
+                fmt_num(b, ", in overruns ", hal_din_overruns, ""));
+    }
+#endif
     if (scan_slowed)
         app_log(LOG_WARN, "scan overran its period: slowed down to ",
                 fmt_num(b, "", period, " us"));

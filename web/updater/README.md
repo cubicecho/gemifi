@@ -23,7 +23,11 @@ npm run check      # Biome (format, lint) and tsc
 
 Served by the gemifi builder (`python3 tools/builder/gemifi_build.py dashboard`, or its Docker
 image), the page also gets a **Devices** view: edit a device's YAML, validate and build it, then
-hand the built image to the Firmware or first-install card. The page finds the builder by asking
+hand the built image to the Firmware or first-install card. Validate also shows what the builder read: the
+preset slots, DIN MIDI and the extra USB-MIDI ports it adds, and on stm32f1 the DMA1 channel map
+(a `dma:` clash is marked "DMA channel"). Under the device, **YAML examples** has copyable examples
+of the newer features (XY pad, DIN MIDI, the DMA switches, pitch wheel and aftertouch, LED looks,
+presets) from `src/builder/yaml-reference.json`; the builder's tests validate every one of them. The page finds the builder by asking
 `api/info`; on GitHub Pages or any static host that request fails and the page is the updater
 alone. `npm run dev` proxies `/api` and `/download` to `GEMIFI_BUILDER_URL`
 (default `http://127.0.0.1:6055`), so the dev server works against a running builder.

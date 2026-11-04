@@ -2132,6 +2132,25 @@ class TestPads(unittest.TestCase):
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestYamlReference(unittest.TestCase):
+    """web/updater/src/builder/yaml-reference.json: the examples the web editor shows must validate, and the
+    settings they name must be the builder's (PARAMS)."""
+    REF = os.path.join(REPO, "web", "updater", "src", "builder", "yaml-reference.json")
+    BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB").split("buttons:")[0]
+
+    def test_examples_validate(self):
+        with open(self.REF, encoding="utf-8") as f:
+            entries = json.load(f)["entries"]
+        self.assertTrue(entries)
+        for e in entries:
+            with self.subTest(e["id"]):
+                dev, diags = load(self.BASE + e["yaml"])
+                self.assertIsNotNone(dev, [str(d) for d in diags])
+                self.assertEqual([str(d) for d in diags if d.level == "warning" and "has no inputs" not in d.msg], [])
+                for name in e["params"]:
+                    self.assertIn(name, gd.PARAM_ID)
+
+
 class TestCli(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -2318,6 +2337,19 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual([p["name"] for p in j["presets"]["slots"]][:3], ["Default", "Drums", "DAW"])
         self.assertEqual(j["presets"]["slots"][1]["changes"], 6)
         self.assertEqual(j["presets"]["storage"]["max_slots"], 9)
+        self.assertIsNone(j["dma"])                                      # not stm32f1
+        self.assertIsNone(j["din_midi"])
+        self.assertEqual(j["midi_ports"], [])
+        with open(os.path.join(REPO, "devices", "m-audio-code61.yaml"), encoding="utf-8") as f:
+            st, body = self.req("/api/validate", {"text": f.read()})
+        j = json.loads(body)
+        self.assertTrue(j["ok"], j["diags"])
+        self.assertEqual([c["channel"] for c in j["dma"]["channels"]], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(j["dma"]["free"], [])
+        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "rgb_serial 'pad_leds'"}, j["dma"]["channels"])
+        self.assertEqual(j["din_midi"], {"mode": "separate_port", "midi_in": True, "thru": False,
+                                         "controller_out": True, "usb_to_din": False, "dma": False})
+        self.assertEqual(j["midi_ports"], [{"cable": 1, "name": "Code 61 MIDI", "role": "din"}])
         st, body = self.req("/api/save", {"id": "mine/dash.yaml", "text": MINIMAL_NUC})
         self.assertEqual(st, 200)
         st, body = self.req("/api/file?id=mine%2Fdash.yaml")

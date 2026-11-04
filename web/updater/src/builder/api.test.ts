@@ -151,6 +151,74 @@ describe('builder requests', () => {
     expect(result.ok).toBe(false);
     expect(result.diags.map((d) => d.line)).toEqual([7, null, null]);
     expect(result.diags[1]?.level).toBe('warning');
+    expect(result.presets).toBeNull();
+    expect(result.dma).toBeNull();
+    expect(result.dinMidi).toBeNull();
+    expect(result.midiPorts).toEqual([]);
+  });
+
+  it('reads the presets, the DMA map, DIN MIDI and the extra ports', async () => {
+    mockFetch(
+      json({
+        ok: true,
+        summary: 'Code 61 (stm32f1, board 0x0002), 3 hubs\n  DMA1 channels: 7 USART2_TX (rgb_serial), free: 1',
+        diags: [],
+        presets: {
+          slots: [
+            { slot: 1, name: 'Default', program: null, changes: 0, listed: true },
+            { slot: 2, name: 'Preset 2', program: null, changes: 0, listed: false },
+          ],
+          revision: 0,
+          given: true,
+          storage: { max_slots: 3 },
+        },
+        dma: {
+          channels: [{ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" }, { channel: 'x' }],
+          free: [1, 2, 3, 4, 5, 6],
+          text: 'DMA1 channels: ...',
+        },
+        din_midi: {
+          mode: 'separate_port',
+          midi_in: true,
+          thru: false,
+          controller_out: true,
+          usb_to_din: false,
+          dma: false,
+        },
+        midi_ports: [
+          { cable: 1, name: 'Code 61 MIDI', role: 'din' },
+          { cable: 2, name: '?', role: 'other' },
+        ],
+      }),
+    );
+    const result = await validateDevice('text');
+    expect(result.summary).toBe('Code 61 (stm32f1, board 0x0002), 3 hubs');
+    expect(result.presets).toEqual({
+      slots: [
+        { slot: 1, name: 'Default', program: null, changes: 0, listed: true },
+        { slot: 2, name: 'Preset 2', program: null, changes: 0, listed: false },
+      ],
+      given: true,
+      maxSlots: 3,
+    });
+    expect(result.dma).toEqual({
+      channels: [{ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" }],
+      free: [1, 2, 3, 4, 5, 6],
+    });
+    expect(result.dinMidi).toEqual({
+      mode: 'separate_port',
+      midiIn: true,
+      thru: false,
+      controllerOut: true,
+      usbToDin: false,
+      dma: false,
+    });
+    expect(result.midiPorts).toEqual([{ cable: 1, name: 'Code 61 MIDI', role: 'din' }]);
+  });
+
+  it('keeps the whole summary from a builder that sends no DMA map', async () => {
+    mockFetch(json({ ok: true, summary: 'Keys\n  DMA1 channels: none; free: 1', diags: [] }));
+    expect((await validateDevice('text')).summary).toBe('Keys\n  DMA1 channels: none; free: 1');
   });
 
   it('throws the server error message with its status', async () => {

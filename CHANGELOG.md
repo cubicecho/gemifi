@@ -2,6 +2,15 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.29.0](https://github.com/cubicecho/gemifi/compare/v0.28.0...v0.29.0) (2026-11-04)
+
+
+### Features
+
+* **code61:** Shift + Encoder mode cycles MIDI / ZYN / DEVICE / PAN (0.2.82) ([ba5f0c9](https://github.com/cubicecho/gemifi/commit/ba5f0c9489ab004f159cb83a4d26271ec4a9c5aa))
+* **core:** cycle modes, independent layers, global layer settings ([6757d8c](https://github.com/cubicecho/gemifi/commit/6757d8c4f1fc9a166cbc98ad00f358971a6f5c78))
+* **hosts:** Live and Bitwig track live layers; Zynthian device params doc ([d584fc6](https://github.com/cubicecho/gemifi/commit/d584fc61285890fe3805f560df905b8543e74306))
+
 # [0.28.0](https://github.com/cubicecho/gemifi/compare/v0.27.0...v0.28.0) (2026-11-04)
 
 

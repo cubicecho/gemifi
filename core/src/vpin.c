@@ -1042,22 +1042,16 @@ static void tm_cmd(const gm_hub_t *h, uint32_t cmd)
     tm_end(h);
 }
 
-/* What a chip still needs, in bytes on the bus (budget units). A whole-RAM
- * write: 0x40, C0 + every byte; fixed addresses: 0x44, then C0|a + byte for
- * each changed byte. */
-static uint32_t tm_changed(const hub_state_t *s, uint32_t n)
-{
-    uint32_t c = 0;
-    for (uint32_t k = 0; k < n; k++)
-        c += tm_ram[s->tm_off + k] != ram_sent[s->tm_off + k];
-    return c;
-}
-
-/* Write what changed in each chip, at most `budget` bus bytes (each about
- * 17 us) per call; what's left stays dirty for the next call. A chip's first
- * write is its whole RAM plus the display mode and control commands (they
- * stay set in the chip); after that only changed bytes go out, one at a
- * time at a fixed address, or the whole RAM when that is shorter. */
+/* Write what changed in each chip, at most `budget` bytes on the bus per
+ * call; what's left stays dirty for the next call. A chip's first write is
+ * its whole RAM plus the display mode and control commands (they stay set in
+ * the chip). After that: the data command 0x40 (write, auto-increment), then
+ * each run of changed bytes as one command, 0xC0 | its first address and its
+ * bytes. A run goes on over one unchanged byte (rewriting it costs a bus
+ * byte, as a new address command would, and saves the strobe); two or more
+ * end it. A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a
+ * fixed address. A run the budget cuts short goes on at its next address
+ * (a new 0xC0 | address) on the next call. */
 static void tm_flush(uint32_t budget)
 {
     for (uint32_t i = 0; i < gm_device.n_hubs && budget; i++) {
@@ -1069,46 +1063,43 @@ static void tm_flush(uint32_t budget)
         if (s->tm_off + n > GM_TM1628_RAM)
             n = GM_TM1628_RAM - s->tm_off;
         uint8_t *ram = &tm_ram[s->tm_off], *sent = &ram_sent[s->tm_off];
-        uint32_t c = s->never ? n : tm_changed(s, n);
-        if (s->never || (2u + n < 1u + 2u * c && 2u + n <= budget)) {
-            if (s->never && h->grids >= 4u && h->grids <= 7u)
+        uint32_t k = 0, open = 0, left = budget;
+        if (s->never) {                         /* all of it now, whatever the budget */
+            if (h->grids >= 4u && h->grids <= 7u)
                 tm_cmd(h, h->grids - 4u);
-            tm_cmd(h, 0x40u);           /* auto-increment from address 0 */
-            tm_start(h);
-            tm_byte(h, 0xC0u);
-            for (uint32_t k = 0; k < n; k++) {
-                tm_byte(h, ram[k]);
-                sent[k] = ram[k];
+            for (k = 0; k < n; k++)
+                sent[k] = (uint8_t)~ram[k];     /* every byte "changed": one run */
+            k = 0;
+            budget = 0xFFFFFFFFu;
+        }
+        for (;;) {
+            while (k < n && ram[k] == sent[k])
+                k++;
+            if (k == n || budget < 3u - open)   /* 0x40 once, then C0|a and a byte */
+                break;
+            if (!open) {
+                tm_cmd(h, 0x40u);
+                budget--;
+                open = 1;
             }
-            tm_end(h);
-            if (s->never)
-                tm_cmd(h, 0x88u | (h->brightness & 7u));
-            s->never = 0;
-            s->tm_dirty = 0;
-            budget = budget > 2u + n ? budget - 2u - n : 0u;
-            continue;
-        }
-        if (c == 0) {
-            s->tm_dirty = 0;
-            continue;
-        }
-        if (budget < 3u)
-            break;
-        tm_cmd(h, 0x44u);               /* fixed address */
-        budget--;
-        for (uint32_t k = 0; k < n && budget >= 2u; k++) {
-            if (ram[k] == sent[k])
-                continue;
-            uint8_t v = ram[k];
             tm_start(h);
             tm_byte(h, 0xC0u | k);
-            tm_byte(h, v);
+            budget--;
+            do {
+                tm_byte(h, ram[k]);
+                sent[k] = ram[k];
+                k++;
+                budget--;
+            } while (budget && k < n &&
+                     (ram[k] != sent[k] || (k + 1u < n && ram[k + 1u] != sent[k + 1u])));
             tm_end(h);
-            sent[k] = v;
-            budget -= 2u;
-            c--;
         }
-        s->tm_dirty = c != 0;
+        s->tm_dirty = k < n;
+        if (s->never) {
+            tm_cmd(h, 0x88u | (h->brightness & 7u));
+            s->never = 0;
+            budget = left > 3u + n ? left - 3u - n : 0u;
+        }
     }
 }
 

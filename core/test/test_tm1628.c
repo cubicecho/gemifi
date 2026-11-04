@@ -38,6 +38,7 @@ static uint8_t mode[64];
 static int in_tick;             /* inside gm_scan_tick */
 static int tick_writes;         /* TM pins written from the scan tick */
 static int dio_while_high;      /* DIO changed while CLK high inside a command */
+static int bits_odd;            /* commands that weren't whole bytes */
 
 /* One chip as the pins see it. */
 typedef struct {
@@ -57,11 +58,35 @@ typedef struct {
 
 static chip_t chip[2] = { { .stb = PIN_STB_A }, { .stb = PIN_STB_B } };
 
+/* Every command on the bus as hex, "A:40|A:C4 20|": chip, then its bytes. */
+static char bus_log[4096];
+static size_t bus_len;
+
+static void log_cmd(const chip_t *c, int n)
+{
+    if (bus_len + 4 + 3 * (size_t)n >= sizeof bus_log)
+        return;
+    bus_len += (size_t)sprintf(bus_log + bus_len, "%c:", c == &chip[0] ? 'A' : 'B');
+    for (int i = 0; i < n; i++)
+        bus_len += (size_t)sprintf(bus_log + bus_len, i ? " %02X" : "%02X", c->buf[i]);
+    bus_log[bus_len++] = '|';
+    bus_log[bus_len] = 0;
+}
+
+static void bus_clear(void)
+{
+    bus_len = 0;
+    bus_log[0] = 0;
+}
+
 static void chip_end(chip_t *c)
 {
     int n = c->nbits / 8;
     c->cmds++;
     c->bytes += n;
+    log_cmd(c, n);
+    if (c->nbits % 8)
+        bits_odd++;
     if (n == 0)
         return;
     uint8_t cmd = c->buf[0];
@@ -207,6 +232,18 @@ static void usb(uint8_t b0, uint8_t b1, uint8_t b2)
     gm_midi_rx_usb(ev);
 }
 
+/* Every bit of chip c's bytes in mask (bit = byte) to on. */
+static void set_bytes(uint8_t c, uint32_t mask, int on)
+{
+    gm_pin_t p = { 0 };
+    p.hub = (uint8_t)(c + 1u);              /* hub 1 = leds_a, 2 = leds_b */
+    for (uint16_t b = 0; b < 16 * 8; b++)
+        if ((mask >> (b / 8)) & 1u) {
+            p.num = b;
+            vpin_write(p, on);
+        }
+}
+
 /* ---- tests ------------------------------------------------------------ */
 
 int main(void)
@@ -223,14 +260,21 @@ int main(void)
           mode[PIN_STB_B] == HAL_OUT, "DIO open-drain, CLK and STBs push-pull");
     CHECK(level[PIN_STB_A] && level[PIN_STB_B] && level[PIN_CLK] && level[PIN_DIO], "bus idles high");
 
-    /* gm_init: lamp test on (the first write: the whole RAM, auto-increment),
-     * then off: only the bytes the lamp test lit, at fixed addresses (A bytes
-     * 4 and 13, B bytes 0 and 5) */
+    /* gm_init: lamp test on (the first write: display mode if grids: is set,
+     * 0x40, the whole RAM from C0, display on), then off: only the bytes the
+     * lamp test lit, each a run of its own (A bytes 4 and 13, B bytes 0 and 5:
+     * two or more unchanged bytes between them) */
     CHECK(chip[0].ram_writes == 3 && chip[1].ram_writes == 3, "lamp test: 1 + 2 writes each (%d, %d)",
           chip[0].ram_writes, chip[1].ram_writes);
     CHECK(chip[0].disp_mode == 3 && chip[1].disp_mode == -1, "grids: 7 sends mode 3 to A only");
     CHECK(chip[0].saw_auto && chip[1].saw_auto, "first write: data command 0x40 (auto-increment)");
-    CHECK(!chip[0].auto_inc && !chip[1].auto_inc, "then 0x44 (fixed address) for changed bytes");
+    CHECK(chip[0].auto_inc && chip[1].auto_inc, "changed bytes: auto-increment too");
+    CHECK(strcmp(bus_log,
+                 "A:03|A:40|A:C0 00 00 00 00 20 00 00 00 00 00 00 00 00 07|A:8B|"
+                 "B:40|B:C0 00 00 00 00 00 80|B:8F|"
+                 "A:40|A:C4 00|A:CD 00|"
+                 "B:40|B:C0 01|B:C5 00|") == 0,
+          "start-up bytes on the bus: %s", bus_log);
     CHECK(chip[0].ctl == 0x8B && chip[1].ctl == 0x8F, "display on, intensity 3 / default 7 (%02X %02X)",
           chip[0].ctl, chip[1].ctl);
     {
@@ -344,17 +388,14 @@ int main(void)
     run_ms(20);
     CHECK(ser_last_is(2, 0, 0, 0), "serial LED 2 off once the UART is free");
 
-    /* A big change goes out over a few passes, at most 9 bus bytes each. */
+    /* A display-sized change: bytes 0-11 of A, but not byte 4 (the LEDs').
+     * One run (byte 4 is a single unchanged byte, rewritten as it is), cut
+     * by the 9-byte budget and taken up at its next address. */
     {
-        gm_pin_t p = { 1, 0, 0 };           /* hub 1 = leds_a */
-        for (uint16_t b = 0; b < 96; b++) { /* bytes 0-11: every bit (not the LEDs' bytes 4/13) */
-            if (b / 8 == 4)
-                continue;
-            p.num = b;
-            vpin_write(p, 1);
-        }
         int passes = 0, most = 0;
         uint8_t want[16];
+        set_bytes(0, 0x0FEFu, 1);           /* bytes 0-3, 5-11 */
+        bus_clear();
         while (passes < 20) {
             int before = chip[0].bytes;
             vpin_poll_tm1628();
@@ -368,20 +409,86 @@ int main(void)
         for (int k = 0; k < 12; k++)
             want[k] = k == 4 ? chip[0].ram[4] : 0xFF;
         CHECK(memcmp(chip[0].ram, want, 12) == 0, "11 changed bytes all reach chip A");
-        CHECK(passes >= 3 && most <= 9, "spread over %d passes, at most %d bus bytes each", passes, most);
-        for (uint16_t b = 0; b < 96; b++) {
-            if (b / 8 == 4)
-                continue;
-            p.num = b;
-            vpin_write(p, 0);
-        }
-        vpin_flush_tm1628();                /* all at once: the whole RAM is shorter here */
-        CHECK(chip[0].ram[0] == 0 && chip[0].ram[11] == 0 && chip[0].auto_inc,
-              "a full flush of 11 bytes uses one auto-increment write");
+        CHECK(passes == 2 && most == 9, "2 passes, at most 9 bus bytes each (%d, %d)", passes, most);
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF 00 FF FF|A:40|A:C7 FF FF FF FF FF|") == 0,
+              "the run, split: %s", bus_log);
+        set_bytes(0, 0x0FEFu, 0);
+        bus_clear();
+        vpin_flush_tm1628();                /* all at once: one run of 12 */
+        CHECK(strcmp(bus_log, "A:40|A:C0 00 00 00 00 00 00 00 00 00 00 00 00|") == 0,
+              "a full flush of 11 bytes is one auto-increment write: %s", bus_log);
+    }
+
+    /* Two runs: bytes 0-3 and 8-10 (four unchanged bytes between). The budget
+     * ends the second run after two bytes; the next pass sends the third. */
+    {
+        set_bytes(0, 0x070Fu, 1);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF|A:C8 FF FF|") == 0, "two runs, 9 bytes: %s", bus_log);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:CA FF|") == 0, "the rest next pass: %s", bus_log);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(bus_log[0] == 0, "then nothing: %s", bus_log);
+        set_bytes(0, 0x070Fu, 0);
+        vpin_flush_tm1628();
+    }
+
+    /* Bytes 2 and 4: one unchanged byte between, so one run (C2 and 3 bytes,
+     * what two runs would cost too, with one strobe less); bytes 2 and 5:
+     * two runs. */
+    {
+        set_bytes(0, 0x0014u, 1);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C2 FF 00 FF|") == 0, "gap of one: one run (%s)", bus_log);
+        set_bytes(0, 0x0014u, 0);
+        set_bytes(0, 0x0024u, 1);
+        bus_clear();
+        vpin_flush_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C4 00 FF|") == 0, "2 stays, 4 off, 5 on (%s)", bus_log);
+        set_bytes(0, 0x0024u, 0);
+        bus_clear();
+        vpin_flush_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C2 00|A:C5 00|") == 0, "gap of two: two runs (%s)", bus_log);
+        /* byte 12, next to the last (13) */
+        set_bytes(0, 0x1000u, 1);
+        bus_clear();
+        vpin_flush_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:CC FF|") == 0, "byte 12 (%s)", bus_log);
+        CHECK(chip[0].ram[13] == 0x00, "byte 13 untouched");
+        set_bytes(0, 0x1000u, 0);
+        vpin_flush_tm1628();
+        /* chip B: its last bytes, 4 and 5 */
+        set_bytes(1, 0x0030u, 1);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "B:40|B:C4 FF FF|") == 0, "B bytes 4-5 (%s)", bus_log);
+        set_bytes(1, 0x0030u, 0);
+        vpin_flush_tm1628();
+        CHECK(chip[1].ram[4] == 0x00 && chip[1].ram[5] == 0x00, "B back off");
+    }
+
+    /* Both chips change: one budget for the pass, A first, B's turn next. */
+    {
+        set_bytes(0, 0x003Fu, 1);           /* A 0-5: 0x40, C0 + 6 = 8 */
+        set_bytes(1, 0x0006u, 1);           /* B 1-2: 4 */
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF FF FF|") == 0, "A takes 8 of 9 (%s)", bus_log);
+        bus_clear();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "B:40|B:C1 FF FF|") == 0, "then B (%s)", bus_log);
+        set_bytes(0, 0x003Fu, 0);
+        set_bytes(1, 0x0006u, 0);
+        vpin_flush_tm1628();
     }
 
     CHECK(tick_writes == 0, "the scan tick never touches the TM1628 pins (%d)", tick_writes);
     CHECK(dio_while_high == 0, "DIO only changes while CLK is low (%d)", dio_while_high);
+    CHECK(bits_odd == 0, "every command is whole bytes (%d)", bits_odd);
     CHECK(level[PIN_STB_A] && level[PIN_STB_B] && level[PIN_CLK], "bus idles high");
 
     printf("test_tm1628: %d checks, %d failed\n", checks, fails);

@@ -224,6 +224,14 @@ export function isVolatile(param: ParamSpec): boolean {
   return (param.flags & ParamFlag.Volatile) !== 0;
 }
 
+/**
+ * @param param - A param.
+ * @returns Whether it has one value per preset (§4.5): GET/SET address the active preset.
+ */
+export function isPreset(param: ParamSpec): boolean {
+  return (param.flags & ParamFlag.Preset) !== 0;
+}
+
 /** Note names from C, as MIDI counts them. */
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 /** The octave MIDI note 0 is in (so 60 is C4). */

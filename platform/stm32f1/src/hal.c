@@ -20,6 +20,7 @@
 #include "usbd.h"
 #include "usb_midi.h"
 #include "gemifi_image.h"
+#include "dma_map.h"
 
 uint32_t hal_cycles(void)
 {
@@ -324,7 +325,7 @@ void hal_reboot(int to_bootloader)
     sys_tick_irq_disable();         /* the delay below polls SysTick */
     NVIC_ICER(0) = 0xFFFFFFFFu;     /* the next stage starts with no IRQs */
     NVIC_ICER(1) = 0xFFFFFFFFu;
-    TIM_CR1(TIM2_BASE) = 0;
+    TIM_CR1(TIM_BASE_N(GM_SCAN_TICK_TIM)) = 0;   /* the scan tick */
     scan_dma_stop();                /* the hardware scans, if running: columns back to inputs */
     adc_dma_stop();
     sys_iwdg_kick();
@@ -423,8 +424,9 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
  *    cycles;
  *  - HAL_UART_DMA (din_midi dma: true): DMA1 channel 4 sends each run of the
  *    TX ring (its transfer-complete interrupt starts the next), channel 5
- *    fills the RX ring in circular mode. Those are the hardware analog
- *    scan's and the matrix scan's channels: the builder refuses both. */
+ *    fills the RX ring in circular mode. The hardware scans must then be on
+ *    other channels (hardware_scan.*.timer): the builder finds them or
+ *    refuses. */
 #define DIN_TX_PIN 9u                       /* PA9 */
 #define DIN_RX_PIN 10u                      /* PA10 */
 #define DIN_TX_SIZE 512u                    /* powers of two */
@@ -484,6 +486,9 @@ static void din_dma_next(void)
     DMA1_CCR(CH_DIN_TX) = DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_TCIE | DMA_CCR_EN;
 }
 
+/* Channel 4's interrupt is the matrix scan's when its read is there (the
+ * builder then refuses din_midi dma: true). */
+#if GM_HW_SCAN_RD_CH != CH_DIN_TX
 void DMA1_Channel4_IRQHandler(void)
 {
     DMA1_IFCR = 0xFu << (4u * (CH_DIN_TX - 1u));
@@ -491,6 +496,9 @@ void DMA1_Channel4_IRQHandler(void)
     din_tx_run = 0;
     din_dma_next();
 }
+#elif defined(GM_DIN_DMA) && GM_DIN_DMA
+#error "din_midi dma: true needs DMA1 channel 4, which the matrix scan's read uses"
+#endif
 
 int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud, uint32_t flags)
 {

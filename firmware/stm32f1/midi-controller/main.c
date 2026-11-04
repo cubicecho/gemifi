@@ -7,7 +7,8 @@
  * SysEx from the web updater or tools/host/gemifi.py.
  *
  * This file is only the STM32F1 entry point: clocks, IWDG, USB-MIDI, the
- * scan timer (TIM2 interrupt at gm_device.scan_us), the hardware scans
+ * scan timer (TIM2 interrupt at gm_device.scan_us, or TIM3 / TIM4 when a
+ * hardware scan has TIM2: GM_SCAN_TICK_TIM, dma_map.h), the hardware scans
  * (hardware_scan: in the YAML: src/scan_dma.c for the matrix, src/adc_dma.c
  * for the analog inputs and pads) and the main loop.
  *
@@ -27,6 +28,7 @@
 #include "gm_din.h"
 #include "scan_dma.h"
 #include "adc_dma.h"
+#include "dma_map.h"
 
 #define FW_VERSION GEMIFI_VERSION(FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH)
 
@@ -53,12 +55,16 @@ static const usbd_desc_t usb_desc = {
     dev_desc, cfg_desc, sizeof(cfg_desc), sizeof(strings) / sizeof(strings[0]), strings,
 };
 
-/* TIM2 ticks the scan (prescaled to 1 MHz). Scan time is measured with the
+/* TIM2 (GM_SCAN_TICK_TIM) ticks the scan (prescaled to 1 MHz). Scan time is measured with the
  * DWT cycle counter from the handler's entry, so a late start (the main loop
  * stalled, e.g. by a flash erase) isn't counted: those count as "late". The
  * period is raised when a scan takes more than 80% of it, which would starve
  * the main loop and with it USB. */
-#define SCAN_TIM TIM2_BASE
+#define SCAN_TIM TIM_BASE_N(GM_SCAN_TICK_TIM)
+#define SCAN_IRQ IRQ_TIM(GM_SCAN_TICK_TIM)
+_Static_assert(GM_SCAN_TICK_TIM >= 2 && GM_SCAN_TICK_TIM <= 4, "the scan tick: TIM2..TIM4");
+_Static_assert(!GM_HW_SCAN || GM_SCAN_TICK_TIM != GM_HW_SCAN_TIM, "the scan tick has the matrix scan's timer");
+_Static_assert(!GM_HW_ADC || GM_SCAN_TICK_TIM != GM_HW_ADC_TIM, "the scan tick has the analog scan's timer");
 static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
 /* Main loop passes, wall time in cycles (the scan interrupt included): the
  * slowest one, and how many took over 1 ms / 2 ms. USB is polled once per
@@ -72,7 +78,7 @@ static uint8_t hw_adc_failed;           /* hardware_scan.analog given, but adc_d
 static uint32_t hw_scan_rows;
 #define SCAN_MAX_US 4000u
 
-void TIM2_IRQHandler(void)
+void TIM_IRQ_HANDLER(GM_SCAN_TICK_TIM)(void)
 {
     TIM_SR(SCAN_TIM) = ~TIM_SR_UIF;     /* rc_w0 */
     uint32_t c0 = DWT_CYCCNT;           /* cycle counter: can't wrap within a scan */
@@ -190,19 +196,17 @@ static void scan_timer_start(uint32_t period_us)
         period_us = 50u;
     if (period_us > 65536u)
         period_us = 65536u;
-    /* APB1 = HCLK / 2, so the TIM2 clock is 2 x PCLK1 = HCLK (RM0008 7.2). */
-    RCC_APB1ENR |= RCC_APB1_TIM2;
-    RCC_APB1RSTR |= RCC_APB1_TIM2;
-    RCC_APB1RSTR &= ~RCC_APB1_TIM2;
+    /* APB1 = HCLK / 2, so the TIM2..4 clock is 2 x PCLK1 = HCLK (RM0008 7.2). */
+    tim_clock_reset(GM_SCAN_TICK_TIM);
     TIM_PSC(SCAN_TIM) = sys_hclk_hz / 1000000u - 1u;   /* 1 tick = 1 us */
     TIM_ARR(SCAN_TIM) = period_us - 1u;
     TIM_CR1(SCAN_TIM) = TIM_CR1_URS;
     TIM_EGR(SCAN_TIM) = TIM_EGR_UG;     /* load PSC now (URS: no UIF) */
     TIM_SR(SCAN_TIM) = 0;
     TIM_DIER(SCAN_TIM) = TIM_DIER_UIE;
-    NVIC_IPR8(IRQ_TIM2) = 0x80;         /* below USB (0x40): USB may interrupt a scan */
+    NVIC_IPR8(SCAN_IRQ) = 0x80;         /* below USB (0x40): USB may interrupt a scan */
     TIM_CR1(SCAN_TIM) = TIM_CR1_URS | TIM_CR1_CEN;
-    NVIC_ISER(IRQ_TIM2 / 32) = 1u << (IRQ_TIM2 % 32);
+    NVIC_ISER(SCAN_IRQ / 32) = 1u << (SCAN_IRQ % 32);
     irq_enable_all();
 }
 

@@ -334,26 +334,52 @@ class TestValidation(unittest.TestCase):
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
+    C61_DIN_DMA = ("  mode: separate_port\n", "  mode: separate_port\n  dma: true\n")
+    C61_NO_PRE = ("    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
+                  "    row_time: 3.5us\n    settle: 3us\n")
+
+    def c61(self):
+        with open(os.path.join(REPO, "devices", "m-audio-code61.yaml"), encoding="utf-8") as f:
+            return f.read()
+
     def test_dma_alloc(self):
-        """stm32f1: each DMA user gets its fixed channels (RM0008 table 78); a clash is an error on
-        the optional user, and the map goes in the header."""
-        path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
-        with open(path, encoding="utf-8") as f:
-            c61 = f.read()
+        """stm32f1: each DMA user gets its channels (RM0008 table 78); a clash is an error on the
+        optional user, and the map goes in the header."""
+        c61 = self.c61()
         d, diags = load(c61)
         self.assertIsNotNone(d, [str(x) for x in diags])
-        self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 2, 3, 4, 5, 6, 7])   # every channel
+        # the Code 61's original map: matrix on TIM1, analog on TIM4, tick on TIM2
+        self.assertEqual(d.dma_map, [(1, "ADC1", "hardware_scan.analog"),
+                                     (2, "TIM1_CH1", "hardware_scan.matrix columns in"),
+                                     (3, "TIM1_CH2", "hardware_scan.matrix read"),
+                                     (4, "TIM4_CH2", "hardware_scan.analog mux step"),
+                                     (5, "TIM1_UP", "hardware_scan.matrix select"),
+                                     (6, "TIM1_CH3", "hardware_scan.matrix precharge"),
+                                     (7, "USART2_TX", "rgb_serial 'pad_leds'")])
+        self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 0, "in": 1, "rd": 2, "pre": 3}),
+                                         "analog": (4, {"mux": 2}), "tick": 2})
         self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: none")
         h = gd.generate(d, "t.yaml")["gm_device_config.h"]
-        self.assertIn("/* DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix)", h)
+        self.assertIn("/* DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix", h)
+        self.assertIn("/* timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog", h)
+        for line in ("GM_HW_SCAN_TIM 1 ", "GM_HW_SCAN_SEL 0 ", "GM_HW_SCAN_SEL_CH 5\n", "GM_HW_SCAN_IN 1 ",
+                     "GM_HW_SCAN_IN_CH 2\n", "GM_HW_SCAN_RD 2 ", "GM_HW_SCAN_RD_CH 3\n", "GM_HW_SCAN_PRE 3 ",
+                     "GM_HW_SCAN_PRE_CH 6\n", "GM_HW_ADC_TIM 4 ", "GM_HW_ADC_MUX 2 ", "GM_HW_ADC_MUX_CH 4\n",
+                     "GM_SCAN_TICK_TIM 2 "):
+            self.assertIn("#define " + line, h)
         self.assertIn("#define GM_DIN_DMA 0 ", h)
         self.assertIn(".ram_bytes = 6, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
-        # DIN by DMA: channels 4 and 5 are the scans'
-        din_dma = c61.replace("  mode: separate_port\n", "  mode: separate_port\n  dma: true\n")
+        # DIN by DMA: with precharge the scans need 6 channels (ADC1, mux, 4 matrix steps), DIN 2:
+        # no timer choice fits; the error says what would
+        din_dma = c61.replace(*self.C61_DIN_DMA)
         e = self.assertError(din_dma, r"needs DMA1 channel 4 \(USART1_TX\), which hardware_scan.analog uses "
                                       r"\(TIM4_CH2\): set din_midi dma: false", path="din_midi.dma")
+        self.assertIn("or turn hardware_scan.matrix precharge off: the scan then needs 2 channels", e.msg)
         self.assertError(din_dma, r"needs DMA1 channel 5 \(USART1_RX\), which hardware_scan.matrix uses")
-        # ... fine without the scans; and the pad LEDs can give channel 7 back
+        # ... the pad LEDs giving channel 7 back doesn't make it fit
+        self.assertError(din_dma.replace("    count: 16\n", "    count: 16\n    dma: false\n", 1),
+                         r"needs DMA1 channel 4 .*precharge off")
+        # ... fine without the scans
         no_scan = din_dma.replace("    precharge: true\n  analog: true\n", "    precharge: true\n  analog: false\n")
         no_scan = no_scan.replace("hardware_scan:\n  matrix:\n    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
                                   "hardware_scan:\n")
@@ -361,14 +387,121 @@ class TestValidation(unittest.TestCase):
         self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
         self.assertEqual(d.dma_map, [(4, "USART1_TX", "din_midi"), (5, "USART1_RX", "din_midi")])
         self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: 1, 2, 3, 6, 7")
+        self.assertEqual(d.scan_timers, {"tick": 2})
         files = gd.generate(d, "t.yaml")
         self.assertIn("#define GM_DIN_DMA 1 ", files["gm_device_config.h"])
+        self.assertNotIn("GM_HW_SCAN_TIM", files["gm_device_config.h"])
         self.assertIn(".ram_bytes = 6, .dma = 0,", files["gm_device_config.c"])
         # the matrix scan without precharge leaves 2 and 6
         d, _ = load(c61.replace("    precharge: true\n", ""))
         self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 3, 4, 5, 7])
+        self.assertIn("#define GM_HW_SCAN_PRE_CH 0\n", gd.generate(d, "t.yaml")["gm_device_config.h"])
         # other platforms: no map
         self.assertEqual(gd.dma_text(load(MINIMAL_NUC)[0]), "")
+        self.assertEqual(gd.timers_text(load(MINIMAL_NUC)[0]), "")
+
+    def test_dma_auto_moves_scans(self):
+        """timer: auto (the default) moves the scans off channels a dma: user needs."""
+        c61 = self.c61().replace(*self.C61_DIN_DMA).replace(*self.C61_NO_PRE)
+        d, diags = load(c61)
+        self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
+        # DIN by DMA, both scans, pad LEDs by DMA: all 7 channels
+        self.assertEqual(d.dma_map, [(1, "ADC1", "hardware_scan.analog"),
+                                     (2, "TIM1_CH1", "hardware_scan.matrix select"),
+                                     (3, "TIM1_CH2", "hardware_scan.matrix read"),
+                                     (4, "USART1_TX", "din_midi"), (5, "USART1_RX", "din_midi"),
+                                     (6, "TIM3_CH1", "hardware_scan.analog mux step"),
+                                     (7, "USART2_TX", "rgb_serial 'pad_leds'")])
+        self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 1, "rd": 2}), "analog": (3, {"mux": 1}),
+                                         "tick": 2})
+        h = gd.generate(d, "t.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_HW_SCAN_SEL 1 /* TIM1_CH1: select */", h)
+        self.assertIn("#define GM_HW_ADC_TIM 3 /* hardware_scan.analog on TIM3: ADC1 by TIM3_TRGO (OC2REF) */", h)
+        self.assertIn("TIM3 hardware_scan.analog (ADC1 started by TIM3_TRGO (OC2REF))", gd.timers_text(d))
+        # an explicit analog timer that takes channel 4 can't: the error points at auto
+        e = self.assertError(c61.replace("  analog: true\n", "  analog: { timer: tim4 }\n"),
+                             r"needs DMA1 channel 4 \(USART1_TX\), which hardware_scan.analog uses", path="din_midi.dma")
+        self.assertIn("set the hardware_scan timers to auto (it finds: matrix on TIM1, analog on TIM3)", e.msg)
+
+    def test_dma_explicit_timers(self):
+        c61 = self.c61()
+        # the analog scan on TIM2: the matrix moves its precharge to CC4 (channel 5 is TIM2_CH1's),
+        # and the scan tick to TIM3
+        d, diags = load(c61.replace("  analog: true\n", "  analog: { timer: TIM2 }\n"))
+        self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
+        self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 1, "in": 3, "rd": 2, "pre": 4}),
+                                         "analog": (2, {"mux": 1}), "tick": 3})
+        self.assertIn("#define GM_SCAN_TICK_TIM 3 ", gd.generate(d, "t.yaml")["gm_device_config.h"])
+        # the matrix on TIM3 (no precharge): UP + CC1
+        no_pre = c61.replace(*self.C61_NO_PRE)
+        d, _ = load(no_pre.replace("    settle: 3us\n", "    settle: 3us\n    timer: tim3\n"))
+        self.assertEqual(d.scan_timers["matrix"], (3, {"sel": 0, "rd": 1}))
+        self.assertEqual(d.scan_timers["analog"], (4, {"mux": 2}))
+        # TIM3 has 3 DMA channels, TIM4 lands on ADC1's: no precharge scan on either
+        pre_on = c61.replace("    precharge: true\n", "    precharge: true\n    timer: tim3\n")
+        timer_line = pre_on.splitlines().index("    timer: tim3") + 1
+        e = self.assertError(pre_on, r"TIM3 can't pace the matrix scan: it needs 4 DMA requests",
+                             path="hardware_scan.matrix.timer", line=timer_line)
+        self.assertIn("TIM3 has UP 3, CH1 6, CH3 2, CH4 3 (two share channel 3)", e.msg)
+        self.assertIn("(timer: auto picks matrix on TIM1, analog on TIM4)", e.msg)
+        e = self.assertError(c61.replace("    precharge: true\n", "    precharge: true\n    timer: tim4\n"),
+                             r"TIM4 can't pace the matrix scan")
+        self.assertIn("channel 1 is ADC1's, for hardware_scan.analog", e.msg)
+        # one timer for both
+        self.assertError(no_pre.replace("    settle: 3us\n", "    settle: 3us\n    timer: tim3\n")
+                         .replace("  analog: true\n", "  analog: { timer: tim3 }\n"),
+                         r"TIM3 is hardware_scan.matrix's timer too", path="hardware_scan.analog.timer")
+        # names
+        self.assertError(c61.replace("  analog: true\n", "  analog: { timer: tim1 }\n"),
+                         r"the analog scan can't use TIM1")
+        self.assertError(c61.replace("  analog: true\n", "  analog: { timer: tim9 }\n"),
+                         r"unknown timer 'tim9' \(did you mean 'tim4'\? valid: auto, tim2, tim3, tim4\)")
+        self.assertError(c61.replace("  analog: true\n", "  analog: { timr: tim3 }\n"), r"unknown key")
+        d, _ = load(c61.replace("    precharge: true\n", "    precharge: true\n    timer: auto\n")
+                    .replace("  analog: true\n", "  analog: { timer: auto }\n"))
+        self.assertEqual(d.scan_timers["matrix"][0], 1)
+
+    def test_dma_options(self):
+        """Every matrix option: one request per step, the update only for the select, channels apart."""
+        d, _ = load(self.c61())
+        for t in (1, 2, 3, 4):
+            for pre in (False, True):
+                opts = gd.scan_options(d, "matrix", t, pre)
+                for _s, _t, roles, claims in opts:
+                    self.assertEqual(len({ch for ch, _r, _x in claims}), len(claims))
+                    self.assertTrue(all(q != 0 for r, q in roles.items() if r != "sel"))
+                self.assertEqual(bool(opts), t != 3 or not pre, (t, pre))   # TIM3: 3 channels only
+        self.assertEqual([o[3][1][0] for o in gd.scan_options(d, "analog", 3)], [6, 2, 3])
+
+    @unittest.skipUnless(shutil.which("arm-none-eabi-gcc"), "needs arm-none-eabi-gcc")
+    def test_dma_map_compiles(self):
+        """The platform's static checks (scan_dma.c, adc_dma.c, hal.c, main.c) take what the
+        allocator picks."""
+        c61 = self.c61()
+        no_pre = c61.replace(*self.C61_NO_PRE)
+        variants = [c61, c61.replace(*self.C61_DIN_DMA).replace(*self.C61_NO_PRE),
+                    c61.replace("  analog: true\n", "  analog: { timer: tim2 }\n"),
+                    no_pre.replace("    settle: 3us\n", "    settle: 3us\n    timer: tim3\n"),
+                    no_pre.replace("    settle: 3us\n", "    settle: 3us\n    timer: tim2\n")
+                    .replace("  analog: true\n", "  analog: { timer: tim3 }\n")]
+        plat = os.path.join(REPO, "platform", "stm32f1")
+        srcs = [os.path.join(plat, "src", f) for f in ("scan_dma.c", "adc_dma.c", "hal.c")]
+        srcs.append(os.path.join(REPO, "firmware", "stm32f1", "midi-controller", "main.c"))
+        for i, text in enumerate(variants):
+            d, diags = load(text)
+            self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
+            out = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, out)
+            for name, body in gd.generate(d, "t.yaml").items():
+                with open(os.path.join(out, name), "w", encoding="utf-8") as f:
+                    f.write(body)
+            r = subprocess.run(["arm-none-eabi-gcc", "-mcpu=cortex-m3", "-mthumb", "-std=gnu11", "-Wall",
+                                "-Wextra", "-Wno-unused-parameter", "-Werror", "-fsyntax-only",
+                                "-I" + out, "-I" + os.path.join(plat, "include"), "-I" + CORE_INC,
+                                "-I" + os.path.join(plat, "boards"), '-DBOARD_HEADER="m-audio-code61.h"',
+                                "-DFW_VERSION_MAJOR=0", "-DFW_VERSION_MINOR=0", "-DFW_VERSION_PATCH=0", *srcs],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f"variant {i}: {r.stderr}")
 
     def test_din_midi(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")

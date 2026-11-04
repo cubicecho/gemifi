@@ -248,7 +248,9 @@ hardware_scan:
     row_time: 3.5us            # time per row; a frame is every row once (23 rows on the Code 61, padded to 24)
     settle: 3us                # row selected -> columns read; at least 0.25us (0.5us with precharge)
     precharge: false           # drive the columns to their idle level between rows (below)
-  analog: true                 # analog inputs and pads: mux steps + ADC by timer + DMA (below)
+    timer: auto                # stm32f1: the timer that paces it, auto or tim1..tim4 ("DMA channels")
+  analog: true                 # analog inputs and pads: mux steps + ADC by timer + DMA (below);
+                               # or `analog: { timer: tim3 }` (auto, tim2..tim4)
 ```
 
 - **What it needs.** Every row (key matrix and switch matrices) is selected by one store (decoder rows on one port with a set/reset register, `hal_pin_bsrr`), and every column is a bit of one input register. The Code 61 fits: PB3–PB7 select, PB8–PB15 read. If a device doesn't fit, the firmware logs a WARN at boot and scans in software as before. A frame is one reading of each row; an odd row count gets its last row twice, so frames are whole 32-bit words.
@@ -260,16 +262,34 @@ hardware_scan:
 
 ### DMA channels (stm32f1)
 
-The STM32F103 has 7 DMA channels, and each peripheral's DMA request is wired to one of them (RM0008 table 78). The YAML decides which features get DMA, and the builder checks they fit:
+The STM32F103 has 7 DMA channels, and each peripheral's DMA request is wired to one of them (RM0008 table 78). The YAML decides which features get DMA, and the builder hands out the channels:
 
-| Feature | Channels | Without DMA |
+| Feature | DMA requests | Without DMA |
 |---|---|---|
-| `hardware_scan.matrix` | 3, 5; with `precharge` also 2, 6 | the scan interrupt reads the matrix |
-| `hardware_scan.analog` | 1, 4 | the main loop reads one input per pass |
-| `rgb_serial` (`dma: true`, the default) | 7 | `dma: false`: the USART2 interrupt sends the bytes |
-| `din_midi` (`dma: false`, the default) | `dma: true`: 4 (TX), 5 (RX) | the USART1 interrupt moves the bytes |
+| `hardware_scan.matrix` | 2 of one timer (select, read); with `precharge` 4 (+ columns in, precharge) | the scan interrupt reads the matrix |
+| `hardware_scan.analog` | ADC1 (channel 1) + 1 of one timer (mux step) | the main loop reads one input per pass |
+| `rgb_serial` (`dma: true`, the default) | USART2_TX (7) | `dma: false`: the USART2 interrupt sends the bytes |
+| `din_midi` (`dma: false`, the default) | `dma: true`: USART1_TX (4), USART1_RX (5) | the USART1 interrupt moves the bytes |
 
-The scans claim their channels first. A feature whose channel is taken stops the build, and the message names both: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false ...`. The build output and the top of `gm_device_config.h` show the map, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), ... 7 USART2_TX (rgb_serial 'pad_leds'); free: none`.
+The UARTs' channels are fixed. The scans' depend on the timer that paces them, since each timer's update and compare events are wired to their own channels:
+
+| Timer | UP | CH1 | CH2 | CH3 | CH4 | Matrix | Analog (ADC1 trigger) |
+|---|---|---|---|---|---|---|---|
+| TIM1 | 5 | 2 | 3 | 6 | 4 | yes (5 channels to choose from) | no: its triggers drive CC outputs, and PA9/PA10 are USART1's |
+| TIM2 | 2 | 5 | 7 | 1 | 7 | yes (CH2 and CH4 share 7; precharge needs channel 1, ADC1's) | CC2 (mux on CH1 or CH4) |
+| TIM3 | 3 | 6 | – | 2 | 3 | no precharge only (3 channels) | TRGO = OC2REF (mux on CH1, CH3 or CH4) |
+| TIM4 | 7 | 1 | 4 | 5 | – | yes (precharge needs channel 1, ADC1's) | CC4 (mux on CH2 or CH3) |
+
+`timer: auto` (the default) tries the matrix on TIM1, TIM3, TIM4, TIM2 and the analog scan on TIM4, TIM3, TIM2, taking the first that leaves the UARTs' channels free. For the Code 61 that is the original map: matrix on TIM1 (select = update, ch5; columns in = CC1, ch2; read = CC2, ch3; precharge = CC3, ch6), analog on TIM4 (mux = CC2, ch4; ADC1 by CC4). Only the select may be the update event; when it is a compare instead, every step of the row comes one timer tick (14 ns) later, which changes nothing else. `timer: tim3` (etc.) fixes the timer, and auto still picks its compares. TIM2 is also the core's scan tick (an interrupt, no DMA): when a scan takes it, the tick moves to TIM3 or TIM4.
+
+When nothing fits, the build stops. The message names both users and says what would fit: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false (...), or turn hardware_scan.analog off; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels instead of 4, and that fits`. An explicit timer that can't run its scan is an error on its `timer:` line, with the timer's requests. The build output and the top of `gm_device_config.h` show the map and the timers, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ... 7 USART2_TX (rgb_serial 'pad_leds'); free: none` and `timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)`.
+
+What fits on the Code 61 (ADC1, the mux step and the matrix leave 7 − 2 − 4 = 1 channel with precharge, 3 without):
+
+| Matrix | Fits with it |
+|---|---|
+| precharge (36 us frames) | `rgb_serial` DMA (the default), DIN by interrupt |
+| no precharge (`row_time: 3.5us, settle: 3us`: 84 us frames) | `rgb_serial` DMA and `din_midi dma: true`: matrix on TIM1 (select CC1 = ch2, read CC2 = ch3), analog on TIM3 (mux CC1 = ch6, ADC1 by TRGO), DIN on 4 and 5 |
 
 The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and the interrupt for it takes about a microsecond. Spend the channels on the scans, and use DMA for the UARTs on boards that don't scan by hardware.
 

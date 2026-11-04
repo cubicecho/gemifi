@@ -1308,6 +1308,9 @@ static uint8_t a_next;
 #define BEND_STEP 6                 /* raw counts */
 static int16_t a_center[NA];        /* 0..4095 */
 static int16_t a_bend[NA];          /* last pitch bend sent, 0..16383 */
+/* BEND_DEAD in 0..4095 units and BEND_STEP in bend units for each input's
+ * adc_min..adc_max (bend_scale, at init: the range is in the device table). */
+static uint16_t a_dead[NA], a_step[NA];
 #if GM_ANALOG_PICKUP
 /* Pick-up: after the host sets a value the knob isn't at, the knob stays
  * silent until it reaches or crosses that value. */
@@ -1364,16 +1367,25 @@ void gm_analog_host(uint32_t i, uint32_t value)
 #endif
 }
 
-/* Pitch bend from analog input i at pos (0..4095): centre to each end is
- * one half of the 14-bit range. */
-static void analog_bend(uint32_t i, int32_t pos)
+/* a_dead / a_step for input i. A step over 16384 acts as 16384 (no change
+ * of bend is that big); the dead zone fits (at most 16 * 4095). */
+static void bend_scale(uint32_t i)
 {
     const gm_analog_t *a = &gm_device.analogs[i];
     int32_t range = a->raw_max > a->raw_min ? a->raw_max - a->raw_min : a->raw_min - a->raw_max;
     if (range == 0)
         range = 4095;
-    int32_t dead = BEND_DEAD * 4095 / range;          /* in 0..4095 units */
-    int32_t step = BEND_STEP * 16384 / range;         /* in bend units */
+    int32_t step = BEND_STEP * 16384 / range;
+    a_dead[i] = (uint16_t)(BEND_DEAD * 4095 / range);
+    a_step[i] = (uint16_t)(step > 16384 ? 16384 : step);
+}
+
+/* Pitch bend from analog input i at pos (0..4095): centre to each end is
+ * one half of the 14-bit range. */
+static void analog_bend(uint32_t i, int32_t pos)
+{
+    int32_t dead = a_dead[i];                         /* in 0..4095 units */
+    int32_t step = a_step[i];                         /* in bend units */
     int32_t c = a_center[i], b = 8192;
     if (pos > c + dead) {
         int32_t span = 4095 - BEND_END - c - dead;
@@ -2483,6 +2495,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_N_ANALOGS > 0
     for (uint32_t i = 0; i < NA; i++) {
         a_sent[i] = -1;
+        bend_scale(i);
 #if GM_ANALOG_PICKUP
         a_pick[i] = -1;
 #endif

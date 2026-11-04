@@ -38,6 +38,13 @@ __attribute__((weak)) int hal_din_read(void)
     return -1;
 }
 
+/* A platform that can't tell: the queue looks empty, so only
+ * hal_din_write's "full" limits DIN Out. */
+__attribute__((weak)) uint32_t hal_din_tx_queued(void)
+{
+    return 0;
+}
+
 __attribute__((weak)) void hal_midi_send_usb(const uint8_t ev[4])
 {
     (void)ev;

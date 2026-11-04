@@ -58,22 +58,40 @@ void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
-/* The DIN UART. dout_room: free space left in the platform's TX ring. */
+/* The DIN UART. dout: every byte written (the wire, in order). dq: bytes
+ * of it still in the platform's TX ring of dq_size (stm32f1: 512), which
+ * sends dq_rate thousandths of a byte a millisecond (31250 baud: 3125); 0
+ * sends everything at each millisecond. */
 static uint16_t open_tx, open_rx;
 static uint32_t open_baud, open_flags;
-static uint8_t dout[4096], din[4096];
-static int dout_n, din_n, din_at, dout_room = 100000;
+static uint8_t dout[16384], din[4096];
+static int dout_n, din_n, din_at;
+static int dq, dq_size = 512;
+static uint32_t dq_rate, dq_acc;
 int hal_din_open(uint16_t tx, uint16_t rx, uint32_t baud, uint32_t flags) { open_tx = tx; open_rx = rx; open_baud = baud; open_flags = flags; return 1; }
 int hal_din_write(const uint8_t *b, uint32_t n)
 {
-    if ((int)n > dout_room || dout_n + (int)n > (int)sizeof dout)
+    if (dq + (int)n > dq_size || dout_n + (int)n > (int)sizeof dout)
         return 0;
     memcpy(dout + dout_n, b, n);
     dout_n += (int)n;
-    dout_room -= (int)n;
+    dq += (int)n;
     return 1;
 }
+uint32_t hal_din_tx_queued(void) { return (uint32_t)dq; }
 int hal_din_read(void) { return din_at < din_n ? din[din_at++] : -1; }
+
+static void dq_send_ms(void)
+{
+    if (!dq_rate) {
+        dq = 0;
+        return;
+    }
+    for (dq_acc += dq_rate; dq_acc >= 1000u && dq > 0; dq_acc -= 1000u)
+        dq--;
+    if (dq == 0)
+        dq_acc = 0;
+}
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -83,6 +101,7 @@ static void run_ms(uint32_t ms)
         for (uint32_t t = 0; t < 1000u / gm_device.scan_us; t++)
             gm_scan_tick();
         now_ms++;
+        dq_send_ms();
         gm_poll();
     }
 }
@@ -276,7 +295,7 @@ int main(void)
 
     /* DIN Out full: whole messages or nothing */
     clear();
-    dout_room = 4;
+    dq_size = 4;
     {
         uint32_t d0 = gm_din_out_drops;
         const uint8_t m[] = { 0x90, 1, 2 };
@@ -284,7 +303,7 @@ int main(void)
         gm_din_local(m, 3);
         CHECK(dout_n == 3 && gm_din_out_drops == d0 + 1, "no room: the second message is dropped whole");
     }
-    dout_room = 100000;
+    dq_size = 512;
 
     /* Running status: the status byte only when it changes; Note Off as
      * Note On velocity 0 after a Note On (velocity 0 or 64 only) */

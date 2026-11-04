@@ -937,7 +937,7 @@ static void test_velocity_sweep(void)
     uint32_t period = gm_scan_period_us;
     static const uint32_t slow_scan[][2] = {    /* scan period (us), ticks */
         { 5000, 1 }, { 5000, 2 }, { 5000, 53000 }, { 5000, 53687 }, { 5000, 65534 }, { 5000, 70000 },
-        { 4000, 65534 }, { 1, 65534 }, { 2, 3000 }, { 3, 2001 },
+        { 4000, 65534 }, { 7, 65534 }, { 2, 3000 }, { 3, 2001 },
     };
     bad = 0;
     for (uint32_t i = 0; i < sizeof slow_scan / sizeof slow_scan[0]; i++) {

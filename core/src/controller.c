@@ -173,6 +173,18 @@ static uint8_t rows_sel;
 #else
 #define rows_dec 0
 #define rows_sel 0
+/* The common software scan gets a loop of its own (matrix_scan_fast): rows
+ * on MCU pins with an output register, every column on one input register,
+ * no shift-register hubs, contacts on columns (the Keystation). gm_init
+ * picks it. */
+#define SCAN_FAST 1
+static uint8_t scan_fast;
+static const volatile uint32_t *fast_in;   /* the columns' input register */
+static uint32_t fast_mask;          /* ... their bits */
+static uint32_t mraw[FAST_ROWS];    /* each row's last reading & fast_mask */
+#endif
+#ifndef SCAN_FAST
+#define SCAN_FAST 0                 /* a decoder row: matrix_scan only */
 #endif
 static uint8_t knote[NK], kchan[NK];
 #endif
@@ -303,7 +315,7 @@ static uint32_t key_at(const gm_matrix_t *m, uint32_t pos, uint32_t dflt)
     return m->key_map ? m->key_map[pos] : dflt;
 }
 
-#if GM_HW_SCAN
+#if GM_HW_SCAN || SCAN_FAST
 /* Columns of one row from a reading of the (single) column register. */
 static uint32_t cols_of(uint32_t v)
 {
@@ -366,9 +378,56 @@ static void matrix_row(const gm_matrix_t *m, uint32_t r, uint32_t s, uint32_t ro
     }
 }
 
+#if SCAN_FAST
+/* The pins see what matrix_scan does to them: row on, settle, read the
+ * columns, row off. A row that reads as last time (nearly always) is then
+ * done: its columns are only sorted out of the port bits, and handed to
+ * matrix_row, when something changed. */
+static void matrix_scan_fast(const gm_matrix_t *m)
+{
+    const volatile uint32_t *in = fast_in;
+    uint32_t mask = fast_mask, on = row_on, settle = m->settle_us, rows = m->n_rows;
+    for (uint32_t r = 0; r < rows; r++, on >>= 1) {
+        volatile uint32_t *reg = row_reg[r];
+        *reg = on & 1u;
+        if (settle)
+            hal_delay_us(settle);
+        uint32_t raw = *in & mask;
+        *reg = (on & 1u) ^ 1u;
+        if (raw != mraw[r]) {
+            mraw[r] = raw;
+            matrix_row(m, r, cols_of(raw), rows, 0, 0);
+        }
+    }
+}
+
+/* gm_init, once the rows and columns are set up. (Not inlined: smaller
+ * that way, as gm_init is large.) */
+__attribute__((noinline)) static void scan_fast_init(const gm_matrix_t *m)
+{
+    scan_fast = rows_fast && cols_fast && !m_hubs && n_runs &&
+                !(m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS);
+    fast_in = col_run[0].reg;
+    fast_mask = 0;
+    for (uint32_t i = 0; i < n_runs; i++) {
+        if (col_run[i].reg != fast_in)
+            scan_fast = 0;
+        fast_mask |= col_run[i].mask << col_run[i].src;
+    }
+    for (uint32_t r = 0; r < FAST_ROWS; r++)
+        mraw[r] = ~0u;              /* never a reading: the first scan sorts out every row */
+}
+#endif
+
 static void matrix_scan(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
+#if SCAN_FAST
+    if (scan_fast) {
+        matrix_scan_fast(m);
+        return;
+    }
+#endif
     uint32_t rows = m->n_rows > FAST_ROWS ? FAST_ROWS : m->n_rows;
     int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
     uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
@@ -2486,6 +2545,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
             if (m->cols[c].flags & GM_PIN_INVERT)
                 col_inv |= 1u << c;
         }
+#if SCAN_FAST
+        scan_fast_init(m);
+#endif
         for (uint32_t k = 0; k < NK; k++)
             knote[k] = NOTE_NONE;
     }

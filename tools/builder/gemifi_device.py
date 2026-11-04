@@ -179,7 +179,8 @@ PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refu
     "analog": ("analog input", "analog inputs", ["cc", "mode"],
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
     "encoders": ("encoder", "encoders", ["cc", "mode"],
-                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw"]),
+                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
+                  "acceleration"]),
     "pads": ("pad", "pads", ["note"], ["id", "name", "pin"]),
 }
 PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
@@ -326,8 +327,8 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
-            "buttons", "led_defaults", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
-            "displays", "din_midi", "write_to_flash"]
+            "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
+            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -2005,10 +2006,12 @@ def validate_components(v, dev, data):
                                daw=daw_role(v, dev, d, p)))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
+    accel_default = encoder_settings(v, dev, data)
     for i, d in enumerate(encs):
         p = f"encoders[{i}]"
         d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
-                                              "ring", "ring_center", "daw"], renamed=RENAMED_ENCODER)
+                                              "ring", "ring_center", "daw", "acceleration"],
+                      renamed=RENAMED_ENCODER)
         if d is None:
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
@@ -2031,10 +2034,16 @@ def validate_components(v, dev, data):
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)
+        accel = validate_acceleration(v, d, p, accel_default)[1]
         dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
                                 cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center,
-                                daw=daw_role(v, dev, d, p)))
+                                daw=daw_role(v, dev, d, p), accel=accel))
     check_mcu_unique(v, dev, data)
+
+
+def enc_accel(dev):
+    """Any encoder with acceleration: GM_ENC_ACCEL 1 and gm_enc_accel[]; none: the feature compiles out."""
+    return any(getattr(e, "accel", None) for e in dev.encoders)
 
 
 def mcu_needed(v, dev, path, line):
@@ -2728,6 +2737,87 @@ def validate_velocity(v, d, path, kind):
                                         f"({(slow or 1200) / 10:g}ms)")
         return None, None
     return fast, slow
+
+
+# ---------------------------------------------------------------------------------------------
+# encoder acceleration (core/README.md "Encoder acceleration")
+
+# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
+# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
+# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
+ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
+ACCEL_PRESETS = {"off": None,
+                 "low": (60, 15, 4, 0),
+                 "medium": (80, 10, 8, 1),
+                 "high": (100, 8, 16, 1)}
+ACCEL_KEYS = ["slow", "fast", "max", "curve"]
+ACCEL_SLOW_MS = (2, 1000)
+ACCEL_FAST_MS = (1, 999)
+ACCEL_MAX = (1, 32)
+ENCODER_SETTINGS_KEYS = ["acceleration"]
+
+
+def accel_text(a):
+    """(slow, fast, max, curve) -> the preset's name, or 'slow 80ms, fast 10ms, max 8, quadratic'."""
+    for name, p in ACCEL_PRESETS.items():
+        if p == a:
+            return name
+    return f"slow {a[0]}ms, fast {a[1]}ms, max {a[2]}, {ACCEL_CURVES[a[3]]}"
+
+
+def validate_acceleration(v, d, path, base):
+    """`acceleration:` in d (an encoder, or encoder_settings:): off / low / medium / high, or a mapping
+    { slow, fast, max, curve } whose missing keys come from base (a preset tuple; medium when base is off).
+    Returns (given, value): value is a tuple or None (off); given False when d has no acceleration:."""
+    if d.get("acceleration") is None:
+        return False, base
+    x, p, line = d["acceleration"], f"{path}.acceleration" if path else "acceleration", d.line_of("acceleration")
+    names = list(ACCEL_PRESETS)
+    if x is False:                  # bare `off`: YAML 1.1 reads it as false
+        return True, None
+    if isinstance(x, str):
+        if x in ACCEL_PRESETS:
+            return True, ACCEL_PRESETS[x]
+        close = difflib.get_close_matches(x, names, 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(p, line, f"unknown acceleration '{x}' ({hint}valid: {', '.join(names)}, or a mapping "
+                       "{ slow, fast, max, curve })")
+        return True, base
+    if not isinstance(x, dict):
+        v.err(p, line, f"must be {', '.join(names)} or a mapping {{ slow, fast, max, curve }} (got "
+                       f"{type_name(x)} {d.raw_of('acceleration')!r})")
+        return True, base
+    m = v.mapping(x, p, line, ACCEL_KEYS)
+    slow, fast, mx, curve = base or ACCEL_PRESETS["medium"]
+    slow = v.period(m, "slow", p, ACCEL_SLOW_MS[0] * 1000, ACCEL_SLOW_MS[1] * 1000, default=slow,
+                    step_us=1000, example="80ms")
+    fast = v.period(m, "fast", p, ACCEL_FAST_MS[0] * 1000, ACCEL_FAST_MS[1] * 1000, default=fast,
+                    step_us=1000, example="10ms")
+    mx = v.integer(m, "max", p, *ACCEL_MAX, default=mx)
+    if m.get("curve") is not None:
+        c = enum_value(v, m, "curve", f"{p}.curve", ACCEL_CURVES)
+        curve = curve if c is None else c
+    if fast >= slow:
+        v.err(p, line, f"fast ({fast}ms) must be shorter than slow ({slow}ms): detents fast apart get max "
+                       "steps, slow apart 1")
+        return True, base
+    if mx == 1:
+        v.warn(p, m.line_of("max"), "max 1: one step per detent at any speed (the same as off)")
+        return True, None
+    return True, (slow, fast, mx, curve)
+
+
+def encoder_settings(v, dev, data):
+    """encoder_settings: what all encoders share unless they set their own: acceleration (off by default)."""
+    if data.get("encoder_settings") is None:
+        return None
+    p, line = "encoder_settings", data.line_of("encoder_settings")
+    s = v.mapping(data["encoder_settings"], p, line, ENCODER_SETTINGS_KEYS)
+    if s is None:
+        return None
+    if not data.get("encoders"):
+        v.warn(p, line, "there are no encoders: ignored")
+    return validate_acceleration(v, s, p, None)[1]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -3616,7 +3706,9 @@ def mode_layer(v, dev, m, layer, lp, ll):
             e = LDict()
             e.line = line
         e = v.mapping(e, path, line, {"button": LAYER_KEYS, "pad": LAYER_PAD_KEYS,
-                                      "encoder": LAYER_ENCODER_KEYS}[kind])
+                                      "encoder": LAYER_ENCODER_KEYS}[kind],
+                      renamed={"acceleration": "acceleration: is the physical encoder's, and its twins share it: "
+                                               "set it on the encoder"} if kind == "encoder" else None)
         if e is None:
             continue
         if kind == "pad":
@@ -4073,6 +4165,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
     if enc_twins:
         h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
+    h.append(f"#define GM_ENC_ACCEL {1 if enc_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */")
     btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     if btn_twins:
         h.append(f"#define GM_BTN_TWINS {btn_twins} /* the last buttons: layer twins (layer.button.*) */")
@@ -4153,6 +4246,16 @@ def generate(dev, source="device.yaml"):
         c.append("static const gm_encoder_t encoders[GM_N_ENCODERS] = {")
         c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.name)}, {e.steps}{twin_c(e)} }}, "
               f"/* {_comment(e.id)}: {_comment(e.a.desc)}, {_comment(e.b.desc)} */" for e in dev.encoders]
+        c += ["};", ""]
+    if enc_accel(dev):
+        own = [e for e in dev.encoders if not getattr(e, "layer", 0)]
+        c.append("/* acceleration: per scanned encoder (twins share theirs): slow ms, fast ms, max, curve */")
+        c.append(f"const gm_enc_accel_t gm_enc_accel[{len(own)}] = {{")
+        for e in own:
+            a = getattr(e, "accel", None)
+            body = (f"{a[0]}, {a[1]}, {a[2]}, GM_ACCEL_{ACCEL_CURVES[a[3]].upper()}" if a
+                    else "0, 0, 1, GM_ACCEL_LINEAR")
+            c.append(f"    {{ {body} }}, /* {_comment(e.id)}: {accel_text(a) if a else 'off'} */")
         c += ["};", ""]
     if m:
         for nm, lst in (("rows", m.rows), ("cols", m.cols)):

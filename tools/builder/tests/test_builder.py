@@ -106,6 +106,14 @@ class TestGenerateCompiles(unittest.TestCase):
             self.assertIn(s, out)
         self.compile_with_core(mine)
 
+    def test_encoder_acceleration_compiles(self):
+        """gm_enc_accel[] (encoder acceleration:) compiles with the core, with and without twins."""
+        dev, diags = load(MINIMAL_NUC + "encoder_settings: { acceleration: medium }\n"
+                          "encoders:\n  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20 }\n"
+                          "  - { id: e2, pin_a: PB8, pin_b: PB9, cc: 21, acceleration: off }\n")
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.compile_with_core(gen_dir(dev, self.tmp))
+
     def test_generate_keeps_unchanged_files(self):
         dev, _ = gd.load_device(KEYSTATION)
         out = os.path.join(self.tmp, "keep")
@@ -2519,6 +2527,128 @@ class TestPads(unittest.TestCase):
         self.assertEqual([p.name for p in dev.pads], [f"Pad {k}" for k in range(1, 17)])
         hubs = {h.id: h.index + 1 for h in dev.hubs}
         self.assertEqual({p.pin.hub for p in dev.pads}, {hubs["pad_mux_a"], hubs["pad_mux_b"]})
+
+
+# ---- encoder acceleration (core/README.md "Encoder acceleration") ----
+
+ENC_NUC = MINIMAL_NUC + """\
+encoders:
+  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20 }
+  - { id: e2, pin_a: PB8, pin_b: PB9, cc: 21 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestEncoderAcceleration(unittest.TestCase):
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def table(self, text):
+        """The generated gm_enc_accel[] rows as (values, encoder id), or None without the table."""
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        self.assertFalse(gd.errors(diags), [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        h, c = files["gm_device_config.h"], files["gm_device_config.c"]
+        on = "#define GM_ENC_ACCEL 1 " in h
+        self.assertEqual(on, "gm_enc_accel[" in c)
+        self.assertTrue(on or "#define GM_ENC_ACCEL 0 " in h)
+        return re.findall(r"^    \{ (\d+, \d+, \d+, GM_ACCEL_\w+) \}, /\* (\w+): ", c, re.M) if on else None
+
+    def enc(self, i, extra, base=ENC_NUC):
+        """base with `extra` (e.g. 'acceleration: low') added to encoder i's mapping."""
+        old = next(ln for ln in base.split("\n") if f"id: e{i + 1}," in ln)
+        return base.replace(old, old[:-2] + f", {extra} }}")
+
+    def test_off_by_default(self):
+        self.assertIsNone(self.table(ENC_NUC))
+        self.assertIsNone(self.table(self.enc(0, "acceleration: off")))
+        self.assertIsNone(self.table(self.enc(0, "acceleration: 'off'")))
+        self.assertIsNone(self.table(ENC_NUC + "encoder_settings: { acceleration: off }\n"))
+        self.assertIsNone(self.table(ENC_NUC + "encoder_settings: {}\n"))
+        self.assertIsNone(self.table(MINIMAL_NUC))          # no encoders at all: GM_ENC_ACCEL 0 still
+
+    def test_presets(self):
+        for name, row in (("low", "60, 15, 4, GM_ACCEL_LINEAR"), ("medium", "80, 10, 8, GM_ACCEL_QUADRATIC"),
+                          ("high", "100, 8, 16, GM_ACCEL_QUADRATIC")):
+            with self.subTest(name):
+                self.assertEqual(self.table(self.enc(1, f"acceleration: {name}")),
+                                 [("0, 0, 1, GM_ACCEL_LINEAR", "e1"), (row, "e2")])
+        dev, _ = load(self.enc(0, "acceleration: medium"))
+        c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
+        self.assertIn("{ 80, 10, 8, GM_ACCEL_QUADRATIC }, /* e1: medium */", c)
+        self.assertIn("{ 0, 0, 1, GM_ACCEL_LINEAR }, /* e2: off */", c)
+
+    def test_mapping(self):
+        rows = self.table(self.enc(0, "acceleration: { slow: 120ms, fast: 5ms, max: 32, curve: cubic }"))
+        self.assertEqual(rows[0], ("120, 5, 32, GM_ACCEL_CUBIC", "e1"))
+        # partial: the rest from medium
+        self.assertEqual(self.table(self.enc(0, "acceleration: { max: 4 }"))[0],
+                         ("80, 10, 4, GM_ACCEL_QUADRATIC", "e1"))
+        self.assertEqual(self.table(self.enc(0, "acceleration: { curve: linear, slow: 0.1s }"))[0],
+                         ("100, 10, 8, GM_ACCEL_LINEAR", "e1"))
+        dev, _ = load(self.enc(0, "acceleration: { max: 4 }"))
+        self.assertIn("/* e1: slow 80ms, fast 10ms, max 4, quadratic */",
+                      gd.generate(dev, "t.yaml")["gm_device_config.c"])
+
+    def test_default_and_override(self):
+        top = "encoder_settings: { acceleration: high }\n"
+        self.assertEqual(self.table(ENC_NUC + top), [("100, 8, 16, GM_ACCEL_QUADRATIC", "e1"),
+                                                     ("100, 8, 16, GM_ACCEL_QUADRATIC", "e2")])
+        self.assertEqual(self.table(self.enc(1, "acceleration: off") + top),
+                         [("100, 8, 16, GM_ACCEL_QUADRATIC", "e1"), ("0, 0, 1, GM_ACCEL_LINEAR", "e2")])
+        self.assertEqual(self.table(self.enc(1, "acceleration: low") + top)[1],
+                         ("60, 15, 4, GM_ACCEL_LINEAR", "e2"))
+        # a partial mapping fills in from the top-level default, and the default's from medium
+        self.assertEqual(self.table(self.enc(1, "acceleration: { max: 4 }") + top)[1],
+                         ("100, 8, 4, GM_ACCEL_QUADRATIC", "e2"))
+        self.assertEqual(self.table(ENC_NUC + "encoder_settings: { acceleration: { fast: 20ms } }\n")[0],
+                         ("80, 20, 8, GM_ACCEL_QUADRATIC", "e1"))
+
+    def test_twins_share_the_base(self):
+        base = MODES_NUC.replace("  - { id: other, pin: PA3, action: note, note: 60 }\n",
+                                 "  - { id: other, pin: PA3, action: note, note: 60 }\n"
+                                 "  - { id: sel, pin: PA6 }\n") + \
+            "encoders:\n  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20, acceleration: low }\n" \
+            "  - { id: e2, pin_a: PB9, pin_b: PB10, cc: 21 }\n"
+        text = modes("- id: grid\n  toggle: { button: sel }\n  layer:\n    e1: { cc: 30 }\n", base)
+        self.assertEqual(self.table(text), [("60, 15, 4, GM_ACCEL_LINEAR", "e1"), ("0, 0, 1, GM_ACCEL_LINEAR", "e2")])
+        dev, _ = load(text)
+        self.assertIn("const gm_enc_accel_t gm_enc_accel[2] = {", gd.generate(dev, "t.yaml")["gm_device_config.c"])
+        self.assertError(modes("- id: grid\n  toggle: { button: sel }\n  layer:\n    e1: { acceleration: high }\n",
+                               base), r"acceleration: is the physical encoder's.*set it on the encoder")
+
+    def test_bad_values(self):
+        self.assertError(self.enc(0, "acceleration: meduim"),
+                         r"unknown acceleration 'meduim' \(did you mean 'medium'\?", line=10,
+                         path="encoders[0].acceleration")
+        self.assertError(self.enc(0, "acceleration: 8"), r"must be off, low, medium, high or a mapping")
+        self.assertError(self.enc(0, "acceleration: on"), r"must be off, low, medium, high or a mapping")
+        self.assertError(self.enc(0, "acceleration: { slow: 80 }"), r"needs a unit")
+        self.assertError(self.enc(0, "acceleration: { slow: 2s }"), r"out of range \(2ms\.\.1000ms\)")
+        self.assertError(self.enc(0, "acceleration: { fast: 0.5ms }"), r"out of range")
+        self.assertError(self.enc(0, "acceleration: { max: 33 }"), r"33 is out of range \(1\.\.32\)")
+        self.assertError(self.enc(0, "acceleration: { max: 0 }"), r"0 is out of range \(1\.\.32\)")
+        self.assertError(self.enc(0, "acceleration: { curve: quadric }"), r"did you mean 'quadratic'")
+        self.assertError(self.enc(0, "acceleration: { slwo: 80ms }"), r"unknown key \(did you mean 'slow'\?\)")
+        self.assertError(self.enc(0, "acceleration: { slow: 20ms, fast: 20ms }"),
+                         r"fast \(20ms\) must be shorter than slow \(20ms\)")
+        self.assertError(self.enc(0, "acceleration: { fast: 90ms }"),
+                         r"fast \(90ms\) must be shorter than slow \(80ms\)")
+        self.assertError(ENC_NUC + "encoder_settings: { acceleraton: low }\n", r"did you mean 'acceleration'")
+        self.assertError(ENC_NUC + "encoder_settings: { acceleration: hgih }\n", r"did you mean 'high'",
+                         path="encoder_settings.acceleration")
+        self.assertError(ENC_NUC + "encoder_setting: { acceleration: low }\n", r"did you mean 'encoder_settings'")
+        warns = [d.msg for d in self.errs(MINIMAL_NUC + "encoder_settings: { acceleration: low }\n",
+                                          level="warning")]
+        self.assertIn("there are no encoders: ignored", warns)
+        text = self.enc(0, "acceleration: { max: 1 }")
+        self.assertTrue(any("the same as off" in d.msg for d in self.errs(text, level="warning")))
+        self.assertIsNone(self.table(text))
+        # a preset can't set it: it is the encoder's
+        pre = "presets:\n  slots: 2\n  list:\n    - name: A\n    - name: B\n      encoders: { e1: { acceleration: high } }\n"
+        self.assertError(ENC_NUC + pre, r"acceleration: is the same in every preset")
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")

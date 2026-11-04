@@ -176,6 +176,6 @@ The extension compiles against `com.bitwig:extension-api:25`, from Bitwig's publ
 - None of this has been tried in Bitwig: the install path, the controller list entry, SysEx in and out, the `flush()` timing, the pop-up.
 - Spec points in `protocol/sysex.md` §4.6 the extension had to guess at, the same ones as the Live script:
   - A button's `led` is taken to be an index in the kind-5 (LED) list.
-  - Encoder deltas are taken to be in detents without acceleration.
+  - Encoder deltas are steps, already accelerated by the device when it has `acceleration:` (`core/README.md` "Encoder acceleration"); the extension uses them as they come.
   - An encoder's `mode` can change while the extension runs (SET_PARAM `encoder.mode`, a preset change); the extension reads it once, at connect.
   - A device restart drops the FB_* states; the extension hears BOOTED, or (older firmware, or a BOOTED sent before the port was open) notices by polling `debug.events`.

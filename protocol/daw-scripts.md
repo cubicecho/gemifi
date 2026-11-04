@@ -295,7 +295,7 @@ LED 4 of 30, id "led_4", no role, colours 2, owner 0, layer 0:
 | 1 | button | 1 down, 0 up |
 | 2 | key | velocity; 0 = release (keys also send their normal notes, so a script usually ignores these) |
 | 3 | analog | the calibrated position, 0..16383. With `takeover: pickup`, held back until the knob picks up the device's target (§5.3) |
-| 4 | encoder | the change in **detents** since the last EVENT, 14-bit two's complement (≥ 8192 means negative: subtract 16384) |
+| 4 | encoder | the change in **steps** since the last EVENT, 14-bit two's complement (≥ 8192 means negative: subtract 16384): one per detent, or more on a quick turn when the encoder has acceleration (`core/README.md` "Encoder acceleration"). Use it as the change; the device has already scaled it |
 | 5 | touch | `index` is the analog's index. 1 touched, 0 released. Only from analogs with `touch` ≠ 0 (§4.4) |
 | 7 | pad | `index` is the pad's index (kind 7, twins included). The peak reading × 4 on a hit (1..16380), 0 on release. **Only pad twins send it** |
 | 8 | layer | `index` is a mode index: the n − 1 of a twin's `layer` n (§4.4). 1 the mode turned on, 0 off |

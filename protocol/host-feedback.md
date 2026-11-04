@@ -160,7 +160,7 @@ The `fader_touch_*` names can be given to a button; nothing sends them automatic
 |---|---|
 | button `mcu: <name>` | Note On ch 1, note per §3.1, `7F` press / `00` release |
 | analog `mcu: fader_1`–`fader_8` / `master` | pitch bend ch 1–8 / ch 9, 14 bit (the 12-bit reading shifted left by 2). Sent when the 7-bit value changes, so 128 steps over the travel |
-| encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17 ch 1, relative: `01`–`0F` = +1..+15 detents (clockwise), `41`–`4F` = −1..−15 |
+| encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17 ch 1, relative: `01`–`0F` = +1..+15 steps (clockwise), `41`–`4F` = −1..−15; a step is a detent, or more on a quick turn with acceleration (`core/README.md` "Encoder acceleration") |
 | (replies) | SysEx, §3.5 |
 
 ### 3.3 Faders, host → device

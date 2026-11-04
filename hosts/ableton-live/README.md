@@ -111,7 +111,7 @@ Less sure (every call is wrapped so a missing one does nothing):
   - A button's `led` is taken to be an index in the kind-5 (LED) list, and every LED, a button's own included, is assumed to appear there.
   - Whether EVENTs for an analog input with `takeover: pickup` are held back until it picks up. The script does its own pick-up either way.
   - An encoder's `mode` can change while the script runs (SET_PARAM `encoder.mode`, a preset change); the script reads it once, at connect.
-  - Encoder delta units (per detent? accelerated?) aren't specified; the script assumes one unit per detent.
+  - Encoder deltas are steps: one per detent, more on a quick turn when the device has encoder acceleration (`core/README.md` "Encoder acceleration"), already scaled. The script uses them as they come.
   - There's no "ring off". The script sends wrap mode with value 0 and assumes it lights nothing.
   - `debug.events` is volatile (never stored), so a COMMIT while the script runs or a script crash can't leave it on after a reboot. The script still restores the old value on exit.
   - A device restart drops the FB_* states; the script hears BOOTED, or (older firmware, or a BOOTED sent before the port was open) notices by polling `debug.events`.

@@ -1,0 +1,49 @@
+# Test device for core/test/test_encoders.c: encoder acceleration
+# (core/README.md "Encoder acceleration"). The default comes from
+# encoder_settings: (medium); one encoder has its own mapping, one is off,
+# one is a Mackie Control V-Pot and one starts in a relative mode in the
+# test. The first encoder has twins in a cycle (Shift + emode): one sends
+# only EVENTs, one its own CC. Not a real board; the pins only need to be
+# distinct for the simulated HAL.
+gemifi: 2
+name: encoders-test
+friendly_name: Encoders Test
+board_id: 0x3F14
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+mcu: {}                      # vpot: Mackie Control on the DAW port
+
+encoder_settings: { acceleration: medium }   # every encoder that doesn't set its own
+
+key_matrix:                  # modes need one
+  type: switch
+  rows: [PA0]
+  columns: [PA1]
+  keys: 1
+  first_note: 60
+
+buttons:
+  - { id: shift, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 22 }
+  - { id: emode, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 27 }
+
+leds:
+  - { id: emode_led, pin: PC0 }
+
+modes:
+  - id: encs
+    cycle: { button: emode, with: shift }
+    led: emode_led
+    steps:
+      - { id: s_plain, name: PLAIN }
+      - { id: s_zyn, name: ZYN, layer: { med: { cc: none, daw: device_param_1 } } }
+      - { id: s_cc, name: CC, layer: { med: { cc: 40 } } }
+
+encoders:
+  - { id: med, pin_a: PB4, pin_b: PB5, cc: 30 }       # medium: slow 80ms, fast 10ms, max 8, quadratic
+  - { id: lin, pin_a: PB6, pin_b: PB7, cc: 31, acceleration: { slow: 100ms, fast: 20ms, max: 4, curve: linear } }
+  - { id: plain, pin_a: PB8, pin_b: PB9, cc: 32, acceleration: off }
+  - { id: pot, pin_a: PB10, pin_b: PB11, mcu: vpot_1 }   # medium
+  - { id: rel, pin_a: PB12, pin_b: PB13, cc: 33, acceleration: high }   # slow 100ms, fast 8ms, max 16

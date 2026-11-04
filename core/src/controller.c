@@ -66,6 +66,9 @@
 /* Encoders with pins of their own; their layer twins (GM_ENC_TWINS) come
  * after them and aren't scanned. */
 #define NE_HW (GM_N_ENCODERS - GM_ENC_TWINS)
+#ifndef GM_ENC_ACCEL
+#define GM_ENC_ACCEL 0              /* a config generated before acceleration: */
+#endif
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
@@ -1815,23 +1818,80 @@ static void pads_report(void)
 /* ---- encoders (main side) --------------------------------------------- */
 
 #if GM_N_ENCODERS > 0
+#if GM_ENC_ACCEL
+/* Acceleration (core/README.md "Encoder acceleration"), per scanned encoder
+ * (its twins share it): when it last turned (ms), the smoothed time between
+ * its detents (1/16 ms), the fraction of a step carried to its next turn
+ * (1/16 step) and the direction it turns. Main loop only. */
+static uint32_t acc_t[GM_ARR(NE_HW)];
+static uint16_t acc_avg[GM_ARR(NE_HW)];
+static uint8_t acc_rem[GM_ARR(NE_HW)];
+static int8_t acc_dir[GM_ARR(NE_HW)];
+
+/* d detents of scanned encoder p, read at now: the steps they move. The
+ * first detent after a pause of at least slow, and after a reversal, starts
+ * from 1 step per detent; a reversal also drops the carried fraction, so
+ * turning back is exact. Faster turns move up to max steps per detent, and
+ * a detent always moves at least 1 step. Divides only on a turn. */
+static int32_t enc_accel(uint32_t p, int32_t d, uint32_t now)
+{
+    const gm_enc_accel_t *a = &gm_enc_accel[p];
+    if (a->max <= 1)
+        return d;
+    uint32_t n = (uint32_t)(d < 0 ? -d : d);
+    int8_t dir = d < 0 ? -1 : 1;
+    uint32_t slow = a->slow_ms * 16u, fast = a->fast_ms * 16u;
+    uint32_t dt = now - acc_t[p];
+    acc_t[p] = now;
+    if (dir != acc_dir[p] || dt >= a->slow_ms) {
+        acc_dir[p] = dir;
+        acc_avg[p] = (uint16_t)slow;
+        acc_rem[p] = 0;
+    } else {
+        uint32_t t = n == 1 ? dt * 16u : dt * 16u / n;     /* this turn's time per detent */
+        acc_avg[p] = (uint16_t)((acc_avg[p] + t) / 2u);   /* t < slow here */
+    }
+    uint32_t avg = acc_avg[p], m = 16;  /* steps per detent, 1/16 step */
+    if (avg < slow) {
+        /* x: 0 at slow .. 256 at fast and below */
+        uint32_t x = avg <= fast ? 256u : (slow - avg) * 256u / (slow - fast);
+        if (a->curve == GM_ACCEL_QUADRATIC)
+            x = x * x >> 8;
+        else if (a->curve == GM_ACCEL_CUBIC)
+            x = x * x * x >> 16;
+        m += (a->max - 1u) * 16u * x >> 8;
+    }
+    uint32_t steps = n * m + acc_rem[p];
+    acc_rem[p] = (uint8_t)(steps & 15u);
+    steps >>= 4;
+    return dir < 0 ? -(int32_t)steps : (int32_t)steps;
+}
+#endif
+
 /* A scanned encoder's turns go to the live one of it and its twins: its
- * CC, mode, value and EVENT index. */
-static void encoders_poll(void)
+ * CC, mode, value and EVENT index. With acceleration, all of these get the
+ * accelerated steps (DAW scripts nudge by the EVENT's delta). */
+static void encoders_poll(uint32_t now)
 {
     for (uint32_t p = 0; p < NE_HW; p++) {
         if (enc_i2c[p])
             encoder_step(p);
         uint16_t c = enc_count[p];
-        int16_t d = (int16_t)(uint16_t)(c - enc_seen[p]);
-        if (!d)
+        int16_t raw = (int16_t)(uint16_t)(c - enc_seen[p]);
+        if (!raw)
             continue;
         enc_seen[p] = c;
         uint32_t i = ENC_LIVE(p);
+#if GM_ENC_ACCEL
+        int32_t d = enc_accel(p, raw, now);
+#else
+        int16_t d = raw;            /* as before acceleration: the same code */
+        (void)now;
+#endif
         event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
 #if GM_MCU
         if (gm_encoder_mcu[i] != GM_MCU_NONE) {
-            gm_mcu_vpot(gm_encoder_mcu[i], d);
+            gm_mcu_vpot(gm_encoder_mcu[i], d);      /* it sends at most 15 */
             continue;
         }
 #endif
@@ -2807,7 +2867,7 @@ void gm_poll(void)
 #endif
     poll_part_done(3, &tc);
 #if GM_N_ENCODERS > 0
-    encoders_poll();
+    encoders_poll(now);
 #endif
     hal_midi_poll();                /* analog, pads, encoders, DIN merged in: before the LEDs too */
     poll_part_done(4, &tc);

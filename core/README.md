@@ -776,6 +776,9 @@ encoders:
 #define GM_HAS_MATRIX 1
 #define GM_MATRIX_KEYS 32
 #define GM_MATRIX_VELOCITY 1
+#define GM_MATRIX_ROWS 8                  /* key-matrix rows scanned (at most 32): sizes the scan's per-row tables */
+#define GM_MATRIX_COL_RUNS 3              /* runs of adjacent column bits on one port (PB0-5, PB8, PB12) */
+#define GM_MATRIX_DECODER 0               /* 1: a row is a decoder output (the one-store row selects are kept) */
 #define GM_BOARD_ID 0x0001
 #define GM_DEVICE_NAME "Keystation Mini 32"   /* friendly_name */
 #define GM_NODE_NAME "keystation-mini32"       /* name: sent at the end of HELLO (sysex.md 4.1.1) */

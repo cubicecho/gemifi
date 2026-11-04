@@ -4,6 +4,7 @@ import { decodeU14, encodeLstring, encodeS32, encodeU14, PayloadReader } from '.
 import { decodeFrame, encodeFrame } from './frame.ts';
 import { parseDeviceMessage } from './messages.ts';
 import {
+  deletePreset,
   getPresetInfo,
   isPresetDirty,
   isPresetStored,
@@ -11,6 +12,7 @@ import {
   type PresetInfo,
   parsePresetInfo,
   presetNameProblem,
+  presetSlots,
   readPresets,
   renamePreset,
   resetPreset,
@@ -139,6 +141,16 @@ class FakePresetDevice {
         reply([]);
         return;
       }
+      case Command.PresetDelete:
+        if (isSlot === false) {
+          reply([], Status.BadParam);
+          return;
+        }
+        this.names.splice(slot - 1, 1);
+        this.active = Math.min(this.active, this.names.length);
+        reply([]);
+        this.#changed();
+        return;
       default:
         reply([], Status.BadCmd);
     }
@@ -221,6 +233,34 @@ describe('presets (§4.5)', () => {
     expect(device.stored.has(2)).toBe(false);
     const name = device.received.find(({ cmd }) => cmd === Command.PresetName);
     expect(name?.payload).toEqual([2, 0, 5, ...Array.from('Synth', (c) => c.charCodeAt(0))]);
+  });
+
+  it('deletes with PRESET_DELETE and the slot', async () => {
+    const device = new FakePresetDevice();
+    const client = new SysexClient(device.transport(), FAST);
+    await deletePreset(client, 2);
+    expect(device.names).toEqual(['Default', 'Preset 3']);
+    expect(device.received.at(-1)).toEqual({ cmd: Command.PresetDelete, payload: [2, 0] });
+    await expect(deletePreset(client, 9)).rejects.toBeInstanceOf(RequestError);
+  });
+
+  it('sorts the slots into presets in use and free ones', () => {
+    const slot = (n: number, flags: number): PresetInfo => ({
+      slot: n,
+      count: 4,
+      active: 1,
+      flags,
+      revision: 0,
+      storedRevision: 0,
+      program: -1,
+      name: `Preset ${n}`,
+    });
+    const { InUse, Yaml, Stored } = PresetFlag;
+    const now = presetSlots([slot(1, InUse | Yaml), slot(2, InUse | Stored), slot(3, Yaml), slot(4, 0)], 1);
+    expect([now.inUse.map((i) => i.slot), now.free.map((i) => i.slot), now.canDelete]).toEqual([[1, 2], [3, 4], true]);
+    // Before PRESET_DELETE no slot reports bit 3: all are in use, the empty ones are where new presets go.
+    const old = presetSlots([slot(1, Yaml), slot(2, Stored), slot(3, 0), slot(4, 0)], 3);
+    expect([old.inUse.length, old.free.map((i) => i.slot), old.canDelete]).toEqual([4, [4], false]);
   });
 
   it('refuses a bad name before sending it, and passes on BAD_PARAM', async () => {

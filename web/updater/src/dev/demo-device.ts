@@ -156,6 +156,16 @@ const PARAMS: ParamSpec[] = [
     flags: ParamFlag.Volatile | ParamFlag.ReadOnly,
   }),
   makeParam({
+    id: PresetParam.Count,
+    name: 'preset.count',
+    label: 'Presets in use',
+    group: 5,
+    min: 1,
+    max: 3,
+    defaults: [1],
+    flags: ParamFlag.ReadOnly,
+  }),
+  makeParam({
     id: 13,
     name: 'debug.events',
     label: 'Send events',
@@ -191,12 +201,38 @@ class DemoDevice {
   readonly #stored = new Map<number, StoredSlot>();
   #active = 1;
   #dirty = false;
+  /** Presets in use: slots 1..used; the rest are free (§4.5). */
+  #used = 2;
   #listeners = new Set<(bytes: Uint8Array) => void>();
 
   constructor() {
     for (const { key, param, index } of keysOf(() => true)) {
       this.#live.set(key, param.defaults[index] ?? 0);
     }
+    // A second preset to start with, so there is something to switch to and delete.
+    this.#stored.set(2, { name: 'Drums', values: new Map([['1:0', 10]]) });
+  }
+
+  /** @returns The live values of `slot` as it would load: stored, else the defaults. */
+  #valuesOf(slot: number): Map<string, number> {
+    const stored = this.#stored.get(slot)?.values;
+    return new Map(
+      keysOf(isPerPreset).map(({ key, param, index }) => [key, stored?.get(key) ?? param.defaults[index] ?? 0]),
+    );
+  }
+
+  /** PRESET_DELETE: the later presets move up, the last one in use is freed. */
+  #delete(slot: number): void {
+    for (let s = slot; s < this.#used; s++) {
+      const next = this.#stored.get(s + 1);
+      const name = next?.name ?? (s + 1 <= YAML_NAMES.length ? (YAML_NAMES[s] ?? null) : null);
+      this.#stored.set(s, { name, values: this.#valuesOf(s + 1) });
+    }
+    this.#stored.delete(this.#used);
+    const was = this.#active;
+    this.#used -= 1;
+    const next = was === slot ? Math.min(slot, this.#used) : was > slot ? was - 1 : was;
+    this.#load(next);
   }
 
   transport(): Transport {
@@ -220,9 +256,8 @@ class DemoDevice {
   }
 
   #load(slot: number): void {
-    const stored = this.#stored.get(slot)?.values;
-    for (const { key, param, index } of keysOf(isPerPreset)) {
-      this.#live.set(key, stored?.get(key) ?? param.defaults[index] ?? 0);
+    for (const [key, value] of this.#valuesOf(slot)) {
+      this.#live.set(key, value);
     }
     this.#active = slot;
     this.#live.set(`${PresetParam.Active}:0`, slot);
@@ -237,7 +272,8 @@ class DemoDevice {
     const flags =
       (this.#stored.has(slot) ? PresetFlag.Stored : 0) |
       (slot === this.#active && this.#dirty ? PresetFlag.Dirty : 0) |
-      (slot <= YAML_NAMES.length ? PresetFlag.Yaml : 0);
+      (slot <= YAML_NAMES.length ? PresetFlag.Yaml : 0) |
+      (slot <= this.#used ? PresetFlag.InUse : 0);
     const program = slot === this.#active ? (this.#live.get(`${PresetParam.Program}:0`) ?? -1) : -1;
     return [
       ...encodeU14(slot),
@@ -298,6 +334,10 @@ class DemoDevice {
             return;
           }
           if (id === PresetParam.Active) {
+            if (value > this.#used) {
+              reply(Status.BadValue);
+              return;
+            }
             this.#load(value);
             reply(Status.Ok, [...encodeU14(id), ...encodeU14(index), ...encodeS32(value)]);
             this.#changed();
@@ -309,7 +349,12 @@ class DemoDevice {
             setTimeout(() => this.#changed(), 0);
           }
         }
-        const now = id === PresetParam.Dirty ? Number(this.#dirty) : (this.#live.get(key) ?? 0);
+        const now =
+          id === PresetParam.Dirty
+            ? Number(this.#dirty)
+            : id === PresetParam.Count
+              ? this.#used
+              : (this.#live.get(key) ?? 0);
         reply(Status.Ok, [...encodeU14(id), ...encodeU14(index), ...encodeS32(now)]);
         return;
       }
@@ -322,6 +367,7 @@ class DemoDevice {
         }
         const values = new Map(keysOf(isPerPreset).map(({ key }) => [key, this.#live.get(key) ?? 0]));
         this.#stored.set(slot, { name: this.#stored.get(slot)?.name ?? null, values });
+        this.#used = Math.max(this.#used, slot);
         this.#active = slot;
         this.#live.set(`${PresetParam.Active}:0`, slot);
         this.#dirty = false;
@@ -343,7 +389,11 @@ class DemoDevice {
         const slot = reader.u14();
         const name = reader.lstring();
         const old = this.#stored.get(slot);
-        if (name === '' && (old === undefined || old.values.size === 0)) {
+        if (slot > this.#used) {
+          // Naming a free slot makes it a preset: a copy of preset 1's firmware values.
+          this.#stored.set(slot, { name: name === '' ? null : name, values: new Map() });
+          this.#used = slot;
+        } else if (name === '' && (old === undefined || old.values.size === 0)) {
           this.#stored.delete(slot);
         } else {
           this.#stored.set(slot, { name: name === '' ? null : name, values: old?.values ?? new Map() });
@@ -361,8 +411,24 @@ class DemoDevice {
         reply(Status.Ok, this.#info(slot));
         return;
       }
+      case Command.PresetDelete: {
+        const slot = reader.u14();
+        if (slot < 1 || slot > this.#used) {
+          reply(Status.BadParam);
+          return;
+        }
+        if (this.#used === 1) {
+          reply(Status.BadState);
+          return;
+        }
+        this.#delete(slot);
+        reply(Status.Ok);
+        this.#changed();
+        return;
+      }
       case Command.FactoryReset:
         this.#stored.clear();
+        this.#used = YAML_NAMES.length;
         for (const { key, param, index } of keysOf(() => true)) {
           this.#live.set(key, param.defaults[index] ?? 0);
         }

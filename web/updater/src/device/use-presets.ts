@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SysexClient } from '../protocol/client.ts';
 import {
+  deletePreset,
   isPresetDirty,
   type PresetInfo,
   readPresets,
@@ -18,7 +19,7 @@ export type PresetsState =
   | { kind: 'ready'; presets: PresetInfo[]; active: number; dirty: boolean };
 
 /** A preset action that is running. */
-export type PresetAction = 'select' | 'create' | 'reset' | 'rename';
+export type PresetAction = 'select' | 'create' | 'reset' | 'rename' | 'delete';
 
 /** What a new preset starts from. */
 export type PresetStart = 'current' | 'defaults';
@@ -47,6 +48,8 @@ export interface PresetsController {
   create: (preset: NewPreset) => Promise<void>;
   /** Drops a slot's stored edits and name. */
   reset: (slot: number) => void;
+  /** Deletes a preset; the later ones move up (§4.5). */
+  remove: (slot: number) => void;
   /** Stores a new name; empty = the firmware's name. */
   rename: (slot: number, name: string) => Promise<void>;
   /** Reads the list again. */
@@ -228,5 +231,21 @@ export function usePresets(
     [run],
   );
 
-  return { state, action, actionError, select, create, reset, rename, reload };
+  const remove = useCallback(
+    (slot: number) => {
+      void run(
+        'delete',
+        async (device) => {
+          await deletePreset(device, slot);
+          setAttempt((n) => n + 1);
+          // The presets moved and the active one may be another now: its values are new.
+          onValuesChangedRef.current();
+        },
+        false,
+      );
+    },
+    [run],
+  );
+
+  return { state, action, actionError, select, create, reset, rename, remove, reload };
 }

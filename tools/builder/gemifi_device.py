@@ -80,6 +80,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.thru", 30, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
+    ("preset.count", 33, GLOBAL, lambda d: 1 if d.n_presets > 1 else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.

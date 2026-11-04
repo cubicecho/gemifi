@@ -25,11 +25,12 @@ Config (app firmware, sysex.md 4.3):
   gemifi.py restore IN.json [--commit]
 
 Presets (sysex.md 4.5; HELLO caps bit 5):
-  gemifi.py presets                   list the slots: number, name, active (*), unsaved/stored edits, program
+  gemifi.py presets                   list the slots: number, name, active (*), unsaved/stored edits, program, free
   gemifi.py preset select N|NAME [--discard]
   gemifi.py preset save [N|NAME] [--name NAME]   store the live values (save-as with N) and make it active
   gemifi.py preset reset N|NAME|all [--yes]      back to the firmware's preset (stored edits and name dropped)
-  gemifi.py preset rename N|NAME NEWNAME         ("" = back to the firmware's name)
+  gemifi.py preset rename N|NAME NEWNAME         ("" = back to the firmware's name; a free slot becomes a preset)
+  gemifi.py preset delete N|NAME [--yes]         remove a preset: the later ones move up (firmware with PRESET_DELETE)
   flash takes --backup FILE / --no-backup and --keep-presets / --use-firmware-presets (see tools/README.md)
 
 Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY are an index or a component id:
@@ -278,6 +279,10 @@ class Session:
 
     def preset_name(self, slot, name):
         expect_ok(self.request(gp.PRESET_NAME, gp.req_preset_name(slot, name)), f"PRESET_NAME {slot}")
+
+    def preset_delete(self, slot):
+        """PRESET_DELETE: the later presets move up one slot; unsaved edits of the active one are dropped."""
+        expect_ok(self.request(gp.PRESET_DELETE, gp.req_preset_delete(slot)), f"PRESET_DELETE {slot}")
 
 
     # -- host feedback (sysex.md 4.6) --
@@ -833,9 +838,10 @@ def put_back(s, params, want):
 
 
 def backup_doc(s, h, schema, progress=None):
-    """Read the device into a backup document. With presets, it switches to every slot in turn and reads
-    its values (sysex.md 4.5 "Backups"), then switches back to the slot that was active and puts its unsaved
-    edits back, so the device ends as it started (dirty flag included)."""
+    """Read the device into a backup document. With presets, it switches to every preset in use in turn and
+    reads its values (sysex.md 4.5 "Backups"; free slots can't be selected and aren't backed up), then
+    switches back to the slot that was active and puts its unsaved edits back, so the device ends as it
+    started (dirty flag included)."""
     doc = {"gemifi_backup": BACKUP_FORMAT, "board_id": h.board_id, "fw_version": gp.fmt_version(h.fw_version)}
     if not has_presets(h) or schema.by_id(gp.P_PRESET_ACTIVE) is None:
         doc["values"] = read_values(s, schema.params)
@@ -850,8 +856,9 @@ def backup_doc(s, h, schema, progress=None):
     live = read_values(s, pp)              # the active slot as it is now, unsaved edits included
     dirty = next(i.dirty for i in infos if i.slot == active)
     slots, switched = [], False
+    used = gp.presets_in_use(infos)
     try:
-        for i in infos:
+        for i in used:
             if i.slot == active:
                 vals = live
             else:
@@ -864,7 +871,7 @@ def backup_doc(s, h, schema, progress=None):
                 e["unsaved"] = True
             slots.append(e)
             if progress:
-                progress(len(slots), len(infos))
+                progress(len(slots), len(used))
     finally:
         if switched:
             s.preset_select(active)
@@ -971,21 +978,28 @@ def restore_values(s, schema, values, warn=print):
 
 
 def restore_presets(s, schema, doc, warn=print):
-    """A format-2 backup onto a device with presets: the globals, then every slot (PRESET_RESET it, and if
-    the backup has stored edits for it: select, set its values, PRESET_SAVE, PRESET_NAME), then select the
+    """A format-2 backup onto a device with presets (sysex.md 4.5 "Backups"): the globals, then every slot
+    in the backup (a free one is named first, so it is a preset; then PRESET_RESET it, and if the backup has
+    stored edits for it: select, set its values, PRESET_SAVE, PRESET_NAME). On a firmware that tracks the
+    presets in use, the ones past the backup's last slot are then deleted, from the end. Last, select the
     slot that was active and COMMIT, so preset.active is stored too. Returns (n_set, n_errors)."""
     quiet_presets(s)
-    first = s.preset_info(0)
-    count = first.count
-    gvals = {k: v for k, v in doc["values"].items() if k != "preset.active"}
+    infos = s.preset_infos()
+    count = infos[0].count
+    tracked = gp.tracks_in_use(infos)
+    used = len(gp.presets_in_use(infos))
+    gvals = {k: v for k, v in doc["values"].items() if k not in ("preset.active", "preset.count")}
     n_set, n_err = restore_values(s, sub_schema(schema, global_params(schema)), gvals, warn)
     pview = sub_schema(schema, preset_params(schema))
     done = set()
-    for e in doc["presets"]:
+    for e in sorted(doc["presets"], key=lambda e: e.get("slot") if isinstance(e.get("slot"), int) else 0):
         n = e.get("slot")
         if not isinstance(n, int) or not 1 <= n <= count:
             warn(f"  warning: preset {n}: this device has presets 1..{count}; skipped")
             continue
+        if tracked and n > used:
+            s.preset_name(n, "")             # a free slot: now a preset (and the slots before it)
+            used = n
         s.preset_reset(n)
         done.add(n)
         if not e.get("stored"):
@@ -1002,11 +1016,15 @@ def restore_presets(s, schema, doc, warn=print):
             except (ValueError, StatusError) as ex:
                 warn(f"  preset {n}: name {name!r}: {ex}")
                 n_err += 1
-    left = [n for n in range(1, count + 1) if n not in done]
+    if tracked and done:
+        for n in range(used, max(done), -1):   # presets the backup doesn't have, past its last one
+            s.preset_delete(n)
+        used = min(used, max(done))
+    left = [n for n in range(1, used + 1) if n not in done]
     if left:
         warn(f"  presets not in the backup, left as they are: {', '.join(map(str, left))}")
     active = doc.get("active")
-    s.preset_select(active if isinstance(active, int) and 1 <= active <= count else 1)
+    s.preset_select(active if isinstance(active, int) and 1 <= active <= used else 1)
     s.commit()
     return n_set, n_err
 
@@ -1053,7 +1071,9 @@ def program_text(v):
 
 def print_presets(infos):
     first = infos[0]
-    print(f"{first.count} presets, active {first.active}, firmware presets revision {first.revision}")
+    tracked = gp.tracks_in_use(infos)
+    in_use = f" ({len(gp.presets_in_use(infos))} in use)" if tracked else ""
+    print(f"{first.count} presets{in_use}, active {first.active}, firmware presets revision {first.revision}")
     w = max(len(i.name) for i in infos)
     print(f"     #  {'name'.ljust(w)}  {'program':7}  state")
     for i in infos:
@@ -1062,7 +1082,9 @@ def print_presets(infos):
             state.append("unsaved edits")
         if i.stored:
             state.append("stored edits" + (f" (revision {i.stored_revision})" if i.stale else ""))
-        if not i.yaml:
+        if tracked and not i.in_use:
+            state.append("free")
+        elif not i.yaml:
             state.append("empty slot")
         mark = "*" if i.is_active else " "
         print(f"  {mark} {i.slot:2d}  {i.name.ljust(w)}  {program_text(i.program):7}  {', '.join(state)}".rstrip())
@@ -1077,18 +1099,24 @@ def cmd_presets(a, backend):
     return 0
 
 
-def slot_arg(infos, text):
-    """A preset by number (1..count) or by name (any case)."""
+def slot_arg(infos, text, in_use=False):
+    """A preset by number (1..count) or by name (any case; a preset in use before a free slot). With
+    `in_use`, a free slot is refused (select and delete need a preset; sysex.md 4.5 "Presets in use")."""
     t = text.strip()
+    used = gp.presets_in_use(infos)
     if t.isdigit():
         n = int(t)
-        if 1 <= n <= infos[0].count:
-            return n
-        raise GemifiError(f"preset {n}: this device has presets 1..{infos[0].count}")
-    hits = [i.slot for i in infos if i.name.lower() == t.lower()]
-    if not hits:
-        raise GemifiError(f"no preset named {text!r} (gemifi.py presets lists them)")
-    return hits[0]
+        if not 1 <= n <= infos[0].count:
+            raise GemifiError(f"preset {n}: this device has presets 1..{infos[0].count}")
+    else:
+        hits = [i.slot for i in used + [i for i in infos if i not in used] if i.name.lower() == t.lower()]
+        if not hits:
+            raise GemifiError(f"no preset named {text!r} (gemifi.py presets lists them)")
+        n = hits[0]
+    if in_use and all(i.slot != n for i in used):
+        raise GemifiError(f"slot {n} is free, not a preset: presets 1..{len(used)} are in use "
+                          "(`gemifi.py preset rename` or `preset save` makes a new one)")
+    return n
 
 
 def cmd_preset(a, backend):
@@ -1098,7 +1126,7 @@ def cmd_preset(a, backend):
         cur = next(i for i in infos if i.is_active)
         what = a.preset_cmd
         if what == "select":
-            n = slot_arg(infos, a.slot)
+            n = slot_arg(infos, a.slot, in_use=True)
             if cur.dirty and not a.discard and not confirm(
                     f"preset {cur.slot} ({cur.name}) has unsaved edits; switching drops them."):
                 print("cancelled (save them with `gemifi.py preset save`, or pass --discard)")
@@ -1130,6 +1158,32 @@ def cmd_preset(a, backend):
                 return 1
             s.preset_reset(n)
             print(f"{name}: {label} back to the firmware's values")
+            return 0
+        if what == "delete":
+            if not gp.tracks_in_use(infos):
+                raise GemifiError(f"{name}: this firmware has no PRESET_DELETE; `gemifi.py preset reset` empties a "
+                                  "slot instead")
+            used = gp.presets_in_use(infos)
+            n = slot_arg(infos, a.slot, in_use=True)
+            if len(used) == 1:
+                raise GemifiError(f"{name}: preset {n} is the only one in use; the last preset can't be deleted")
+            last = len(used)
+            gone = next(i.name for i in infos if i.slot == n)
+            nxt = (n if n < last else n - 1) if cur.slot == n else cur.slot - 1 if cur.slot > n else cur.slot
+            # the preset that will be active, by its slot before the move
+            nxt_name = next(i.name for i in infos if i.slot == (nxt + 1 if nxt >= n else nxt))
+            moves = (f"preset {last} moves up one slot" if n + 1 == last else
+                     f"presets {n + 1}..{last} move up one slot" if n < last else "it is the last one in use")
+            notes = [moves,
+                     f"{nxt_name} ({nxt}) is active afterwards"]
+            if cur.dirty:
+                notes.append(f"the unsaved edits to {cur.name} are dropped")
+            if not a.yes and not confirm(f"{name}: delete preset {n} ({gone})? " + "; ".join(notes) + "."):
+                print("cancelled")
+                return 1
+            s.preset_delete(n)
+            now = s.preset_info(0)
+            print(f"{name}: preset {n} ({gone}) deleted; {last - 1} in use, preset {now.slot} ({now.name}) active")
             return 0
         if what == "rename":
             n = slot_arg(infos, a.slot)
@@ -1662,7 +1716,7 @@ def build_parser():
     c.add_argument("file", metavar="IN.json")
     c.add_argument("--commit", action="store_true", help="store in flash afterwards (presets are always stored)")
     sub.add_parser("presets", help="list the preset slots")
-    c = sub.add_parser("preset", help="select, save, reset or rename a preset")
+    c = sub.add_parser("preset", help="select, save, reset, rename or delete a preset")
     ps = c.add_subparsers(dest="preset_cmd", required=True)
     x = ps.add_parser("select", help="make a preset active (drops unsaved edits of the current one)")
     x.add_argument("slot", metavar="N|NAME")
@@ -1673,7 +1727,11 @@ def build_parser():
     x = ps.add_parser("reset", help="drop a preset's stored edits and name (back to the firmware's preset)")
     x.add_argument("slot", metavar="N|NAME|all")
     x.add_argument("--yes", action="store_true", help="don't ask")
-    x = ps.add_parser("rename", help="give a preset a new name (\"\" = back to the firmware's name)")
+    x = ps.add_parser("delete", help="remove a preset: the later ones move up one slot, the last slot is freed")
+    x.add_argument("slot", metavar="N|NAME")
+    x.add_argument("--yes", action="store_true", help="don't ask")
+    x = ps.add_parser("rename", help="give a preset a new name (\"\" = back to the firmware's name; a free slot "
+                      "becomes a new preset, a copy of preset 1's firmware values)")
     x.add_argument("slot", metavar="N|NAME")
     x.add_argument("name", metavar="NAME", help=f"0..{gp.PRESET_NAME_MAX} printable ASCII characters")
     c = sub.add_parser("components", help="list the device's components (host feedback, caps bit 6)")

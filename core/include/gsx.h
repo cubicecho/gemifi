@@ -49,6 +49,7 @@ extern "C" {
 #define GSX_CMD_PRESET_RESET 0x0D
 #define GSX_CMD_PRESET_NAME  0x0E
 #define GSX_CMD_GET_COMPONENT 0x11
+#define GSX_CMD_PRESET_DELETE 0x12
 
 /* Host -> device notifications (section 4.6.2): never answered */
 #define GSX_NOTIFY_FIRST 0x20

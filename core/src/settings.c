@@ -50,6 +50,13 @@ gm_settings_t gm_cfg;
 #define GM_PAD_RETRIGGER_DEFAULT 20
 #endif
 
+/* Presets in use on a fresh device: the YAML's list (sysex.md §4.5). */
+#ifdef GM_N_YAML_PRESETS
+#define GM_PRESETS_IN_USE GM_N_YAML_PRESETS
+#else
+#define GM_PRESETS_IN_USE 1
+#endif
+
 enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS, G_PADS };
 static const char *const groups[] = {
     "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug", "Presets",
@@ -206,6 +213,11 @@ static const param_def_t params[] = {
     { .id = P_PRESET_DIRTY, .flags = PF_VOLATILE | PF_READ_ONLY, .type = PT_BOOL,
       .group = G_PRESETS, .count = 1, .min = 0, .max = 1, .def = 0,
       .name = "preset.dirty", .label = "Unsaved changes", .values = &gm_cfg.preset_dirty },
+    /* Read-only to a host (PRESET_SAVE, PRESET_NAME and PRESET_DELETE change
+     * it), but stored with the globals (presets.c storable()). */
+    { .id = P_PRESET_COUNT, .flags = PF_READ_ONLY, .type = PT_INT, .group = G_PRESETS, .count = 1,
+      .min = 1, .max = GM_N_PRESETS, .def = GM_PRESETS_IN_USE,
+      .name = "preset.count", .label = "Presets in use", .values = &gm_cfg.preset_count },
 #endif
 
 #if GM_N_PADS > 0

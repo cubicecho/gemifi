@@ -26,6 +26,7 @@ extern "C" {
 #define PRESET_INFO_STORED 0x01u     /* the slot has stored edits (or a name) */
 #define PRESET_INFO_DIRTY  0x02u     /* active slot with unsaved host edits   */
 #define PRESET_INFO_YAML   0x04u     /* defined in the device YAML            */
+#define PRESET_INFO_IN_USE 0x08u     /* one of the presets in use (1..count)  */
 
 typedef struct {
     uint16_t slot;
@@ -51,7 +52,7 @@ void presets_flush(void);
  * its Program Change, PRESET_CHANGED. Selecting the active slot reloads
  * it (drops unsaved edits, sysex.md §4.5). GSX_BAD_PARAM for a bad slot. */
 int presets_select(uint32_t slot);
-void presets_step(int dir);          /* +1 next, -1 previous (wraps) */
+void presets_step(int dir);          /* +1 next, -1 previous (wraps over the ones in use) */
 uint32_t presets_active(void);
 
 /* app_proto: the host changed (id, index) with SET_PARAM(S) (or a mode key
@@ -63,6 +64,11 @@ int presets_commit(void);                        /* COMMIT */
 int presets_save(uint32_t slot);                 /* PRESET_SAVE */
 int presets_reset(uint32_t slot);                /* PRESET_RESET, 0 = all */
 int presets_rename(uint32_t slot, const char *name, uint32_t len);   /* PRESET_NAME */
+int presets_delete(uint32_t slot);               /* PRESET_DELETE */
+
+/* app_proto, before a host SET of (id, value) that passed the range check:
+ * 0 when presets refuse it (preset.active on a slot not in use). */
+int presets_value_ok(uint16_t id, int32_t value);
 int presets_info(uint32_t slot, preset_info_t *out);   /* PRESET_INFO, 0 = active */
 int presets_factory_reset(void);                 /* FACTORY_RESET */
 

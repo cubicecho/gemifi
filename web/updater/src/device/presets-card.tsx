@@ -9,9 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { FormElement } from '@/components/ui/form-element';
-import { Ellipsis, Pencil, Plus, Tag, Undo2 } from '@/components/ui/icons';
+import { Ellipsis, Pencil, Plus, Tag, Trash2, Undo2 } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
-import { isPresetEmpty, isPresetStored, type PresetInfo, presetNameProblem } from '../protocol/presets.ts';
+import { isPresetEmpty, isPresetStored, type PresetInfo, presetNameProblem, presetSlots } from '../protocol/presets.ts';
 import { PRESET_NAME_MAX } from '../protocol/wire.ts';
 import type { PresetStart, PresetsController } from './use-presets.ts';
 
@@ -102,52 +102,37 @@ const START_OPTIONS: ReadonlyArray<{ value: PresetStart; label: string }> = [
 ];
 
 /**
- * @param presets - Every slot.
- * @param active - The active slot.
- * @returns The slot New preset suggests: the first empty one, else the first that is not active.
- */
-function suggestedSlot(presets: PresetInfo[], active: number): number {
-  const others = presets.filter((info) => info.slot !== active);
-  return (others.find(isPresetEmpty) ?? others[0] ?? presets[0])?.slot ?? 1;
-}
-
-/**
- * Fills a slot with a named preset and makes it the active one.
+ * Makes a named preset in the next free slot, and makes it the active one.
  *
- * @param props - The controller, every slot, the active one and whether it has unsaved edits.
+ * @param props - The controller, the slot it goes into, the active one and whether it has unsaved edits.
  * @returns The dialog.
  */
 function NewPresetDialog({
   controller,
-  presets,
+  slot,
   active,
   isDirty,
   onOpenChange,
-}: DialogProps & { presets: PresetInfo[]; active: PresetInfo; isDirty: boolean }) {
+}: DialogProps & { slot: number; active: PresetInfo; isDirty: boolean }) {
   const [failure, setFailure] = useState<string | null>(null);
   const form = useAppForm({
-    defaultValues: { name: '', slot: String(suggestedSlot(presets, active.slot)), from: 'current' as PresetStart },
+    defaultValues: { name: '', from: 'current' as PresetStart },
     onSubmit: async ({ value }) => {
       setFailure(null);
       try {
-        await controller.create({ slot: Number(value.slot), name: value.name.trim(), from: value.from });
+        await controller.create({ slot, name: value.name.trim(), from: value.from });
         onOpenChange(false);
       } catch (error) {
         setFailure(messageOf(error));
       }
     },
   });
-  const slotOptions = presets.map((info) => ({
-    value: String(info.slot),
-    label: `${info.slot}. ${info.name}`,
-    hint: info.slot === active.slot ? 'active' : isPresetEmpty(info) ? 'empty' : 'replaced',
-  }));
   return (
     <DialogLayout
       open
       onOpenChange={onOpenChange}
       title="New preset"
-      description={`This device has ${presets.length} preset slots. The new preset goes into the one you choose, replacing what it held, and becomes the active preset.`}
+      description={`It goes into slot ${slot}, after the others, and becomes the active preset.`}
       hasUnsavedChanges={() => form.state.isDefaultValue === false}
       contentSlot={
         <FormElement onSubmit={() => form.handleSubmit()}>
@@ -163,7 +148,6 @@ function NewPresetDialog({
               onChange: ({ value }) => (value.trim() === '' ? 'Give the preset a name.' : nameProblem(value)),
             }}
           />
-          <SelectField form={form} name="slot" label="Slot" required options={slotOptions} />
           <SelectField form={form} name="from" label="Start from" required options={START_OPTIONS} />
           <form.Subscribe selector={(s) => s.values.from}>
             {(from) =>
@@ -205,11 +189,28 @@ type OpenDialog =
   | { kind: 'new' }
   | { kind: 'rename'; slot: number }
   | { kind: 'reset'; slot: number }
+  | { kind: 'delete'; slot: number }
   | { kind: 'switch'; slot: number };
 
 /**
+ * @param inUse - The presets in use, in slot order.
+ * @param deleted - The slot being deleted.
+ * @param active - The active slot.
+ * @returns What happens to the active preset, as a sentence, or '' when it just moves.
+ */
+function handOver(inUse: PresetInfo[], deleted: number, active: number): string {
+  if (deleted !== active) {
+    return '';
+  }
+  const index = inUse.findIndex((info) => info.slot === deleted);
+  const next = inUse[index + 1] ?? inUse[index - 1];
+  return next === undefined ? '' : ` "${next.name}" becomes the active preset.`;
+}
+
+/**
  * The device's presets as a list (§4.5): choose one to make it active (asking first when the
- * active one has unsaved edits), make a new one, rename or reset any of them.
+ * active one has unsaved edits), make a new one in the next free slot, rename, reset or delete
+ * any of them. Deleting moves the later presets up, so the free slots are always last.
  *
  * @param props - The presets controller.
  * @returns The card, or nothing on a device without presets.
@@ -223,8 +224,10 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
   const isBusy = disabled || action !== null;
   const presets = state.kind === 'ready' ? state.presets : [];
   const activeSlot = state.kind === 'ready' ? state.active : 0;
+  const { inUse, free, canDelete } = presetSlots(presets, activeSlot);
   const active = presets.find((info) => info.slot === activeSlot) ?? presets[0];
   const isDirty = state.kind === 'ready' && state.dirty;
+  const nextFree = free[0];
   const close = () => setDialog(null);
   const choose = (slot: number) => {
     if (slot === active?.slot) {
@@ -238,7 +241,7 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
   };
   const about = (slot: number) => presets.find((info) => info.slot === slot);
   const target = dialog !== null && dialog.kind !== 'new' ? about(dialog.slot) : undefined;
-  const rows = presets.map((info) => {
+  const rows = inUse.map((info) => {
     const isActive = info.slot === active?.slot;
     const badges = [
       isActive ? (
@@ -251,7 +254,8 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
           Unsaved edits
         </Badge>
       ) : null,
-      isPresetEmpty(info) ? (
+      // Before PRESET_DELETE, the empty slots are listed too: copies of slot 1.
+      canDelete === false && isPresetEmpty(info) ? (
         <Badge key="empty" variant="secondary">
           Empty
         </Badge>
@@ -286,29 +290,49 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
               <MenuItem
                 iconSlot={<Undo2 />}
                 label="Reset…"
-                destructive
                 disabled={canReset === false}
                 onSelect={() => setDialog({ kind: 'reset', slot: info.slot })}
               />
+              {canDelete ? (
+                <MenuItem
+                  iconSlot={<Trash2 />}
+                  label="Delete…"
+                  destructive
+                  disabled={inUse.length < 2}
+                  onSelect={() => setDialog({ kind: 'delete', slot: info.slot })}
+                />
+              ) : null}
             </MenuContent>
           </Menu>
         }
       />
     );
   });
+  const slotsNote =
+    state.kind !== 'ready' || canDelete === false
+      ? null
+      : nextFree === undefined
+        ? `All ${presets.length} slots are in use. Delete a preset to make room for a new one.`
+        : `${inUse.length} of ${presets.length} slots in use.`;
   return (
     <CardLayout
       title="Presets"
       iconSlot={<Tag />}
-      description="Each preset has its own name and its own copy of the settings below. Choose one to make it active; the device switches at once."
+      description="Each preset has its own name and its own copy of the settings below. Choose one to make it active; the device switches at once, and its preset buttons step through these."
       actionSlot={
         <Button
           size="sm"
           variant="info"
           iconSlot={<Plus />}
           content="New preset"
-          disabled={isBusy || active === undefined || presets.length < 2}
-          hint={presets.length < 2 && state.kind === 'ready' ? 'This device has a single preset slot.' : undefined}
+          disabled={isBusy || active === undefined || nextFree === undefined}
+          hint={
+            state.kind === 'ready' && nextFree === undefined
+              ? canDelete
+                ? 'Every slot is in use: delete a preset first.'
+                : 'Every slot holds a preset.'
+              : undefined
+          }
           loading={action === 'create'}
           loadingLabel="Making…"
           onClick={() => setDialog({ kind: 'new' })}
@@ -327,13 +351,14 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
           ) : (
             <List label="Presets" contentSlot={rows} />
           )}
+          {slotsNote === null ? null : <p className="text-foreground/60 text-sm">{slotsNote}</p>}
           {controller.actionError === null ? null : (
             <Alert variant="destructive" title="That did not work" description={controller.actionError} />
           )}
-          {dialog?.kind === 'new' && active !== undefined ? (
+          {dialog?.kind === 'new' && active !== undefined && nextFree !== undefined ? (
             <NewPresetDialog
               controller={controller}
-              presets={presets}
+              slot={nextFree.slot}
               active={active}
               isDirty={isDirty}
               onOpenChange={(open) => (open ? null : close())}
@@ -348,13 +373,26 @@ export function PresetsCard({ controller, disabled }: PresetsCardProps) {
             title={`Reset "${target?.name ?? ''}"?`}
             description={
               target?.slot === active?.slot
-                ? "Its stored changes and its name are dropped, so it holds the firmware's settings again. Unsaved edits go too. The other presets are not touched."
-                : "Its stored changes and its name are dropped, so it holds the firmware's settings again. The other presets are not touched."
+                ? "Its stored changes and its name are dropped, so it holds the firmware's settings for this slot again. Unsaved edits go too. The other presets are not touched."
+                : "Its stored changes and its name are dropped, so it holds the firmware's settings for this slot again. The other presets are not touched."
             }
             confirmLabel="Reset preset"
             onConfirm={() => {
               if (target !== undefined) {
                 controller.reset(target.slot);
+              }
+              close();
+            }}
+          />
+          <ConfirmDialog
+            open={dialog?.kind === 'delete' && target !== undefined}
+            onOpenChange={(open) => (open ? null : close())}
+            title={`Delete "${target?.name ?? ''}"?`}
+            description={`Its settings and name are gone, and the presets after it move up one slot.${handOver(inUse, target?.slot ?? 0, activeSlot)}${isDirty ? ` The unsaved edits to "${active?.name ?? ''}" are dropped.` : ''}`}
+            confirmLabel="Delete preset"
+            onConfirm={() => {
+              if (target !== undefined) {
+                controller.remove(target.slot);
               }
               close();
             }}

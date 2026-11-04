@@ -1613,9 +1613,9 @@ list:
         dev, diags = load(presets("slots: 4"))
         bd = dev.budget
         # per-preset: channel, transpose, octave, curve, fixed, analog cc + mode, buttons 3 x 2, glide,
-        # ramp, encoder 2, program = 18 values; globals: fast, slow, events, log_level, active = 5
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (18, 5))
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 36), 4 * (9 + 10)))
+        # ramp, encoder 2, program = 18 values; globals: fast, slow, events, log_level, active, count = 6
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (18, 6))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 36), 4 * (9 + 12)))
         self.assertEqual((bd["used"], bd["capacity"], bd["unit"]), (2, 5, "pages"))   # 2 per page; globals fit
         self.assertEqual(bd["max_slots"], 10)                                          # 5 pages x 2
         self.assertEqual([d for d in diags if "presets use" in d.msg], [])
@@ -1640,14 +1640,14 @@ list:
         base = MINIMAL_ESP.format(plat="esp8266", tr="serial") + "buttons: [{ id: a, pin: GPIO4, action: cc_toggle, cc: 3 }]\n"
         dev, _ = load(presets("slots: 2", base=base))
         bd = dev.budget
-        self.assertEqual((bd["preset_record"], bd["global_record"], bd["capacity"], bd["unit"]), (108, 60, 4096, "B"))
-        self.assertEqual(bd["max_slots"], 37)          # (4096 - 60) // 108
-        self.assertEqual(bd["max_slots_calm"], 31)     # 31 * 108 + 60 = 3408 <= 0.85 * 4096
+        self.assertEqual((bd["preset_record"], bd["global_record"], bd["capacity"], bd["unit"]), (108, 68, 4096, "B"))
+        self.assertEqual(bd["max_slots"], 37)          # (4096 - 68) // 108
+        self.assertEqual(bd["max_slots_calm"], 31)     # 31 * 108 + 68 = 3416 <= 0.85 * 4096
         self.assertFalse(any("presets use" in w for w in self.warns(presets("slots: 31", base=base))))
-        self.assertTrue(any("presets use 85% of the esp8266 EEPROM sector" in w
+        self.assertTrue(any("presets use 86% of the esp8266 EEPROM sector" in w
                             for w in self.warns(presets("slots: 32", base=base))))
         e = self.assertError(presets("slots: 38", base=base), r"don't fit the esp8266 EEPROM sector")
-        self.assertIn("4164 of 4096 B", e.msg)
+        self.assertIn("4172 of 4096 B", e.msg)
         self.assertIn("At most 37 slots", e.msg)
 
     def test_budget_esp32(self):
@@ -1688,15 +1688,15 @@ list:
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
         self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"], dev2.budget["capacity"]),
-                         (4 * (9 + 67), 720, 2048 - 304))  # + program
+                         (4 * (9 + 67), 724, 2048 - 304))  # + program
         for n in (2, 3, 4):           # the Code 61's 3 slots: 1024 of 1744 B (59%), was 99% of one page
             self.assertFalse([d for d in self.errs(with_slots(n), level="warning") if "config page" in d.msg], n)
         w = [str(d) for d in self.errs(with_slots(5), level="warning") if "config page" in d.msg]
         self.assertTrue(w and "presets use 93% of the stm32f1 config pages" in w[0] and
-                        "1632 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
+                        "1636 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
                         "Up to 5 slots fit; 4 or fewer stay under 85%" in w[0], w)
         e = self.assertError(with_slots(6), r"presets don't fit the stm32f1 config pages", path="presets.slots")
-        self.assertIn("1936 of 1744 B", e.msg)
+        self.assertIn("1940 of 1744 B", e.msg)
         self.assertIn("At most 5 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
@@ -1730,7 +1730,7 @@ list:
                          ["cc_momentary", "none", "octave_down", "octave_up", "bend_down", "bend_up", "cc_ramp"])
         self.assertIn((1, 0, 10, "midi.channel = 10"), dev.presets[1].vals)
         bd = dev.budget
-        self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (228, 76, 5, 5))
+        self.assertEqual((bd["preset_record"], bd["global_record"], bd["used"], bd["capacity"]), (228, 84, 5, 5))
         self.assertEqual(bd["max_slots"], 9)
 
 
@@ -2181,7 +2181,7 @@ class TestCli(unittest.TestCase):
         self.assertRegex(err, r"bad\.yaml:8: error: buttons\[0\]\.pin: 'PZ1'")
         rc, out, err = self.run_cli("validate", KEYSTATION, bad)      # several files: 1 if any fails
         self.assertEqual(rc, 1)
-        self.assertIn("presets: 8 slots, worst case 1900 B in 5 of 5 pages (2560 B)", out)
+        self.assertIn("presets: 8 slots, worst case 1908 B in 5 of 5 pages (2560 B)", out)
         self.assertIn("bad.yaml: 1 error", err)
 
     def test_generate(self):
@@ -2338,7 +2338,7 @@ class TestDashboard(unittest.TestCase):
             st, body = self.req("/api/validate", {"text": f.read()})
         j = json.loads(body)
         self.assertTrue(j["ok"])
-        self.assertIn("presets: 8 slots, worst case 1900 B in 5 of 5 pages", j["summary"])
+        self.assertIn("presets: 8 slots, worst case 1908 B in 5 of 5 pages", j["summary"])
         self.assertEqual([p["name"] for p in j["presets"]["slots"]][:3], ["Default", "Drums", "DAW"])
         self.assertEqual(j["presets"]["slots"][1]["changes"], 6)
         self.assertEqual(j["presets"]["storage"]["max_slots"], 9)

@@ -271,6 +271,8 @@ static int cmd_set_param(const gsx_frame_t *f, gsx_tx_t *t)
     uint16_t id = (uint16_t)gsx_get_u(f->payload, 2);
     uint16_t index = (uint16_t)gsx_get_u(f->payload + 2, 2);
     int32_t v = (int32_t)gsx_get_u(f->payload + 4, 5);
+    if (!presets_value_ok(id, v))           /* preset.active on a free slot */
+        return GSX_BAD_VALUE;
     int st = params_set(id, index, v, 1);
     if (st != GSX_OK)
         return st;
@@ -335,7 +337,7 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
     const uint8_t *vp = f->payload + 6;
     for (uint32_t i = 0; i < n; i++) {           /* all or nothing */
         int32_t v = (int32_t)gsx_get_u(vp + 5 * i, 5);
-        if (v < d->min || v > d->max)
+        if (v < d->min || v > d->max || !presets_value_ok(id, v))
             return GSX_BAD_VALUE;
     }
     for (uint32_t i = 0; i < n; i++) {
@@ -387,6 +389,10 @@ static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
         if (f->len != 2)
             return GSX_BAD_LEN;
         return presets_reset(slot);
+    case GSX_CMD_PRESET_DELETE:
+        if (f->len != 2)
+            return GSX_BAD_LEN;
+        return presets_delete(slot);
     default: {                              /* PRESET_NAME */
         if (f->len < 3)
             return GSX_BAD_LEN;
@@ -660,6 +666,7 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_PRESET_SAVE:
     case GSX_CMD_PRESET_RESET:
     case GSX_CMD_PRESET_NAME:
+    case GSX_CMD_PRESET_DELETE:
         return cmd_preset(f, t);
 #if GM_HOST_FB
     case GSX_CMD_GET_COMPONENT:

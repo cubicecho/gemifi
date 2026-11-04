@@ -1,6 +1,7 @@
 """Presets (sysex.md 4.5): the codec, the simulated device (tests/sim_device.py), the CLI commands, backup and
 restore across slots, and the after-upload revision check of `gemifi.py flash`."""
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -466,3 +467,133 @@ class TestFlashPresets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def count_schema():
+    """The example schema with preset.count (33): a firmware with PRESET_DELETE (sysex.md 4.5)."""
+    schema = make_test_vectors.example_preset_schema()
+    schema.params.append(gp.make_param(gp.P_PRESET_COUNT, "preset.count", gp.T_INT, 2, 1, 8, 1, "Presets in use",
+                                       flags=gp.F_READ_ONLY))
+    return schema
+
+
+def new_dev(**kw):
+    """Slots 1..3 (Default, Drums, Ableton) in use, 4..8 free."""
+    return make_dev(schema=count_schema(), **kw)
+
+
+class TestPresetsInUse(unittest.TestCase):
+    def test_codec(self):
+        self.assertEqual((gp.PRESET_DELETE, gp.PI_IN_USE, gp.P_PRESET_COUNT), (0x12, 8, 33))
+        self.assertIn(gp.PRESET_DELETE, gp.LONG_TIMEOUT_CMDS)
+        self.assertEqual(gp.req_preset_delete(130), b"\x02\x01")
+        old = [gp.PresetInfo(n, 3, 1, 0, 0, 0, -1, f"P{n}") for n in (1, 2, 3)]
+        self.assertEqual(gp.presets_in_use(old), old)                    # no bit 3: every slot is a preset
+        new = [dataclasses.replace(i, flags=gp.PI_IN_USE if i.slot < 3 else 0) for i in old]
+        self.assertEqual([i.slot for i in gp.presets_in_use(new)], [1, 2])
+
+    def test_free_slots(self):
+        dev = new_dev()
+        s = session(dev)
+        infos = s.preset_infos()
+        self.assertEqual([i.slot for i in gp.presets_in_use(infos)], [1, 2, 3])
+        with self.assertRaises(gemifi.StatusError) as e:
+            s.set_param(ACTIVE, 0, 4)
+        self.assertEqual(e.exception.status, gp.BAD_VALUE)
+        with self.assertRaises(gemifi.StatusError) as e:
+            s.set_param(gp.P_PRESET_COUNT, 0, 5)
+        self.assertEqual(e.exception.status, gp.BAD_PARAM)            # read-only to a host
+        s.preset_name(4, "Lead")                                       # a free slot becomes a preset
+        i = s.preset_info(4)
+        self.assertEqual((i.in_use, i.name, dev.used(), dev.stored[(gp.P_PRESET_COUNT, 0)]), (True, "Lead", 4, 4))
+        s.preset_save(6)                                               # and so do the ones before a saved one
+        self.assertEqual((dev.used(), s.preset_info(5).in_use, dev.active), (6, True, 6))
+        s.preset_reset(gp.PRESET_ALL)                                  # the firmware's presets: the YAML's list
+        self.assertEqual((dev.used(), dev.active, dev.records), (3, 1, {}))
+
+    def test_delete(self):
+        dev = new_dev()
+        s = session(dev)
+        s.preset_name(4, "Lead")
+        s.preset_select(2)
+        s.set_param(CH, 0, 3)                                          # unsaved: dropped by the delete
+        s.preset_delete(2)
+        names = [s.preset_info(n).name for n in (1, 2, 3)]
+        self.assertEqual((names, dev.used(), s.preset_info(4).in_use), (["Default", "Ableton", "Lead"], 3, False))
+        self.assertEqual((dev.active, dev.dirty, dev.values[(ACT, 1)], dev.values[(NUM, 1)]), (2, False, 1, 65))
+        self.assertEqual(dev.slot_values(3), dev.slot_values(1))       # Lead: a copy of Default, now in slot 3
+        self.assertNotIn(4, dev.records)
+        s.preset_select(3)
+        s.preset_delete(1)                                             # the active one moves up
+        self.assertEqual((dev.active, s.preset_info(0).name, dev.used()), (2, "Lead", 2))
+        s.preset_delete(2)                                             # the last one: back to the one before
+        self.assertEqual((dev.active, dev.used(), s.preset_info(1).name), (1, 1, "Ableton"))
+        for slot, st in ((1, gp.BAD_STATE), (2, gp.BAD_PARAM), (0, gp.BAD_PARAM)):
+            with self.assertRaises(gemifi.StatusError) as e:
+                s.preset_delete(slot)
+            self.assertEqual(e.exception.status, st, slot)
+        dev.boot()
+        self.assertEqual((dev.used(), s.preset_info(1).name), (1, "Ableton"))
+
+    def test_old_firmware_has_no_delete(self):
+        s = session(make_dev())
+        self.assertEqual(s.request(gp.PRESET_DELETE, gp.req_preset_delete(2)).status, gp.BAD_CMD)
+        with self.assertRaisesRegex(gemifi.GemifiError, "no PRESET_DELETE"):
+            run_cli(make_dev(), "preset", "delete", "2", "--yes")
+
+    def test_boot_keeps_stored_past_the_count(self):
+        dev = new_dev()
+        dev.records[6] = {"vals": {(CH, 0): 2}, "name": None, "rev": 2}   # a store from before preset.count
+        dev.boot()
+        self.assertEqual(dev.used(), 6)
+
+    def test_cli(self):
+        dev = new_dev()
+        rc, out = run_cli(dev, "presets")
+        self.assertIn("8 presets (3 in use), active 1", out)
+        self.assertRegex(out, r"  4  Preset 4 +off +free")
+        with self.assertRaisesRegex(gemifi.GemifiError, "slot 5 is free"):
+            run_cli(dev, "preset", "select", "5")
+        session(dev).preset_select(2)
+        rc, out = run_cli(dev, "preset", "delete", "drums", stdin="no\n")
+        self.assertEqual((rc, dev.used()), (1, 3))
+        self.assertIn("preset 3 moves up one slot; Ableton (2) is active afterwards", out)
+        rc, out = run_cli(dev, "preset", "delete", "drums", "--yes")
+        self.assertEqual((rc, dev.used(), dev.active), (0, 2, 2))
+        self.assertIn("preset 2 (Drums) deleted; 2 in use, preset 2 (Ableton) active", out)
+        with self.assertRaisesRegex(gemifi.GemifiError, "slot 3 is free"):
+            run_cli(dev, "preset", "delete", "3", "--yes")
+        run_cli(dev, "preset", "delete", "2", "--yes")
+        with self.assertRaisesRegex(gemifi.GemifiError, "the last preset can't be deleted"):
+            run_cli(dev, "preset", "delete", "1", "--yes")
+
+    def test_backup_and_restore(self):
+        src = new_dev()
+        s = session(src)
+        s.preset_name(4, "Lead")
+        s.preset_select(4)
+        s.set_param(CH, 0, 7)
+        s.commit()
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "b.json")
+            rc, out = run_cli(src, "backup", path)
+            self.assertEqual(rc, 0, out)
+            with open(path) as f:
+                doc = json.load(f)
+            self.assertEqual([e["slot"] for e in doc["presets"]], [1, 2, 3, 4])   # free slots aren't backed up
+            dst = new_dev()                                            # 3 in use: slot 4 is made again
+            rc, out = run_cli(dst, "restore", path)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual((dst.used(), dst.active, dst.values[(CH, 0)], s_name(dst, 4)), (4, 4, 7, "Lead"))
+            more = new_dev()                                           # 6 in use: 5 and 6 are deleted
+            m = session(more)
+            m.preset_name(5, "Five")
+            m.preset_name(6, "Six")
+            rc, out = run_cli(more, "restore", path)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual((more.used(), s_name(more, 4), more.active), (4, "Lead", 4))
+            self.assertNotIn(5, more.records)
+
+
+def s_name(dev, slot):
+    return session(dev).preset_info(slot).name

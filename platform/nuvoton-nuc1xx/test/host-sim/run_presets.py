@@ -287,11 +287,29 @@ def all_yaml(tag):
     ok = d.get(P_ACTIVE) == 1 and d.get(P_VEL_FAST) == 16 and d.get(P_LOG) == 3
     ok &= [d.info(n).name for n in range(1, 9)] == want and not any(d.info(n).stored for n in range(1, 9))
     d.select(2); ok &= d.get(P_NUMBER, 0) == 36 and d.get(P_CHANNEL) == 10
-    d.select(4); ok &= d.get(P_NUMBER, 0) == 64 and d.get(P_CHANNEL) == 1
+    ok &= d.get(gp.P_PRESET_COUNT) == 3 and [d.info(n).in_use for n in range(1, 9)] == [True] * 3 + [False] * 5
     d.select(1)
     check(ok, f"{tag}: defaults, YAML presets, slot 1 active, nothing stored")
 all_yaml("after FACTORY_RESET")
 d.reboot(); all_yaml("after FACTORY_RESET + reboot")
+
+print("-- presets in use, PRESET_DELETE")
+check(d.status(gp.SET_PARAM, gp.req_set_param(P_ACTIVE, 0, 4)) == gp.BAD_VALUE, "selecting free slot 4 -> BAD_VALUE")
+d.ok(gp.PRESET_NAME, gp.req_preset_name(4, "Lead"))
+check(d.info(4).in_use and d.get(gp.P_PRESET_COUNT) == 4, "naming free slot 4 makes it a preset")
+d.select(2)
+_, u, _ = d.ok(gp.PRESET_DELETE, gp.req_preset_delete(2))
+check([d.info(n).name for n in (1, 2, 3)] == ["Default", "DAW", "Lead"] and not d.info(4).in_use and
+      d.get(gp.P_PRESET_COUNT) == 3, "PRESET_DELETE 2: DAW and Lead move up, slot 4 is free")
+check(d.get(P_ACTIVE) == 2 and [x.slot for x in changed(u)] == [2], "DAW, now in slot 2, is active")
+d.select(3); check(d.get(P_NUMBER, 0) == 64 and d.get(P_CHANNEL) == 1, "slot 3: Lead, a copy of Default")
+d.reboot()
+check([d.info(n).name for n in (1, 2, 3)] == ["Default", "DAW", "Lead"] and d.get(gp.P_PRESET_COUNT) == 3 and
+      d.get(P_ACTIVE) == 2, "the moves, the count and the active slot the delete stored survive a reboot")
+check(d.status(gp.PRESET_DELETE, gp.req_preset_delete(4)) == gp.BAD_PARAM, "PRESET_DELETE a free slot -> BAD_PARAM")
+d.ok(gp.FACTORY_RESET)
+d.ok(gp.PRESET_NAME, gp.req_preset_name(8, ""))        # every slot in use for the rest of the script
+check(d.get(gp.P_PRESET_COUNT) == 8, "naming slot 8 puts slots 4..8 in use too")
 
 # ---- 6. preset buttons, held notes, Program Change -----------------------
 print("-- preset_next / preset_prev buttons")
@@ -351,6 +369,7 @@ check(d.cnt[2] == 0 and d.cnt[3] == 0, "no word programmed twice, no bad address
 # ---- 8. many COMMITs, compaction ------------------------------------------
 print("-- many COMMITs across slots (journal compaction)")
 d.ok(gp.FACTORY_RESET)
+d.ok(gp.PRESET_NAME, gp.req_preset_name(8, ""))        # every slot in use again
 rng = random.Random(7)
 PER = [(P_CHANNEL, 0, 1, 16), (P_GLIDE, 0, 0, 2000), (P_RAMP, 0, 0, 5000), (P_VEL_FIXED, 0, 1, 127),
        (P_ANALOG_CC, 0, 0, 127), (P_PROGRAM, 0, -1, 127)] + [(P_NUMBER, i, 0, 127) for i in range(7)]

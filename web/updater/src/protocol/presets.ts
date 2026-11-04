@@ -101,6 +101,36 @@ export function isPresetEmpty(info: PresetInfo): boolean {
   return isPresetStored(info) === false && (info.flags & PresetFlag.Yaml) === 0;
 }
 
+/** The slots, sorted by what they are to the reader. */
+export interface PresetSlots {
+  /** The presets: selectable, stepped through on the device. */
+  inUse: PresetInfo[];
+  /** Where a new preset can go, in order. */
+  free: PresetInfo[];
+  /** The firmware deletes presets (PRESET_DELETE, PRESET_INFO bit 3). */
+  canDelete: boolean;
+}
+
+/**
+ * Sorts the slots (§4.5 "Presets in use"). A firmware from before PRESET_DELETE never sets bit 3:
+ * there every slot is in use, and the empty ones (copies of slot 1) are where new presets go.
+ *
+ * @param presets - Every slot, from {@link readPresets}.
+ * @param active - The active slot.
+ * @returns The presets in use, the free slots and whether presets can be deleted.
+ */
+export function presetSlots(presets: PresetInfo[], active: number): PresetSlots {
+  const canDelete = presets.some((info) => (info.flags & PresetFlag.InUse) !== 0);
+  if (canDelete) {
+    return {
+      inUse: presets.filter((info) => (info.flags & PresetFlag.InUse) !== 0),
+      free: presets.filter((info) => (info.flags & PresetFlag.InUse) === 0),
+      canDelete,
+    };
+  }
+  return { inUse: presets, free: presets.filter((info) => info.slot !== active && isPresetEmpty(info)), canDelete };
+}
+
 /**
  * Reads one slot's facts.
  *
@@ -170,6 +200,19 @@ export async function savePreset(client: SysexClient, slot: number, options: Req
  */
 export async function resetPreset(client: SysexClient, slot: number, options: RequestOptions = {}): Promise<void> {
   await client.request(Command.PresetReset, encodeU14(slot), options);
+}
+
+/**
+ * Deletes a preset: the later ones move up one slot and the last is freed. The active preset keeps
+ * playing (one slot lower if it moved); if it was deleted, the one now in its slot takes over. The
+ * active one's unsaved edits are dropped. BAD_STATE for the last preset.
+ *
+ * @param client - The device.
+ * @param slot - A preset in use.
+ * @param options - An abort signal.
+ */
+export async function deletePreset(client: SysexClient, slot: number, options: RequestOptions = {}): Promise<void> {
+  await client.request(Command.PresetDelete, encodeU14(slot), options);
 }
 
 /**

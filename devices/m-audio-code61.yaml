@@ -26,7 +26,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, pads, LEDs and display"
 project:
-  version: 0.2.70
+  version: 0.2.73
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -424,8 +424,8 @@ pad_settings:
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
 # display shows the name. The STM32F1's 1 KB settings page holds 3 slots at
-# most. Rename them on the web page's Presets tab or with
-# `gemifi.py preset rename`; slots 2 and 3 start as copies of slot 1.
+# most. Slots 2 and 3 start free: make, rename and delete presets on the
+# web page's Presets tab, or with `gemifi.py preset save/rename/delete`.
 presets:
   slots: 3
   list:

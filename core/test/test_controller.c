@@ -502,30 +502,38 @@ static void test_presets(void)
     set_param(P_BTN_NUMBER, 3, 1);
     button(2, 1); button(2, 0);
     CHECK(gm_cfg.preset_active == 2, "preset_prev -> 2");
+    /* 3 presets in use (the YAML's list): stepping wraps over those, and
+     * slots 4..8 are free until a preset is made there */
+    CHECK(gm_cfg.preset_count == 3 && params_find(P_PRESET_COUNT)->flags == PF_READ_ONLY,
+          "preset.count 3, read-only to a host");
+    CHECK(set_param(P_PRESET_COUNT, 0, 5) == GSX_BAD_PARAM, "SET preset.count -> BAD_PARAM");
     set_param(P_PRESET_ACTIVE, 0, 1);
     set_param(P_BTN_ACTION, 2, ACT_PRESET_PREV);
     button(2, 1); button(2, 0);
-    CHECK(gm_cfg.preset_active == 8, "preset_prev wraps 1 -> 8");
+    CHECK(gm_cfg.preset_active == 3, "preset_prev wraps 1 -> 3");
     set_param(P_BTN_ACTION, 3, ACT_PRESET_SELECT);
     set_param(P_BTN_NUMBER, 3, 2);
     button(3, 1); button(3, 0);
     CHECK(gm_cfg.preset_active == 2, "preset_select 2");
-    set_param(P_PRESET_ACTIVE, 0, 8);
+    CHECK(set_param(P_PRESET_ACTIVE, 0, 8) == GSX_BAD_VALUE && gm_cfg.preset_active == 2,
+          "preset.active 8: a free slot -> BAD_VALUE");
+    set_param(P_PRESET_ACTIVE, 0, 3);
     set_param(P_BTN_ACTION, 0, ACT_PRESET_SELECT);
-    set_param(P_BTN_NUMBER, 0, 9);
+    set_param(P_BTN_NUMBER, 0, 5);
     button(0, 1); button(0, 0);
-    CHECK(gm_cfg.preset_active == 8, "preset_select 9: ignored");
+    CHECK(gm_cfg.preset_active == 3, "preset_select 5 (free): ignored");
     set_param(P_BTN_ACTION, 0, ACT_PRESET_NEXT);
     button(0, 1); button(0, 0);
-    CHECK(gm_cfg.preset_active == 1, "preset_next wraps 8 -> 1");
+    CHECK(gm_cfg.preset_active == 1, "preset_next wraps 3 -> 1");
 
     /* PRESET_INFO */
     pinfo_t in;
     CHECK(preset_info(0, &in) == GSX_OK && in.slot == 1 && in.count == 8 && in.active == 1 &&
-          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML) && !strcmp(in.name, "Default") &&
-          in.program == -1, "PRESET_INFO 0 = active (flags %d, %s)", in.flags, in.name);
+          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML | PRESET_INFO_IN_USE) &&
+          !strcmp(in.name, "Default") && in.program == -1, "PRESET_INFO 0 = active (flags %d, %s)", in.flags,
+          in.name);
     CHECK(preset_info(2, &in) == GSX_OK && in.program == 5 && !strcmp(in.name, "Drums") &&
-          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML), "PRESET_INFO 2");
+          in.flags == (PRESET_INFO_STORED | PRESET_INFO_YAML | PRESET_INFO_IN_USE), "PRESET_INFO 2");
     CHECK(preset_info(4, &in) == GSX_OK && in.flags == 0 && !strcmp(in.name, "Preset 4") &&
           in.stored_revision == 0, "PRESET_INFO 4: empty slot (flags %d)", in.flags);
     CHECK(preset_info(9, &in) == GSX_BAD_PARAM, "PRESET_INFO 9 -> BAD_PARAM");
@@ -534,7 +542,10 @@ static void test_presets(void)
 
     /* PRESET_NAME */
     CHECK(preset_name(4, "Lead") == GSX_OK && preset_info(4, &in) == GSX_OK && !strcmp(in.name, "Lead") &&
-          in.flags == PRESET_INFO_STORED && fake_cs_count(4) == 0, "rename slot 4");
+          in.flags == (PRESET_INFO_STORED | PRESET_INFO_IN_USE) && fake_cs_count(4) == 0,
+          "naming free slot 4 makes it a preset: a copy of preset 1, named");
+    CHECK(gm_cfg.preset_count == 4 && fake_cs_get(0, P_PRESET_COUNT, 0, &v) && v == 4 && gm_cfg.preset_dirty,
+          "4 presets in use, stored; the active one's edits are still unsaved");
     CHECK(preset_name(2, "Kit") == GSX_OK && fake_cs_count(2) == 2 && !strcmp(fake_cs_name(2), "Kit"),
           "rename keeps the stored values");
     CHECK(preset_name(4, "seventeen chars!!") == GSX_BAD_VALUE, "name > 16 -> BAD_VALUE");
@@ -559,6 +570,7 @@ static void test_presets(void)
     CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 5, 0) == GSX_OK, "PRESET_SAVE 5");
     CHECK(gm_cfg.preset_active == 5 && gm_cfg.preset_dirty == 0 && preset_changed_msg(&slot, &dirty) &&
           slot == 5 && dirty == 0, "now on slot 5, clean");
+    CHECK(gm_cfg.preset_count == 5, "saving into free slot 5 puts it in use");
     CHECK(fake_cs_get(5, P_ANALOG_CC, 0, &v) && v == 12 && fake_cs_get(5, P_BTN_ACTION, 6, &v) &&
           v == ACT_CC_TOGGLE && fake_cs_count(3) == -1 && fake_cs_get(0, P_PRESET_ACTIVE, 0, &v) && v == 5,
           "slot 5 = DAW + edit as a diff vs defaults; slot 3 untouched; active stored");
@@ -572,6 +584,43 @@ static void test_presets(void)
     CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 9, 0) == GSX_BAD_PARAM, "PRESET_RESET 9");
     CHECK(preset_cmd(GSX_CMD_PRESET_RESET, 0, 0) == GSX_OK && fake_cs_count(1) == -1 &&
           fake_cs_count(2) == -1 && fake_cs_count(0) >= 0, "PRESET_RESET 0: all presets, not the globals");
+    CHECK(gm_cfg.preset_count == 3 && gm_cfg.preset_active == 1 && !fake_cs_get(0, P_PRESET_COUNT, 0, 0),
+          "PRESET_RESET 0: the YAML's 3 presets in use, slot 1 active");
+
+    /* PRESET_DELETE: the later presets move up, the last slot is freed */
+    preset_name(4, "Lead");
+    set_param(P_PRESET_ACTIVE, 0, 2);
+    out_n = 0;
+    CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 2, 0) == GSX_OK && gm_cfg.preset_count == 3, "PRESET_DELETE 2");
+    CHECK(preset_changed_msg(&slot, &dirty) && slot == 2 && dirty == 0, "PRESET_CHANGED");
+    CHECK(preset_info(2, &in) == GSX_OK && !strcmp(in.name, "DAW") && preset_info(3, &in) == GSX_OK &&
+          !strcmp(in.name, "Lead") && preset_info(4, &in) == GSX_OK && in.flags == 0 && fake_cs_count(4) == -1,
+          "DAW moved to 2, Lead to 3, slot 4 free");
+    CHECK(gm_cfg.preset_active == 2 && gm_cfg.btn_action[6] == ACT_CC_TOGGLE && gm_cfg.analog_cc[0] == 11 &&
+          gm_cfg.channel == 1, "the deleted active preset hands over to DAW, now in its slot");
+    set_param(P_PRESET_ACTIVE, 0, 3);
+    CHECK(gm_cfg.channel == 1 && gm_cfg.btn_action[6] == ACT_CC_RAMP && gm_cfg.analog_cc[0] == 7,
+          "slot 3: Lead's values (a copy of Default)");
+    CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 4, 0) == GSX_BAD_PARAM &&
+          preset_cmd(GSX_CMD_PRESET_DELETE, 0, 0) == GSX_BAD_PARAM, "PRESET_DELETE a free slot or 0 -> BAD_PARAM");
+    CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 1, 0) == GSX_OK && gm_cfg.preset_active == 2 &&
+          preset_info(1, &in) == GSX_OK && !strcmp(in.name, "DAW") && preset_info(2, &in) == GSX_OK &&
+          !strcmp(in.name, "Lead") && gm_cfg.preset_count == 2, "PRESET_DELETE 1: the active Lead moves up to 2");
+    CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 2, 0) == GSX_OK && gm_cfg.preset_active == 1 &&
+          gm_cfg.preset_count == 1 && fake_cs_get(0, P_PRESET_COUNT, 0, &v) && v == 1,
+          "PRESET_DELETE the last one: back to the one before");
+    CHECK(preset_cmd(GSX_CMD_PRESET_DELETE, 1, 0) == GSX_BAD_STATE, "the last preset stays");
+    button(0, 1); button(0, 0);
+    CHECK(gm_cfg.preset_active == 1, "preset_next with one preset: stays");
+    boot();
+    CHECK(gm_cfg.preset_count == 1 && gm_cfg.preset_active == 1 && preset_info(1, &in) == GSX_OK &&
+          !strcmp(in.name, "DAW") && gm_cfg.analog_cc[0] == 11, "boot: 1 preset in use, DAW");
+
+    /* a store from before preset.count: presets stored past it stay in use */
+    CHECK(preset_cmd(GSX_CMD_PRESET_SAVE, 6, 0) == GSX_OK && gm_cfg.preset_count == 6, "save into 6");
+    config_store_write(CS_SLOT_GLOBAL, GM_PRESETS_REVISION, 0, 0, 0);
+    boot();
+    CHECK(gm_cfg.preset_count == 6 && gm_cfg.preset_active == 1, "boot: slot 6 is stored, so 6 in use");
 
     /* FACTORY_RESET: store erased, slot 1 */
     CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.preset_active == 1 &&

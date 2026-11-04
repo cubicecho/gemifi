@@ -1,0 +1,80 @@
+{
+  "$comment": "Device YAML examples the Devices view shows beside the editor. tools/builder/tests/test_builder.py (TestYamlReference) validates every yaml on an stm32f1 device and checks each params entry against the builder's PARAMS table, so keep them in step with the builder.",
+  "entries": [
+    {
+      "id": "xy_pad",
+      "title": "XY pad",
+      "summary": "A 4-wire resistive XY pad on four MCU pins (hub type xy_pad). Its two axes are ordinary analog inputs, pin { xy_pad: <id>, number: x | y }.",
+      "notes": [
+        "Reading X drives x_plus_pin high and x_minus_pin low and reads the Y plate; Y the other way round. Each axis is read on the other plate's minus pin if it has an ADC, otherwise its plus pin, so at least one of each pair needs an ADC.",
+        "touch_min / touch_max (0..4095, default 570 / 3430) is the window both readings must be inside to count as a touch. Untouched, the axes send nothing and keep their last value.",
+        "Calibrate each axis with adc_min / adc_max. An axis can send a CC or channel pressure, not pitch_bend (bend centres on the power-up reading, and the pad reads nothing until touched).",
+        "stm32f1: read in software on ADC2, so it works alongside hardware_scan.analog."
+      ],
+      "params": ["analog.cc", "analog.mode"],
+      "yaml": "xy_pad:\n  - id: xy\n    x_plus_pin: PB1\n    x_minus_pin: PC5             # Y is read here (or on PB1): one needs an ADC\n    y_plus_pin: PC4\n    y_minus_pin: PB10            # X is read here (or on PC4): one needs an ADC\n    touch_min: 570             # optional, the default\n    touch_max: 3430            # optional, the default\nanalog:\n  - { id: xy_x, name: XY X, pin: { xy_pad: xy, number: x }, cc: 16, adc_min: 830, adc_max: 3100 }\n  - { id: xy_y, name: XY Y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 830, adc_max: 3100 }\n"
+    },
+    {
+      "id": "din_midi",
+      "title": "DIN MIDI (5-pin In / Out)",
+      "summary": "The 5-pin MIDI jacks on a UART at 31250 baud (stm32f1: USART1, tx_pin PA9, rx_pin PA10). rx_pin is optional: without it there is MIDI Out only.",
+      "notes": [
+        "mode: separate_port (the default) adds a second USB-MIDI port on cable 1, named port_name (default \"<friendly_name> MIDI\"); DIN In goes to it and what the computer sends to it goes to DIN Out. It can't be combined with the DAW port (mcu:).",
+        "mode: usb_merge mixes DIN In into the device's own port; with usb_to_din the computer's channel and realtime messages on that port also go to DIN Out (never its SysEx). mode: din_only keeps the jacks off USB.",
+        "thru, controller_out and usb_to_din are the start values of the settings midi.thru, midi.din_out and midi.usb_to_din (MIDI group, global), which the Config card changes live.",
+        "dma: false (the default) moves the bytes in the USART1 interrupt. dma: true (stm32f1) needs DMA1 channels 4 and 5, which the hardware scans may already use; the builder says so."
+      ],
+      "params": ["midi.thru", "midi.din_out", "midi.usb_to_din"],
+      "yaml": "din_midi:\n  tx_pin: PA9\n  rx_pin: PA10                 # optional: without it, MIDI Out only\n  mode: separate_port          # separate_port | usb_merge | din_only\n  port_name: Code 61 MIDI      # separate_port only\n  thru: false                  # start value of midi.thru\n  controller_out: true         # start value of midi.din_out\n  dma: false                   # stm32f1: DMA1 channels 4 and 5\n"
+    },
+    {
+      "id": "dma",
+      "title": "DMA switches (stm32f1)",
+      "summary": "The STM32F103 has 7 DMA channels and each peripheral request is wired to one of them. The builder gives each DMA user its channels and stops the build on a clash, naming both users.",
+      "notes": [
+        "rgb_serial dma: true (the default) sends the LED bytes by DMA1 channel 7 (USART2_TX); dma: false sends them from the USART2 interrupt.",
+        "din_midi dma: false (the default) is interrupt-driven; dma: true needs channels 4 (USART1_TX) and 5 (USART1_RX).",
+        "hardware_scan claims its channels first, so a clash is reported on the dma: switch. Validate shows the resulting DMA1 channel map; the build log prints it too.",
+        "At 31250 baud a DIN byte takes 320 us and its interrupt about 1 us: spend the channels on the scans."
+      ],
+      "params": [],
+      "yaml": "rgb_serial:\n  - id: pad_leds\n    tx_pin: PA2\n    count: 16\n    dma: true                  # the default; false: interrupt-driven\nleds:\n  - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 } }\n"
+    },
+    {
+      "id": "analog_modes",
+      "title": "Pitch wheel and aftertouch",
+      "summary": "analog mode: cc (the default), pitch_bend (14-bit bend on midi.channel) or channel_pressure (aftertouch 0..127). It is the start value of analog.mode, per preset.",
+      "notes": [
+        "pitch_bend: the first reading after power-up is the centre, so leave the wheel untouched while the device starts. adc_min / adc_max are the wheel's ends.",
+        "channel_pressure: adc_min is released, adc_max pressed hard. A sensor whose reading falls as you press takes adc_min above adc_max (reversed calibration).",
+        "A mod wheel is a plain CC 1."
+      ],
+      "params": ["analog.mode", "analog.cc"],
+      "yaml": "analog:\n  - { id: pitch_wheel, name: Pitch, pin: PA4, mode: pitch_bend, adc_min: 1420, adc_max: 2360 }\n  - { id: mod_wheel, name: Mod, pin: PA5, cc: 1, adc_min: 1420, adc_max: 2360 }\n  # reading falls as you press: adc_min (released) is the high end\n  - { id: aftertouch, name: Aftertouch, pin: PC3, mode: channel_pressure, adc_min: 2304, adc_max: 1232 }\n"
+    },
+    {
+      "id": "led_looks",
+      "title": "LED looks (idle and active)",
+      "summary": "idle: is what an LED shows while off, active: what it shows for on. led_defaults: sets them for every LED that doesn't set its own.",
+      "notes": [
+        "Single colour (pin): off, on. Bicolour (pin2): off, colour1, colour2, both. RGB (pin3): off, red, green, blue, yellow, cyan, magenta, white; on = white.",
+        "led_defaults takes any look of any kind of LED, and each LED shows the nearest it can.",
+        "With idle: equal to the default active look and no active:, active is off (idle: on = lit until pressed)."
+      ],
+      "params": [],
+      "yaml": "led_defaults: { idle: blue, active: white }\nleds:\n  - { id: rec_led, pin: PB12, idle: on }        # lit until pressed\n  - { id: b1_led, pin: PB13, pin2: PB14, pin3: PB15, idle: blue, active: white }\n"
+    },
+    {
+      "id": "presets",
+      "title": "Presets and preset buttons",
+      "summary": "Named sets of what the controls send. Slot 1 is the rest of the file; other slots list only what differs. preset_next / preset_prev / preset_select buttons switch them, and a device with a display shows the name.",
+      "notes": [
+        "name: at most 16 printable ASCII characters, unique. Empty slots (slots minus the listed ones) start as copies of slot 1, named \"Preset N\".",
+        "The builder checks the worst case fits the platform's store (the Code 61 takes 3 slots) and prints the budget in the summary.",
+        "preset.active, preset.program and preset.dirty are the presets' settings in the Config card."
+      ],
+      "params": ["preset.active", "preset.program", "preset.dirty"],
+      "yaml": "buttons:\n  - { id: up, pin: PB5, action: preset_next }\n  - { id: down, pin: PB6, action: preset_prev }\npresets:\n  slots: 3\n  list:\n    - name: Default\n    - name: Drums\n      program: 9\n      midi: { channel: 10 }\n"
+    }
+  ]
+}

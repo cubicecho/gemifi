@@ -94,11 +94,85 @@ export interface Diagnostic {
   msg: string;
 }
 
+/** One preset slot as the validator read it. */
+export interface PresetSlot {
+  /** 1-based. */
+  slot: number;
+  name: string;
+  /** The Program Change it sends when selected, or null. */
+  program: number | null;
+  /** How many values it changes from slot 1. */
+  changes: number;
+  /** Listed in the YAML; false for an empty slot that starts as a copy of slot 1. */
+  listed: boolean;
+}
+
+/** The device's presets as the validator read them. */
+export interface PresetsSummary {
+  slots: PresetSlot[];
+  /** Whether the file has a `presets:` section. */
+  given: boolean;
+  /** The largest `slots` the platform's store fits, or null when the builder did not say. */
+  maxSlots: number | null;
+}
+
+/** One DMA channel the builder gave to a feature (stm32f1). */
+export interface DmaChannel {
+  /** DMA1 channel, 1..7. */
+  channel: number;
+  /** The peripheral request on it, e.g. `USART2_TX`. */
+  request: string;
+  /** The feature that uses it, e.g. `rgb_serial 'pad_leds'`. */
+  user: string;
+}
+
+/** The DMA1 channel map (core/README.md "DMA channels"). */
+export interface DmaMap {
+  channels: DmaChannel[];
+  /** The channels nothing uses. */
+  free: number[];
+}
+
+/** How the DIN MIDI jacks reach USB. */
+export const DinMode = { SeparatePort: 'separate_port', UsbMerge: 'usb_merge', DinOnly: 'din_only' } as const;
+export type DinMode = (typeof DinMode)[keyof typeof DinMode];
+
+/** `din_midi:` as the validator read it. */
+export interface DinMidiSummary {
+  mode: DinMode;
+  /** Whether it has an `rx_pin` (MIDI In). */
+  midiIn: boolean;
+  thru: boolean;
+  controllerOut: boolean;
+  usbToDin: boolean;
+  dma: boolean;
+}
+
+/** What a second USB-MIDI port carries. */
+export type MidiPortRole = 'daw' | 'din';
+
+/** A USB-MIDI port the device shows besides its own. */
+export interface MidiPort {
+  /** The USB-MIDI cable number. */
+  cable: number;
+  name: string;
+  role: MidiPortRole;
+}
+
 /** What validating a device file found. */
 export interface ValidationResult {
   ok: boolean;
+  /** The one-line summary: name, platform, component counts, the preset budget. */
   summary: string;
   diags: Diagnostic[];
+  /** Null when the file is not valid, or from an older builder. */
+  presets: PresetsSummary | null;
+  /** Null on a platform without a DMA map (only stm32f1 has one), on an invalid file, or from an older builder. */
+  dma: DmaMap | null;
+  /** Null when the file has no `din_midi:`. */
+  dinMidi: DinMidiSummary | null;
+  /** The ports besides the device's own; empty when it has none. */
+  midiPorts: MidiPort[];
 }
 
 /** How a build ended. */
@@ -395,19 +469,127 @@ function parseDiagnostic(value: unknown): Diagnostic {
 }
 
 /**
+ * @param value - Anything.
+ * @returns Whether it is a whole number.
+ */
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
+/**
+ * The extra facts are optional (an older builder does not send them), so a missing or malformed one
+ * reads as null rather than failing the whole check.
+ *
+ * @param value - The answer's `presets`.
+ * @returns The presets, or null.
+ */
+function parsePresets(value: unknown): PresetsSummary | null {
+  if (isRecord(value) === false || Array.isArray(value.slots) === false) {
+    return null;
+  }
+  const slots = value.slots.filter(isRecord).map(
+    (slot): PresetSlot => ({
+      slot: isInteger(slot.slot) ? slot.slot : 0,
+      name: typeof slot.name === 'string' ? slot.name : '',
+      program: isInteger(slot.program) ? slot.program : null,
+      changes: isInteger(slot.changes) ? slot.changes : 0,
+      listed: slot.listed !== false,
+    }),
+  );
+  const storage = isRecord(value.storage) ? value.storage : {};
+  return { slots, given: value.given === true, maxSlots: isInteger(storage.max_slots) ? storage.max_slots : null };
+}
+
+/**
+ * @param value - The answer's `dma`.
+ * @returns The channel map, or null.
+ */
+function parseDma(value: unknown): DmaMap | null {
+  if (isRecord(value) === false || Array.isArray(value.channels) === false) {
+    return null;
+  }
+  const channels = value.channels
+    .filter(isRecord)
+    .filter((entry) => isInteger(entry.channel))
+    .map(
+      (entry): DmaChannel => ({
+        channel: entry.channel as number,
+        request: typeof entry.request === 'string' ? entry.request : '',
+        user: typeof entry.user === 'string' ? entry.user : '',
+      }),
+    );
+  const free = Array.isArray(value.free) ? value.free.filter(isInteger) : [];
+  return { channels, free };
+}
+
+/**
+ * @param value - Anything.
+ * @returns Whether it is a DIN MIDI mode.
+ */
+function isDinMode(value: unknown): value is DinMode {
+  return Object.values<unknown>(DinMode).includes(value);
+}
+
+/**
+ * @param value - The answer's `din_midi`.
+ * @returns The DIN MIDI settings, or null.
+ */
+function parseDinMidi(value: unknown): DinMidiSummary | null {
+  if (isRecord(value) === false || isDinMode(value.mode) === false) {
+    return null;
+  }
+  return {
+    mode: value.mode,
+    midiIn: value.midi_in === true,
+    thru: value.thru === true,
+    controllerOut: value.controller_out !== false,
+    usbToDin: value.usb_to_din === true,
+    dma: value.dma === true,
+  };
+}
+
+/**
+ * @param value - The answer's `midi_ports`.
+ * @returns The extra ports; empty when there are none or the answer has no list.
+ */
+function parseMidiPorts(value: unknown): MidiPort[] {
+  if (Array.isArray(value) === false) {
+    return [];
+  }
+  return value
+    .filter(isRecord)
+    .filter((port) => port.role === 'daw' || port.role === 'din')
+    .map(
+      (port): MidiPort => ({
+        cable: isInteger(port.cable) ? port.cable : 1,
+        name: typeof port.name === 'string' ? port.name : '',
+        role: port.role as MidiPortRole,
+      }),
+    );
+}
+
+/**
  * Checks a device file without saving it.
  *
  * @param text - The YAML.
  * @param id - The device it belongs to, so messages name its file.
- * @returns Whether it is valid, a one-line summary and the diagnostics.
+ * @returns Whether it is valid, a one-line summary, the diagnostics, and what the builder read.
  */
 export async function validateDevice(text: string, id?: string): Promise<ValidationResult> {
   const json = await requestJson('validate', id === undefined ? { text } : { id, text });
   const what = 'the check';
+  const dma = parseDma(json.dma);
+  const fullSummary = typeof json.summary === 'string' ? json.summary : '';
+  // The summary's second line is the DMA map in text; with the map itself, it is drawn from that instead.
+  const summary = dma === null ? fullSummary : (fullSummary.split('\n')[0] ?? '').trim();
   return {
     ok: readBoolean(json, 'ok', what),
-    summary: typeof json.summary === 'string' ? json.summary : '',
+    summary,
     diags: readList(json, 'diags', what).map(parseDiagnostic),
+    presets: parsePresets(json.presets),
+    dma,
+    dinMidi: parseDinMidi(json.din_midi),
+    midiPorts: parseMidiPorts(json.midi_ports),
   };
 }
 

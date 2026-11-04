@@ -119,6 +119,37 @@ def preset_info(dev):
             "revision": dev.presets_revision, "given": dev.presets_given, "storage": dev.budget}
 
 
+def dma_info(dev):
+    """stm32f1: the DMA1 channel map allocate_dma() made (core/README.md "DMA channels"), else None."""
+    if dev.platform.name != "stm32f1":
+        return None
+    used = [{"channel": ch, "request": req, "user": user} for ch, req, user in getattr(dev, "dma_map", [])]
+    taken = {u["channel"] for u in used}
+    return {"channels": used, "free": [c for c in range(1, gd.STM32F1_DMA_CHANNELS + 1) if c not in taken],
+            "text": gd.dma_text(dev)}
+
+
+def midi_ports(dev):
+    """The USB-MIDI ports a USB device shows besides its own (cable 0): the DAW port (mcu:) or the
+    DIN MIDI port (din_midi.mode separate_port), on cable 1."""
+    ports = []
+    if dev.daw_port:
+        ports.append({"cable": 1, "name": dev.name + " DAW", "role": "daw"})
+    din = dev.din
+    if din is not None and din.mode == gd.DIN_MODES.index("separate_port"):
+        ports.append({"cable": 1, "name": din.port_name or (dev.name + " MIDI")[:gd.COMP_STR_MAX], "role": "din"})
+    return ports
+
+
+def din_info(dev):
+    """din_midi: as the builder read it, else None."""
+    din = dev.din
+    if din is None:
+        return None
+    return {"mode": gd.DIN_MODES[din.mode], "midi_in": din.rx is not None, "thru": din.thru,
+            "controller_out": din.out, "usb_to_din": din.usb, "dma": din.dma}
+
+
 def toolchains():
     arm = bool(shutil.which("arm-none-eabi-gcc") and shutil.which("make"))
     return {"nuvoton-nuc1xx": arm, "stm32f1": arm,
@@ -389,7 +420,10 @@ def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=Non
                 dev, diags = gd.load_device(ident if isinstance(ident, str) and ident else "device.yaml", text)
                 return self.send(200, {"ok": dev is not None, "summary": gb.summary(dev) if dev else "",
                                        "diags": [d.as_dict() for d in diags],
-                                       "presets": preset_info(dev) if dev else None})
+                                       "presets": preset_info(dev) if dev else None,
+                                       "dma": dma_info(dev) if dev else None,
+                                       "din_midi": din_info(dev) if dev else None,
+                                       "midi_ports": midi_ports(dev) if dev else []})
             if u.path == "/api/save":
                 p = self.path_arg(b.get("id"))
                 if p is None:

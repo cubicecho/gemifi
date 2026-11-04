@@ -26,6 +26,7 @@ import { NewDeviceDialog } from './new-device-dialog.tsx';
 import { deviceTitle, platformLabel, presetNameOf } from './platforms.ts';
 import { type BuildState, useBuild } from './use-build.ts';
 import { type RequestState, useRequest } from './use-request.ts';
+import { YamlReferenceCard } from './yaml-reference-card.tsx';
 
 /** Where the list and the open device stack (the layout's `stackBelow="lg"`), so opening one scrolls to it. */
 const STACKED_QUERY = '(width < 64rem)';
@@ -142,6 +143,7 @@ function DeviceDetail(props: DeviceDetailProps) {
         onFlash={props.onFlash}
         onInstall={props.onInstall}
       />
+      <YamlReferenceCard />
     </div>
   );
 }

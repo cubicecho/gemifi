@@ -4048,7 +4048,8 @@ def generate(dev, source="device.yaml"):
               f"#define GM_HW_SCAN_SETTLE_NS {settle}",
               f"#define GM_HW_SCAN_PRECHARGE {1 if pre else 0}"]
     h += timer_defines(dev)
-    tm_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
+    h += matrix_defines(dev)
+    tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
         h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
     if m and getattr(m, "vel_fast", None) is not None:
@@ -4211,6 +4212,39 @@ def generate(dev, source="device.yaml"):
     c += display_tables(dev)
     c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+
+
+MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
+MATRIX_MAX_ROWS = 32    # controller.c: rows scanned
+
+
+def matrix_col_runs(dev, m):
+    """How many col_run_t entries controller.c's gm_init makes for the key matrix: runs of columns
+    c, c+1, ... on consecutive bits of one input register. NUC1xx and STM32F1 have a register per
+    port of 16 pins (pin = port * 16 + bit); elsewhere, or for hub pins, assume one per column."""
+    cols = m.cols[:MATRIX_FAST_COLS]
+    if dev.platform.is_esp:
+        return len(cols)
+    runs, last = 0, None            # last: (port, next bit, next column) that would extend the run
+    for c, pn in enumerate(cols):
+        if pn.hub != 0:
+            continue                # no register: the scan reads pin by pin
+        port, bit = divmod(pn.num, 16)
+        if last != (port, bit, c):
+            runs += 1
+        last = (port, bit + 1, c + 1)
+    return runs
+
+
+def matrix_defines(dev):
+    """The key-matrix scan's table sizes in controller.c (core/README.md "Generated code")."""
+    m = dev.matrix
+    if not m:
+        return []
+    dec = any(0 < pn.hub <= len(dev.hubs) and dev.hubs[pn.hub - 1].type == "decoder" for pn in m.rows)
+    return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX_ROWS)} /* key-matrix rows scanned (at most 32) */",
+            f"#define GM_MATRIX_COL_RUNS {matrix_col_runs(dev, m)} /* runs of adjacent column bits on one port */",
+            f"#define GM_MATRIX_DECODER {1 if dec else 0} /* rows on a decoder: one-store row selects */"]
 
 
 def label_tables(dev):

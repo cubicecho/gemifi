@@ -61,6 +61,13 @@ Not fitting is an error that says the largest `slots` that fits; using more than
 devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1836 B in 5 of 6 pages (3072 B)
 ```
 
+**DMA channels and timers (stm32f1).** `allocate_dma()` in `gemifi_device.py` gives the DMA users their DMA1 channels (core/README.md "DMA channels"). `rgb_serial` and `din_midi` with `dma: true` have fixed channels. Each hardware scan takes a timer whose requests land on free channels: its `hardware_scan.*.timer`, or with `auto` (the default) the first fitting one, in the order of `HW_SCAN_TIMERS`, trying the steps' requests in the order of `HW_SCAN_ROLES` / `HW_ADC_MUX`. The core's scan tick gets the first of TIM2..4 the scans leave. If no choice fits, the error names the clash and what would fit: `auto`, or precharge off. The summary shows the result, which also goes at the top of `gm_device_config.h` (the `GM_HW_SCAN_*`, `GM_HW_ADC_*` and `GM_SCAN_TICK_TIM` defines are for `platform/stm32f1/include/dma_map.h`):
+
+```
+  DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ..., 7 USART2_TX (rgb_serial 'pad_leds'); free: none
+  timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)
+```
+
 Two hubs can share a control line (e.g. an sn74hc595 and an sn74hc165 on one clock and latch, or two muxes on the same select lines) only if each use sets `allow_other_uses: true` (`clock_pin: { number: GPIO18, allow_other_uses: true }`) and the line has the same job in each (clock with clock, latch with load). Component pins can't be shared. Making it work electrically is up to you.
 
 **build** writes into `build/devices/<name>/` (`<name>` = the YAML file name without `.yaml`; `-o` picks another directory):
@@ -206,4 +213,5 @@ What the tests check:
 - the Keystation YAML generates tables with the board's shape (a small program, `tests/dump_device.c`, compiled with host gcc against `core/include`, prints every field). Plain `make` in `firmware/nuvoton-nuc1xx/midi-controller` and `core/test` generate from that YAML too, so `core/test` checks the generated tables' behaviour on every run.
 - `generate` leaves unchanged files alone (same mtime), so `make` doesn't rebuild when the YAML hasn't changed.
 - every generated `.c` (the Keystation, every preset, `tests/fixtures/everything-esp32s3.yaml` with all hub types and components, and an empty device) compiles with `gcc -std=c11 -Wall -Wextra -Werror`. The `core/src/*.c` files are compiled against each one, and `settings.c` + `params.c` are linked against it.
+- the stm32f1 DMA allocator (`test_dma_*`): the Code 61's map, `auto` moving the scans for `din_midi dma: true`, explicit timers and their errors, and (with `arm-none-eabi-gcc`) the platform's static checks in `scan_dma.c`, `adc_dma.c`, `hal.c` and `main.c` against several allocator outputs.
 - validation errors (file, line, path, message), the CLI, and the dashboard: every API endpoint, per-id output dirs, read-only presets, static serving and traversal, Basic auth, the Host-header rules, the `GEMIFI_*` env vars, and (with `arm-none-eabi-gcc`) a real NUC build through `/api/build`.

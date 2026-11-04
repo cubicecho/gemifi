@@ -79,8 +79,8 @@ def summary(dev):
         parts.append(f"{dev.matrix.keys}-key {dev.matrix.kind} matrix")
     if dev.presets_given and dev.budget:
         parts.append("presets: " + gd.budget_text(dev.budget))
-    dma = gd.dma_text(dev)
-    return ", ".join(parts) + (f"\n  {dma}" if dma else "")
+    dma = "".join(f"\n  {t}" for t in (gd.dma_text(dev), gd.timers_text(dev)) if t)
+    return ", ".join(parts) + dma
 
 
 # ---------------------------------------------------------------------------------------------

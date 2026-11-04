@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.21.0](https://github.com/cubicecho/gemifi/compare/v0.20.0...v0.21.0) (2026-11-04)
+
+
+### Features
+
+* **settings:** 3-page settings log on the Code 61, fewer flash writes ([533f5d2](https://github.com/cubicecho/gemifi/commit/533f5d227e09f910287cfdeccf2d169c96e03132))
+
 # [0.20.0](https://github.com/cubicecho/gemifi/compare/v0.19.0...v0.20.0) (2026-11-04)
 
 

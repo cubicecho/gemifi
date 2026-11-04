@@ -2,6 +2,35 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.31.0](https://github.com/cubicecho/gemifi/compare/v0.30.0...v0.31.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** encoder turns no longer lost to a race with the scan ([1537a8d](https://github.com/cubicecho/gemifi/commit/1537a8d4bbfb8a10d065ddcf80b3c02aa1064764))
+
+
+### Features
+
+* **presets:** write_to_flash YAML option; the device no longer saves the last preset on its own by default ([19a5b72](https://github.com/cubicecho/gemifi/commit/19a5b72175c2b2bdccbb69238c9861ef9b0b5eca))
+
+
+### Performance Improvements
+
+* **core:** a preset switch reads the slot's record once, not twice ([4cf7ed5](https://github.com/cubicecho/gemifi/commit/4cf7ed504b8ad0af430a4d442347acb46be6481a))
+* **core:** a scan loop of its own for the common software matrix ([1afc6a0](https://github.com/cubicecho/gemifi/commit/1afc6a00d961b755a7d0a05edaccc7e87506fce1))
+* **core:** compile out firmware upload on platforms whose bootloader takes it ([b3805b0](https://github.com/cubicecho/gemifi/commit/b3805b0192c50c7ae0034ca3d5cdd0d94411a90c))
+* **core:** GET_SCHEMA walks the table once per window, only up to its end ([1b737d5](https://github.com/cubicecho/gemifi/commit/1b737d5200c5a63d9f816c4a02762d75f716a18a))
+* **core:** host feedback skips the component walk for numbers nobody uses ([fcc1be6](https://github.com/cubicecho/gemifi/commit/fcc1be678f19064f32f90b813af09b023aa029cf))
+* **core:** keep key start times in 16 bits ([99a6506](https://github.com/cubicecho/gemifi/commit/99a6506b312b0838dc1823a793c79b9ccc53b9f9))
+* **core:** keep the button history in the narrowest type ([8a92ef5](https://github.com/cubicecho/gemifi/commit/8a92ef5cb471496b3b6ca6a52b89ac9fde8b59c5))
+* **core:** key velocity without a divide or two of its three logs ([1b15fd4](https://github.com/cubicecho/gemifi/commit/1b15fd469cc89c575a0e284f28e8ec560b9f88c9))
+* **core:** pitch-bend dead zone and step worked out once, not per reading ([80c90b7](https://github.com/cubicecho/gemifi/commit/80c90b760aae5acd1117d569ad8ba9beed897b4d))
+* **core:** send keys before LED and display work ([a9fccbb](https://github.com/cubicecho/gemifi/commit/a9fccbbaa648b8ada0dd5b266bdfd76318e8d000))
+* **core:** size the key-matrix scan tables by the device ([c584cf6](https://github.com/cubicecho/gemifi/commit/c584cf6a499f9642d910dab8c186f8f59da3da86))
+* **tm1628:** bit-bang with set/reset stores and cycle-counted phases ([19c3a74](https://github.com/cubicecho/gemifi/commit/19c3a741dc5c4ae2027241ad91a817a2a35f71cf))
+* **tm1628:** write changed spans with auto-increment ([d384a7d](https://github.com/cubicecho/gemifi/commit/d384a7db79794090a9efedb4989ddbbadedd635e))
+
 # [0.30.0](https://github.com/cubicecho/gemifi/compare/v0.29.0...v0.30.0) (2026-11-04)
 
 

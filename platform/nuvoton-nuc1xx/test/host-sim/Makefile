@@ -21,8 +21,12 @@ CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fPIC 
           -Istub -I$(PLAT)/include -I$(ROOT)/core/include -DBOARD_HEADER='"simboard.h"'
 
 .PHONY: test clean hello-led cs-test presets-test
-test: $(BUILD)/libboot.so $(BUILD)/libboot_test.so $(BUILD)/libapp.so $(BUILD)/libctl.so $(BUILD)/midi_test $(BUILD)/cs_test hello-led
+MIDI_TESTS := $(BUILD)/midi_test $(BUILD)/midi_test4 $(BUILD)/midi_test0
+
+test: $(BUILD)/libboot.so $(BUILD)/libboot_test.so $(BUILD)/libapp.so $(BUILD)/libctl.so $(MIDI_TESTS) $(BUILD)/cs_test hello-led
 	$(BUILD)/midi_test
+	$(BUILD)/midi_test4
+	$(BUILD)/midi_test0
 	$(BUILD)/cs_test $(CS_ARGS)
 	SIM_BUILD=$(BUILD) $(PYTHON) -I run_sim.py
 	SIM_BUILD=$(BUILD) $(PYTHON) -I run_app.py
@@ -52,8 +56,15 @@ $(BUILD)/libapp.so: $(APP_SRCS) $(ROOT)/firmware/nuvoton-nuc1xx/usb-log/main.c $
 	$(HOSTCC) $(CFLAGS) -shared -DFW_VERSION_MAJOR=0 -DFW_VERSION_MINOR=1 -DFW_VERSION_PATCH=0 \
 	    -I$(ROOT)/firmware/nuvoton-nuc1xx/usb-log $(APP_SRCS) -o $@
 
-$(BUILD)/midi_test: midi_test.c $(PLAT)/src/usb_midi.c $(ROOT)/core/src/gsx.c | $(BUILD)
-	$(HOSTCC) $(filter-out -fPIC,$(CFLAGS)) $^ -o $@
+# usb_midi.c with its transmit ring as on the NUC (2 packets), as on the
+# STM32F1 (4), and the bootloader's one buffer (0).
+MIDI_SRCS := midi_test.c $(PLAT)/src/usb_midi.c $(ROOT)/core/src/gsx.c
+$(BUILD)/midi_test: $(MIDI_SRCS) | $(BUILD)
+	$(HOSTCC) $(filter-out -fPIC,$(CFLAGS)) -DMIDI_TX_PKTS=2 $^ -o $@
+$(BUILD)/midi_test4: $(MIDI_SRCS) | $(BUILD)
+	$(HOSTCC) $(filter-out -fPIC,$(CFLAGS)) -DMIDI_TX_PKTS=4 $^ -o $@
+$(BUILD)/midi_test0: $(MIDI_SRCS) | $(BUILD)
+	$(HOSTCC) $(filter-out -fPIC,$(CFLAGS)) -DMIDI_TX_PKTS=0 $^ -o $@
 
 # The midi-controller's protocol side (core/src, presets included) with the
 # generated Keystation device config and the real config_store.c.

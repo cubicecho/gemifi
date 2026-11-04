@@ -16,6 +16,9 @@ DEFS   += -DTEST_IN_APROM=1
 endif
 
 DEFS += -DVECTOR_IRQS=0 -DSTARTUP_NO_DATA=1
+# usb_midi.c: the one-buffer transmit path (no packet ring or host-absent
+# tracking, which don't fit). The bootloader only sends replies, flushed.
+DEFS += -DMIDI_TX_PKTS=0
 # No case tables: if/else chains are smaller here and drop the libgcc
 # __gnu_thumb1_case_* helpers (about 24 B of the 4 KB).
 CFLAGS += -fno-jump-tables

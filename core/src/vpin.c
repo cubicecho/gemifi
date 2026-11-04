@@ -1135,6 +1135,11 @@ void vpin_poll_tm1628(void)
  * first, so they go out one per RGB_GAP_MS. */
 #define RGB_GAP_MS 5u
 #define RGB_KEEPALIVE_MS 50u
+/* With nothing changed, one LED's colour is sent again every RGB_REFRESH_MS
+ * (16 pads: each about every 0.8 s), so a lost message (back to back, or
+ * at power-on before the board is up: the pads stayed dark until hit)
+ * doesn't stay wrong. */
+#define RGB_REFRESH_MS 50u
 
 static uint32_t rgb_bits(const uint8_t *ram, uint32_t led)
 {
@@ -1158,6 +1163,7 @@ static void rgb_set_sent(uint8_t *ram, uint32_t led, uint32_t v)
 void vpin_poll_rgb_serial(uint32_t now_ms)
 {
     static uint32_t t_msg, t_ka;
+    static uint8_t refresh;             /* the next LED to send again */
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
@@ -1176,19 +1182,34 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
          * can't starve the others. */
         const uint8_t *ram = &tm_ram[s->tm_off];
         uint8_t *sent = &ram_sent[s->tm_off];
+        uint32_t todo = h->chain;           /* an LED to send, h->chain = none */
         for (uint32_t k = 0; k < h->chain; k++) {
             uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->chain;
-            uint32_t v = rgb_bits(ram, led);
-            if (v == rgb_bits(sent, led))
+            if (rgb_bits(ram, led) != rgb_bits(sent, led)) {
+                todo = led;
+                break;
+            }
+        }
+        int again = 0;
+        if (todo == h->chain) {
+            if (now_ms - t_msg < RGB_REFRESH_MS || h->chain == 0)
                 continue;
+            todo = refresh % h->chain;
+            again = 1;
+        }
+        {
+            uint32_t led = todo;
+            uint32_t v = rgb_bits(ram, led);
             uint8_t msg[6] = { 0x02u, (uint8_t)(0x80u + led), (v & 1u) ? 0xFFu : 0u,
                                (v & 2u) ? 0xFFu : 0u, (v & 4u) ? 0xFFu : 0u, 0x03u };
             if (hal_serial_write(tx, msg, sizeof msg)) {
                 rgb_set_sent(sent, led, v);
-                s->channel = (int8_t)led;
+                if (again)
+                    refresh = (uint8_t)((led + 1u) % h->chain);
+                else
+                    s->channel = (int8_t)led;
                 t_msg = now_ms;
             }
-            break;
         }
     }
 }

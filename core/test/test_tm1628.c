@@ -322,7 +322,12 @@ int main(void)
     CHECK(ka >= 10 && ka_gap <= 55u, "A5 keepalive every 50 ms (%d, max gap %u)", ka, ka_gap);
     int from = ser_n;
     run_ms(100);
-    CHECK(ser_msgs(from, 0) == 0, "nothing sent while nothing changes");
+    int again = ser_msgs(from, 0);
+    CHECK(again >= 1 && again <= 3, "nothing changes: one LED sent again every 50 ms (%d in 100 ms)", again);
+    /* a full round sends every LED again: a lost message heals */
+    from = ser_n;
+    run_ms(20 * 50 + 50);
+    CHECK(ser_msgs(from, 0) >= 16, "every LED sent again within a round (%d)", ser_msgs(from, 0));
     /* LED 4 = serial LED 2: red, then white, then off */
     gm_led_script_rgb(4, 127, 0, 0, 0);
     run_ms(20);

@@ -519,7 +519,13 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         count = GM_N_DISPLAYS;
         c = gm_comp_displays;
         break;
-    default:
+#if GM_N_PADS > 0
+    case GSX_KIND_PAD:                          /* the pads, then their twins */
+        count = GM_N_PADS + GM_PAD_TWINS;
+        c = gm_comp_pads;
+        break;
+#endif
+    default:                                    /* GSX_KIND_METER: none yet */
         break;
     }
     if (index >= count)
@@ -544,6 +550,11 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_KIND_ANALOG:
 #if GM_ANALOG_PICKUP
         gsx_put(t, gm_analog_pickup[index] ? 1 : 0);    /* takeover */
+#else
+        gsx_put(t, 0);
+#endif
+#if GM_ANALOG_TOUCH
+        gsx_put(t, gm_analog_touch[index]);             /* touch */
 #else
         gsx_put(t, 0);
 #endif
@@ -574,6 +585,17 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put(t, GM_LED_OWNER);
 #endif
         break;
+#if GM_N_PADS > 0
+    case GSX_KIND_PAD: {
+        int8_t led = gm_pads[index < GM_N_PADS ? index : 0].led;
+#if GM_PAD_TWINS
+        if (index >= GM_N_PADS)
+            led = gm_pad_twins[index - GM_N_PADS].led;
+#endif
+        gsx_put_u(t, led >= 0 ? (uint32_t)led : GSX_NONE_INDEX, 2);
+        break;
+    }
+#endif
 #if GM_N_DISPLAYS > 0
     case GSX_KIND_DISPLAY:                      /* 14-segment: one row of characters */
         gsx_put(t, gm_displays[index].n_chars);

@@ -70,6 +70,8 @@ extern "C" {
 #define GSX_KIND_ENCODER 4
 #define GSX_KIND_LED     5
 #define GSX_KIND_DISPLAY 6
+#define GSX_KIND_PAD     7
+#define GSX_KIND_METER   8    /* reserved: no firmware has meters yet */
 /* GET_COMPONENT encoder `mode`: encoder.mode 0..2, or 3 for a Mackie V-Pot */
 #define GSX_ENC_MODE_MCU 3
 #define GSX_NONE_INDEX   0x3FFFu

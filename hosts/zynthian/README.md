@@ -1,6 +1,6 @@
 # gemifi driver for Zynthian: notes
 
-Status: **implemented** (2026-11-03) in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui), branch `ui-modernize`: `zyngine/ctrldev/zynthian_ctrldev_gemifi.py` plus `zyngine/ctrldev/gemifi/` (this repo's MIT protocol, device and mapping code, a Zynthian adapter, and tests that need no hardware). Unit-tested, not yet tried on a Zynthian with a device. These notes are the Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
+Status: **implemented** (2026-11-03) in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui), branch `ui-modernize`: `zyngine/ctrldev/zynthian_ctrldev_gemifi.py` plus `zyngine/ctrldev/gemifi/` (this repo's MIT protocol, device and mapping code, a Zynthian adapter, and tests that need no hardware). 2026-11-04 (#21): the clip grid on zynpad (§5.1), the nav roles, `zynthian.<cuia>`, `shift`, `strip_prev` / `strip_next`, and the `param` display; the codec reads pads (kind 7), meters (kind 8, reserved), the analog `touch` byte and EVENT types 5 and 7. Unit-tested, not yet tried on a Zynthian with a device. These notes are the Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
 
 The driver does in Zynthian what the Ableton Live script ([`../ableton-live/`](../ableton-live/)) and the Bitwig extension ([`../bitwig/`](../bitwig/)) do in those DAWs. It finds a gemifi device, asks it which controls it has and what each one is for, hears presses and moves, and drives the device's LEDs, knob pick-up and encoder rings from Zynthian's state.
 
@@ -9,7 +9,7 @@ Contents:
 2. [What the driver talks to](#2-what-the-driver-talks-to)
 3. [Zynthian's driver interface](#3-zynthians-driver-interface)
 4. [The gemifi side](#4-the-gemifi-side)
-5. [Roles → Zynthian](#5-roles--zynthian)
+5. [Roles → Zynthian](#5-roles--zynthian) ([clip grid](#51-clip-grid), [displays](#52-displays))
 6. [Feedback: Zynthian state → the device](#6-feedback-zynthian-state--the-device)
 7. [Testing](#7-testing)
 8. [Open questions](#8-open-questions)
@@ -48,7 +48,7 @@ Checked against zynthian-ui `main` on 2026-11-03: `zyngine/zynthian_ctrldev_mana
 - Setting `DRIVER_DEVELOPMENT = True` in the manager reloads the driver modules on every load, which is handy while writing it.
 
 ### 3.2 Base class
-Subclass **`zynthian_ctrldev_zynmixer`**, from `zynthian_ctrldev_base.py`. It adds mixer access on top of `zynthian_ctrldev_base`:
+Subclass **`zynthian_ctrldev_zynpad`** and **`zynthian_ctrldev_zynmixer`**, from `zynthian_ctrldev_base.py`, in that order (as the APC40 mk2, MPK249 and Launchkey Mini mk4 drivers do). `zynthian_ctrldev_zynpad` brings the launcher: it registers for zynseq's signals and calls `update_seq_state(phrase, chan)` on every play-state change, and its `on_pad_press` / `on_pad_release` launch a pad the way every pad controller does (§5.1). The gemifi driver overrides `update_seq_state`, `update_pad`, `pad_off` and `refresh` (it skips zynpad's `refresh`, which repaints through `light_off()` and `update_pad()`), and draws the grid itself. `zynthian_ctrldev_zynmixer` adds mixer access on top of `zynthian_ctrldev_base`:
 - `self.state_manager`, `self.chain_manager`, `self.zynseq`, and `self.zynmixer` (= `state_manager.zynmixer_chan`);
 - `self.idev` (input slot) and `self.idev_out` (output slot, 0 or None for no output);
 - `set_mixer_param(param, pos, value)`, `get_mixer_param(param, pos)`, `toggle_mixer_param(param, pos)`, `nudge_mixer_param(param, pos, value, fine=False)`. `param` is one of `"level"`, `"balance"`, `"mute"`, `"solo"`, `"record"`; `pos` is the chain's display index (`-1` = main chain);
@@ -95,13 +95,14 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 | Role(s) | Component | Zynthian | Status |
 |---|---|---|---|
 | `volume_N` | analog / encoder | `set_mixer_param("level", pos)` with `pos = scroll_h + N − 1`; value scaled to the mixer's range | verified (mackiecontrol). Check the value range; mackiecontrol converts 14-bit to the mixer level |
-| `pan_N` | analog / encoder | `"balance"`: `set_mixer_param` (analog) or `nudge_mixer_param` (encoder delta) | verified (mackiecontrol) |
+| `pan_N` | analog / encoder | strip N's `balance` controller: set (analog) or nudged by its own nudge factor (encoder delta); ring boost/cut. Already supported before #21; it's what the Code 61's `pan` encoder layer uses | verified API (mackiecontrol); unit-tested |
 | `mute_N`, `solo_N`, `arm_N` | button | `toggle_mixer_param("mute" / "solo" / "record", pos)` on press | verified (mackiecontrol) |
 | `select_N` | button | make chain `pos` the active chain | to check (chain_manager API) |
 | `bank_prev`, `bank_next` | button | `scroll_h ∓ 8` (clamped to `get_num_filtered_chains()`), then `refresh()` | verified pattern (base class scrolling) |
 | `master_volume` | analog / encoder | `"level"` on `pos = -1` (main chain) | verified (mackiecontrol) |
 | `master_mute` | button | toggles `"mute"` on the main chain (chain 0); LED lit while muted | unit-tested |
 | `track_volume`, `track_pan`, `track_mute`, `track_solo`, `track_arm` | as above | the same mixer params on the **active** chain (its display index) | to check (finding the active chain's index) |
+| `strip_prev`, `strip_next` | button | the bank moves by one strip (`mcu: channel_left` / `channel_right` map here now) | unit-tested |
 | `track_prev`, `track_next` | button | select the previous / next chain (`ARROW_LEFT` / `ARROW_RIGHT` CUIA in the mixer view is one option) | to check |
 | `play` | button | `TOGGLE_AUDIO_PLAY` (or `TOGGLE_MIDI_PLAY`, a driver option) | verified CUIA names (mackiecontrol) |
 | `record` | button | `TOGGLE_AUDIO_RECORD` (or `TOGGLE_MIDI_RECORD`) | verified CUIA names |
@@ -109,10 +110,41 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 | `device_param_1..4` | encoder / analog | Zynthian's four rotary controls on the current screen: `send_cuia("ZYNPOT", params=[n − 1, delta])` | verified CUIA (mackiecontrol). It acts on whatever screen is shown, which is Zynthian's model |
 | `device_param_5..8` | | no direct equivalent: ignore, or a second page via `ZYNSWITCH` | to check |
 | `scene_launch`, `scene_prev`, `scene_next`, `stop_all_clips` | button | the zynpad sequencer: `self.zynseq.libseq.togglePlayState(scene, phrase, chan)`, `self.zynseq.scene` | verified API (launchpad_x); the mapping to scenes is to check |
+| `clip_T_S` | pad (or button) | zynpad's launcher grid: column T = the T-th chain from the grid's column offset (its MIDI channel picks the sequence), row S = phrase S from the row offset. A press is zynpad's `on_pad_press(phrase, chan)`, the release `on_pad_release`. LED by FB_LED_RGB (§5.1) | unit-tested |
+| `grid_left`, `grid_right`, `grid_up`, `grid_down` | button | the grid's column / row offset ∓ 1, clamped; LED lit while it can move that way | unit-tested |
+| `nav_back`, `nav_select`, `nav_home`, `nav_alt` | button | `send_cuia("ZYNSWITCH", [n, t])` with n = 1, 3, 0, 2 and t = `S` / `B` / `L` on the release, from the hold time between the EVENTs' `t_ms`, against `zynthian_gui_config.zynswitch_bold_us` / `zynswitch_long_us` (300 ms / 2 s by default; the same comparisons as `zynthian_gui.zynswitch_timing`) | unit-tested |
+| `nav_up`, `nav_down`, `nav_left`, `nav_right` | button | `ARROW_UP` / `ARROW_DOWN` / `ARROW_LEFT` / `ARROW_RIGHT` CUIA on press, repeating while held (after ~300 ms, every tick) | unit-tested |
+| `nav_scroll` | encoder | `ZYNPOT [3, delta]`: the select knob | unit-tested |
+| `zynthian.<cuia>` | button / pad | `send_cuia("<CUIA>")`, the name upper-cased (`zynthian.toggle_audio_play` → `TOGGLE_AUDIO_PLAY`). Another host's `<host>.<command>` is ignored without a log line | unit-tested |
+| `shift` | button | tracked as a modifier (`mapping.shift`); no action of its own | unit-tested |
 | `loop`, `metronome`, `tap_tempo`, `undo`, `redo`, `rewind`, `fast_forward`, `overdub`, `session_record`, `automation_arm`, `tempo`, `crossfader`, `cue_volume`, `send_a`, `send_b`, `device_*` navigation | | look for matching CUIAs in your fork's `zynthian_gui` CUIA list; ignore the ones without (log once) | to check |
-| keys, displays | | not mapped: the keys play the synths as normal MIDI | n/a |
+| `param`, `track_name` (and a display without a role) | display | §5.2 | unit-tested |
+| `time`, `status` | display | nothing from Zynthian yet: ignored (logged once) | n/a |
+| `meter_N`, `master_meter`, `scene_N`, `knob_N`, `assign_*`, `view_*`, `flip`, `option` / `control` / `alt`, `send_a_N` / `send_b_N`, `master_solo`, `master_select`, markers, zoom, automation, `save`, `time_format` | | not yet: ignored (logged once) | n/a |
+| keys | | not mapped: the keys play the synths as normal MIDI | n/a |
 
-**EVENT handling:** a button role acts on **press** (`value` 1) unless it's momentary by nature (e.g. `rewind` held). An analog EVENT carries 0..16383 (use the top bits as needed); an encoder EVENT carries a signed detent delta.
+**EVENT handling:** a button role acts on **press** (`value` 1) unless it's momentary by nature (e.g. `rewind` held). An analog EVENT carries 0..16383 (use the top bits as needed); an encoder EVENT carries a signed detent delta. A pad EVENT (type 7, from pad twins only) is a press when `value` > 0 and the release at 0; a pad with a button role behaves as that button. Touch EVENTs (type 5) are read and ignored for now.
+
+### 5.1 Clip grid
+
+The pads of a pad layer (`clip_T_S`, e.g. the Code 61's `pads` mode) are a window on the launcher grid Zynthian's mixer and zynpad drivers show:
+
+- **Columns are chains**, in mixer order without the main chain (the driver's filtered chain list, as the strips use). A chain's sequence is the one on its MIDI channel; audio chains (no MIDI channel) have none. **Rows are phrases** of the current scene (`zynseq.scene`).
+- **Scrolling:** the driver keeps its own column and row offsets, both 0 at the start and independent of the mixer bank. `grid_left` / `grid_right` move the column offset by one, `grid_up` / `grid_down` the row offset, clamped so the grid stays on chains and phrases that exist (and re-clamped when chains or phrases go).
+- **LEDs (FB_LED_RGB, change-only):**
+  - off (0, 0, 0): no sequence there: no chain or phrase, an audio chain, a disabled sequence (`repeat` 0), or an empty one (no events; for a clippy pad, no clip file), as the mixer's launcher decides "empty";
+  - teal (0, 127, 127): a sequence, stopped;
+  - blue (0, 0, 127): playing or recording;
+  - blue, blinking: a start or stop is queued (`SEQ_STARTING`, `SEQ_STOPPING`, `SEQ_STOPPING_SYNC`, …), as daw-scripts.md §5.9 suggests.
+- **State** is read from `zynseq.state["scenes"][scene]["phrases"][phrase]["sequences"][chan]` (`state`, `repeat`, `group`, `nEvents`), the dict zynpad and the mixer's launchers use; a clippy pad's clip from its chain's clippy processor (`controllers_dict["file <phrase+1>"]`).
+- **Refresh:** `update_seq_state` (zynpad's `SS_SEQ_PLAY_STATE` hook) refreshes at once; `SS_SEQ_STATE` (state reloaded) calls `refresh()`; the 100 ms tick polls the rest (e.g. a pattern that gained events).
+- **A press** calls zynpad's `on_pad_press(phrase, chan)`, so a pad behaves as on a Launchpad: it toggles the sequence, records in session-record mode, and a hold until the long-press time clears a pad in a record state (`on_pad_release`). The release goes to the pad that was pressed, even if the grid scrolled in between. A press where there's no launcher does nothing.
+
+### 5.2 Displays
+
+- **`param`:** the selected chain's name; while a knob turns, `"<short name> <value>"` (`V1 80%`, `P1 L20`, `M 80%`), or the value alone when both don't fit the display's `cols` (`L100`, `125bpm`). About 1.5 s after the last move (15 ticks) the chain name comes back, and at once when the selection or the bank changes. Zynpot targets (`device_param_N`, `nav_scroll`) show nothing: Zynthian's screen shows their value.
+- **`track_name`, and a display without a role** (all displays on firmware before display roles): the selected chain's name.
+- Text is printable ASCII (accents dropped), cut and padded to `cols`, row 0, sent only when it changes.
 
 ## 6. Feedback: Zynthian state → the device
 
@@ -124,7 +156,8 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 | MIDI player / recorder state | `S_STATE_MAN / SS_MIDI_PLAYER_STATE`, `SS_MIDI_RECORDER_STATE`; `status_midi_player`, `status_midi_recorder` | the same, if the driver option uses MIDI transport |
 | the active chain | `on_active_chain(id)` | `select_N` LEDs; everything `track_*` |
 | chains added/removed/moved, snapshot loaded | `refresh()` (base class) | everything |
-| sequencer pad/phrase state | zynpad (`update_seq_state` in `zynthian_ctrldev_zynpad`) | `scene_*` LEDs, if mapped |
+| sequencer pad/phrase state | zynpad (`update_seq_state` in `zynthian_ctrldev_zynpad`), and the tick | FB_LED_RGB for `clip_T_S` pads (§5.1) |
+| the selected chain, a knob moved | `on_active_chain`, EVENTs | FB_TEXT to `param` / `track_name` displays (§5.2) |
 
 - An encoder with a ring (`ring` > 0) mapped to a parameter gets **FB_RING**: boost/cut (mode 1) for bipolar parameters (balance), wrap (mode 2) otherwise, `value` 0..16383 = the parameter's position. Use flags bit 1 (ring off) when its role maps to nothing in the current bank.
 - **Send only changes.** The device takes notifications as fast as USB carries them, but Zynthian's level meters and similar can change often. Don't map meters to LEDs.
@@ -154,4 +187,6 @@ The `gemifi.py` host tool (`tools/host/`) helps here: `gemifi.py components` lis
 3. **CUIA list:** which CUIAs your Zynthian version has for loop, metronome, tempo, undo/redo; the table above only uses ones seen in existing drivers.
 4. **Mixer value ranges:** `"level"` and `"balance"` value ranges, and the conversion mackiecontrol uses.
 5. **Thread safety:** which thread calls `midi_event` and the queued signal handlers, to size the locking (§3.5).
-6. **Displays:** the Code 61 has a 6-character one (GET_COMPONENT kind 6). FB_TEXT could show the active chain's name.
+6. **Displays:** done for `param` and `track_name` (§5.2). `time` and `status` need a song position and a message source from Zynthian.
+7. **Clip grid on hardware:** colours on the Code 61's pad LEDs, and whether Zynthian's chain order is the order users expect for columns (§5.1).
+8. **Auto-long:** Zynthian's own switches fire a long press while still held (`zynswitch_long_us`); nav buttons only time the press on release.

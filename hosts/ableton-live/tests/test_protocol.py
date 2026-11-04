@@ -207,3 +207,12 @@ def test_feedback_vectors(vectors):
             seen.add("booted")
     assert {"booted", ("takeover", False), ("takeover", True), ("mode", False), ("mode", True),
             ("owner", False), ("owner", True)} <= seen
+
+
+def test_newer_analog_fields_are_skipped():
+    """The touch byte after takeover, and takeover 2 = motor (reserved): parsed, never fed FB_VALUE."""
+    base = P.build_component_reply(P.Component(P.KIND_ANALOG, 0, 1, "", "", "", takeover=P.TAKEOVER_PICKUP))
+    c = P.parse_component_reply(base + bytes([2]))            # touch: from movement
+    assert c.takeover == P.TAKEOVER_PICKUP and c.takes_value
+    motor = P.parse_component_reply(base[:-1] + bytes([2, 0]))
+    assert motor.takeover == 2 and not motor.takes_value

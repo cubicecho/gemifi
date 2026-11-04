@@ -194,6 +194,7 @@ LED_OWNERS = {"host_then_local": 0, "host": 1, "local": 2}
 LED_SOURCES = {"note": 1, "cc": 2, "clock": 3, "transport": 4, "mcu": 5}   # gm_device.h GM_FB_*
 LED_SOURCE_VALUES = {"clock": ["beat"], "transport": ["playing"]}
 TAKEOVER = ["none", "pickup"]
+TOUCH = {"none": 0, "movement": 2}  # analog touch: -> gm_device.h GM_TOUCH_* (1 = a sensor, reserved)
 DEFAULT_LED_TIMEOUT_MS = 2000
 TIMEOUT_NEVER = 0xFFFF            # gm_device.h GM_TIMEOUT_NEVER (10 ms units otherwise)
 
@@ -233,8 +234,23 @@ DAW_ROLES = {
     "bank_prev", "bank_next", "master_volume", "master_mute", "cue_volume", "crossfader", "tempo",
     "device_prev", "device_next", "device_bank_prev", "device_bank_next", "device_on",
     "scene_launch", "scene_prev", "scene_next", "stop_all_clips",
+    # navigation, clip grid, encoder assign, modifiers, banking, sends, master, markers, displays,
+    # meters (reserved): issue #21 (protocol/daw-scripts.md "Roles")
+    "nav_up", "nav_down", "nav_left", "nav_right", "nav_select", "nav_back", "nav_home", "nav_alt", "nav_scroll",
+    *(f"clip_{t}_{sc}" for t in range(1, 9) for sc in range(1, 9)),
+    *(f"{r}_{i}" for r in ("scene", "knob", "send_a", "send_b", "meter") for i in range(1, 9)),
+    "grid_up", "grid_down", "grid_left", "grid_right",
+    "assign_pan", "assign_send", "assign_device", "assign_eq", "assign_track", "assign_instrument", "flip",
+    "view_all", "view_midi", "view_audio", "view_inputs", "view_buses",
+    "shift", "option", "control", "alt", "strip_prev", "strip_next", "master_solo", "master_select",
+    "marker_prev", "marker_next", "marker_add", "nudge_back", "nudge_forward", "zoom_in", "zoom_out", "scrub",
+    "automation_read", "automation_write", "automation_touch", "automation_latch", "automation_off", "save",
+    "time_format", "time", "track_name", "param", "status", "master_meter",
 }
 DAW_ROLE_RE = re.compile(r"x_[a-z0-9_]{1,29}")
+HOST_ROLE_RE = re.compile(r"[a-z][a-z0-9]*\.[a-z0-9_]+")     # <host>.<command>, e.g. zynthian.toggle_audio_play
+# mcu: names whose role isn't the name itself (the DAW scripts map the others, hosts/README.md)
+MCU_ROLES = {"channel_left": "strip_prev", "channel_right": "strip_next"}
 COMP_STR_MAX = 31               # sysex.md lstring
 
 # Hubs (I/O expanders), declared ESPHome style: one top-level list per chip, named like the
@@ -742,6 +758,7 @@ class Device:
         self.presets = []
         self.modes = []              # Hub per mode (validate_modes), in YAML order
         self.pads = []               # Hub per pad (validate_pads), in YAML order
+        self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
         self.budget = None           # storage_budget(self), after validation
@@ -776,6 +793,7 @@ class _V:
         self.presets = None      # the presets: mapping, once preset_slots has checked it
         self.mode_toggles = {}   # button index -> mode id, for the preset check
         self.mode_with_toggles = {}   # toggle: { button, with }: button index -> mode id (keeps its action)
+        self.mode_with_buttons = {}   # ... and its with: button index -> mode id
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
 
     def err(self, path, line, msg):
@@ -1935,7 +1953,7 @@ def validate_components(v, dev, data):
     for i, d in enumerate(analogs):
         p = f"analog[{i}]"
         d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max",
-                                                 "takeover", "mcu", "daw"], renamed=RENAMED_ANALOG)
+                                                 "takeover", "touch", "mcu", "daw"], renamed=RENAMED_ANALOG)
         if d is None:
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
@@ -1960,7 +1978,8 @@ def validate_components(v, dev, data):
             v.err(p, d.line, f"adc_min and adc_max are both {lo}")
         pickup = validate_takeover(v, dev, d, p, fader)
         dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, mode=mode, raw_min=lo,
-                               raw_max=hi, pickup=pickup, mcu=fader, daw=daw_role(v, dev, d, p)))
+                               raw_max=hi, pickup=pickup, touch=validate_touch(v, d, p), mcu=fader,
+                               daw=daw_role(v, dev, d, p)))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
     for i, d in enumerate(encs):
@@ -2055,6 +2074,21 @@ def validate_takeover(v, dev, d, p, fader):
     return t == "pickup"
 
 
+def validate_touch(v, d, p):
+    """analog touch: none | movement (EVENT touch while it moves) -> GET_COMPONENT's touch byte. A touch
+    sensor, touch: { pin: ... }, is reserved."""
+    if d.get("touch") is None:
+        return 0
+    t, line = d["touch"], d.line_of("touch")
+    if isinstance(t, dict):
+        v.err(f"{p}.touch", line, "a touch sensor isn't supported yet (use touch: movement)")
+        return 0
+    if t not in TOUCH:
+        v.err(f"{p}.touch", line, f"unknown touch '{d.raw_of('touch')}' (valid: {', '.join(TOUCH)})")
+        return 0
+    return TOUCH[t]
+
+
 def encoder_ring(v, dev, d, p, vpot):
     """ring: [LED ids] around an MCU V-Pot (leftmost first)."""
     if d.get("ring") is None:
@@ -2099,11 +2133,15 @@ def daw_role(v, dev, d, p):
         return None
     raw, line = d.raw_of("daw"), d.line_of("daw")
     role = d["daw"]
-    if not isinstance(role, str) or not (role in DAW_ROLES or DAW_ROLE_RE.fullmatch(role)):
+    if isinstance(role, str) and HOST_ROLE_RE.fullmatch(role) and len(role) > COMP_STR_MAX:
+        v.err(f"{p}.daw", line, f"DAW role '{raw}' is {len(role)} characters: at most {COMP_STR_MAX}")
+        return None
+    if not isinstance(role, str) or not (role in DAW_ROLES or DAW_ROLE_RE.fullmatch(role) or
+                                         HOST_ROLE_RE.fullmatch(role)):
         close = difflib.get_close_matches(str(raw), sorted(DAW_ROLES), 1)
         hint = f"did you mean '{close[0]}'? " if close else ""
-        v.err(f"{p}.daw", line, f"unknown DAW role '{raw}' ({hint}roles: hosts/README.md; or x_<name> for "
-                                "your own)")
+        v.err(f"{p}.daw", line, f"unknown DAW role '{raw}' ({hint}roles: hosts/README.md; x_<name> for "
+                                "your own; <host>.<command> for one host's, e.g. zynthian.toggle_audio_play)")
         return None
     if not dev.host_fb:
         v.warn(f"{p}.daw", line, "daw: is only read by DAW scripts, and feedback.script is off")
@@ -2748,7 +2786,7 @@ def validate_pads(v, dev, data):
 
 
 
-DISPLAY_KEYS = ["id", "type", "chars"]
+DISPLAY_KEYS = ["id", "type", "chars", "daw"]
 DISPLAY_TYPES = {"segment14": 1}     # gm_display.h GM_DISPLAY_SEG14
 SEG14_PINS = 15                      # segments a..m, then the dot
 MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC
@@ -2800,7 +2838,8 @@ def validate_displays(v, dev, data):
             for k in range(1, SEG14_PINS):      # the first one was recorded by v.pin
                 v.use(("hub", hub.index, pin.num + k), f"{hub.id}.{pin.num + k}", Use(cp, line))
             pins.append(pin)
-        dev.displays.append(Hub(id=ident or "", type=DISPLAY_TYPES[typ], chars=pins, path=p, line=d.line))
+        dev.displays.append(Hub(id=ident or "", type=DISPLAY_TYPES[typ], chars=pins, path=p, line=d.line,
+                                daw=daw_role(v, dev, d, p)))
     if len(dev.displays) > MAX_DISPLAYS:
         v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS} "
                                                     "for now")
@@ -3055,8 +3094,10 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
 MODE_KEYS = ["id", "toggle", "hold", "parent", "led", "preset_blink", "keys", "buttons", "layer"]
-# modes[].layer.<button id>: what the twin of that button is (core/README.md "Button layers")
+# modes[].layer.<button, pad or encoder id>: what its twin is (core/README.md "Button layers")
 LAYER_KEYS = ["name", "action", "cc", "note", "preset", "daw", "idle", "active"]
+LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
+LAYER_ENCODER_KEYS = ["name", "cc", "daw"]
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
 RANGE_ACTIONS = ("preset_select", "channel")
 MAX_MODES = 64
@@ -3311,6 +3352,7 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
                                                              f"'{v.mode_toggles[w]}' itself")
         else:
             v.mode_with_toggles[idx] = m.id
+            v.mode_with_buttons.setdefault(w, m.id)
             m.toggle, m.with_ = idx, w
         return
     if idx in v.mode_toggles or idx in v.mode_with_toggles:
@@ -3355,66 +3397,121 @@ def mode_buttons(v, dev, m, btns, bp, bl):
 
 
 def mode_layer(v, dev, m, layer, lp, ll):
-    """layer: { <button id>: { action/cc/note/preset, daw, name, idle, active } } (core/README.md "Button
-    layers"): while the mode is active those buttons are their twins, appended to dev.buttons (and the
-    button's LED to dev.leds): an action, number, role and toggle state of their own, and the button's LED
-    pins with the twin's looks. What a twin leaves out is the button's."""
+    """layer: { <button, pad or encoder id>: { ... } } (core/README.md "Button layers"): while the mode is
+    active those are their twins. A button twin (action/cc/note/preset, daw, name, idle, active) is appended
+    to dev.buttons, a pad twin (daw, name, idle, active) to dev.pad_twins, an encoder twin (cc, daw, name) to
+    dev.encoders; a button's or pad's LED gets a twin LED in dev.leds: its pins with the twin's looks.
+    What a twin leaves out is its base's."""
     if m.parent is not None:
         v.err(lp, ll, "only a root mode (toggle: or hold:) has a layer: a sub-mode lasts one action")
         return
     if not isinstance(layer, dict) or not layer:
-        v.err(lp, ll, "must be a mapping of button ids to what they are in the layer, e.g. "
+        v.err(lp, ll, "must be a mapping of button, pad or encoder ids to what they are in the layer, e.g. "
                       "`layer: { b2: { cc: 52, daw: arm_1, active: red } }`")
         return
     bound = {k[0] for k in m.buttons}
     for bid in layer:
         path, line = f"{lp}.{bid}", layer.line_of(bid)
-        holder = LDict(button=bid)
-        holder.line = line
-        idx = v.ref(holder, "button", path, line, "button", "buttons")
-        if idx is None:
+        target = v.ids.get(bid) if isinstance(bid, str) else None
+        kind = target[0] if target else None
+        if kind in ("pad twin",) or (kind in ("button", "encoder") and
+                                     getattr((dev.buttons if kind == "button" else dev.encoders)[target[3]],
+                                             "layer", 0)):
+            v.err(path, line, f"'{bid}' is a layer twin: give the layer the {kind.split()[0]} itself")
             continue
-        b = dev.buttons[idx]
-        if getattr(b, "layer", 0):
-            v.err(path, line, f"'{bid}' is a layer twin: give the layer the button itself")
+        if kind not in ("button", "pad", "encoder"):
+            known = [i for i, t in v.ids.items() if t[0] in ("button", "pad", "encoder")]
+            close = difflib.get_close_matches(str(bid), known, 1)
+            hint = f"; did you mean '{close[0]}'?" if close else ""
+            what = f"is the id of {target[1]} ({a_(kind)})" if target else "matches nothing"
+            v.err(path, line, f"no button, pad or encoder with id '{bid}': it {what}{hint}")
             continue
-        if idx in (m.toggle, m.with_) or idx in v.mode_toggles or idx in v.mode_with_toggles:
-            v.err(path, line, f"button '{bid}' enters a mode (or is held for one): it can't have a twin")
-            continue
-        if idx in bound:
-            v.err(path, line, f"button '{bid}' is also in this mode's buttons:; give it one of the two")
-            continue
+        idx = target[3]
         e = layer[bid]
         if e is None:
             e = LDict()
             e.line = line
-        e = v.mapping(e, path, line, LAYER_KEYS)
+        e = v.mapping(e, path, line, {"button": LAYER_KEYS, "pad": LAYER_PAD_KEYS,
+                                      "encoder": LAYER_ENCODER_KEYS}[kind])
         if e is None:
             continue
-        act, num = button_action(v, dev, e, path, base=(b.action_name, b.number))
-        tid = v.register(f"{b.id}_{m.id}", path, line, "button", len(dev.buttons))
-        if tid is None:
-            continue
-        name = v.string(e, "name", path)
-        led = -1
-        if b.led >= 0:
-            bl = dev.leds[b.led]
-            led = len(dev.leds)
-            if led > 127:
-                v.err(path, line, "LED index over 127 can't be referenced: too many LEDs for another twin")
+        if kind == "pad":
+            layer_pad(v, dev, m, idx, e, path, line)
+        elif kind == "encoder":
+            layer_encoder(v, dev, m, idx, e, path, line)
+        else:
+            b = dev.buttons[idx]
+            if (idx == m.with_ or idx in v.mode_toggles or idx in v.mode_with_buttons or
+                    (idx == m.toggle and m.with_ is None)):
+                v.err(path, line, f"button '{bid}' enters a mode (or is held for one): it can't have a twin")
                 continue
-            looks = layer_led_looks(v, e, path, led_kind(bl.pin2, bl.pin3), bl.looks)
-            lid = v.register(f"{bl.id}_{m.id}", path, line, "LED", led) or f"{bl.id}_{m.id}"
-            dev.leds.append(Hub(id=lid, name=f"{bl.name} {m.id}", pin=bl.pin, pin2=bl.pin2, pin3=bl.pin3,
-                                looks=looks, source=None, owner=bl.owner, timeout=bl.timeout, path=path,
-                                line=line, used_by=[("button", act)], daw=None, local_line=None,
-                                layer=m.index + 1, base=b.led))
-        elif e.get("idle") is not None or e.get("active") is not None:
-            v.warn(path, line, f"button '{bid}' has no LED (led:): idle: / active: do nothing")
-        dev.buttons.append(Hub(id=tid, name=name if name is not None else f"{b.name} {m.id}", pin=b.pin,
-                               action=ACTION_IDS[act], action_name=act, number=num, led=led,
-                               daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
+            if idx in bound:
+                v.err(path, line, f"button '{bid}' is also in this mode's buttons:; give it one of the two")
+                continue
+            act, num = button_action(v, dev, e, path, base=(b.action_name, b.number))
+            tid = v.register(f"{b.id}_{m.id}", path, line, "button", len(dev.buttons))
+            if tid is None:
+                continue
+            led = layer_led(v, dev, m, b.led, e, path, line, ("button", act), f"button '{bid}'")
+            if led is None:
+                continue
+            name = v.string(e, "name", path)
+            dev.buttons.append(Hub(id=tid, name=name if name is not None else f"{b.name} {m.id}", pin=b.pin,
+                                   action=ACTION_IDS[act], action_name=act, number=num, led=led,
+                                   daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
         m.twins += 1
+
+
+def layer_led(v, dev, m, base_led, e, path, line, use, what):
+    """The twin LED of LED base_led (-1: none) for a layer twin -> its index, -1 for none, None after an
+    error."""
+    if base_led < 0:
+        if e.get("idle") is not None or e.get("active") is not None:
+            v.warn(path, line, f"{what} has no LED (led:): idle: / active: do nothing")
+        return -1
+    bl = dev.leds[base_led]
+    led = len(dev.leds)
+    if led > 127:
+        v.err(path, line, "LED index over 127 can't be referenced: too many LEDs for another twin")
+        return None
+    looks = layer_led_looks(v, e, path, led_kind(bl.pin2, bl.pin3), bl.looks)
+    lid = v.register(f"{bl.id}_{m.id}", path, line, "LED", led) or f"{bl.id}_{m.id}"
+    dev.leds.append(Hub(id=lid, name=f"{bl.name} {m.id}", pin=bl.pin, pin2=bl.pin2, pin3=bl.pin3,
+                        looks=looks, source=None, owner=bl.owner, timeout=bl.timeout, path=path,
+                        line=line, used_by=[use], daw=None, local_line=None,
+                        layer=m.index + 1, base=base_led))
+    return led
+
+
+def layer_pad(v, dev, m, idx, e, path, line):
+    """A pad's twin: hits go to it (an EVENT, no note) while the layer is active."""
+    x = dev.pads[idx]
+    tid = v.register(f"{x.id}_{m.id}", path, line, "pad twin", len(dev.pad_twins))
+    if tid is None:
+        return
+    led = layer_led(v, dev, m, x.led, e, path, line, ("pad", None), f"pad '{x.id}'")
+    if led is None:
+        return
+    name = v.string(e, "name", path)
+    dev.pad_twins.append(Hub(id=tid, name=name if name is not None else f"{x.name} {m.id}", led=led,
+                             daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
+
+
+def layer_encoder(v, dev, m, idx, e, path, line):
+    """An encoder's twin: turns go to it (its CC, its EVENT index) while the layer is active. Same pins, not
+    scanned again; encoder.mode starts as the base's."""
+    x = dev.encoders[idx]
+    if x.ring or x.ring_center is not None:
+        v.err(path, line, "a ring encoder can't have a layer twin yet")
+        return
+    cc = v.integer(e, "cc", path, 0, 127, default=x.cc)
+    tid = v.register(f"{x.id}_{m.id}", path, line, "encoder", len(dev.encoders))
+    if tid is None:
+        return
+    name = v.string(e, "name", path)
+    dev.encoders.append(Hub(id=tid, name=name if name is not None else f"{x.name} {m.id}", a=x.a, b=x.b,
+                            cc=cc, steps=x.steps, mcu=None, ring=[], ring_center=None,
+                            daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
 
 
 def layer_led_looks(v, e, p, kind, base_looks):
@@ -3781,9 +3878,14 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
-    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
+    enc_twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
+    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) + enc_twins
     if twins:
         h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
+    if enc_twins:
+        h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
+    if dev.pad_twins:
+        h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pad_defines(dev)
     h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
     if dev.platform.is_esp:
@@ -3852,7 +3954,7 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.encoders:
         c.append("static const gm_encoder_t encoders[GM_N_ENCODERS] = {")
-        c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.name)}, {e.steps} }}, "
+        c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.name)}, {e.steps}{twin_c(e)} }}, "
               f"/* {_comment(e.id)}: {_comment(e.a.desc)}, {_comment(e.b.desc)} */" for e in dev.encoders]
         c += ["};", ""]
     if m:
@@ -3939,6 +4041,10 @@ def pad_tables(dev):
               for x in dev.pads],
             "};",
             "const int32_t gm_pad_note_defaults[GM_N_PADS] = { " + ", ".join(str(x.note) for x in dev.pads) + " };",
+            *(["/* pad layer twins: { layer (mode index + 1), base pad, LED } */",
+               "const gm_pad_twin_t gm_pad_twins[GM_PAD_TWINS] = {",
+               *[f"    {{ {x.layer}, {x.base}, {x.led} }}, /* {_comment(x.id)} */" for x in dev.pad_twins],
+               "};"] if dev.pad_twins else []),
             ""]
 
 
@@ -3954,8 +4060,8 @@ def fmt_timeout(t):
 
 
 def twin_c(x):
-    """gm_button_t / gm_led_t .layer, .base for a layer twin (mode index + 1, the button or LED it is a
-    twin of); 0, 0 for the others."""
+    """gm_button_t / gm_led_t / gm_encoder_t .layer, .base for a layer twin (mode index + 1, the component
+    it is a twin of); 0, 0 for the others."""
     return f", {x.layer}, {x.base}" if getattr(x, "layer", 0) else ", 0, 0"
 
 
@@ -4015,6 +4121,7 @@ def feedback_defines(dev):
          f"#define GM_LED_OWNER {dev.led_owner} /* {OWNER_NAMES[dev.led_owner]} */",
          f"#define GM_LED_TIMEOUT {dev.led_timeout} /* {fmt_timeout(dev.led_timeout)}, 10 ms units */",
          f"#define GM_ANALOG_PICKUP {1 if pickup else 0}",
+         f"#define GM_ANALOG_TOUCH {1 if any(a.touch for a in dev.analogs) else 0} /* analog touch: */",
          f"#define GM_MCU {1 if mcu else 0}",
          f"#define GM_HOST_FB {1 if dev.host_fb else 0} /* DAW-script messages (sysex.md 4.6) */",
          f"#define GM_RINGS {1 if mcu or dev.host_fb else 0}",
@@ -4055,6 +4162,10 @@ def feedback_tables(dev):
         c.append("const uint8_t gm_analog_pickup[GM_N_ANALOGS] = { " +
                  ", ".join("1" if a.pickup else "0" for a in dev.analogs) + " };")
         c.append("")
+    if any(a.touch for a in dev.analogs):
+        c.append("const uint8_t gm_analog_touch[GM_N_ANALOGS] = { " +
+                 ", ".join(str(a.touch) for a in dev.analogs) + " }; /* GM_TOUCH_* */")
+        c.append("")
     if dev.mcu:
         def mcu_arr(lst):
             return ", ".join("GM_MCU_NONE" if x.mcu is None else str(x.mcu) for x in lst) or "GM_MCU_NONE"
@@ -4087,8 +4198,9 @@ MCU_VPOT_NAMES = {n: k for k, n in MCU_VPOTS.items()}
 
 
 def comp_role(x, mcu_name=None):
-    """A component's role for GET_COMPONENT: daw:, else its mcu: name, else empty (sysex.md 4.6.1)."""
-    return getattr(x, "daw", None) or mcu_name or ""
+    """A component's role for GET_COMPONENT: daw:, else its mcu: name (channel_left / channel_right as
+    strip_prev / strip_next), else empty (sysex.md 4.6.1)."""
+    return getattr(x, "daw", None) or MCU_ROLES.get(mcu_name, mcu_name) or ""
 
 
 def comp_str(s):
@@ -4118,7 +4230,11 @@ def component_tables(dev):
     m = dev.matrix
     table("gm_comp_matrix", "1", [("keys", "Keys", comp_role(m))] if m else [])
     table("gm_comp_displays", "GM_N_DISPLAYS",
-          [(x.id, x.id.replace("_", " ").capitalize() or f"Display {i + 1}", "") for i, x in enumerate(dev.displays)])
+          [(x.id, x.id.replace("_", " ").capitalize() or f"Display {i + 1}", comp_role(x))
+           for i, x in enumerate(dev.displays)])
+    if dev.pads:
+        table("gm_comp_pads", "GM_N_PADS + GM_PAD_TWINS" if dev.pad_twins else "GM_N_PADS",
+              [(x.id, x.name, comp_role(x)) for x in dev.pads + dev.pad_twins])
     c.append("")
     return c
 

@@ -9,7 +9,10 @@
 # faders, encoders and B1-B9 by their daw: roles; without a script those send
 # their CCs as usual. B1-B9 mute (white, blue while muted); Shift + Button
 # mode switches B2-B9 to record arm (red while armed) and back (modes: arm,
-# untested on hardware).
+# untested on hardware). Shift + Pad octave - turns the pads into a clip grid
+# for a DAW script (modes: pads), Shift + Encoder mode the encoders into pan
+# knobs (modes: pan); the display shows what a DAW script sends it (daw:
+# param). Both untested on hardware.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -33,7 +36,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.80
+  version: 0.2.81
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -153,6 +156,7 @@ xy_pad:
 displays:
   - id: display
     type: segment14
+    daw: param             # a DAW script's text: the control being moved, the chain name
     chars:
       - { tm1628: leds_a, number: 48 }
       - { tm1628: leds_a, number: 64 }
@@ -195,7 +199,7 @@ leds:
   - { id: bank_left_led, name: "Bank left", pin: { tm1628: leds_b, number: 42 }, pin2: { tm1628: leds_b, number: 26 }, pin3: { tm1628: leds_b, number: 10 } }
   - { id: bank_right_led, name: "Bank right", pin: { tm1628: leds_b, number: 43 }, pin2: { tm1628: leds_b, number: 27 }, pin3: { tm1628: leds_b, number: 11 } }
   - { id: fader_mode_led, name: "Fader mode", pin: { tm1628: leds_b, number: 44 }, pin2: { tm1628: leds_b, number: 28 }, pin3: { tm1628: leds_b, number: 12 } }
-  - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 } }
+  - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 }, idle: blue, active: red }
   - { id: x_mode_led, name: "X mode", pin: { tm1628: leds_b, number: 46 }, pin2: { tm1628: leds_b, number: 30 }, pin3: { tm1628: leds_b, number: 14 } }
   - { id: y_mode_led, name: "Y mode", pin: { tm1628: leds_b, number: 47 }, pin2: { tm1628: leds_b, number: 31 }, pin3: { tm1628: leds_b, number: 15 } }
   - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
@@ -346,7 +350,7 @@ buttons:
   # Panel slot 0 is the leftmost of the two, Down (the user, 2026-11-03).
   - { id: up, name: "Up", pin: { switch_matrix: panel, number: 1 }, action: preset_next }
   - { id: down, name: "Down", pin: { switch_matrix: panel, number: 0 }, action: preset_prev }
-  - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102 }
+  - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102, daw: shift }
   - { id: channel, name: "Channel", pin: { switch_matrix: panel, number: 3 }, led: channel_led }   # holds the channel mode
   - { id: edit, name: "Edit", pin: { switch_matrix: panel, number: 4 }, action: cc_momentary, cc: 104, led: edit_led }
   - { id: zone, name: "Zone", pin: { switch_matrix: panel, number: 5 }, action: cc_momentary, cc: 105, led: zone_led }
@@ -359,7 +363,7 @@ buttons:
   - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112, daw: stop }
   - { id: play, name: "Play", pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113, daw: play }
   - { id: record, name: "Record", pin: { switch_matrix: panel, number: 14 }, action: cc_momentary, cc: 114, daw: record }
-  - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: cc_momentary, cc: 115 }
+  - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: cc_momentary, cc: 115 }   # Shift + it: the pad grid (modes: pads)
   - { id: pad_octave_up, name: "Pad octave +", pin: { switch_matrix: panel, number: 16 }, action: cc_momentary, cc: 116 }
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
@@ -377,7 +381,7 @@ buttons:
   - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led, daw: bank_prev }
   - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led, daw: bank_next }
   - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96, led: fader_mode_led }
-  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97, led: encoder_mode_led }
+  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }   # Shift + it: pan (modes: pan); its LED shows which
   - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98, led: x_mode_led }
   - { id: x_button, name: "X", pin: { switch_matrix: panel_row20, number: 3 }, action: cc_momentary, cc: 99 }
   - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100, led: y_mode_led }
@@ -420,8 +424,8 @@ pads:
   - { id: pad_16, pin: { cd74hc4051: pad_mux_a, number: 3 }, note: 51, led: pad_16_led }
 
 # Pad sensing. All [guess] until tried: tune them live from the web app
-# (Pads group); with debug.events on, each hit's EVENT pad value is its peak
-# reading x 4.
+# (Pads group); with debug.events on and the pad grid on (Shift + Pad
+# octave -), each hit's EVENT pad value is its peak reading x 4.
 pad_settings:
   channel: 10              # [guess] drums on channel 10; 0 = follow midi.channel
   threshold: 200           # [guess] reading that starts a hit
@@ -431,8 +435,10 @@ pad_settings:
   retrigger: 20ms          # no new hit for 20 ms after a release
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
-# display shows the name. The settings store (3 pages of 1 KB) holds 5 slots
-# at most; 4 keeps it under 85% at worst case. Slots 2-4 start free: make,
+# display shows the name. The settings store (3 pages of 1 KB) holds 4 slots
+# at most since the pan layer's encoder params (0.2.81); 4 is just over 85%
+# at worst case (1460 of 1712 B: the builder warns), 3 would be under. Slots
+# 2-4 start free: make,
 # rename, reorder and delete presets on the web page's Presets tab, or with
 # `gemifi.py preset save/rename/move/delete`.
 presets:
@@ -467,3 +473,45 @@ modes:
       b7: { cc: 57, daw: arm_6, active: red }
       b8: { cc: 58, daw: arm_7, active: red }
       b9: { cc: 59, daw: arm_8, active: red }
+  # Trigger pad mode: Shift + Pad octave - turns the pads into a DAW
+  # script's clip grid (core/README.md "Button layers"): each pad is its
+  # twin, clip_T_S (T = column 1-4 left to right, S = row 1-4 from the top),
+  # which plays no note but sends an EVENT the script launches the clip
+  # with, and its LED is off unless the script lights it. Pad octave - / +
+  # scroll the grid left / right (their CCs stay). Again goes back.
+  - id: pads
+    toggle: { button: pad_octave_down, with: shift }
+    layer:
+      pad_1: { daw: clip_1_4, idle: off }
+      pad_2: { daw: clip_2_4, idle: off }
+      pad_3: { daw: clip_3_4, idle: off }
+      pad_4: { daw: clip_4_4, idle: off }
+      pad_5: { daw: clip_1_3, idle: off }
+      pad_6: { daw: clip_2_3, idle: off }
+      pad_7: { daw: clip_3_3, idle: off }
+      pad_8: { daw: clip_4_3, idle: off }
+      pad_9: { daw: clip_1_2, idle: off }
+      pad_10: { daw: clip_2_2, idle: off }
+      pad_11: { daw: clip_3_2, idle: off }
+      pad_12: { daw: clip_4_2, idle: off }
+      pad_13: { daw: clip_1_1, idle: off }
+      pad_14: { daw: clip_2_1, idle: off }
+      pad_15: { daw: clip_3_1, idle: off }
+      pad_16: { daw: clip_4_1, idle: off }
+      pad_octave_down: { daw: grid_left }
+      pad_octave_up: { daw: grid_right }
+  # Shift + Encoder mode: E1-E8 are pan knobs (CC 41-48, pan_1-pan_8 for a
+  # DAW script), Encoder mode's LED red; again goes back (blue). Encoder mode
+  # alone still sends CC 97.
+  - id: pan
+    toggle: { button: encoder_mode, with: shift }
+    led: encoder_mode_led
+    layer:
+      encoder_1: { cc: 41, daw: pan_1 }
+      encoder_2: { cc: 42, daw: pan_2 }
+      encoder_3: { cc: 43, daw: pan_3 }
+      encoder_4: { cc: 44, daw: pan_4 }
+      encoder_5: { cc: 45, daw: pan_5 }
+      encoder_6: { cc: 46, daw: pan_6 }
+      encoder_7: { cc: 47, daw: pan_7 }
+      encoder_8: { cc: 48, daw: pan_8 }

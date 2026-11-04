@@ -16,8 +16,8 @@ public final class Roles {
         MCU_ROLE_MAP.put("master", "master_volume");
         MCU_ROLE_MAP.put("bank_left", "bank_prev");
         MCU_ROLE_MAP.put("bank_right", "bank_next");
-        MCU_ROLE_MAP.put("channel_left", "track_prev");
-        MCU_ROLE_MAP.put("channel_right", "track_next");
+        MCU_ROLE_MAP.put("channel_left", "strip_prev");
+        MCU_ROLE_MAP.put("channel_right", "strip_next");
         MCU_ROLE_MAP.put("cycle", "loop");
         MCU_ROLE_MAP.put("click", "metronome");
     }
@@ -33,6 +33,15 @@ public final class Roles {
             }
         }
         return r;
+    }
+
+    /**
+     * True for another host's command ({@code <host>.<command>}, daw-scripts.md §6), which a script
+     * ignores without logging; {@code ownHost} is this script's namespace, e.g. {@code "bitwig"}.
+     */
+    public static boolean isOtherHostCommand(String role, String ownHost) {
+        int dot = role.indexOf('.');
+        return dot > 0 && !role.substring(0, dot).equals(ownHost);
     }
 
     static boolean isDigits(String s) {

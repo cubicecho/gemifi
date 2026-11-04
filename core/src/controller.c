@@ -63,6 +63,9 @@
 #if GM_LAYERS && GM_N_MODES == 0
 #error "button layers belong to modes (the builder checks this)"
 #endif
+/* Encoders with pins of their own; their layer twins (GM_ENC_TWINS) come
+ * after them and aren't scanned. */
+#define NE_HW (GM_N_ENCODERS - GM_ENC_TWINS)
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
@@ -374,6 +377,12 @@ static int16_t enc_value[NE];
 static const volatile uint32_t *enc_ra[NE], *enc_rb[NE];
 static uint32_t enc_ma[NE], enc_mb[NE];
 #endif
+#if GM_ENC_TWINS
+static uint8_t enc_live[NE];        /* per scanned encoder: the index its turns go to (layers_update) */
+#define ENC_LIVE(i) enc_live[i]
+#else
+#define ENC_LIVE(i) (i)
+#endif
 
 void gm_encoder_host(uint32_t i, uint32_t value)
 {
@@ -501,7 +510,7 @@ void gm_scan_hw_started(uint32_t frame_q4)
     for (uint32_t i = 0; i < GM_SCAN_MAX_ROWS / 2u; i++)
         hw_prev[i] = 0xFFFFFFFFu;   /* the first frame always counts */
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+    for (uint32_t i = 0; i < NE_HW; i++)
         enc_fed[i] = (uint8_t)(on_swmatrix(gm_device.encoders[i].a) &&
                                on_swmatrix(gm_device.encoders[i].b));
 #endif
@@ -552,7 +561,7 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
             continue;                   /* only key rows changed */
         vpin_scan_feed(raw);
 #if GM_N_ENCODERS > 0
-        for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+        for (uint32_t i = 0; i < NE_HW; i++)
             if (enc_fed[i])
                 encoder_step(i);
 #endif
@@ -582,7 +591,7 @@ void gm_scan_tick(void)
         vpin_scan_matrices();       /* before the encoders read them */
     part_done(1, &t);
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+    for (uint32_t i = 0; i < NE_HW; i++) {
 #if GM_HW_SCAN
         if (hw_on && enc_fed[i])
             continue;
@@ -705,9 +714,9 @@ static uint64_t btn_stable, btn_toggled;   /* bit = button (at most 64) */
 static uint64_t btn_held;
 #if GM_LAYERS
 static uint64_t btn_live = ~0ull;   /* layers_update() */
-#define BTN_LIVE(i) ((btn_live >> (i)) & 1u)
+#define BTN_LIVE_ALL btn_live
 #else
-#define BTN_LIVE(i) 1u
+#define BTN_LIVE_ALL (~0ull)
 #endif
 static uint64_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
@@ -868,12 +877,19 @@ static int binds_channel(const gm_mode_key_t *b, uint32_t n)
 /* The toggle or hold button of a root mode. Toggle: enters the mode (held
  * keys get their Note Off first, if it has keys), or leaves it from the
  * mode or any of its sub-modes. Hold: the mode is active while the button
- * is down. Its own action never runs. Returns 0 if button i is neither. */
+ * is down. Its own action never runs. Returns 0 if button i is neither.
+ * A twin of a toggle: { button, with } button toggles the mode as well. */
 static int mode_button(uint32_t i, int down)
 {
+#if GM_LAYERS
+    const gm_button_t *bt = &gm_device.buttons[i];
+    uint32_t base = bt->layer ? bt->base : i;
+#else
+    uint32_t base = i;
+#endif
     for (uint32_t m = 0; m < GM_N_MODES; m++) {
         const gm_mode_t *md = &gm_modes[m];
-        if (md->toggle != i)
+        if (md->toggle != base || (base != i && !md->with))
             continue;
         if (md->with && !md->hold) {
             /* toggle: { button, with }: only with that button held; a plain
@@ -1065,11 +1081,14 @@ static void buttons_sample(void)
         uint64_t diff = st ^ btn_stable;
         btn_stable = st;
         s = st;
+        /* Who is live as the pass starts: a press that switches a layer
+         * isn't taken again by the twin it makes live. */
+        uint64_t live = BTN_LIVE_ALL;
         for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             if (!((diff >> i) & 1u))
                 continue;
             int down = (s >> i) & 1u;
-            if (down ? !BTN_LIVE(i) : !((btn_held >> i) & 1u))
+            if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
             if (down)
                 btn_held |= 1ull << i;
@@ -1166,6 +1185,38 @@ static int16_t a_bend[NA];          /* last pitch bend sent, 0..16383 */
 static int8_t a_pick[NA];           /* host value to reach, -1 = in control */
 static int8_t a_side[NA];           /* side of a_pick the knob was on: -1 / 1 */
 #endif
+#if GM_ANALOG_TOUCH
+/* touch: movement: EVENT touch 1 just before a movement's first value EVENT,
+ * 0 once the value has been still for TOUCH_STILL_MS. */
+#define TOUCH_STILL_MS 300u
+static uint8_t a_touched[NA];
+static uint32_t a_moved[NA];        /* ms of the last value EVENT */
+
+static void touch_poll(void)
+{
+    uint32_t now = hal_millis();
+    for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+        if (a_touched[i] && now - a_moved[i] >= TOUCH_STILL_MS) {
+            a_touched[i] = 0;
+            event(EV_TOUCH, i, 0);
+        }
+}
+#endif
+
+/* A value EVENT (pos 0..4095), after a touch EVENT if this starts a movement. */
+static void analog_event(uint32_t i, int32_t pos)
+{
+#if GM_ANALOG_TOUCH
+    if (gm_analog_touch[i] && gm_cfg.events) {
+        a_moved[i] = hal_millis();
+        if (!a_touched[i]) {
+            a_touched[i] = 1;
+            event(EV_TOUCH, i, 1);
+        }
+    }
+#endif
+    event(EV_ANALOG, i, (uint32_t)pos << 2);
+}
 
 void gm_analog_host(uint32_t i, uint32_t value)
 {
@@ -1208,7 +1259,7 @@ static void analog_bend(uint32_t i, int32_t pos)
         return;
     a_bend[i] = (int16_t)b;
     midi3(0xE0 | chan(), (uint32_t)b & 0x7Fu, (uint32_t)b >> 7);
-    event(EV_ANALOG, i, (uint32_t)pos << 2);
+    analog_event(i, pos);
 }
 
 static void analog_read(uint32_t i)
@@ -1266,7 +1317,7 @@ static void analog_read(uint32_t i)
                 midi2(0xD0 | chan(), (uint32_t)q);   /* channel pressure (aftertouch) */
             else
                 cc((uint32_t)gm_cfg.analog_cc[i], (uint32_t)q);
-            event(EV_ANALOG, i, (uint32_t)pos << 2);
+            analog_event(i, pos);
         }
     }
 }
@@ -1278,6 +1329,9 @@ static void analog_read(uint32_t i)
  * many inputs there are. */
 static void analog_poll(void)
 {
+#if GM_ANALOG_TOUCH
+    touch_poll();
+#endif
     if (gm_adc_hw()) {
         for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
             analog_read(i);
@@ -1319,6 +1373,16 @@ static uint32_t pad_t[NP];          /* ms: strike start, last aftertouch, or rel
 #define PAD_LED_MIN_MS 80u
 static uint32_t pad_lit[NP];        /* ms of the last hit (| 1), 0 = none */
 static uint8_t pad_order[NP];       /* read order: same mux channel together */
+/* Pad twins (core/README.md "Button layers"): a hit goes to the pad's live
+ * twin, if any: an EVENT with the twin's index, no note. Its release goes
+ * to whichever took the hit. */
+#if GM_PAD_TWINS
+static uint8_t pad_live[NP];        /* live twin + 1, 0 = the pad itself (layers_update) */
+static uint8_t pad_owner[NP];       /* who took the last hit: twin + 1, 0 = the pad */
+#define PAD_OWNER(i) pad_owner[i]
+#else
+#define PAD_OWNER(i) 0u
+#endif
 
 /* Mux pads by channel, so pads behind shared select lines switch them once. */
 static void pads_init(void)
@@ -1354,28 +1418,46 @@ static uint32_t pad_velocity(uint32_t peak)
     return (uint32_t)(v < 1 ? 1 : v);
 }
 
+/* A pad's own hit plays its note (no EVENT); a twin's sends an EVENT. */
 static void pad_hit(uint32_t i, uint32_t now)
 {
-    int32_t n = gm_cfg.pad_note[i];
-    uint32_t v = pad_velocity(pad_peak[i]);
     pad_state[i] = PAD_ON;
     pad_t[i] = now;
     pad_lit[i] = now | 1u;
+#if GM_PAD_TWINS
+    pad_owner[i] = pad_live[i];
+    if (pad_owner[i]) {
+        event(EV_PAD, NP + pad_owner[i] - 1u, (uint32_t)pad_peak[i] << 2);
+        return;
+    }
+#endif
+    int32_t n = gm_cfg.pad_note[i];
+    uint32_t v = pad_velocity(pad_peak[i]);
     pad_at[i] = 0;
     pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : chan();
     pad_note[i] = (uint8_t)n;
     midi3(0x90 | pad_ch[i], (uint32_t)n, v);
-    event(EV_PAD, i, (uint32_t)pad_peak[i] << 2);
+}
+
+/* The end of a hit: Note Off (and pressure 0), or the twin's EVENT 0. */
+static void pad_end(uint32_t i)
+{
+#if GM_PAD_TWINS
+    if (pad_owner[i]) {
+        event(EV_PAD, NP + pad_owner[i] - 1u, 0);
+        return;
+    }
+#endif
+    if (pad_at[i])
+        midi3(0xA0 | pad_ch[i], pad_note[i], 0);
+    midi3(0x80 | pad_ch[i], pad_note[i], 0);
 }
 
 static void pad_off(uint32_t i, uint32_t now)
 {
-    if (pad_at[i])
-        midi3(0xA0 | pad_ch[i], pad_note[i], 0);
-    midi3(0x80 | pad_ch[i], pad_note[i], 0);
+    pad_end(i);
     pad_state[i] = PAD_IDLE;
     pad_t[i] = now;
-    event(EV_PAD, i, 0);
 }
 
 /* Poly pressure from the reading while held: release..full -> 0..127. */
@@ -1425,7 +1507,7 @@ static void pads_scan(uint32_t now)
         case PAD_ON:
             if (r < off)
                 pad_off(i, now);
-            else if (gm_cfg.pad_aftertouch)
+            else if (gm_cfg.pad_aftertouch && !PAD_OWNER(i))
                 pad_pressure(i, r, now);
             break;
         default:                        /* PAD_BLOCKED */
@@ -1438,16 +1520,14 @@ static void pads_scan(uint32_t now)
     }
 }
 
-/* Note Off for every sounding pad; held pads stay silent until let go. */
+/* Note Off for every sounding pad (a twin's: EVENT 0); held pads stay
+ * silent until let go. */
 static void pads_off(void)
 {
     for (uint32_t i = 0; i < NP; i++) {
         if (pad_state[i] == PAD_ON || pad_state[i] == PAD_PEAK) {
-            if (pad_state[i] == PAD_ON) {
-                if (pad_at[i])
-                    midi3(0xA0 | pad_ch[i], pad_note[i], 0);
-                midi3(0x80 | pad_ch[i], pad_note[i], 0);
-            }
+            if (pad_state[i] == PAD_ON)
+                pad_end(i);
             pad_state[i] = PAD_BLOCKED;
         }
     }
@@ -1465,15 +1545,18 @@ static void pads_report(void)
 /* ---- encoders (main side) --------------------------------------------- */
 
 #if GM_N_ENCODERS > 0
+/* A scanned encoder's turns go to the live one of it and its twins: its
+ * CC, mode, value and EVENT index. */
 static void encoders_poll(void)
 {
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
-        if (enc_i2c[i])
-            encoder_step(i);
-        int16_t d = enc_delta[i];
+    for (uint32_t p = 0; p < NE_HW; p++) {
+        if (enc_i2c[p])
+            encoder_step(p);
+        int16_t d = enc_delta[p];
         if (!d)
             continue;
-        enc_delta[i] = (int16_t)(enc_delta[i] - d);
+        enc_delta[p] = (int16_t)(enc_delta[p] - d);
+        uint32_t i = ENC_LIVE(p);
         event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
 #if GM_MCU
         if (gm_encoder_mcu[i] != GM_MCU_NONE) {
@@ -1694,15 +1777,17 @@ static void led_set(uint32_t i, uint32_t level, int blink_on)
 }
 
 #if GM_LAYERS
-/* The layer whose twins are live: the held hold mode's, else the toggled
- * mode's (its root's, from a sub-mode); 0 = none (layer numbers are mode
- * index + 1). */
-static uint32_t layer_on(uint32_t layer)
+/* Whether a twin of this layer (mode index + 1, 0 = not a twin) takes over
+ * in this pass: pass 0 the toggled mode's layer (its root's, from a
+ * sub-mode), pass 1 the held hold mode's, so that one wins. */
+static int twin_pass(uint32_t layer, uint32_t pass)
 {
     uint32_t m = layer - 1u;
-    if (hold_cur != GM_MODE_NONE && hold_cur == m)
-        return 1;
-    return mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m;
+    if (!layer)
+        return 0;
+    if (pass)
+        return hold_cur != GM_MODE_NONE && hold_cur == m;
+    return hold_cur != m && mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m;
 }
 
 /* Which of each base and its twins is live (core/README.md "Button layers"):
@@ -1710,21 +1795,39 @@ static uint32_t layer_on(uint32_t layer)
  * An LED that changes hands is drawn again. */
 static void layers_update(void)
 {
+#if GM_PAD_TWINS
+    for (uint32_t i = 0; i < GM_N_PADS; i++)
+        pad_live[i] = 0;
+#endif
+#if GM_ENC_TWINS
+    for (uint32_t i = 0; i < NE_HW; i++)
+        enc_live[i] = (uint8_t)i;
+#endif
     uint64_t live = 0;
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
         if (!gm_device.buttons[i].layer)
             live |= 1ull << i;
-    for (uint32_t pass = 0; pass < 2; pass++)       /* toggled, then held: the hold mode wins */
+    for (uint32_t pass = 0; pass < 2; pass++) {     /* toggled, then held: the hold mode wins */
+#if GM_PAD_TWINS
+        for (uint32_t t = 0; t < GM_PAD_TWINS; t++)
+            if (twin_pass(gm_pad_twins[t].layer, pass))
+                pad_live[gm_pad_twins[t].base] = (uint8_t)(t + 1u);
+#endif
+#if GM_ENC_TWINS
+        for (uint32_t i = NE_HW; i < GM_N_ENCODERS; i++)
+            if (twin_pass(gm_device.encoders[i].layer, pass))
+                enc_live[gm_device.encoders[i].base] = (uint8_t)i;
+#endif
         for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
             const gm_button_t *b = &gm_device.buttons[i];
-            uint32_t m = b->layer - 1u;
-            if (!b->layer || !layer_on(b->layer) || (pass == 1) != (hold_cur == m))
+            if (!twin_pass(b->layer, pass))
                 continue;
             for (uint32_t j = 0; j < GM_N_BUTTONS && j < 64; j++)
                 if (j == b->base || (gm_device.buttons[j].layer && gm_device.buttons[j].base == b->base))
                     live &= ~(1ull << j);
             live |= 1ull << i;
         }
+    }
     btn_live = live;
     uint8_t on[GM_ARR(GM_N_LEDS)];
     for (uint32_t i = 0; i < GM_N_LEDS; i++)
@@ -1732,7 +1835,7 @@ static void layers_update(void)
     for (uint32_t pass = 0; pass < 2; pass++)
         for (uint32_t i = 0; i < GM_N_LEDS; i++) {
             const gm_led_t *l = &gm_device.leds[i];
-            if (!l->layer || !layer_on(l->layer) || (pass == 1) != (hold_cur == l->layer - 1u))
+            if (!twin_pass(l->layer, pass))
                 continue;
             for (uint32_t j = 0; j < GM_N_LEDS; j++)
                 if (j == l->base || (gm_device.leds[j].layer && gm_device.leds[j].base == l->base))
@@ -1844,12 +1947,22 @@ static void leds_update(uint32_t now)
 #endif
     }
 #if GM_N_PADS > 0
-    for (uint32_t i = 0; i < NP; i++) {
-        int8_t li = gm_pads[i].led;
+    /* A pad's LED is lit while its own hit is held; a twin's LED while the
+     * twin's is (the base pad's state stays on the base LED). */
+    for (uint32_t k = 0; k < NP + GM_PAD_TWINS; k++) {
+        uint32_t i = k, owner = 0;
+        int8_t li = gm_pads[k < NP ? k : 0].led;
+#if GM_PAD_TWINS
+        if (k >= NP) {
+            i = gm_pad_twins[k - NP].base;
+            li = gm_pad_twins[k - NP].led;
+            owner = k - NP + 1u;
+        }
+#endif
         if (li < 0 || li >= (int8_t)gm_device.n_leds)
             continue;
-        uint32_t level = pad_state[i] == PAD_ON ||
-                         (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS);
+        uint32_t level = PAD_OWNER(i) == owner && (pad_state[i] == PAD_ON ||
+                         (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS));
 #if GM_HOST_LEDS
         local[li] = (uint8_t)level;
         has_local[li] = 1;
@@ -2131,7 +2244,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
             vpin_output(gm_device.leds[i].pin3);
     }
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+    for (uint32_t i = 0; i < NE_HW; i++) {
         const gm_encoder_t *e = &gm_device.encoders[i];
         vpin_input(e->a);
         vpin_input(e->b);

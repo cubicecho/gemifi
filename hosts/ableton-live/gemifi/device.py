@@ -31,8 +31,8 @@ MCU_ROLE_MAP = {
     "master": "master_volume",
     "bank_left": "bank_prev",
     "bank_right": "bank_next",
-    "channel_left": "track_prev",
-    "channel_right": "track_next",
+    "channel_left": "strip_prev",
+    "channel_right": "strip_next",
     "cycle": "loop",
     "click": "metronome",
 }

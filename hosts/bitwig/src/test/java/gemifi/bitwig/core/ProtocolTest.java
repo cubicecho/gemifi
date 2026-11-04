@@ -320,6 +320,17 @@ class ProtocolTest {
     }
 
     @Test
+    void newerAnalogFieldsAreSkipped() throws ProtocolException {
+        // The touch byte after takeover, and takeover 2 = motor (reserved): parsed, never fed FB_VALUE.
+        Component a = Protocol.parseComponentReply(hex("00 03 00 00 01 00 00 00 00 01 02"));
+        assertEquals(Integer.valueOf(Protocol.TAKEOVER_PICKUP), a.takeover);
+        assertTrue(a.takesValue());
+        Component motor = Protocol.parseComponentReply(hex("00 03 00 00 01 00 00 00 00 02 00"));
+        assertEquals(Integer.valueOf(2), motor.takeover);
+        assertFalse(motor.takesValue());
+    }
+
+    @Test
     void booted() throws ProtocolException {
         int n = 0;
         for (JsonElement e : vectors.getAsJsonObject("feedback").getAsJsonArray("frames")) {

@@ -152,6 +152,11 @@ typedef struct {
     gm_pin_t a, b;
     const char *name;
     uint8_t steps_per_detent;   /* quadrature steps per click (usually 4) */
+    /* A layer twin (as gm_button_t): the same physical encoder as
+     * encoders[base], after all the others (GM_ENC_TWINS of them). It isn't
+     * scanned: the base's turns go to it while its layer is active. */
+    uint8_t layer;
+    uint8_t base;
 } gm_encoder_t;
 
 enum {
@@ -222,6 +227,12 @@ typedef struct {
 
 #define GM_MCU_NONE 0xFFu
 
+enum {                      /* gm_analog_touch[]: analog touch: (GET_COMPONENT's touch byte) */
+    GM_TOUCH_NONE = 0,
+    GM_TOUCH_SENSOR = 1,    /* reserved: a touch sensor pin */
+    GM_TOUCH_MOVEMENT = 2,  /* touched while it moves, released after 300 ms still */
+};
+
 typedef struct {
     const char *name;            /* "Keystation Mini 32"                */
     const char *node_name;       /* "keystation-mini32" (HELLO node, sysex.md 4.1.1); NULL = none */
@@ -256,6 +267,7 @@ extern const int32_t gm_encoder_cc_defaults[];
 /* Feedback / MCU tables (see above), each sized by its component count. */
 extern const gm_led_fb_t gm_led_fb[];        /* GM_LED_FB: per LED            */
 extern const uint8_t gm_analog_pickup[];     /* GM_ANALOG_PICKUP: 1 = pick-up */
+extern const uint8_t gm_analog_touch[];      /* GM_ANALOG_TOUCH: GM_TOUCH_* per analog */
 extern const uint8_t gm_analog_mcu[];        /* GM_MCU: fader 0..7, master 8, or GM_MCU_NONE */
 extern const uint8_t gm_encoder_mcu[];       /* GM_MCU: V-Pot 0..7, or GM_MCU_NONE */
 extern const gm_ring_t gm_encoder_ring[];    /* GM_RINGS: ring LEDs per encoder */
@@ -273,6 +285,7 @@ extern const gm_comp_t gm_comp_encoders[];
 extern const gm_comp_t gm_comp_leds[];
 extern const gm_comp_t gm_comp_matrix[];     /* one entry: the key matrix */
 extern const gm_comp_t gm_comp_displays[];   /* displays: */
+extern const gm_comp_t gm_comp_pads[];       /* pads, then the pad twins */
 
 /* Presets (research/core/presets-design.md §2, §10.1). Always generated:
  * GM_N_PRESETS (>= 1) slots and GM_PRESETS_REVISION in gm_device_config.h.
@@ -361,6 +374,18 @@ typedef struct {
 
 extern const gm_pad_t gm_pads[];             /* GM_N_PADS entries */
 extern const int32_t gm_pad_note_defaults[]; /* GM_N_PADS entries */
+
+/* Pad layer twins (core/README.md "Button layers"): while mode layer - 1 is
+ * active, a hit on gm_pads[base] is this twin's (an EVENT, no note) and led
+ * shows its state. Sensing stays per physical pad. GM_PAD_TWINS entries;
+ * component index GM_N_PADS + n. */
+typedef struct {
+    uint8_t layer;
+    uint8_t base;
+    int8_t led;                  /* twin LED (of the pad's LED), or -1 */
+} gm_pad_twin_t;
+
+extern const gm_pad_twin_t gm_pad_twins[];
 
 #ifdef __cplusplus
 }

@@ -1361,7 +1361,7 @@ class TestFeedback(unittest.TestCase):
             d, diags = gd.load_device(path, f.read())
         self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
         c61 = gd.generate(d, "m-audio-code61.yaml")["gm_device_config.c"]
-        self.assertIn('const gm_comp_t gm_comp_displays[GM_N_DISPLAYS] = { { "display", "Display", "" } };', c61)
+        self.assertIn('const gm_comp_t gm_comp_displays[GM_N_DISPLAYS] = { { "display", "Display", "param" } };', c61)
         h, c = self.header(base + "feedback: { script: false }\n")
         self.assertIn("#define GM_HOST_FB 0", h)
         self.assertNotIn("gm_comp_buttons", c)
@@ -1371,6 +1371,19 @@ class TestFeedback(unittest.TestCase):
         self.assertError(btn % "plya", r"unknown DAW role 'plya' \(did you mean 'play'")
         self.assertError(btn % "volume_9", r"unknown DAW role")
         self.header(btn % "x_my_thing")                                           # free x_ names
+        for role in ("nav_back", "nav_scroll", "clip_8_8", "scene_1", "grid_left", "knob_3", "assign_pan", "flip",
+                     "view_buses", "shift", "alt", "strip_next", "send_a_1", "send_b_8", "master_solo",
+                     "master_select", "marker_add", "nudge_back", "zoom_in", "scrub", "automation_latch", "save",
+                     "time_format", "time", "track_name", "param", "status", "meter_8", "master_meter"):
+            self.header(btn % role)
+        for role in ("clip_9_1", "clip_1_0", "scene_9", "send_c_1", "meter_9"):
+            self.assertError(btn % role, r"unknown DAW role")
+        # <host>.<command>: one host's own, lower case
+        self.header(btn % "zynthian.toggle_audio_play")
+        self.header(btn % "live.x2")
+        for role in ("Zynthian.play", "zynthian.", ".play", "zyn-thian.play", "2yn.play", "zynthian.play.x"):
+            self.assertError(btn % f'"{role}"', r"unknown DAW role")
+        self.assertError(btn % ("zynthian." + "a" * 30), r"at most 31")
         w = self.warns(btn % "play" + "feedback: { script: false }\n")
         self.assertTrue(any("feedback.script is off" in x for x in w), w)
         # a ring without Mackie Control, for a DAW script
@@ -1381,6 +1394,23 @@ class TestFeedback(unittest.TestCase):
         self.assertError(base + "feedback: { script: false }\n"
                          "encoders: [{ id: e, pin_a: PB0, pin_b: PB1, cc: 3, ring: [l1] }]\n",
                          r"leave feedback.script on")
+
+    def test_touch_and_mcu_roles(self):
+        base = FB_NUC + "analog:\n  - { id: f, pin: PA0, cc: 7, touch: %s }\n"
+        h, c = self.header(base % "movement")
+        self.assertIn("#define GM_ANALOG_TOUCH 1", h)
+        self.assertIn("const uint8_t gm_analog_touch[GM_N_ANALOGS] = { 2 };", c)
+        h, c = self.header(base % "none")
+        self.assertIn("#define GM_ANALOG_TOUCH 0", h)
+        self.assertNotIn("gm_analog_touch", c)
+        self.assertError(base % "{ pin: PA2 }", r"a touch sensor isn't supported yet")
+        self.assertError(base % "moving", r"unknown touch 'moving' \(valid: none, movement\)")
+        # mcu: channel_left / channel_right without daw: are strip_prev / strip_next; others as they are
+        self.assertEqual(gd.comp_role(gd.Hub(daw=None), "channel_left"), "strip_prev")
+        self.assertEqual(gd.comp_role(gd.Hub(daw=None), "channel_right"), "strip_next")
+        self.assertEqual(gd.comp_role(gd.Hub(daw=None), "bank_left"), "bank_left")
+        self.assertEqual(gd.comp_role(gd.Hub(daw="track_prev"), "channel_left"), "track_prev")
+        self.assertEqual(gd.comp_role(gd.Hub(daw=None)), "")
 
     def test_feedback_test_device(self):
         """core/test's feedback device validates cleanly (test_feedback.c runs on it)."""
@@ -1844,16 +1874,99 @@ class TestModes(unittest.TestCase):
                          "its own action would never run")
         self.assertError(modes("- id: arm\n  hold: { button: menu, with: shift }\n  layer: { mute: { cc: 7 } }\n",
                                base), "unknown key")
-        self.assertError(modes(arm + "    sel: { cc: 9 }\n", base), "enters a mode")
-        self.assertError(modes(arm + "    shift: { cc: 9 }\n", base), "enters a mode")
+        self.assertClean(modes(arm + "    sel: { cc: 9 }\n", base))         # a with: toggle may have a twin
+        self.assertError(modes(arm + "    shift: { cc: 9 }\n", base), "enters a mode")   # its with: button not
+        self.assertError(modes(arm + "    menu: { cc: 9 }\n- id: m2\n  toggle: { button: menu }\n", base),
+                         "enters a mode")                                          # nor a plain toggle
         self.assertError(modes(arm + "    mute: { cc: 7 }\n  buttons: { mute: channel_up }\n", base),
                          "also in this mode's buttons")
-        self.assertError(modes(arm + "    nope: { cc: 7 }\n", base), "no button with id 'nope'")
+        self.assertError(modes(arm + "    nope: { cc: 7 }\n", base), "no button, pad or encoder with id 'nope'")
+        self.assertError(modes(arm + "    lamp: { cc: 7 }\n", base), r"'lamp'.*it is the id of leds\[1\] \(an LED\)")
         self.assertError(modes(arm + "    mute: { cc: 7, active: purple }\n", base), "unknown look 'purple'")
         self.assertError(modes(ROOT + "    E3: { mode: pick }\n- id: pick\n  parent: menu\n  keys: { C3: octave_up }\n"
                                "  layer: { mute: { cc: 7 } }\n", base), "only a root mode")
         self.assertTrue(any("has no LED" in w for w in self.warns(modes(arm + "    other: { note: 61, active: on }\n",
                                                                         base))))
+
+    LAYER_BASE = MODES_NUC.replace(
+        "  - { id: other, pin: PA3, action: note, note: 60 }\n",
+        "  - { id: other, pin: PA3, action: note, note: 60 }\n"
+        "  - { id: shift, pin: PA4, action: cc_momentary, cc: 5, daw: shift }\n"
+        "  - { id: sel, pin: PA6, action: cc_momentary, cc: 8, led: sel_led }\n").replace(
+        "  - { id: lamp, pin: PA13 }\n",
+        "  - { id: lamp, pin: PA13 }\n  - { id: sel_led, pin: PA14 }\n  - { id: pad_led, pin: PA15, pin2: PB13 }\n") + \
+        "pads:\n  - { id: kick, pin: PA7, note: 36, led: pad_led }\n  - { id: snare, pin: PA5, note: 38 }\n" \
+        "encoders:\n  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20, daw: device_param_1 }\n" \
+        "  - { id: e2, pin_a: PB9, pin_b: PB10, cc: 21 }\n"
+    GRID = "- id: grid\n  toggle: { button: sel, with: shift }\n  layer:\n"
+
+    def test_layer_pads_and_encoders(self):
+        """Pad and encoder twins, and a twin of the with: toggle itself (core/README.md "Button layers")."""
+        text = modes(self.GRID + "    kick: { daw: clip_1_1, idle: off, active: colour2 }\n    snare: { daw: clip_2_1 }\n"
+                     "    e1: { cc: 41, daw: pan_1 }\n    e2: { name: Pan 2 }\n    sel: { daw: grid_left }\n",
+                     self.LAYER_BASE)
+        self.assertClean(text)
+        dev, h, c = self.gen(text)
+        self.assertIn("#define GM_LAYERS 5 ", h)               # sel, kick, snare, e1, e2
+        self.assertIn("#define GM_ENC_TWINS 2 ", h)
+        self.assertIn("#define GM_PAD_TWINS 2 ", h)
+        self.assertIn("#define GM_N_PADS 2 ", h)               # the twins aren't pads: no pad.note of their own
+        self.assertIn("#define GM_N_ENCODERS 4", h)
+        # encoder twins: the base's pins and steps, layer 1, base 0 / 1; their own cc (e2's: the base's)
+        self.assertIn('{ { 0, 0, 22 }, { 0, 0, 23 }, "E1", 4, 0, 0 }, /* e1', c)
+        self.assertIn('{ { 0, 0, 22 }, { 0, 0, 23 }, "E1 grid", 4, 1, 0 }, /* e1_grid', c)
+        self.assertIn('{ { 0, 0, 25 }, { 0, 0, 26 }, "Pan 2", 4, 1, 1 }, /* e2_grid', c)
+        self.assertIn("gm_encoder_cc_defaults[GM_N_ENCODERS] = { 20, 21, 41, 21 }", c)
+        self.assertIn('{ "e1_grid", "E1 grid", "pan_1" }', c)
+        # pad twins: { layer, base, LED }: kick's twin LED is the next LED, with its looks; snare has none
+        led = next(i for i, x in enumerate(dev.leds) if x.id == "pad_led_grid")
+        self.assertEqual((dev.leds[led].layer, dev.leds[led].base, dev.leds[led].looks), (1, 3, (0, 2)))
+        self.assertIn(f"    {{ 1, 0, {led} }}, /* kick_grid */", c)
+        self.assertIn("    { 1, 1, -1 }, /* snare_grid */", c)
+        self.assertIn('const gm_comp_t gm_comp_pads[GM_N_PADS + GM_PAD_TWINS] = { { "kick", "Kick", "" }, '
+                      '{ "snare", "Snare", "" }, { "kick_grid", "Kick grid", "clip_1_1" }, '
+                      '{ "snare_grid", "Snare grid", "clip_2_1" } };', c)
+        # the with: toggle's twin: sel's switch, its action and CC, and a twin of its LED
+        sel = next(b for b in dev.buttons if b.id == "sel_grid")
+        self.assertEqual((sel.action_name, sel.number, sel.daw, sel.base), ("cc_momentary", 8, "grid_left", 4))
+        # stored: encoder.cc and encoder.mode of 4 encoders (2 twins); pad.note of the 2 pads only
+        n_preset, _ = gd.stored_counts(dev)
+        dev0, _ = load(self.LAYER_BASE)
+        self.assertEqual(n_preset - gd.stored_counts(dev0)[0], 2 + 2 + 2)   # button twin: action, number
+        # a preset can set a twin encoder's CC; a pad twin has no note
+        pre = "presets:\n  slots: 4\n  list:\n    - name: A\n    - name: B\n      %s\n"
+        self.assertClean(text.replace("presets: { slots: 4 }\n", pre % "encoders: { e1_grid: { cc: 50 } }"))
+        self.assertError(text.replace("presets: { slots: 4 }\n", pre % "pads: { kick_grid: { note: 50 } }"),
+                         r"'kick_grid' is the id of .*a pad twin")
+        self.assertNotIn("gm_pad_twins", self.gen(self.LAYER_BASE)[2])
+        self.assertNotIn("GM_ENC_TWINS", self.gen(self.LAYER_BASE)[1])
+        # checks
+        bad = lambda body: modes(self.GRID + body, self.LAYER_BASE)    # noqa: E731
+        self.assertError(bad("    kick: { cc: 5 }\n"), r"unknown key \(known: name, daw, idle, active\)")
+        self.assertError(bad("    e1: { action: note }\n"), r"unknown key \(known: name, cc, daw\)")
+        self.assertError(bad("    e1: { cc: 128 }\n"), r"128 is out of range")
+        self.assertError(bad("    kick: { active: purple }\n"), "unknown look 'purple'")
+        self.assertTrue(any("has no LED" in w for w in self.warns(bad("    snare: { active: on }\n"))))
+        ring = self.LAYER_BASE.replace("cc: 20, daw: device_param_1 }", "cc: 20, ring: [lamp] }")
+        self.assertError(modes(self.GRID + "    e1: { cc: 41 }\n", ring), "a ring encoder can't have a layer twin yet")
+        twice = modes(self.GRID + "    kick: {}\n- id: g2\n  toggle: { button: menu }\n  layer: { kick_grid: {} }\n",
+                      self.LAYER_BASE)
+        self.assertError(twice, "is a layer twin: give the layer the pad itself")
+        self.assertError(modes(self.GRID + "    e1: {}\n- id: g2\n  toggle: { button: menu }\n  layer: { e1_grid: {} }\n",
+                               self.LAYER_BASE), "is a layer twin: give the layer the encoder itself")
+
+    def test_layer_compiles(self):
+        if not GCC:
+            self.skipTest("needs host gcc")
+        tmp = tempfile.mkdtemp()
+        try:
+            dev, diags = load(modes(self.GRID + "    kick: { daw: clip_1_1 }\n    e1: { cc: 41 }\n    sel: {}\n",
+                                    self.LAYER_BASE.replace("cc: 21 }", "cc: 21 }\nanalog:\n  - { id: f, pin: PA0, "
+                                                                        "cc: 7, touch: movement }")))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
+        finally:
+            shutil.rmtree(tmp)
 
     def test_no_modes(self):
         _dev, h, c = self.gen(MODES_NUC)

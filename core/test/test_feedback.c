@@ -601,13 +601,14 @@ int main(void)
         CHECK(rn >= 1 && r[0] == 1, "fader: takeover pick-up (the MCU default)");
         qa[1] = 0;
         gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
-        CHECK(r[rn - 1] == 1, "knob: takeover pick-up");
+        CHECK(r[rn - 2] == 1 && r[rn - 1] == 0, "knob: takeover pick-up, then touch none");
         qa[1] = 2;
         gsx_request(GSX_CMD_GET_COMPONENT, qa, 3, &r, &rn);
-        CHECK(gsx_get_u(r + 3, 2) == 3 && r[rn - 1] == 0, "level: 3 analogs, takeover none");
+        CHECK(gsx_get_u(r + 3, 2) == 3 && r[rn - 2] == 0 && r[rn - 1] == 0, "level: 3 analogs, takeover none");
 
+        /* no pads, no meters (kind 8 is reserved): BAD_PARAM, as for any kind with none */
         uint8_t bad[][3] = { { GSX_KIND_BUTTON, 4, 0 }, { GSX_KIND_MATRIX, 0, 0 }, { GSX_KIND_DISPLAY, 0, 0 },
-                             { 9, 0, 0 } };
+                             { GSX_KIND_PAD, 0, 0 }, { GSX_KIND_METER, 0, 0 }, { 9, 0, 0 } };
         for (int k = 0; k < 4; k++)
             CHECK(gsx_request(GSX_CMD_GET_COMPONENT, bad[k], 3, 0, 0) == GSX_BAD_PARAM, "BAD_PARAM %d", k);
         CHECK(gsx_request(GSX_CMD_GET_COMPONENT, q, 2, 0, 0) == GSX_BAD_LEN, "BAD_LEN");

@@ -1,7 +1,8 @@
 /*
  * test_pads.c: host test of the velocity pads, with the device
  * core/test/pads-test.yaml: 16 pads on two muxes that share their select
- * lines with a fader mux, and one inverted pad on an ADC pin. Simulated
+ * lines with a fader mux, one inverted pad on an ADC pin, a pad layer (twins
+ * of pads 1 and 2) and a fader with touch: movement. Simulated
  * HAL: pins, a mux-aware ADC, MIDI out; RAM config store.
  *
  * Built with -DHW_ADC_TEST against pads-hw-test.yaml (the same board with
@@ -195,18 +196,83 @@ static int has_text(const char *s)
     return 0;
 }
 
-/* The value of the last pad EVENT (type 7) for pad i, or -1. */
-static int pad_event(int i)
+/* The n-th EVENT of this type for index i: its offset (*v its value), or -1. */
+static int event_nth(int type, int i, int nth, int *v)
 {
-    int v = -1;
     for (int k = 0; k + GSX_OVERHEAD < out_n; k++) {
         if (out[k] != 0xF0 || out[k + 1 + GSX_OFF_CMD] != GSX_MSG_EVENT)
             continue;
         const uint8_t *p = out + k + 1 + GSX_OFF_PAYLOAD;
-        if (p[0] == EV_PAD && (int)gsx_get_u(p + 1, 2) == i)
-            v = (int)gsx_get_u(p + 3, 2);
+        if (p[0] == type && (int)gsx_get_u(p + 1, 2) == i && nth-- == 0) {
+            *v = (int)gsx_get_u(p + 3, 2);
+            return k;
+        }
     }
+    return -1;
+}
+
+/* The value of the last EVENT of this type for index i, or -1. */
+static int last_event(int type, int i)
+{
+    int v = -1, x;
+    for (int n = 0; event_nth(type, i, n, &x) >= 0; n++)
+        v = x;
     return v;
+}
+
+/* The value of the last pad EVENT (type 7) for pad i, or -1. */
+static int pad_event(int i) { return last_event(EV_PAD, i); }
+
+/* A gemifi message from the host (USB-MIDI events on cable 0). */
+static void host_sysex(uint8_t cmd, const uint8_t *p, int n)
+{
+    static uint8_t buf[64];
+    static uint8_t seq = 20;
+    gsx_tx_t t;
+    seq = (uint8_t)((seq + 1) & 0x7F);
+    gsx_tx_begin(&t, buf, cmd, seq);
+    for (int i = 0; i < n; i++)
+        gsx_put(&t, p[i]);
+    int len = gsx_tx_end(&t);
+    for (int k = 0; k < len; k += 3) {
+        int m = len - k > 3 ? 3 : len - k;
+        uint8_t ev[4] = { (uint8_t)(len - k > 3 ? 4 : 4 + m), buf[k], m > 1 ? buf[k + 1] : 0, m > 2 ? buf[k + 2] : 0 };
+        gm_midi_rx_usb(ev);
+    }
+}
+
+/* GET_COMPONENT kind / index: the reply status; *r = the payload after it, *rn its length. */
+static int get_component(int kind, int index, const uint8_t **r, int *rn)
+{
+    uint8_t q[3] = { (uint8_t)kind, (uint8_t)(index & 0x7F), (uint8_t)(index >> 7) };
+    out_n = 0;
+    host_sysex(GSX_CMD_GET_COMPONENT, q, 3);
+    for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++)
+        if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == (GSX_CMD_GET_COMPONENT | GSX_REPLY)) {
+            const uint8_t *b = out + i + 1;
+            *r = b + GSX_OFF_PAYLOAD + 1;
+            *rn = (b[GSX_OFF_LEN] | b[GSX_OFF_LEN + 1] << 7) - 1;
+            return b[GSX_OFF_PAYLOAD];
+        }
+    return -1;
+}
+
+/* An lstring at *p: compare with want, move past it. */
+static int lstr_is(const uint8_t **p, const char *want)
+{
+    int n = (*p)[0], ok = n == (int)strlen(want) && memcmp(*p + 1, want, (size_t)n) == 0;
+    *p += 1 + n;
+    return ok;
+}
+
+#define GRID_BTN 30u                /* PB14: toggles the grid layer */
+#define PAD1_LED 31u                /* PB15 */
+static void grid_tap(void)
+{
+    level[GRID_BTN] = 1;
+    run_ms(20);
+    level[GRID_BTN] = 0;
+    run_ms(30);
 }
 
 static void set_param(uint16_t id, int32_t v)
@@ -269,7 +335,7 @@ int main(void)
     int i = find(0x99, 36);
     CHECK(i >= 0 && out[i + 2] == 104, "Note On 36 on channel 10, velocity 104 from peak 2500 (got %d)",
           i >= 0 ? out[i + 2] : -1);
-    CHECK(pad_event(0) == 2500 * 4, "EVENT pad 0 = peak x 4 (%d)", pad_event(0));
+    CHECK(pad_event(0) == -1, "a pad's own hit: its note, no EVENT (%d)", pad_event(0));
     run_ms(50);
     CHECK(count(0x80) == 0 && count(0x90) == 1, "held above release: one note, no off");
     mux_a[0] = 150;
@@ -278,7 +344,7 @@ int main(void)
     mux_a[0] = 50;
     run_ms(1);
     CHECK(find(0x89, 36) >= 0, "below release: Note Off");
-    CHECK(pad_event(0) == 0, "EVENT pad 0 = 0 on release");
+    CHECK(pad_event(0) == -1, "no EVENT on release either");
 
     /* retrigger guard: 20 ms after the release */
     out_n = 0;
@@ -333,6 +399,18 @@ int main(void)
         i = find_nth(0xB0, 20, k);
     CHECK(i >= 0 && out[i + 2] == 127, "fader on channel 3 reads 4095 between pad scans (CC %d)",
           i >= 0 ? out[i + 2] : -1);
+    /* touch: movement: EVENT touch 1 just before the movement's first value
+     * EVENT, and only once; 0 after 300 ms still */
+    {
+        int tv = -1, av = -1, x;
+        int ti = event_nth(EV_TOUCH, 0, 0, &tv), ai = event_nth(EV_ANALOG, 0, 0, &av);
+        CHECK(ti >= 0 && tv == 1 && ai > ti, "fader moves: EVENT touch 1 before its first value EVENT");
+        CHECK(event_nth(EV_TOUCH, 0, 1, &x) < 0, "touched once for the whole movement");
+        CHECK(event_nth(EV_TOUCH, 1, 0, &x) < 0, "the XY X axis has no touch:");
+    }
+    out_n = 0;
+    run_ms(400);
+    CHECK(last_event(EV_TOUCH, 0) == 0 && last_event(EV_ANALOG, 0) < 0, "still for 300 ms: EVENT touch 0");
     settles = 0;
     run_ms(10);
 #ifdef HW_ADC_TEST
@@ -492,6 +570,89 @@ int main(void)
     CHECK(find(0xB0, 16) < 0 && find(0xB0, 17) < 0, "one axis outside the touch window: no touch");
     xy_touch = 0;
     CHECK(xy_bad == 0 && xy_short == 0, "XY drive right throughout (%d bad, %d shorts)", xy_bad, xy_short);
+
+    /* Pad layer (modes: layer:): pad 1's own hit plays its note and lights
+     * its LED (PB15); with the grid layer on, pads 1 and 2 are their twins
+     * (pad components 17, 18): EVENTs, no notes, and pad 1's twin LED. */
+    presets_select(1);
+    run_ms(50);
+    out_n = 0;
+    mux_a[0] = 2500;
+    run_ms(20);
+    CHECK(find(0x99, 36) >= 0 && pad_event(0) < 0 && pad_event(17) < 0, "pad 1: note 36, no EVENT");
+    CHECK(level[PAD1_LED] == 1, "pad 1 held: its LED lit");
+    mux_a[0] = 0;
+    run_ms(120);
+    CHECK(find(0x89, 36) >= 0 && level[PAD1_LED] == 0, "pad 1 let go: Note Off, LED off");
+    grid_tap();
+    out_n = 0;
+    mux_a[0] = 2500;
+    run_ms(20);
+    CHECK(count(0x90) == 0 && pad_event(17) == 2500 * 4 && pad_event(0) < 0,
+          "grid on: pad 1 is its twin: EVENT 17 = peak x 4 (%d), no note", pad_event(17));
+    CHECK(level[PAD1_LED] == 1, "twin held: the twin LED lit");
+    mux_a[0] = 0;
+    run_ms(120);
+    CHECK(pad_event(17) == 0 && count(0x80) == 0 && level[PAD1_LED] == 0, "twin let go: EVENT 0, no Note Off, LED off");
+    out_n = 0;
+    mux_a[1] = 2000;
+    run_ms(10);
+    CHECK(count(0x90) == 0 && pad_event(18) == 2000 * 4, "pad 2's twin (no LED): EVENT 18");
+    mux_a[1] = 0;
+    mux_a[2] = 2000;
+    run_ms(10);
+    CHECK(find(0x99, 38) >= 0 && pad_event(2) < 0, "pad 3 has no twin: still its note");
+    mux_a[2] = 0;
+    run_ms(30);
+    /* the twin LED is the host's (FB_LED); the pad's own LED keeps its state */
+    {
+        uint8_t fb[3] = { 1, 0, 127 };              /* LED 1 = pad_1_led_grid, on */
+        host_sysex(GSX_FB_LED, fb, 3);
+        run_ms(30);
+        CHECK(level[PAD1_LED] == 1, "the host lights the twin LED");
+        grid_tap();
+        CHECK(level[PAD1_LED] == 0, "grid off: the pad's own LED (off)");
+        grid_tap();
+        CHECK(level[PAD1_LED] == 1, "grid on again: the host's state");
+        grid_tap();
+    }
+    /* a hit held across the layer change stays the base pad's: its Note Off */
+    out_n = 0;
+    mux_a[0] = 2500;
+    run_ms(10);
+    grid_tap();
+    mux_a[0] = 0;
+    run_ms(10);
+    CHECK(find(0x99, 36) >= 0 && find(0x89, 36) >= 0 && pad_event(17) < 0, "held into the layer: still the pad's");
+    run_ms(30);
+    out_n = 0;
+    mux_a[0] = 2500;
+    run_ms(10);
+    grid_tap();
+    mux_a[0] = 0;
+    run_ms(30);
+    CHECK(count(0x90) == 0 && count(0x80) == 0 && pad_event(17) == 0, "held out of the layer: still the twin's");
+
+    /* GET_COMPONENT: pads (kind 7) are the pads, then the twins; analog touch */
+    {
+        const uint8_t *r;
+        int rn;
+        CHECK(get_component(GSX_KIND_PAD, 17, &r, &rn) == GSX_OK, "GET_COMPONENT pad 17");
+        CHECK(gsx_get_u(r + 3, 2) == 19, "19 pads (17 + 2 twins): %u", (unsigned)gsx_get_u(r + 3, 2));
+        r += 5;
+        CHECK(lstr_is(&r, "pad_1_grid") && lstr_is(&r, "Pad 1 grid") && lstr_is(&r, "clip_1_1"), "twin id, name, role");
+        CHECK(gsx_get_u(r, 2) == 1, "its LED: the twin LED, 1");
+        get_component(GSX_KIND_PAD, 1, &r, &rn);
+        CHECK(r[rn - 2] == 0x7F && r[rn - 1] == 0x7F, "pad 2: no LED (0x3FFF)");
+        get_component(GSX_KIND_PAD, 0, &r, &rn);
+        CHECK(gsx_get_u(r + rn - 2, 2) == 0, "pad 1: LED 0");
+        CHECK(get_component(GSX_KIND_PAD, 19, &r, &rn) == GSX_BAD_PARAM, "pad 19: BAD_PARAM");
+        CHECK(get_component(GSX_KIND_METER, 0, &r, &rn) == GSX_BAD_PARAM, "no meters: BAD_PARAM");
+        get_component(GSX_KIND_ANALOG, 0, &r, &rn);
+        CHECK(r[rn - 2] == 0 && r[rn - 1] == 2, "fader: takeover none, touch 2 (movement)");
+        get_component(GSX_KIND_ANALOG, 1, &r, &rn);
+        CHECK(r[rn - 1] == 0, "XY X: touch none");
+    }
 
     /* the schema has the Pads group and its params */
     {

@@ -31,7 +31,7 @@ Requests follow §1's stop-and-wait (one outstanding, same `seq` on a resend, up
 
 ## Roles
 
-`mcu:` names are mapped first, as `hosts/README.md` says (`fader_N` → `volume_N`, `vpot_N` → `pan_N`, `rec_N` → `arm_N`, `master` → `master_volume`, `bank_left/right`, `channel_left/right`, `cycle` → `loop`, `click` → `metronome`). Unknown roles are logged and ignored; `x_…` roles are ignored silently.
+`mcu:` names are mapped first, as `hosts/README.md` says (`fader_N` → `volume_N`, `vpot_N` → `pan_N`, `rec_N` → `arm_N`, `master` → `master_volume`, `bank_left/right` → `bank_prev/next`, `channel_left/right` → `strip_prev/next`, `cycle` → `loop`, `click` → `metronome`). Unknown roles are logged and ignored; `x_…` roles and other hosts' commands (`zynthian.…`) are ignored silently.
 
 A role on a button acts on press, and the button's LED (if it has one) shows the state. A role on a kind-5 LED shows the same state. LED levels: 127 on, 0 off, 1 blink.
 
@@ -48,6 +48,7 @@ A role on a button acts on press, and the button's LED (if it has one) shows the
 | `mute_N`, `solo_N`, `arm_N` | toggle on strip N of the bank | state of that track |
 | `select_N` | select strip N's track | lit when it is the selected track |
 | `bank_prev`, `bank_next` | move the 8 strips by 8 tracks | lit if possible |
+| `strip_prev`, `strip_next` | move the 8 strips by 1 track | lit if possible |
 | `device_prev`, `device_next` | select the previous / next device on the selected track | lit if possible |
 | `device_bank_prev`, `device_bank_next` | page `device_param_1..8` by 8 parameters | lit if possible |
 | `device_on` | toggle the selected device on / off | lit while on |

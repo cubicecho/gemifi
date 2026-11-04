@@ -209,6 +209,11 @@ final class FakeModel implements Model {
     }
 
     @Override
+    public void stepStrip(int d) {
+        if (canStepBank(d)) bankOffset = Math.max(0, bankOffset + d);
+    }
+
+    @Override
     public Param master(MasterParam p) {
         switch (p) {
             case VOLUME: return masterVolume;

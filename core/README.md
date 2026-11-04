@@ -152,7 +152,7 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 |---|---|---|
 | button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`) or `mcu:` (action `mcu`) | `button.action`, `button.number` |
 | LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `idle:` / `active:` ("LED looks" below), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
-| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below), optional `takeover:`, `mcu:` | `analog.cc`, `analog.mode` |
+| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below), optional `takeover:`, `touch:` ("DAW scripts"), `mcu:` | `analog.cc`, `analog.mode` |
 | pad (velocity pad: pressure / FSR) | `id`/`name`, `pin` (ADC pin or mux channel; `inverted: true` if pressure lowers the reading), default `note`, optional `led` (lit while the pad is held); what all pads share goes in the top-level `pad_settings:` ("Pads" below) | `pad.note`, and once per device `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.threshold`, `pad.release`, `pad.full`, `pad.window`, `pad.retrigger` |
 | encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:` | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
@@ -234,9 +234,9 @@ pad_settings:                  # all optional; these are the param defaults
 - **A hit.** Readings are 0..4095 (after `inverted`). When a pad reaches `pad.threshold`, its peak over the next `pad.window` ms is taken (4 readings at 3 ms) and Note On goes out with velocity 1..127, linear from `threshold` to `full`, then shaped by `pad.curve` like the keys' curves (soft, hard; fixed = `velocity.fixed`). A pad let go within the window plays at once with the peak so far. It is released (Note Off) below `pad.release`, and can't start a new hit for `pad.retrigger` ms after that (bounce, double hits). The thresholds are live params: tune them from the web app.
 - **Polyphonic aftertouch** (`pad.aftertouch`): while a pad is held, its reading from `release` to `full` is sent as poly pressure 0..127, when it moves by 2 or more, at most every 10 ms per pad, and 0 before the Note Off.
 - **At start-up** a pad must read below `pad.release` once before it can play, so a pad held at power-up, or one with the wrong polarity (`inverted:`), stays silent. Such pads are named in a WARN log at the boot log (about 1.5 s).
-- **EVENTs** (`debug.events`): type 7, the pad index, and on a hit the peak reading × 4 (0..16380), 0 on release. That is the raw number to set `threshold` and `full` from.
+- **EVENTs** (`debug.events`): a pad's own hits only play notes. A pad's layer twin ("Button layers") sends EVENT type 7 instead: its pad component index (the pads, then the twins), and on a hit the peak reading × 4 (1..16380), 0 on release. That is also the raw number to set `threshold` and `full` from: hit the pads with their layer on.
 - **Presets** may set `pads: { <id>: { note: N } }` and `pad_settings: { channel, curve, aftertouch }`; the sensing (`threshold`, `release`, `full`, `window`, `retrigger`) is the pads' calibration and the same in every preset.
-- **Generated code** (`gm_device.h` `gm_pad_t`, only with `pads:`): `GM_N_PADS` and the `GM_PAD_*_DEFAULT`s in `gm_device_config.h`, `gm_pads[GM_N_PADS]` (pin, name) and `gm_pad_note_defaults[]` in `gm_device_config.c`. A device without pads has no pad params, no "Pads" group and no pad code. RAM: about 16 bytes and one param value per pad, plus 8 values.
+- **Generated code** (`gm_device.h` `gm_pad_t`, only with `pads:`): `GM_N_PADS` and the `GM_PAD_*_DEFAULT`s in `gm_device_config.h`, `gm_pads[GM_N_PADS]` (pin, name, LED) and `gm_pad_note_defaults[]` in `gm_device_config.c`; with pad twins also `GM_PAD_TWINS` and `gm_pad_twins[]` (`gm_pad_twin_t`: layer, base pad, LED). A device without pads has no pad params, no "Pads" group and no pad code. RAM: about 16 bytes and one param value per pad, plus 8 values.
 
 ## Hardware scan
 
@@ -301,6 +301,7 @@ A 14-segment character display (like the Code 61's 6-character one) is a row of 
 displays:
   - id: display
     type: segment14            # the only type so far (the default)
+    daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
     chars:                     # left to right: each character's segment a
       - { tm1628: leds_a, number: 48 }
       - { tm1628: leds_a, number: 64 }
@@ -309,7 +310,7 @@ displays:
 
 - **What it shows.** "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`. Note Offs, pitch bend and pressure leave it as it is. When the two parts would touch, a dot separates them.
 - **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, and a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again. `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
-- **From a host.** GET_COMPONENT lists each display (kind 6: its `id`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to it from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own (MIDI values, messages), which carries on underneath. FB_RELEASE 0 or 3 hands the display back, showing the device's text again.
+- **From a host.** GET_COMPONENT lists each display (kind 6: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to it from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own (MIDI values, messages), which carries on underneath. FB_RELEASE 0 or 3 hands the display back, showing the device's text again.
 - **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
 - **Timing.** MIDI messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
@@ -576,9 +577,30 @@ modes:
 - **One live at a time.** While the mode is active the twin takes the button's presses and drives the LED; otherwise the button does. A press's release goes to whichever took the press, even if the layer changed in between. A held hold mode's layer goes before the toggled mode's.
 - **Each keeps its state.** Toggling B2 in the arm layer leaves its mute state alone; switching layers redraws the LED with the live one's state.
 - **They are ordinary components:** the twin is the next button after the YAML's (id `<button>_<mode>`, e.g. `b2_arm`) and its LED the next LED (`b2_led_arm`). Their params (action, number) show in the config and can differ per preset, a host's echo of the twin's CC sets its toggle state, and GET_COMPONENT lists them with their roles, so DAW scripts see `arm_1` next to `mute_1` and drive each LED as usual.
-- **The builder checks** that layers are on root modes, that a button isn't both in the mode's `buttons:` and its `layer:`, and that the mode's toggle and `with:` buttons have no twin.
+- **The builder checks** that layers are on root modes, that a button isn't both in the mode's `buttons:` and its `layer:`, that plain `toggle:` and `hold:` buttons and the `with:` buttons have no twin, and that a twin isn't given a twin.
+- **A `toggle: { button, with }` button may have a twin**, in its own mode's layer or another's: Shift + the twin toggles the mode just as Shift + the button does (the mode's toggle is the button or any of its twins), and the twin alone is its own action. The Code 61's Pad octave - is the `pads` mode's toggle and, in that layer, `grid_left`.
 
-**Generated code:** `gm_button_t` / `gm_led_t` `.layer` (mode index + 1; 0 = not a twin) and `.base` (the button / LED it is a twin of), `gm_mode_t.with` (button index + 1, 0 = none), and `GM_LAYERS` (the number of twins) in `gm_device_config.h`; without twins the layer code is left out.
+**Pads and encoders** can be in a layer too, by id, next to buttons:
+
+```yaml
+modes:
+  - id: pads
+    toggle: { button: pad_octave_down, with: shift }
+    layer:
+      pad_13: { daw: clip_1_1, idle: off }    # a pad twin: name, daw, idle, active
+      pad_octave_down: { daw: grid_left }
+  - id: pan
+    toggle: { button: encoder_mode, with: shift }
+    led: encoder_mode_led
+    layer:
+      encoder_1: { cc: 41, daw: pan_1 }       # an encoder twin: name, cc, daw
+```
+
+- **A pad twin** plays no note. While its layer is active, the physical pad's hits are the twin's: an EVENT type 7 with the twin's pad index and the peak (`debug.events` on), 0 on release, and its LED is the twin LED: the host's state (FB_LED, FB_LED_RGB), lit with its active look while the twin's hit is held. The pad's own note, LED and state stay with the pad; sensing stays per physical pad (no extra ADC reads or pins), and a hit's release goes to whichever took the hit. Twins come after the YAML's pads (GET_COMPONENT kind 7, id `<pad>_<mode>`, its LED `<pad LED>_<mode>`); they have no `pad.note`. Keys: `name`, `daw`, `idle`, `active`.
+- **An encoder twin** is the next encoder after the YAML's (id `<encoder>_<mode>`), with its own `encoder.cc` (`cc:`, else the encoder's) and `encoder.mode` (it starts as the encoder's default, absolute). The encoder is decoded once, in the scan; while the layer is active its turns go to the twin: its CC, mode, absolute value and EVENT index, and the encoder's own value is kept for when it comes back. An encoder with `ring:` / `ring_center:` can't have a twin yet. Keys: `name`, `cc`, `daw`.
+- **Cost:** a twin encoder's two params count in every preset (the Code 61's 8 pan twins: 64 B of the worst case at 4 slots).
+
+**Generated code:** `gm_button_t` / `gm_led_t` / `gm_encoder_t` `.layer` (mode index + 1; 0 = not a twin) and `.base` (the button / LED / encoder it is a twin of), `gm_pad_twins[]` (`gm_pad_twin_t`: layer, base pad, LED), `gm_mode_t.with` (button index + 1, 0 = none), and in `gm_device_config.h` `GM_LAYERS` (the number of twins), `GM_PAD_TWINS` and `GM_ENC_TWINS` (the last `GM_ENC_TWINS` encoders are twins and aren't scanned); without twins the layer code is left out.
 
 ## DAW feedback
 
@@ -701,7 +723,9 @@ encoders:
   - { id: p1, pin_a: PB2, pin_b: PB3, cc: 30, daw: device_param_1, ring: [r0, r1, r2, r3, r4] }
 ```
 
-`daw:` tells a script what to connect the component to; the names are in `hosts/README.md` (or `x_<name>` for your own). Without `daw:`, a component's `mcu:` name is its role. With scripts on, `ring:` and `ring_center:` work without `mcu:`. A script's LED states don't time out (`led_timeout` doesn't apply) and `owner: local` LEDs ignore them; the script hands them back when it stops.
+`daw:` tells a script what to connect the component to; the names are in `hosts/README.md` and `protocol/daw-scripts.md`, `x_<name>` is your own, and `<host>.<command>` (lower case, e.g. `zynthian.toggle_audio_play`) one host's command; a role is at most 31 characters. Displays take `daw:` too (`time`, `track_name`, `param`, `status`). Without `daw:`, a component's `mcu:` name is its role (`channel_left` / `channel_right` as `strip_prev` / `strip_next`).
+
+**Touch.** `touch: movement` on an analog input makes it say when it is touched, for a script that treats a touched fader differently (automation touch, a value shown while it moves): EVENT type 5 (`debug.events` on), the analog index, value 1 just before the first value EVENT of a movement, and 0 once the value has been still for 300 ms. GET_COMPONENT's analog `touch` byte (after `takeover`) is 0 none, 2 movement; 1 (a touch sensor, `touch: { pin: ... }`) is reserved and the builder refuses it for now. With scripts on, `ring:` and `ring_center:` work without `mcu:`. A script's LED states don't time out (`led_timeout` doesn't apply) and `owner: local` LEDs ignore them; the script hands them back when it stops.
 
 ## Generated code (tools/builder output)
 
@@ -730,6 +754,7 @@ encoders:
 #define GM_LED_OWNER 0                    /* feedback.led_owner: 0 host_then_local, 1 host, 2 local */
 #define GM_LED_TIMEOUT 200                /* feedback.led_timeout, 10 ms units (0xFFFF = never) */
 #define GM_ANALOG_PICKUP 0                /* 1: gm_analog_pickup[] */
+#define GM_ANALOG_TOUCH 0                 /* 1: gm_analog_touch[] (analog touch:) */
 #define GM_MCU 0                          /* 1: mcu: (then also GM_MCU_CABLE, GM_MCU_ID) */
 #define GM_USB_DAW_PORT 0                 /* 1: second USB-MIDI cable (then also GM_DAW_PORT_NAME) */
 /* ESP only: */

@@ -18,8 +18,8 @@ class RolesTest {
         assertEquals("select_4", Roles.normalise("select_4"));
         assertEquals("bank_prev", Roles.normalise("bank_left"));
         assertEquals("bank_next", Roles.normalise("bank_right"));
-        assertEquals("track_prev", Roles.normalise("channel_left"));
-        assertEquals("track_next", Roles.normalise("channel_right"));
+        assertEquals("strip_prev", Roles.normalise("channel_left"));
+        assertEquals("strip_next", Roles.normalise("channel_right"));
         assertEquals("loop", Roles.normalise("cycle"));
         assertEquals("metronome", Roles.normalise("click"));
         assertEquals("play", Roles.normalise("play"));

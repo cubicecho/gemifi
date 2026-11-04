@@ -52,6 +52,11 @@ export const Command = {
   FactoryReset: 0x08,
   GetParams: 0x09,
   SetParams: 0x0a,
+  /** Presets (§4.5), on a device with caps bit 5. */
+  PresetInfo: 0x0b,
+  PresetSave: 0x0c,
+  PresetReset: 0x0d,
+  PresetName: 0x0e,
   Reboot: 0x10,
   GetComponent: 0x11,
   FwBegin: 0x18,
@@ -78,6 +83,8 @@ export const Unsolicited = {
   Log: 0x60,
   Event: 0x61,
   ParamChanged: 0x62,
+  /** The active preset or its dirty flag changed, whoever caused it (§4.5). */
+  PresetChanged: 0x63,
   /** HELLO's fields without the status, sent once after boot by a device with caps bit 6 (§4.6.3). */
   Booted: 0x64,
 } as const;
@@ -154,6 +161,8 @@ export const Capability = {
   Config: 1 << 1,
   Log: 1 << 2,
   Event: 1 << 3,
+  /** PRESET_* commands, PRESET_CHANGED and params 17–19 (§4.5). */
+  Presets: 1 << 5,
   Feedback: 1 << 6,
   /** REBOOT(1) leads to a gemifi bootloader, on a board that may also have a vendor one (Code 61). */
   GemifiBoot: 1 << 7,
@@ -242,5 +251,28 @@ export const ParamFlag = {
   PerIndexDefault: 1 << 2,
   IndexLabels: 1 << 3,
   HasUnit: 1 << 4,
+  /** One value per preset: GET/SET address the active preset (§4.5). */
+  Preset: 1 << 5,
 } as const;
 export type ParamFlag = (typeof ParamFlag)[keyof typeof ParamFlag];
+
+/** PRESET_INFO `flags` bits (§4.5). */
+export const PresetFlag = {
+  /** The slot has stored edits: changed values, a name, or both. */
+  Stored: 1 << 0,
+  /** Unsaved edits; only ever on the active slot. */
+  Dirty: 1 << 1,
+  /** The slot is defined in the device YAML (0 = an empty slot). */
+  Yaml: 1 << 2,
+} as const;
+export type PresetFlag = (typeof PresetFlag)[keyof typeof PresetFlag];
+
+/** The preset params (§4.5): the active slot, its Program Change, its dirty flag. */
+export const PresetParam = { Active: 17, Program: 18, Dirty: 19 } as const;
+export type PresetParam = (typeof PresetParam)[keyof typeof PresetParam];
+
+/** Longest preset name, in characters (§2, string). */
+export const PRESET_NAME_MAX = 16;
+
+/** PRESET_RESET's slot that means every slot, and PRESET_INFO's that means the active one. */
+export const PRESET_ALL = 0;

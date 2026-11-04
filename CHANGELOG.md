@@ -2,6 +2,32 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.19.0](https://github.com/cubicecho/gemifi/compare/v0.18.0...v0.19.0) (2026-11-04)
+
+
+### Features
+
+* **web:** preset controls in the Config card ([1219227](https://github.com/cubicecho/gemifi/commit/1219227b16db70ff6d1cf22f2825b2506ebc4b05))
+
+# [0.18.0](https://github.com/cubicecho/gemifi/compare/v0.17.0...v0.18.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** din.c without string.h, for the NUC build ([ffce6e8](https://github.com/cubicecho/gemifi/commit/ffce6e8eec502b27cc3a3371cbe8cebbd94f14c5))
+
+
+### Features
+
+* 5-pin DIN MIDI In/Out with thru; Code 61 MIDI jacks ([6f09324](https://github.com/cubicecho/gemifi/commit/6f0932435d2196e633266b74a60ce1554ba70227))
+
+# [0.17.0](https://github.com/cubicecho/gemifi/compare/v0.16.0...v0.17.0) (2026-11-03)
+
+
+### Features
+
+* hold modes and mode button bindings; Code 61 presets on Up/Down, channel with Channel held ([887cb1c](https://github.com/cubicecho/gemifi/commit/887cb1c11c084da7ac3f758874525e0c5b1667fa))
+
 # [0.16.0](https://github.com/cubicecho/gemifi/compare/v0.15.0...v0.16.0) (2026-11-03)
 
 

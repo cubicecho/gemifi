@@ -1,6 +1,8 @@
 # M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
-# DRAFT. Runs under the gemifi bootloader (bootloader/stm32f1); the keys, panel
-# buttons and encoders below still need their first hardware test.
+# Runs under the gemifi bootloader (bootloader/stm32f1). Working on hardware
+# (2026-11-03): keys with velocity, panel buttons, encoders, faders, wheels,
+# aftertouch, pads, LEDs, the display, presets on Up / Down and settings
+# saving. Values still tagged [guess] below are untuned.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -17,13 +19,12 @@
 # TODO: hardware the core can't describe yet, so it is left out here:
 #   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
 #   - USB D+ pull-up switch on PA8 (high = connected): driven by the platform.
-#   - Settings storage: pages 0x0801EC00 / 0x0801F000 (platform side).
 #   - No boot_combo here: up + down at power-on is the bootloader's update
 #     mode (bootloader/stm32f1), checked before the app runs.
 gemifi: 2
 name: m-audio-code61
 friendly_name: Code 61
-description: "M-Audio Code 61 (STM32F103). DRAFT: keys, panel buttons, encoders, faders, pads and sustain"
+description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, pads, LEDs and display"
 project:
   version: 0.2.61
 board_id: 0x0002
@@ -419,8 +420,8 @@ pad_settings:
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
 # display shows the name. The STM32F1's 1 KB settings page holds 3 slots at
-# most. Rename them from the web editor; slots 2 and 3 start as copies of
-# slot 1.
+# most. Rename them on the web page's Config card or with
+# `gemifi.py preset rename`; slots 2 and 3 start as copies of slot 1.
 presets:
   slots: 3
   list:

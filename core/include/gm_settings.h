@@ -50,6 +50,7 @@ enum {
     P_DIN_THRU = 30,                 /* din_midi: (GM_DIN) */
     P_DIN_OUT = 31,
     P_DIN_USB = 32,                  /* din_midi.mode usb_merge only */
+    P_PRESET_COUNT = 33,             /* presets in use (GM_N_PRESETS > 1) */
 };
 
 #ifndef GM_N_PADS
@@ -112,6 +113,7 @@ typedef struct {
     int32_t preset_active;           /* 1..GM_N_PRESETS (global)       */
     int32_t preset_program;          /* -1 none, 0..127 (per preset)   */
     int32_t preset_dirty;            /* volatile: unsaved host edits   */
+    int32_t preset_count;            /* presets in use: slots 1..count */
 #if GM_DIN
     int32_t din_thru;                /* DIN In -> DIN Out              */
     int32_t din_out;                 /* the controller -> DIN Out      */

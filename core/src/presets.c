@@ -43,10 +43,19 @@ static int is_preset(const param_def_t *p)
     return (p->flags & PF_PRESET) != 0;
 }
 
-/* What COMMIT stores at all. */
+/* What COMMIT stores at all. preset.count is read-only to a host but the
+ * device's own state, so it is stored with the globals. */
 static int storable(const param_def_t *p)
 {
-    return !(p->flags & (PF_VOLATILE | PF_READ_ONLY));
+    return !(p->flags & PF_VOLATILE) && (!(p->flags & PF_READ_ONLY) || p->id == P_PRESET_COUNT);
+}
+
+/* Presets in use: slots 1..used(); the ones after are free (sysex.md §4.5).
+ * Deleting moves the later presets up, so the free ones are always last. */
+static uint32_t used(void)
+{
+    int32_t n = gm_cfg.preset_count;
+    return n < 1 ? 1u : n > (int32_t)GM_N_PRESETS ? GM_N_PRESETS : (uint32_t)n;
 }
 
 static const gm_preset_def_t *def_of(uint32_t slot)
@@ -167,8 +176,16 @@ void presets_boot(int safe)
         int want_preset = 0;
         config_store_read(CS_SLOT_GLOBAL, 0, apply_cb, &want_preset);
     }
+    /* A store written before preset.count (or by an older firmware) may
+     * hold presets past it: they stay in use. */
+    if (!no_store)
+        for (uint32_t s = GM_N_PRESETS; s > used(); s--)
+            if (config_store_read((uint8_t)s, 0, 0, 0)) {
+                gm_cfg.preset_count = (int32_t)s;
+                break;
+            }
     uint32_t slot = (uint32_t)gm_cfg.preset_active;
-    if (slot < 1u || slot > GM_N_PRESETS)
+    if (slot < 1u || slot > used())
         slot = 1;
     load_slot(slot);
     active_pending = 0;
@@ -204,8 +221,8 @@ static void do_select(uint32_t slot, int from_host)
 
 static int select_from(uint32_t slot, int from_host)
 {
-    if (slot < 1u || slot > GM_N_PRESETS)
-        return GSX_BAD_PARAM;
+    if (slot < 1u || slot > used())
+        return GSX_BAD_PARAM;               /* free slots are not presets yet */
     do_select(slot, from_host);             /* the active one: reload, drop edits */
     return GSX_OK;
 }
@@ -217,8 +234,13 @@ int presets_select(uint32_t slot)
 
 void presets_step(int dir)
 {
-    uint32_t n = GM_N_PRESETS;
+    uint32_t n = used();
     presets_select(dir > 0 ? cur % n + 1u : (cur + n - 2u) % n + 1u);
+}
+
+int presets_value_ok(uint16_t id, int32_t value)
+{
+    return id != P_PRESET_ACTIVE || (value >= 1 && (uint32_t)value <= used());
 }
 
 void presets_host_set(uint16_t id, uint16_t index)
@@ -289,10 +311,12 @@ static int stored_info(uint32_t slot, cs_slot_info_t *info)
     return has;
 }
 
-/* Write slot's record: the live per-preset values that differ from slot's
- * YAML values, keeping its stored name. An empty record with no name drops
- * the slot's stored record instead (or writes nothing if it has none). */
-static int write_preset(uint32_t slot)
+/* Write slot's record under `name` (NULL: none): the per-preset values that
+ * differ from slot's YAML values. The values are the live ones, or with
+ * yaml_of > 0 that slot's YAML values (a copy of a firmware preset). An
+ * empty record with no name drops the slot's stored record instead (or
+ * writes nothing if it has none). */
+static int write_values(uint32_t slot, const char *name, uint32_t yaml_of)
 {
     cs_entry_t e[MAX_ENTRIES];
     uint32_t n = 0;
@@ -300,18 +324,27 @@ static int write_preset(uint32_t slot)
         const param_def_t *p = &app_params.params[k];
         if (!is_preset(p) || !storable(p))
             continue;
-        for (uint32_t i = 0; i < p->count; i++)
-            if (p->values[i] != yaml_value(slot, p, i))
-                put(e, &n, p->id, i, p->values[i]);
+        for (uint32_t i = 0; i < p->count; i++) {
+            int32_t v = yaml_of ? yaml_value(yaml_of, p, i) : p->values[i];
+            if (v != yaml_value(slot, p, i))
+                put(e, &n, p->id, i, v);
+        }
     }
-    cs_slot_info_t info;
-    int has = stored_info(slot, &info);
-    if (!n && !info.name[0])
-        return has ? config_store_erase_slot((uint8_t)slot) : GSX_OK;
-    const char *name = info.name[0] ? info.name : 0;
+    if (name && !name[0])
+        name = 0;
+    if (!n && !name)
+        return config_store_read((uint8_t)slot, 0, 0, 0) ? config_store_erase_slot((uint8_t)slot) : GSX_OK;
     if (stored_same(slot, GM_PRESETS_REVISION, name, e, n))
         return GSX_OK;
     return config_store_write((uint8_t)slot, GM_PRESETS_REVISION, name, e, n);
+}
+
+/* Write slot's record from the live values, keeping its stored name. */
+static int write_preset(uint32_t slot)
+{
+    cs_slot_info_t info;
+    stored_info(slot, &info);
+    return write_values(slot, info.name, 0);
 }
 
 /* Write slot 0: the global values that differ from their defaults (a boot
@@ -335,46 +368,59 @@ static int write_globals(void)
     return st;
 }
 
-/* Just preset.active into slot 0, keeping the other stored globals (not
- * the live ones: those are only stored by COMMIT). */
-static void write_active(void)
+/* Set (id, value) in a record being built: an entry equal to the param's
+ * default is left out, as write_globals() does. */
+static void set_entry(cs_entry_t *e, uint32_t *n, uint16_t id, int32_t value)
+{
+    const param_def_t *p = params_find(id);
+    uint32_t k;
+    for (k = 0; k < *n; k++)
+        if (e[k].id == id)
+            break;
+    int is_default = !p || value == params_default_at(p, 0);
+    if (k < *n) {
+        if (is_default)
+            e[k] = e[--*n];
+        else
+            e[k].value = value;
+    } else if (!is_default) {
+        put(e, n, id, 0, value);
+    }
+}
+
+/* preset.active and preset.count into slot 0, keeping the other stored
+ * globals (not the live ones: those are only stored by COMMIT). A record
+ * that would not change is not written (flash wear). */
+static int write_state(void)
 {
     cs_entry_t e[MAX_ENTRIES];
     collect_t c = { e, 0, 0 };
     cs_slot_info_t info;
     int has = config_store_read(CS_SLOT_GLOBAL, &info, collect_cb, &c);
-    uint32_t k;
-    for (k = 0; k < c.n; k++)
-        if (e[k].id == P_PRESET_ACTIVE)
-            break;
+    uint16_t revision = has ? info.revision : GM_PRESETS_REVISION;
+    set_entry(e, &c.n, P_PRESET_ACTIVE, (int32_t)cur);
+#if GM_N_PRESETS > 1
+    set_entry(e, &c.n, P_PRESET_COUNT, (int32_t)used());
+#endif
     active_pending = 0;
-    if (k < c.n) {
-        if (e[k].value == (int32_t)cur)
-            return;
-        if (cur == 1u)
-            e[k] = e[--c.n];                /* the default: not stored */
-        else
-            e[k].value = (int32_t)cur;
-    } else {
-        if (cur == 1u)
-            return;                         /* the default: nothing to store */
-        put(e, &c.n, P_PRESET_ACTIVE, 0, (int32_t)cur);
-    }
-    if (config_store_write(CS_SLOT_GLOBAL, has ? info.revision : GM_PRESETS_REVISION,
-                           0, e, c.n) != GSX_OK)
-        app_log(LOG_ERROR, "preset.active", " not stored");
+    if (stored_same(CS_SLOT_GLOBAL, revision, 0, e, c.n))
+        return GSX_OK;
+    int st = config_store_write(CS_SLOT_GLOBAL, revision, 0, e, c.n);
+    if (st != GSX_OK)
+        app_log(LOG_ERROR, "presets", " state not stored");
+    return st;
 }
 
 void presets_poll(uint32_t now)
 {
     if (active_pending && now - active_t >= ACTIVE_STABLE_MS)
-        write_active();
+        (void)write_state();
 }
 
 void presets_flush(void)
 {
     if (active_pending)
-        write_active();
+        (void)write_state();
 }
 
 int presets_save(uint32_t slot)
@@ -387,6 +433,8 @@ int presets_save(uint32_t slot)
     int changed = slot != cur;
     cur = (uint8_t)slot;
     gm_cfg.preset_active = (int32_t)slot;
+    if (slot > used())
+        gm_cfg.preset_count = (int32_t)slot;    /* a free slot: now in use */
     st = write_globals();
     if (st != GSX_OK)
         return st;
@@ -411,6 +459,15 @@ int presets_reset(uint32_t slot)
     for (uint32_t s = a; s <= b && st == GSX_OK; s++)
         if (config_store_read((uint8_t)s, 0, 0, 0))
             st = config_store_erase_slot((uint8_t)s);
+    if (slot == 0) {
+        /* The firmware's presets: the YAML's list is what is in use. */
+        const param_def_t *p = params_find(P_PRESET_COUNT);
+        gm_cfg.preset_count = p ? params_default_at(p, 0) : 1;
+        if (cur > used())
+            cur = 1;
+        if (st == GSX_OK)
+            st = write_state();
+    }
     if (slot == 0 || slot == cur)
         do_select(cur, 1);                  /* reload the active one */
     return st;
@@ -429,6 +486,15 @@ int presets_rename(uint32_t slot, const char *name, uint32_t len)
         nm[i] = name[i];
     }
     nm[len] = 0;
+    if (slot > used()) {
+        /* Naming a free slot makes it a new preset: a copy of preset 1's
+         * firmware values, under that name. */
+        int st = write_values(slot, nm, 1);
+        if (st != GSX_OK)
+            return st;
+        gm_cfg.preset_count = (int32_t)slot;
+        return write_state();
+    }
     cs_entry_t e[MAX_ENTRIES];
     collect_t c = { e, 0, 1 };
     cs_slot_info_t info;
@@ -443,6 +509,121 @@ int presets_rename(uint32_t slot, const char *name, uint32_t len)
     if (st == GSX_OK && slot == cur && presets_info(slot, &now) == GSX_OK)
         gm_display_message(now.name);       /* the active preset's new name, at once */
     return st;
+}
+
+/* The name slot `from` shows, to store when it moves to slot `to` (NULL when
+ * `to` would show it anyway): its stored name, else its YAML name. An empty
+ * slot's "Preset N" is not carried along: it becomes `to`'s own. */
+static const char *moved_name(uint32_t from, uint32_t to, cs_slot_info_t *info)
+{
+    const char *n = stored_info(from, info) && info->name[0] ? info->name :
+                    yaml_defined(from) ? def_of(from)->name : 0;
+    const char *own = def_of(to)->name;
+    uint32_t i = 0;
+    while (n && own && n[i] && n[i] == own[i])
+        i++;
+    return n && own && n[i] == own[i] ? 0 : n;
+}
+
+int presets_delete(uint32_t slot)
+{
+    uint32_t n = used();
+    if (slot < 1u || slot > n)
+        return GSX_BAD_PARAM;
+    if (n == 1u)
+        return GSX_BAD_STATE;               /* the last preset stays */
+    uint32_t was = cur;
+    gm_release_all();
+    /* Each later preset moves up one slot: loaded, then stored as the next
+     * slot's record (values that differ from that slot's YAML values). */
+    int st = GSX_OK;
+    for (uint32_t s = slot; s < n && st == GSX_OK; s++) {
+        cs_slot_info_t info;
+        const char *name = moved_name(s + 1u, s, &info);
+        load_slot(s + 1u);
+        st = write_values(s, name, 0);
+    }
+    if (st == GSX_OK && config_store_read((uint8_t)n, 0, 0, 0))
+        st = config_store_erase_slot((uint8_t)n);
+    if (st != GSX_OK) {
+        load_slot(was);                     /* as it was; the store may be half moved */
+        return st;
+    }
+    gm_cfg.preset_count = (int32_t)(n - 1u);
+    /* The active preset keeps playing, one slot up if it moved; the deleted
+     * one hands over to the preset now in its slot (or the one before). */
+    uint32_t next = was == slot ? (slot <= n - 1u ? slot : n - 1u) : was > slot ? was - 1u : was;
+    do_select(next, 1);
+    return write_state();
+}
+
+/* Move one preset to slot `to`: the ones between shift one slot towards
+ * `from`. The moving preset is held as its values that differ from the param
+ * defaults (and its name) while the others are moved, each by loading it and
+ * storing it as its new slot's record. */
+int presets_move(uint32_t from, uint32_t to)
+{
+    uint32_t n = used();
+    if (from < 1u || from > n || to < 1u || to > n)
+        return GSX_BAD_PARAM;
+    if (from == to)
+        return GSX_OK;
+    uint32_t was = cur;
+    gm_release_all();
+    cs_entry_t held[MAX_ENTRIES];
+    uint32_t n_held = 0;
+    char name[PRESET_NAME_MAX + 1];
+    cs_slot_info_t info;
+    const char *nm = moved_name(from, to, &info);
+    uint32_t i = 0;
+    for (; nm && nm[i] && i < PRESET_NAME_MAX; i++)
+        name[i] = nm[i];
+    name[i] = 0;
+    load_slot(from);
+    for (uint32_t k = 0; k < app_params.param_count; k++) {
+        const param_def_t *p = &app_params.params[k];
+        if (is_preset(p) && storable(p))
+            for (uint32_t j = 0; j < p->count; j++)
+                if (p->values[j] != params_default_at(p, j))
+                    put(held, &n_held, p->id, j, p->values[j]);
+    }
+    int st = GSX_OK;
+    int step = from < to ? 1 : -1;
+    for (uint32_t s = from; s != to && st == GSX_OK; s += (uint32_t)step) {
+        uint32_t src = s + (uint32_t)step;
+        const char *mn = moved_name(src, s, &info);
+        load_slot(src);
+        st = write_values(s, mn, 0);
+    }
+    if (st == GSX_OK) {
+        /* The held preset into `to`: defaults, then its values. */
+        for (uint32_t k = 0; k < app_params.param_count; k++) {
+            const param_def_t *p = &app_params.params[k];
+            if (is_preset(p))
+                for (uint32_t j = 0; j < p->count; j++)
+                    p->values[j] = params_default_at(p, j);
+        }
+        for (uint32_t k = 0; k < n_held; k++)
+            params_set(held[k].id, held[k].index, held[k].value, 0);
+        st = write_values(to, name[0] ? name : 0, 0);
+    }
+    /* The active preset keeps playing, wherever it is now. */
+    uint32_t next = was;
+    if (was == from)
+        next = to;
+    else if (from < to && was > from && was <= to)
+        next = was - 1u;
+    else if (from > to && was >= to && was < from)
+        next = was + 1u;
+    if (st != GSX_OK) {
+        load_slot(was);                     /* the store may be half moved */
+        return st;
+    }
+    load_slot(next);
+    preset_changed();
+    if (next != was)
+        app_param_changed(P_PRESET_ACTIVE, 0);
+    return write_state();
 }
 
 typedef struct {
@@ -470,6 +651,7 @@ int presets_info(uint32_t slot, preset_info_t *out)
     out->slot = (uint16_t)slot;
     out->flags = (uint8_t)((has ? PRESET_INFO_STORED : 0) |
                            (yaml_defined(slot) ? PRESET_INFO_YAML : 0) |
+                           (slot <= used() ? PRESET_INFO_IN_USE : 0) |
                            (slot == cur && gm_cfg.preset_dirty ? PRESET_INFO_DIRTY : 0));
     out->stored_revision = has ? info.revision : 0;
     out->program = slot == cur ? gm_cfg.preset_program : pr.program;

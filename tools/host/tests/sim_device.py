@@ -8,7 +8,10 @@ With `presets` (a list of {"name", "vals": {(id, index): value}, "program"}; slo
 empty) it also simulates presets (sysex.md 4.5, research/core/presets-design.md §10.3/§10.4): params with the
 PRESET flag live per slot, preset.active (17) switches, preset.dirty (19) follows host SET_PARAMs, COMMIT and
 PRESET_SAVE store the per-slot diff against the slot's YAML values, PRESET_RESET / PRESET_NAME, PRESET_CHANGED
-in `outbox`. `next_revision` is the presets revision the A/B image booted by REBOOT(0) reports (a firmware
+in `outbox`. A schema with preset.count (33) is a firmware with PRESET_DELETE (sysex.md 4.5 "Presets in use"):
+slots past the count are free (PRESET_INFO bit 3 clear, not selectable), PRESET_NAME / PRESET_SAVE on a free
+slot put it in use, PRESET_DELETE moves the later presets up; without it, an older firmware (every slot in use,
+PRESET_DELETE answered BAD_CMD). `next_revision` is the presets revision the A/B image booted by REBOOT(0) reports (a firmware
 update that changes the YAML presets); stored edits survive it.
 With `components` (a list of gemifi_proto.Component, or True for FEEDBACK_COMPONENTS) it is an app with host
 feedback (sysex.md 4.6): HELLO caps bit 6, GET_COMPONENT per kind (BAD_PARAM past the end, `count` filled in),
@@ -145,8 +148,10 @@ class SimDevice:
             if self.role != gp.ROLE_APP or not self.schema:
                 return bytes([gp.BAD_CMD])
             return self.config(f.cmd, p)
-        if f.cmd in (gp.PRESET_INFO, gp.PRESET_SAVE, gp.PRESET_RESET, gp.PRESET_NAME):
-            if self.role != gp.ROLE_APP or self.presets is None:
+        if f.cmd in (gp.PRESET_INFO, gp.PRESET_SAVE, gp.PRESET_RESET, gp.PRESET_NAME, gp.PRESET_DELETE,
+                     gp.PRESET_MOVE):
+            if self.role != gp.ROLE_APP or self.presets is None or (
+                    f.cmd in (gp.PRESET_DELETE, gp.PRESET_MOVE) and not self.has_count):
                 return bytes([gp.BAD_CMD])
             return self.preset_cmd(f.cmd, p)
         if f.cmd == gp.GET_COMPONENT:
@@ -297,7 +302,7 @@ class SimDevice:
                 return bytes([gp.BAD_PARAM])
             if cmd == gp.SET_PARAM:
                 v = gp.dec_s32(p[4:9])
-                if not q.min <= v <= q.max:
+                if not q.min <= v <= q.max or not self.value_ok(q.id, v):
                     return bytes([gp.BAD_VALUE])
                 self.host_set(q, idx, [v])
             return gp.build_param_reply(pid, idx, self.values[(pid, idx)])
@@ -315,7 +320,7 @@ class SimDevice:
             if cmd == gp.GET_PARAMS:
                 return gp.build_params_reply(pid, idx, [self.values[(pid, idx + k)] for k in range(n)])
             vals = [gp.dec_s32(p[6 + 5 * k:11 + 5 * k]) for k in range(n)]
-            if not all(q.min <= v <= q.max for v in vals):
+            if not all(q.min <= v <= q.max and self.value_ok(q.id, v) for v in vals):
                 return bytes([gp.BAD_VALUE])     # all or none
             self.host_set(q, idx, vals)
             return gp.build_set_params_reply(pid, idx, n)
@@ -329,11 +334,16 @@ class SimDevice:
         if cmd == gp.FACTORY_RESET:
             self.values, self.stored = self.defaults(), None
             if self.presets is not None:
+                self.values = self.fresh_values()
                 self.records = {}
                 self.active = 1
                 self.load(1)
             return bytes([gp.OK])
         return bytes([gp.BAD_CMD])
+
+    def value_ok(self, pid, v):
+        """presets.c presets_value_ok(): preset.active only on a preset in use."""
+        return self.presets is None or pid != gp.P_PRESET_ACTIVE or v <= self.used()
 
     def host_set(self, q, idx, vals):
         """Values from SET_PARAM / SET_PARAMS (already checked)."""
@@ -363,6 +373,8 @@ class SimDevice:
             vals.setdefault((gp.P_PRESET_PROGRAM, 0), d.get("program", -1))
             self.yaml_vals[n] = vals
         self.presets = presets
+        self.n_yaml = max(1, min(len(presets), self.n_slots))
+        self.has_count = self.schema.by_id(gp.P_PRESET_COUNT) is not None
         self.revision = revision
         self.records = {}         # slot -> {"vals": {(id, index): value}, "name": str or None, "rev": int}
         self.stored = None        # the globals record (slot 0)
@@ -382,14 +394,41 @@ class SimDevice:
         rec = self.records.get(slot, {}).get("vals", {})
         return {k: rec.get(k, self.yaml_value(slot, k)) for k in self.preset_keys()}
 
+    def fresh_values(self):
+        """The param defaults; preset.count's is the YAML's list (presets.c GM_PRESETS_IN_USE)."""
+        v = self.defaults()
+        if self.has_count:
+            v[(gp.P_PRESET_COUNT, 0)] = self.n_yaml
+        return v
+
+    def used(self):
+        """Presets in use: slots 1..used() (every slot on an older firmware)."""
+        if not self.has_count:
+            return self.n_slots
+        return max(1, min(self.n_slots, self.values[(gp.P_PRESET_COUNT, 0)]))
+
+    def set_used(self, n):
+        self.values[(gp.P_PRESET_COUNT, 0)] = n
+
+    def write_state(self):
+        """presets.c write_state(): preset.active and preset.count into the stored globals, keeping the
+        other stored globals as they are (not the live ones)."""
+        self.stored = dict(self.stored or {})
+        self.stored[(gp.P_PRESET_ACTIVE, 0)] = self.active
+        if self.has_count:
+            self.stored[(gp.P_PRESET_COUNT, 0)] = self.used()
+
     def boot(self):
-        """Power-up: defaults, the globals record (with preset.active), then the active slot."""
-        self.values = self.defaults()
+        """Power-up: defaults, the globals record (with preset.active and preset.count), then the active
+        slot. Stored presets past the count stay in use (a store from before preset.count)."""
+        self.values = self.fresh_values()
         for k, v in (self.stored or {}).items():
             if k in self.values:
                 self.values[k] = v
+        if self.has_count and self.records:
+            self.set_used(max(self.used(), max(self.records)))
         a = self.values[(gp.P_PRESET_ACTIVE, 0)]
-        self.active = a if 1 <= a <= self.n_slots else 1
+        self.active = a if 1 <= a <= self.used() else 1
         self.load(self.active)
 
     def load(self, slot):
@@ -440,13 +479,18 @@ class SimDevice:
     def info(self, slot):
         rec = self.records.get(slot)
         flags = ((gp.PI_STORED if rec else 0) | (gp.PI_DIRTY if slot == self.active and self.dirty else 0) |
-                 (gp.PI_YAML if slot in self.yaml_defined else 0))
+                 (gp.PI_YAML if slot in self.yaml_defined else 0) |
+                 (gp.PI_IN_USE if self.has_count and slot <= self.used() else 0))
         prog_key = (gp.P_PRESET_PROGRAM, 0)
         program = self.values[prog_key] if slot == self.active else self.slot_values(slot)[prog_key]
         return gp.PresetInfo(slot, self.n_slots, self.active, flags, self.revision, rec["rev"] if rec else 0,
                              program, (rec or {}).get("name") or self.yaml_names[slot])
 
     def preset_cmd(self, cmd, p):
+        if cmd == gp.PRESET_MOVE:
+            if len(p) != 4:
+                return bytes([gp.BAD_LEN])
+            return bytes([self.move(gp.dec_u14(p[0:2]), gp.dec_u14(p[2:4]))])
         if cmd == gp.PRESET_NAME:
             if len(p) < 3 or len(p) != 3 + p[2]:
                 return bytes([gp.BAD_LEN])
@@ -460,11 +504,20 @@ class SimDevice:
         if cmd == gp.PRESET_INFO:
             return gp.build_preset_info_reply(self.info(slot or self.active))
         if cmd == gp.PRESET_SAVE:
+            if slot > self.used():
+                self.set_used(slot)              # a free slot: now in use
             self.store_slot(slot)
             return bytes([gp.OK])
+        if cmd == gp.PRESET_DELETE:
+            return bytes([self.delete(slot)])
         if cmd == gp.PRESET_RESET:
             for n in (range(1, self.n_slots + 1) if slot == 0 else (slot,)):
                 self.records.pop(n, None)
+            if slot == 0 and self.has_count:
+                self.set_used(self.n_yaml)       # the firmware's presets: the YAML's list in use
+                if self.active > self.used():
+                    self.active = 1
+                self.write_state()
             if slot in (0, self.active):
                 was = self.dirty
                 self.load(self.active)          # back to the YAML values; unsaved edits go too
@@ -475,9 +528,75 @@ class SimDevice:
             gp.check_preset_name(name)
         except ValueError:
             return bytes([gp.BAD_VALUE])
+        if slot > self.used():
+            # naming a free slot makes it a preset: a copy of preset 1's firmware values, under that name
+            diff = {k: self.yaml_value(1, k) for k in self.preset_keys() if self.yaml_value(1, k) != self.yaml_value(slot, k)}
+            self.put_record(slot, diff, name or None)
+            self.set_used(slot)
+            self.write_state()
+            return bytes([gp.OK])
         rec = self.records.get(slot, {})
         self.put_record(slot, rec.get("vals", {}), name or None)
         return bytes([gp.OK])
+
+    def moved_name(self, src, dst):
+        """presets.c moved_name(): the name `src` shows (stored, else its YAML one; an empty slot's
+        "Preset N" is not carried), or None when `dst` would show it anyway."""
+        rec = self.records.get(src, {})
+        n = rec.get("name") or (self.yaml_names[src] if src in self.yaml_defined else None)
+        return None if n == self.yaml_names[dst] else n
+
+    def delete(self, slot):
+        """PRESET_DELETE (presets.c presets_delete()): later presets move up, the last one is freed."""
+        n = self.used()
+        if not 1 <= slot <= n:
+            return gp.BAD_PARAM
+        if n == 1:
+            return gp.BAD_STATE
+        was = self.active
+        for s in range(slot, n):
+            name = self.moved_name(s + 1, s)
+            vals = self.slot_values(s + 1)
+            self.put_record(s, {k: v for k, v in vals.items() if v != self.yaml_value(s, k)}, name)
+        self.records.pop(n, None)
+        self.set_used(n - 1)
+        nxt = (slot if slot <= n - 1 else n - 1) if was == slot else was - 1 if was > slot else was
+        self.select(nxt)
+        self.write_state()
+        return gp.OK
+
+    def move(self, src, dst):
+        """PRESET_MOVE (presets.c presets_move()): the preset in src goes to dst, the ones between shift one
+        slot towards src; the active preset follows, its unsaved edits dropped."""
+        n = self.used()
+        if not (1 <= src <= n and 1 <= dst <= n):
+            return gp.BAD_PARAM
+        if src == dst:
+            return gp.OK
+        was = self.active
+        held_name = self.moved_name(src, dst)
+        held = self.slot_values(src)
+        step = 1 if src < dst else -1
+        for s in range(src, dst, step):
+            name = self.moved_name(s + step, s)
+            vals = self.slot_values(s + step)
+            self.put_record(s, {k: v for k, v in vals.items() if v != self.yaml_value(s, k)}, name)
+        self.put_record(dst, {k: v for k, v in held.items() if v != self.yaml_value(dst, k)}, held_name)
+        if was == src:
+            nxt = dst
+        elif src < dst and src < was <= dst:
+            nxt = was - 1
+        elif src > dst and dst <= was < src:
+            nxt = was + 1
+        else:
+            nxt = was
+        self.select(nxt)
+        if nxt != was:
+            self.useq = (self.useq + 1) & 0x7F
+            self.outbox.append(gp.build_frame(gp.PARAM_CHANGED, self.useq,
+                                              gp._param_value_bytes(gp.P_PRESET_ACTIVE, 0, nxt)))
+        self.write_state()
+        return gp.OK
 
     def erase(self, off):
         self.flash[off:off + PAGE] = b"\xff" * PAGE

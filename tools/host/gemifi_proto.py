@@ -35,6 +35,8 @@ PRESET_INFO = 0x0B
 PRESET_SAVE = 0x0C
 PRESET_RESET = 0x0D
 PRESET_NAME = 0x0E
+PRESET_DELETE = 0x12
+PRESET_MOVE = 0x13
 # Host feedback (app only, sysex.md 4.6)
 GET_COMPONENT = 0x11
 NOTIFY_FIRST, NOTIFY_LAST = 0x20, 0x3F
@@ -60,6 +62,7 @@ CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "F
              SET_PARAMS: "SET_PARAMS", COMMIT: "COMMIT", FACTORY_RESET: "FACTORY_RESET", LOG: "LOG",
              EVENT: "EVENT", PARAM_CHANGED: "PARAM_CHANGED", PRESET_INFO: "PRESET_INFO",
              PRESET_SAVE: "PRESET_SAVE", PRESET_RESET: "PRESET_RESET", PRESET_NAME: "PRESET_NAME",
+             PRESET_DELETE: "PRESET_DELETE", PRESET_MOVE: "PRESET_MOVE",
              PRESET_CHANGED: "PRESET_CHANGED", BOOTED: "BOOTED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
              FB_LED_RGB: "FB_LED_RGB", FB_LEDS: "FB_LEDS", FB_VALUE: "FB_VALUE", FB_RING: "FB_RING",
              FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE"}
@@ -82,7 +85,8 @@ APROM_SIZE = 32 * 1024
 PAGE_SIZE = 512
 REPLY_TIMEOUT_S = 0.200
 LONG_REPLY_TIMEOUT_S = 2.000   # sysex.md 1: FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE/RESET/NAME
-LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME)
+LONG_TIMEOUT_CMDS = (FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME,
+                     PRESET_DELETE, PRESET_MOVE)
 MAX_RESENDS = 5                # sysex.md 1: up to 5 resends of the same seq, so 6 sends in all
 MAX_TRIES = MAX_RESENDS + 1
 
@@ -241,6 +245,7 @@ class Frame:
 REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_ABORT: 1,
                 GET_SCHEMA: None, GET_PARAM: 10, SET_PARAM: 10, GET_PARAMS: None, SET_PARAMS: 7,
                 COMMIT: 1, FACTORY_RESET: 1, PRESET_INFO: None, PRESET_SAVE: 1, PRESET_RESET: 1, PRESET_NAME: 1,
+                PRESET_DELETE: 1, PRESET_MOVE: 1,
                 GET_COMPONENT: None}
 
 
@@ -546,8 +551,9 @@ def build_schema_reply(schema_bytes, offset, max_bytes):
 # ---- presets (sysex.md 4.5) ----
 
 P_PRESET_ACTIVE, P_PRESET_PROGRAM, P_PRESET_DIRTY = 17, 18, 19   # fixed param ids
+P_PRESET_COUNT = 33                         # presets in use (read-only global; firmware with PRESET_DELETE)
 PRESET_NAME_MAX = 16
-PI_STORED, PI_DIRTY, PI_YAML = 1, 2, 4      # PRESET_INFO flags
+PI_STORED, PI_DIRTY, PI_YAML, PI_IN_USE = 1, 2, 4, 8      # PRESET_INFO flags
 PRESET_ALL = 0                              # PRESET_RESET slot 0 = every slot; PRESET_INFO slot 0 = the active one
 
 
@@ -599,6 +605,27 @@ def req_preset_name(slot, name):
     return u14(slot) + enc_preset_name(name)
 
 
+def req_preset_delete(slot):
+    return u14(slot)
+
+
+def req_preset_move(from_slot, to_slot):
+    """PRESET_MOVE: the preset in from_slot goes to to_slot; the ones between shift one slot towards from_slot."""
+    return u14(from_slot) + u14(to_slot)
+
+
+def tracks_in_use(infos):
+    """Whether the device reports which slots are in use (PRESET_INFO flags bit 3, firmware with
+    PRESET_DELETE). An older one never sets the bit: every slot is a preset there."""
+    return any(i.flags & PI_IN_USE for i in infos)
+
+
+def presets_in_use(infos):
+    """The slots that are presets: those with bit 3, or every slot on a firmware that doesn't set it
+    (sysex.md 4.5 "Presets in use")."""
+    return [i for i in infos if i.in_use] if tracks_in_use(infos) else list(infos)
+
+
 def dec_preset_name_req(payload):
     """Device side: PRESET_NAME request -> (slot, name). Raises ProtocolError on a bad layout."""
     if len(payload) < 3:
@@ -631,6 +658,12 @@ class PresetInfo:
     @property
     def yaml(self):
         return bool(self.flags & PI_YAML)
+
+    @property
+    def in_use(self):
+        """Bit 3: one of the presets in use (0 = a free slot, or a firmware that doesn't say; see
+        presets_in_use())."""
+        return bool(self.flags & PI_IN_USE)
 
     @property
     def is_active(self):

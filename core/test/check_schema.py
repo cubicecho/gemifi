@@ -10,7 +10,7 @@ names = [p.name for p in s.params]
 expect = ["midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "velocity.fixed",
           "velocity.fast", "velocity.slow", "button.action", "button.number", "bend.glide",
           "ramp.time", "analog.cc", "analog.mode", "debug.events", "debug.log_level",
-          "preset.active", "preset.program", "preset.dirty"]
+          "preset.active", "preset.program", "preset.dirty", "preset.count"]
 assert names == expect, names
 # schema flags bit 5 = PRESET (per-preset param, research/core/presets-design.md §1)
 F_PRESET = 0x20

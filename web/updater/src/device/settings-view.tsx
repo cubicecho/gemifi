@@ -296,8 +296,8 @@ function GroupCard({
   return <CardLayout title={section.title} contentClassName="gap-4" contentSlot={blocks} />;
 }
 
-/** The preset params the Presets card stands for: the active slot and its dirty flag (§4.5). */
-const PRESETS_CARD_PARAMS: ReadonlySet<number> = new Set([PresetParam.Active, PresetParam.Dirty]);
+/** The preset params the Presets card stands for: the active slot, its dirty flag and the count in use (§4.5). */
+const PRESETS_CARD_PARAMS: ReadonlySet<number> = new Set([PresetParam.Active, PresetParam.Dirty, PresetParam.Count]);
 
 /**
  * @param item - A section's param or table.

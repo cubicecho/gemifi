@@ -28,7 +28,7 @@ Every byte between `F0` and `F7` is 7-bit.
 **Retries:**
 - On a timeout, BAD_CHECKSUM or BUSY, the host resends the same request with the **same** `seq`, up to 5 resends (6 sends in total).
 - The device only counts a request as *completed* (and so a same-`seq` repeat as a duplicate) after it has replied OK or a final error. A BUSY or BAD_CHECKSUM reply doesn't complete it.
-- **Timeouts:** 200 ms for most requests, **2000 ms for FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET and PRESET_NAME** (page erases, read-back and CRC). A device that needs longer may reply BUSY, and the host resends.
+- **Timeouts:** 200 ms for most requests, **2000 ms for FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME, PRESET_DELETE and PRESET_MOVE** (page erases, read-back and CRC). A device that needs longer may reply BUSY, and the host resends.
 - **REBOOT:** the reply may be lost as the device resets. Hosts treat a REBOOT timeout as success and then wait for the port to reappear.
 
 The flow itself is stop-and-wait. The host sends one request and waits for its reply (`cmd|0x40`, same `seq`). If there's no reply within 200 ms, it resends the same request with the same `seq`. A device that receives a repeated `seq` for the command it just completed replies again without redoing the work. That matters for `FW_DATA`, where the device must not program the same chunk twice.
@@ -90,7 +90,9 @@ Specific cases:
 | 0x0B | PRESET_INFO | presets | – | `slot` u14 (0 = the active one) | `slot` u14, `count` u14, `active` u14, `flags` (1 byte), `revision` u14, `stored_revision` u14, `program` s32, `name` string (§4.5) |
 | 0x0C | PRESET_SAVE | presets | – | `slot` u14 (1..count) | – (OK, or FLASH_ERR): store the live values into `slot` and make it active (§4.5) |
 | 0x0D | PRESET_RESET | presets | – | `slot` u14 (0 = every slot) | – (OK, or FLASH_ERR): drop the slot's stored edits and name |
-| 0x0E | PRESET_NAME | presets | – | `slot` u14 (1..count), `name` string | – (OK, or FLASH_ERR): store a new name (empty = back to the firmware's name) |
+| 0x0E | PRESET_NAME | presets | – | `slot` u14 (1..count), `name` string | – (OK, or FLASH_ERR): store a new name (empty = back to the firmware's name); a free slot becomes a new preset |
+| 0x12 | PRESET_DELETE | presets | – | `slot` u14 (1..in use) | – (OK, BAD_STATE for the last preset, or FLASH_ERR): delete a preset; the later ones move up (§4.5) |
+| 0x13 | PRESET_MOVE | presets | – | `from` u14, `to` u14 (both 1..in use) | – (OK, or FLASH_ERR): move a preset to another slot; the ones between shift by one (§4.5) |
 | 0x11 | GET_COMPONENT | feedback | – | `kind` (1 byte), `index` u14 | the component's description (§4.6.1) |
 | 0x05, 0x06, 0x0F | GET_BLOB, SET_BLOB, LOG_LEVEL | reserved | – | see `research/core/bootloader-design.md` §6 | |
 
@@ -200,6 +202,19 @@ A **preset** is a named set of values for what the controls do: which CC or note
 - Preset 1 holds the components' own defaults.
 - The other presets in the YAML list only how they differ from preset 1. The remaining slots are empty: copies of preset 1, named "Preset N".
 
+**Presets in use.**
+- Slots 1..`preset.count` are the presets in use; the slots after them are **free**. A fresh device has the YAML's list in use (at least 1).
+- Only the presets in use can be selected: `preset_next` / `preset_prev` step through them (wrapping), `preset_select` on a free slot does nothing, and SET `preset.active` to a free slot → BAD_VALUE.
+- A free slot becomes a preset when it is named (PRESET_NAME: a copy of preset 1's firmware values, under that name) or saved into (PRESET_SAVE: the live values). Doing that past the first free slot puts the slots between in use too, as they are.
+- **PRESET_DELETE** `slot` removes a preset: each later preset moves up one slot (its values and its name), and the last slot in use is freed (its stored record erased). The presets in use stay 1..`preset.count`, with no gaps. Then:
+  - the active preset keeps playing, one slot lower if it moved; if it was the one deleted, the preset now in its slot (or the one before, if it was the last) is selected;
+  - unsaved edits of the active preset are dropped (the moves load each preset);
+  - PRESET_CHANGED is sent, and `preset.count` and `preset.active` are stored.
+  The last preset can't be deleted (BAD_STATE). A free slot or 0 → BAD_PARAM.
+- **PRESET_MOVE** `from` `to` moves the preset in `from` to slot `to` (values and name); the presets between shift one slot towards `from`, so the order changes and nothing else does. The active preset keeps playing wherever it ends up (`preset.active` follows it, with PARAM_CHANGED if its slot changed), its unsaved edits are dropped, PRESET_CHANGED is sent and `preset.active` is stored. `from` = `to` does nothing. A slot that isn't in use → BAD_PARAM; a payload other than 4 bytes → BAD_LEN.
+- PRESET_RESET 0 (every slot) also puts the YAML's list back in use.
+- A store written before `preset.count` existed keeps every slot with stored edits in use: at power-up the count is raised to the highest stored slot.
+
 **Scope.** Every param is either *per preset* (schema flag PRESET, §4.4) or *global*. The firmware fixes which. The rule: the mapping is per preset (CC and note numbers, channel, velocity curve, encoder mode, glide and ramp times, Program Change). The hardware calibration (velocity `fast`/`slow`) and the device settings (`debug.*`) are global.
 
 **The active preset.**
@@ -213,6 +228,7 @@ A **preset** is a named set of values for what the controls do: which CC or note
 | 17 | `preset.active` | global | int 1..`count` | The active preset. A set switches preset (below). Always present on a device with presets. |
 | 18 | `preset.program` | per preset | int −1..127 | Program Change sent when the preset is selected; −1 = none. |
 | 19 | `preset.dirty` | VOLATILE, READ_ONLY | bool | 1 while the active preset has unsaved edits. |
+| 33 | `preset.count` | global, READ_ONLY | int 1..`count` | The presets in use (above). Changed by PRESET_SAVE, PRESET_NAME, PRESET_DELETE and PRESET_RESET 0, and stored with the globals by the device itself. |
 
 They are in the group "Presets". When `count` is 1, only `preset.active` is there.
 
@@ -225,7 +241,7 @@ They are in the group "Presets". When `count` is 1, only `preset.active` is ther
 
 Rules:
 - Setting the slot that is already active reloads it, and drops its unsaved edits.
-- A slot outside 1..`count` → BAD_VALUE, like any value out of range.
+- A slot outside 1..`count`, or a free one → BAD_VALUE.
 - The device doesn't send PARAM_CHANGED for each value that changed. A host that shows values reads them again after a PRESET_CHANGED with a new slot.
 - A switch made on the device itself (a preset button) also sends PARAM_CHANGED for `preset.active`, like any change the device makes.
 
@@ -254,7 +270,7 @@ Rules:
 | `slot` u14 | The slot this is about (the active one when the request said 0). |
 | `count` u14 | Number of slots. |
 | `active` u14 | The active slot. |
-| `flags` | bit 0: the slot has stored edits (changed values, a name, or both). bit 1: dirty (only ever set on the active slot). bit 2: the slot is defined in the YAML (0 = an empty slot). Other bits 0. |
+| `flags` | bit 0: the slot has stored edits (changed values, a name, or both). bit 1: dirty (only ever set on the active slot). bit 2: the slot is defined in the YAML (0 = an empty slot). bit 3: the slot is one of the presets in use (0 = free); a firmware from before PRESET_DELETE never sets it, and a host then treats every slot as in use. Other bits 0. |
 | `revision` u14 | The firmware's presets revision (YAML `presets: { revision }`, 0..16383, default 0). Same in every reply. |
 | `stored_revision` u14 | The revision the slot's stored edits were saved under; 0 when bit 0 is clear. |
 | `program` s32 | The slot's `preset.program`: −1 = none, else 0..127. For the active slot, its live value. |
@@ -280,10 +296,10 @@ The request is 2 bytes; any other length → BAD_LEN. A `slot` above `count` →
 
 **Backups.** There is no command to read a slot that isn't active, so a host reads every preset by switching:
 1. PRESET_INFO for each slot. Read the globals, and the active preset's values (unsaved edits included).
-2. Select each other slot and read its per-preset params.
+2. Select each other slot in use and read its per-preset params (free slots can't be selected, and aren't backed up).
 3. Select the first slot again. If it was dirty, write its unsaved edits back, so the device ends as it started.
 
-To restore, for each slot: PRESET_RESET it; if the backup has stored edits for it, select it, set its values, PRESET_SAVE it and set its name. Then select the preset that was active and COMMIT. `tools/host/gemifi.py backup` / `restore` do this.
+To restore, for each slot: if it is free, PRESET_NAME it (so it is in use); PRESET_RESET it; if the backup has stored edits for it, select it, set its values, PRESET_SAVE it and set its name. Then PRESET_DELETE the presets in use past the backup's last one, from the end, select the preset that was active and COMMIT. `tools/host/gemifi.py backup` / `restore` do this.
 
 **Button actions.** Presets add three `button.action` values: 13 `preset_next`, 14 `preset_prev`, 15 `preset_select` (`button.number` = the slot). Mackie Control (on devices with a DAW port) moves from 13 to **16**. A profile stored before this change with an MCU button needs that button set again. Editors take the values from the schema's option labels, so nothing else changes for them.
 

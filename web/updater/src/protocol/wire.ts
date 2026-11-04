@@ -59,6 +59,8 @@ export const Command = {
   PresetName: 0x0e,
   Reboot: 0x10,
   GetComponent: 0x11,
+  PresetDelete: 0x12,
+  PresetMove: 0x13,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,
@@ -264,11 +266,13 @@ export const PresetFlag = {
   Dirty: 1 << 1,
   /** The slot is defined in the device YAML (0 = an empty slot). */
   Yaml: 1 << 2,
+  /** One of the presets in use (0 = a free slot); never set by firmware from before PRESET_DELETE. */
+  InUse: 1 << 3,
 } as const;
 export type PresetFlag = (typeof PresetFlag)[keyof typeof PresetFlag];
 
 /** The preset params (§4.5): the active slot, its Program Change, its dirty flag. */
-export const PresetParam = { Active: 17, Program: 18, Dirty: 19 } as const;
+export const PresetParam = { Active: 17, Program: 18, Dirty: 19, Count: 33 } as const;
 export type PresetParam = (typeof PresetParam)[keyof typeof PresetParam];
 
 /** Longest preset name, in characters (§2, string). */

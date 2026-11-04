@@ -96,6 +96,8 @@ const SLOW_COMMANDS: ReadonlySet<number> = new Set([
   Command.PresetSave,
   Command.PresetReset,
   Command.PresetName,
+  Command.PresetDelete,
+  Command.PresetMove,
 ]);
 
 /** Statuses after which the same request is worth sending again. */

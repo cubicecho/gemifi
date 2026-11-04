@@ -267,7 +267,7 @@ python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-por
 python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
-python3 tools/host/gemifi.py presets | preset select|save|reset|rename     # presets, below
+python3 tools/host/gemifi.py presets | preset select|save|reset|rename|delete|move     # presets, below
 python3 tools/host/gemifi.py components | fb led|rgb|leds|value|ring|text|release   # host feedback, below
 cd tools/host && python3 -m unittest            # codec, mkimage, upload against a simulated bootloader, vectors
 python3 tools/host/make_test_vectors.py         # regenerate protocol/test-vectors.json (--check to compare)
@@ -382,17 +382,23 @@ gemifi.py preset save                      # store the live values into the acti
 gemifi.py preset save 5 --name "Live set"  # save as: into slot 5, which becomes the active one
 gemifi.py preset reset 3 [--yes]           # slot 3 back to the firmware's preset (edits and name dropped)
 gemifi.py preset reset all [--yes]
-gemifi.py preset rename 2 "Kit"            # "" = back to the firmware's name
+gemifi.py preset rename 2 "Kit"            # "" = back to the firmware's name; a free slot becomes a new preset
+gemifi.py preset delete 2 [--yes]          # remove preset 2: the later ones move up one slot
+gemifi.py preset move drums 1              # reorder: Drums to slot 1, the ones between shift down one
+gemifi.py preset move 3 up [--yes]         # one step: up / down
 ```
 
-- `presets` shows per slot: "unsaved edits" (the active one only), "stored edits" (with the revision they were made on, when it isn't the firmware's), "empty slot" (not in the YAML).
+- `presets` shows per slot: "unsaved edits" (the active one only), "stored edits" (with the revision they were made on, when it isn't the firmware's), "empty slot" (not in the YAML), "free" (not one of the presets in use).
+- **Presets in use** (firmware with PRESET_DELETE, PRESET_INFO flags bit 3): slots 1..N are presets, the ones after are free. `preset select` and `preset delete` refuse a free slot; `preset rename` on a free slot makes it a new preset (a copy of preset 1's firmware values), and `preset save` into one fills it with the live values.
+- `preset move N|NAME TO` (PRESET_MOVE): TO is a slot in use, or `up` / `down` for one step. The presets between shift one slot, names and values with them; the active preset keeps playing in its new slot. It asks first only when the active preset has unsaved edits (they are dropped; `--yes` doesn't ask), then prints the new order. An older firmware can't move presets.
+- `preset delete` asks first (`--yes` doesn't), and says which preset is active afterwards: the later presets move up one slot, the last slot is freed, and unsaved edits of the active preset are dropped. The last preset can't be deleted. An older firmware has no PRESET_DELETE: `preset reset` empties a slot there.
 - `preset select` asks first when the active preset has unsaved edits, because switching drops them; `--discard` doesn't ask.
 - A preset is a number (1..count) or a name (any case).
 - Names are 0..16 printable ASCII characters.
 
 **Backup and restore with presets.**
-- `backup` switches to every slot in turn and reads its per-preset values, then switches back to the slot that was active and puts its unsaved edits back, so the device ends as it started. The file (format 2) holds the globals in `values`, the active slot in `active`, and one entry per slot in `presets` (`slot`, `name`, `stored`, `stored_revision`, `values`). The active slot is saved as it is live, unsaved edits included.
-- `restore` of such a file sets the globals, then for each slot: PRESET_RESET; if the backup has stored edits for it, select it, set its values, PRESET_SAVE and set its name. Then it selects the slot that was active and commits. So everything is stored; `--commit` isn't needed. Slots the device doesn't have are skipped with a warning.
+- `backup` switches to every preset in use in turn (free slots can't be selected, so they aren't backed up) and reads its per-preset values, then switches back to the slot that was active and puts its unsaved edits back, so the device ends as it started. The file (format 2) holds the globals in `values`, the active slot in `active`, and one entry per slot in `presets` (`slot`, `name`, `stored`, `stored_revision`, `values`). The active slot is saved as it is live, unsaved edits included.
+- `restore` of such a file sets the globals, then for each slot: if it is free, PRESET_NAME it so it is a preset; PRESET_RESET; if the backup has stored edits for it, select it, set its values, PRESET_SAVE and set its name. On a firmware that tracks the presets in use, it then deletes the ones past the backup's last slot, from the end. Then it selects the slot that was active and commits. So everything is stored; `--commit` isn't needed. Slots the device doesn't have are skipped with a warning.
 - An old backup (no presets) restores into the active preset, live, as before. A preset backup onto firmware without presets restores the globals and the active slot only.
 
 **Presets and firmware updates (`flash`).**

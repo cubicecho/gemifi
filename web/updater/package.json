@@ -1,7 +1,7 @@
 {
   "name": "gemifi-updater",
   "private": true,
-  "version": "0.20.0",
+  "version": "0.21.0",
   "type": "module",
   "description": "gemifi web updater: device info, debug log and firmware upload over Web MIDI or Web Serial SysEx, and the first install on ESP chips.",
   "scripts": {

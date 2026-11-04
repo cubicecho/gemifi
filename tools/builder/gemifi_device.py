@@ -4152,6 +4152,7 @@ def generate(dev, source="device.yaml"):
     c += mode_tables(dev)
     c += pad_tables(dev)
     c += display_tables(dev)
+    c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 
 
@@ -4186,6 +4187,24 @@ def matrix_defines(dev):
     return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX_ROWS)} /* key-matrix rows scanned (at most 32) */",
             f"#define GM_MATRIX_COL_RUNS {matrix_col_runs(dev, m)} /* runs of adjacent column bits on one port */",
             f"#define GM_MATRIX_DECODER {1 if dec else 0} /* rows on a decoder: one-store row selects */"]
+
+
+def label_tables(dev):
+    """The settings' index labels (core/src/settings.c): each component's display name, as the gm_device
+    tables have it, in flash. Pad names only with pads, mode names only with modes."""
+    def table(cname, count, names):
+        body = ", ".join(c_str(n) for n in names) or "0"
+        return f"const char *const {cname}[{count if names else '1'}] = {{ {body} }};"
+
+    c = ["/* index labels of the per-component settings: the components' names (core/src/settings.c) */",
+         table("gm_button_names", "GM_N_BUTTONS", [b.name for b in dev.buttons]),
+         table("gm_analog_names", "GM_N_ANALOGS", [a.name for a in dev.analogs]),
+         table("gm_encoder_names", "GM_N_ENCODERS", [e.name for e in dev.encoders])]
+    if dev.pads:
+        c.append(table("gm_pad_names", "GM_N_PADS", [x.name for x in dev.pads]))
+    if dev.modes:
+        c.append(table("gm_mode_names", "GM_N_MODES", [m.name if m.name is not None else m.id for m in dev.modes]))
+    return c + [""]
 
 
 def pad_defines(dev):

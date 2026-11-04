@@ -1928,6 +1928,24 @@ class TestModes(unittest.TestCase):
         "  - { id: e2, pin_a: PB9, pin_b: PB10, cc: 21 }\n"
     GRID = "- id: grid\n  toggle: { button: sel, with: shift }\n  layer:\n"
 
+    def test_label_tables(self):
+        """The settings' index labels: the components' names, as gm_device has them, in flash (const tables);
+        pad and mode names only with pads / modes."""
+        text = modes(self.GRID + "    kick: { daw: clip_1_1 }\n    e2: { name: Pan 2 }\n", self.LAYER_BASE)
+        dev, h, c = self.gen(text)
+        names = lambda xs: ", ".join(gd.c_str(x.name) for x in xs)   # noqa: E731
+        self.assertIn(f"const char *const gm_button_names[GM_N_BUTTONS] = {{ {names(dev.buttons)} }};", c)
+        self.assertIn('const char *const gm_encoder_names[GM_N_ENCODERS] = { "E1", "E2", "Pan 2" };', c)
+        self.assertIn('const char *const gm_pad_names[GM_N_PADS] = { "Kick", "Snare" };', c)   # not the twins
+        self.assertIn('const char *const gm_mode_names[GM_N_MODES] = { "grid" };', c)
+        self.assertIn("const char *const gm_analog_names[1] = { 0 };", c)                     # no analogs
+        for b in dev.buttons:                                                                  # what gm_device has
+            self.assertIn(f", {gd.c_str(b.name)}, ", c)
+        _, _, c = self.gen(MINIMAL_NUC)
+        self.assertIn('const char *const gm_button_names[GM_N_BUTTONS] = { "A" };', c)
+        self.assertNotIn("gm_pad_names", c)
+        self.assertNotIn("gm_mode_names", c)
+
     def test_layer_pads_and_encoders(self):
         """Pad and encoder twins, and a twin of the with: toggle itself (core/README.md "Button layers")."""
         text = modes(self.GRID + "    kick: { daw: clip_1_1, idle: off, active: colour2 }\n    snare: { daw: clip_2_1 }\n"

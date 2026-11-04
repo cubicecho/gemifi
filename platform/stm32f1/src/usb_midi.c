@@ -1,6 +1,7 @@
 /*
- * usb_midi.c: USB-MIDI 1.0 event packing on top of usbd (copied unchanged
- * from platform/nuvoton-nuc1xx/src/usb_midi.c; keep the two in sync).
+ * usb_midi.c: USB-MIDI 1.0 event packing on top of usbd (copied from
+ * platform/nuvoton-nuc1xx/src/usb_midi.c, only the MIDI_TX_PKTS default
+ * differs; keep the two in sync).
  *
  * USB-MIDI 1.0 section 4: each event is 4 bytes, byte 0 = cable << 4 | CIN.
  * SysEx: CIN 4 = starts/continues (3 bytes), 5 = ends with 1 byte,
@@ -12,13 +13,24 @@
 #include "usbd.h"
 #include "sys.h"
 
+/* A packet the host hasn't taken after this long: nobody reads the IN
+ * endpoint (no app has the port open, or the bus is suspended). */
 #ifndef MIDI_TX_TIMEOUT_MS
 #define MIDI_TX_TIMEOUT_MS 50
 #endif
 
+/* Transmit packets queued behind the one in flight (that one is already in
+ * USB packet RAM), a power of 2. 0 = one buffer that blocks when full and
+ * no host-absent tracking (the NUC bootloader, which has no room for more).
+ * 4 here; the NUC copy has 2 (4 KB of RAM). */
+#ifndef MIDI_TX_PKTS
+#define MIDI_TX_PKTS 4
+#endif
+#if MIDI_TX_PKTS & (MIDI_TX_PKTS - 1)
+#error "MIDI_TX_PKTS must be 0 or a power of 2"
+#endif
+
 static uint8_t rx_pos;              /* next event in the current OUT packet */
-static uint8_t tx_buf[64];
-static uint8_t tx_n;
 
 int midi_rx_poll(gsx_rx_t *rx)
 {
@@ -59,6 +71,11 @@ void midi_rx_drain(void (*cb)(const uint8_t ev[4]))
     rx_pos = 0;
     usbd_out_release();
 }
+
+#if MIDI_TX_PKTS == 0
+
+static uint8_t tx_buf[64];
+static uint8_t tx_n;
 
 int midi_tx_flush(uint32_t timeout_ms)
 {
@@ -101,6 +118,121 @@ void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2)
     tx_buf[tx_n++] = b1;
     tx_buf[tx_n++] = b2;
 }
+
+#else
+
+/* A ring of packets: tx_cnt in use from tx_head on; the newest one is being
+ * filled and holds tx_n bytes, the others are full. */
+static uint8_t tx_pkt[MIDI_TX_PKTS][64];
+static uint8_t tx_head, tx_cnt, tx_n;
+/* The host stopped reading: everything is dropped, without waiting, while
+ * a zero-length probe packet sits in the IN endpoint. The host taking it
+ * (usbd_in_busy() going 0: an IN completion, or a bus reset) ends this. */
+static uint8_t tx_absent;
+static uint32_t tx_sent_ms;         /* when the packet in flight was armed */
+
+static void tx_drop(void)
+{
+    tx_cnt = 0;
+    tx_n = 0;
+}
+
+/* The host hasn't taken the packet in flight: drop it and the queue, and
+ * leave a zero-length packet armed to see when it reads again (sending
+ * stale events then could start notes whose Note Off was dropped). */
+static void tx_lost(void)
+{
+    usbd_in_cancel();
+    tx_drop();
+    tx_absent = 1;
+    if (usbd_configured())
+        usbd_in_write(tx_pkt[0], 0);
+}
+
+/* 1 if the host reads. resume = 1: the next event starts a message, so it
+ * may end the host-absent state (never mid-SysEx: the host would get the
+ * tail of a message whose start was dropped). */
+static int tx_host(int resume)
+{
+    if (tx_absent && resume && !usbd_in_busy())
+        tx_absent = 0;
+    return !tx_absent;
+}
+
+/* Hand the oldest queued packet to the IN endpoint if it is free. */
+static int tx_send(void)
+{
+    if (!tx_cnt || usbd_in_busy() || !usbd_configured())
+        return 0;
+    usbd_in_write(tx_pkt[tx_head], tx_cnt == 1 ? tx_n : 64u);
+    tx_sent_ms = sys_tick_ms();
+    tx_head = (uint8_t)((tx_head + 1u) & (MIDI_TX_PKTS - 1u));
+    if (!--tx_cnt)
+        tx_n = 0;
+    return 1;
+}
+
+int midi_tx_flush(uint32_t timeout_ms)
+{
+    uint32_t t0 = sys_tick_ms();
+    while (tx_cnt) {
+        if (!tx_host(1) || !usbd_configured()) {
+            tx_drop();
+            return -1;
+        }
+        if (!tx_send()) {
+            if (sys_tick_ms() - t0 >= timeout_ms) {
+                tx_lost();
+                return -1;
+            }
+            usbd_poll();
+        }
+    }
+    return 0;
+}
+
+void midi_tx_poll(void)
+{
+    if (!tx_host(1))
+        return;
+    if (!tx_send() && usbd_in_busy() &&
+        sys_tick_ms() - tx_sent_ms >= MIDI_TX_TIMEOUT_MS)
+        tx_lost();
+}
+
+void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2)
+{
+    uint32_t c = cin & 0x0Fu;
+    if (!tx_host(c < 4 || c > 7 || b0 == 0xF0))
+        return;
+    if (!tx_cnt || tx_n >= 64) {
+        /* Ring full: wait for the host to take a packet, at most until the
+         * one in flight is MIDI_TX_TIMEOUT_MS old. */
+        while (tx_cnt == MIDI_TX_PKTS) {
+            if (!usbd_configured()) {
+                tx_drop();
+                break;
+            }
+            if (tx_send())
+                break;
+            if (sys_tick_ms() - tx_sent_ms >= MIDI_TX_TIMEOUT_MS) {
+                tx_lost();
+                return;
+            }
+            usbd_poll();
+        }
+        tx_cnt++;
+        tx_n = 0;
+    }
+    uint8_t *p = tx_pkt[(tx_head + tx_cnt - 1u) & (MIDI_TX_PKTS - 1u)] + tx_n;
+    p[0] = cin;
+    p[1] = b0;
+    p[2] = b1;
+    p[3] = b2;
+    tx_n = (uint8_t)(tx_n + 4u);
+}
+
+#endif
 
 void midi_tx_sysex(const uint8_t *p, uint32_t n)
 {

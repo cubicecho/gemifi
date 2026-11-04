@@ -157,6 +157,7 @@ static void load_slot(uint32_t slot)
             for (uint32_t i = 0; i < p->count; i++)
                 p->values[i] = params_default_at(p, i);
     }
+    params_gen++;
     const gm_preset_def_t *d = def_of(slot);
     gm_cfg.preset_program = d->program;     /* also without the param (1 slot) */
     for (uint32_t k = 0; k < d->n_vals; k++)

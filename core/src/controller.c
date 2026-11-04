@@ -2225,6 +2225,50 @@ void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center)
 #if GM_FEEDBACK
 static uint8_t clock_n;             /* MIDI clocks since the last beat, 0..23 */
 
+#if GM_N_BUTTONS > 0 || GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
+/* The note and CC numbers some button, analog input or encoder (a twin
+ * too) has, whatever its action or mode, so a host message for any other
+ * number skips the walk over all of them. It may say used when the
+ * component wouldn't take the message, never unused when it would. Built
+ * again when the params changed (params_gen; 0 = never set, so never
+ * built: gm_init's params_defaults moves it first). */
+static uint32_t fb_note_used[4], fb_cc_used[4];
+static uint32_t fb_used_gen;
+
+static void fb_mark(uint32_t *map, int32_t num)
+{
+    if (num >= 0 && num < 128)
+        map[num >> 5] |= 1u << (num & 31);
+}
+
+static int fb_used(uint32_t type, uint32_t num)
+{
+    if (fb_used_gen != params_gen || !params_gen) {
+        for (uint32_t w = 0; w < 4; w++)
+            fb_note_used[w] = fb_cc_used[w] = 0;
+#if GM_N_BUTTONS > 0
+        for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+            fb_mark(fb_note_used, gm_cfg.btn_number[i]);
+            fb_mark(fb_cc_used, gm_cfg.btn_number[i]);
+        }
+#endif
+#if GM_N_ANALOGS > 0
+        for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+            fb_mark(fb_cc_used, gm_cfg.analog_cc[i]);
+#endif
+#if GM_N_ENCODERS > 0
+        for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+            fb_mark(fb_cc_used, gm_cfg.enc_cc[i]);
+#endif
+        fb_used_gen = params_gen;
+    }
+    const uint32_t *map = type == 0x90 ? fb_note_used : fb_cc_used;
+    return num < 128 && ((map[num >> 5] >> (num & 31)) & 1u);
+}
+#else
+#define fb_used(type, num) 0
+#endif
+
 #if GM_LED_FB
 /* The host's value for every LED with this explicit source. */
 static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value)
@@ -2275,7 +2319,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
     if (type != 0x90 && type != 0xB0)
         return;                     /* pitch bend, poly pressure: nothing yet */
     leds_from(type == 0x90 ? GM_FB_NOTE : GM_FB_CC, num, ch, v);
-    if (ch != chan())
+    if (ch != chan() || !fb_used(type, num))
         return;
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {

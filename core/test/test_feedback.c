@@ -395,6 +395,40 @@ int main(void)
     CHECK(find(0, 0xB0, 30) >= 0 && out[find(0, 0xB0, 30) + 2] == 101, "encoder: host 100, +1 -> 101 (got %d)",
           find(0, 0xB0, 30) >= 0 ? out[find(0, 0xB0, 30) + 2] : -1);
 
+    /* -- feedback follows a CC that changed (the used-number map) ------- */
+    {
+        /* SET_PARAM encoder.cc[0] = 45: the host's CC 45 is the encoder's now */
+        uint8_t sp[9] = { P_ENC_CC, 0, 0, 0, 45, 0, 0, 0, 0 };
+        CHECK(gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0) == GSX_OK, "encoder.cc[0] = 45");
+        usb(0, 0xB0, 99, 5);            /* nobody's CC: nothing changes */
+        usb(0, 0xB0, 45, 20);
+        out_n = 0;
+        turn(0, 1);
+        CHECK(find(0, 0xB0, 45) >= 0 && out[find(0, 0xB0, 45) + 2] == 21,
+              "encoder on CC 45: host 20, +1 -> 21 (got %d)", find(0, 0xB0, 45) >= 0 ? out[find(0, 0xB0, 45) + 2] : -1);
+        /* SET_PARAMS (writes the values itself) encoder.cc[0] = 46 */
+        uint8_t sps[11] = { P_ENC_CC, 0, 0, 0, 1, 0, 46, 0, 0, 0, 0 };
+        CHECK(gsx_request(GSX_CMD_SET_PARAMS, sps, 11, 0, 0) == GSX_OK, "SET_PARAMS encoder.cc[0] = 46");
+        usb(0, 0xB0, 46, 70);
+        out_n = 0;
+        turn(0, -1);
+        CHECK(find(0, 0xB0, 46) >= 0 && out[find(0, 0xB0, 46) + 2] == 69,
+              "encoder on CC 46: host 70, -1 -> 69 (got %d)", find(0, 0xB0, 46) >= 0 ? out[find(0, 0xB0, 46) + 2] : -1);
+        /* the toggle button on CC 81: its LED follows CC 81 */
+        uint8_t sb[9] = { P_BTN_NUMBER, 0, TOGGLE, 0, 81, 0, 0, 0, 0 };
+        CHECK(gsx_request(GSX_CMD_SET_PARAM, sb, 9, 0, 0) == GSX_OK, "button.number[toggle] = 81");
+        usb(0, 0xB0, 81, 127);
+        run_ms(20);
+        CHECK(led(TOGGLE) == 1, "toggle LED on from host CC 81 = 127");
+        usb(0, 0xB0, 81, 0);
+        run_ms(20);
+        CHECK(led(TOGGLE) == 0, "and off from CC 81 = 0");
+        sb[4] = 80;
+        gsx_request(GSX_CMD_SET_PARAM, sb, 9, 0, 0);
+        sp[4] = 30;
+        gsx_request(GSX_CMD_SET_PARAM, sp, 9, 0, 0);
+    }
+
     /* -- MCU ----------------------------------------------------------- */
     out_n = 0;
     button(0, 1);

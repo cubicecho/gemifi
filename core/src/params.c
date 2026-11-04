@@ -10,6 +10,8 @@
 #include "params.h"
 #include "gsx.h"
 
+uint32_t params_gen;
+
 int32_t params_default_at(const param_def_t *p, uint32_t i)
 {
     return p->defs ? p->defs[i] : p->def;
@@ -17,6 +19,7 @@ int32_t params_default_at(const param_def_t *p, uint32_t i)
 
 void params_defaults(void)
 {
+    params_gen++;
     for (uint32_t k = 0; k < app_params.param_count; k++) {
         const param_def_t *p = &app_params.params[k];
         for (uint32_t i = 0; i < p->count; i++)
@@ -49,6 +52,7 @@ int params_set(uint16_t id, uint16_t index, int32_t value, int from_host)
     if (value < p->min || value > p->max)
         return GSX_BAD_VALUE;
     p->values[index] = value;
+    params_gen++;
     return GSX_OK;
 }
 

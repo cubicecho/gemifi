@@ -4,10 +4,13 @@
  * DIN In is parsed into messages (running status, SysEx, realtime, system
  * common) and each goes to DIN Out (midi.thru) and to USB (din_midi.mode).
  * DIN Out takes whole messages from three sources: the controller, the thru
- * and the host. While one source's SysEx is going out, the others' messages
- * wait in a short queue (realtime goes straight through); a SysEx from a
- * second source meanwhile is dropped, and one that stalls for SX_TIMEOUT_MS
- * is ended with F7.
+ * and the host, with running status. While one source's SysEx is going out,
+ * the others' messages wait in a short queue (realtime goes straight
+ * through); a SysEx from a second source meanwhile is dropped, and one that
+ * stalls for SX_TIMEOUT_MS is ended with F7. Continuous controllers are
+ * coalesced, the thru's and host's backlog is capped so the controller's
+ * notes stay prompt, and the controller's Note Offs have room kept for them
+ * (hal_din_tx_queued says how full the platform's queue is).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -38,6 +41,13 @@ __attribute__((weak)) int hal_din_read(void)
     return -1;
 }
 
+/* A platform that can't tell: the queue looks empty, so only
+ * hal_din_write's "full" limits DIN Out. */
+__attribute__((weak)) uint32_t hal_din_tx_queued(void)
+{
+    return 0;
+}
+
 __attribute__((weak)) void hal_midi_send_usb(const uint8_t ev[4])
 {
     (void)ev;
@@ -57,46 +67,210 @@ static uint32_t now_ms;
 
 /* ---- DIN Out ----------------------------------------------------------- */
 
+/* Priority. Every source shares the platform's queue, so how far a message
+ * may fill it depends on its class:
+ *   0  the thru's and USB's messages: only while under OUT_CAP bytes are
+ *      queued, so the controller's notes never wait behind more than ~20 ms
+ *      of them, however fast the host sends;
+ *   1  the controller's messages, realtime, and the thru's and USB's Note
+ *      Offs: up to GM_DIN_OUT_MAX;
+ *   2  the controller's Note Offs: whatever the platform takes. The rest of
+ *      its queue is theirs, so they aren't lost to a flood: a stuck note is
+ *      worse than a late one.
+ * SysEx bytes go up to GM_DIN_OUT_MAX, their F7 always. The same classes
+ * share the pend queue while another source's SysEx is going out; a
+ * controller's Note Off that finds it full cuts the SysEx short. */
+#define OUT_CAP 64u
+#ifndef GM_DIN_OUT_MAX
+#define GM_DIN_OUT_MAX 448u         /* stm32f1's 512-byte queue less 64 for the Note Offs */
+#endif
+#define NO_LIMIT 0xFFFFFFFFu
+#define PEND_RES 4u                 /* pend entries only the controller's Note Offs take */
+
+static const uint32_t q_lim[3] = { OUT_CAP, GM_DIN_OUT_MAX, NO_LIMIT };
+static const uint8_t p_lim[3] = { PEND_MAX / 2u, PEND_MAX - PEND_RES, PEND_MAX };
+
 static uint8_t sx_owner = SRC_NONE; /* the source whose SysEx is going out */
 static uint8_t sx_skip[N_SRC];      /* this source's SysEx is being dropped */
 static uint32_t sx_t;               /* ms of the owner's last SysEx byte */
-static uint8_t pend[PEND_MAX][4];   /* [0] = length, then the message */
+static uint8_t pend[PEND_MAX][4];   /* [0] = length | class << 2, then the message */
 static uint8_t pend_n;
 
-static int out(const uint8_t *b, uint32_t n)
+/* Running status (MIDI 1.0): a channel message leaves out its status byte
+ * when it's the one the receiver already has, and a Note Off (velocity 0 or
+ * the default 64) goes as Note On velocity 0 after a Note On. Realtime
+ * bytes, which may come between any two bytes, keep it; system common and
+ * SysEx end it. The status byte goes again at least every RS_REFRESH_MS, so
+ * a receiver plugged in mid-stream picks it up. */
+#ifndef GM_DIN_RUNNING_STATUS
+#define GM_DIN_RUNNING_STATUS 1
+#endif
+#define RS_REFRESH_MS 250u
+
+static uint8_t rs;                  /* the status byte the receiver has, 0 = none */
+static uint32_t rs_t;               /* ms it was last sent */
+
+/* n bytes onto DIN Out if the queue then holds at most lim, or none
+ * (counted). */
+static int out(const uint8_t *b, uint32_t n, uint32_t lim)
 {
-    if (hal_din_write(b, n))
+    if ((lim == NO_LIMIT || hal_din_tx_queued() + n <= lim) && hal_din_write(b, n))
         return 1;
     gm_din_out_drops++;
     return 0;
+}
+
+/* A short message (status, 0..2 data bytes) onto DIN Out, whole or not at
+ * all (counted). */
+static int put(const uint8_t *m, uint32_t n, uint32_t lim)
+{
+    uint8_t b[3], s = m[0], v = n > 2 ? m[2] : 0;
+    uint32_t k = 0;
+#if GM_DIN_RUNNING_STATUS
+    if ((s & 0xF0) == 0x80 && n == 3 && rs == (s | 0x10) && (v == 0 || v == 64)) {
+        s |= 0x10;
+        v = 0;
+    }
+    int fresh = s >= 0xF0 || s != rs || now_ms - rs_t >= RS_REFRESH_MS;
+#else
+    int fresh = 1;
+#endif
+    if (fresh)
+        b[k++] = s;
+    if (n > 1)
+        b[k++] = m[1];
+    if (n > 2)
+        b[k++] = v;
+    if (!out(b, k, lim))
+        return 0;
+    if (s < 0xF0) {
+        rs = s;
+        if (fresh)
+            rs_t = now_ms;
+    } else if (s < 0xF8) {
+        rs = 0;
+    }
+    return 1;
+}
+
+/* A SysEx byte. F0 ends running status. */
+static int out_sx(uint8_t b)
+{
+    if (b == 0xF0)
+        rs = 0;
+    return out(&b, 1, b == 0xF7 ? NO_LIMIT : GM_DIN_OUT_MAX);
+}
+
+/* Coalescing. Pitch bend, channel pressure and the continuous CCs only
+ * matter by their latest value. Such a message goes into a slot for its
+ * (channel, controller), replacing the value waiting there, and the slots go
+ * out in turn while fewer than OUT_WM bytes wait to go out (and no SysEx
+ * is). So a wheel or aftertouch faster than DIN can carry doesn't pile up
+ * ahead of the notes, and an idle DIN sends it at once. All the slots go out
+ * before any other message, so they keep their place ahead of a note that
+ * follows. CCs whose order counts are never coalesced: bank select (0, 32),
+ * data entry (6, 38), increment / decrement and (N)RPN (96-101), the
+ * switches (64-69), the high-resolution velocity prefix (88) and channel
+ * mode (120-127). */
+#define OUT_WM 16u                  /* ~5 ms of DIN Out */
+#define N_SLOT 8u
+
+static uint8_t slot[N_SLOT][3];     /* a message; [0] = 0: free */
+static uint8_t slot_at;             /* the next to go out: round robin */
+
+static int continuous(const uint8_t *m, uint32_t n)
+{
+    uint8_t t = m[0] & 0xF0, c = m[1];
+    if (t == 0xE0)
+        return n == 3;
+    if (t == 0xD0)
+        return n == 2;
+    return t == 0xB0 && n == 3 && c != 0 && c != 6 && c != 32 && c != 38 && c != 88 && (c < 64 || c > 69) &&
+           (c < 96 || c > 101) && c < 120;
+}
+
+/* The slots out while the queue is short; force: all of them, whatever the
+ * queue. Not while a SysEx is going out. */
+static void drain(int force)
+{
+    for (uint32_t k = 0; k < N_SLOT && sx_owner == SRC_NONE; k++) {
+        uint8_t *s = slot[slot_at];
+        if (s[0]) {
+            uint32_t q = hal_din_tx_queued();
+            if ((force ? q + 3u > GM_DIN_OUT_MAX : q >= OUT_WM) || !put(s, (s[0] & 0xF0) == 0xD0 ? 2u : 3u, NO_LIMIT))
+                return;
+            s[0] = 0;
+        }
+        slot_at = (uint8_t)((slot_at + 1u) % N_SLOT);
+    }
+}
+
+/* 0 = no slot free: m goes as any other message. */
+static int coalesce(const uint8_t *m, uint32_t n)
+{
+    uint8_t *f = 0;
+    for (uint32_t i = 0; i < N_SLOT; i++) {
+        uint8_t *s = slot[i];
+        if (s[0] == m[0] && ((m[0] & 0xF0) != 0xB0 || s[1] == m[1])) {
+            f = s;                          /* its own */
+            break;
+        }
+        if (!s[0] && !f)
+            f = s;
+    }
+    if (!f)
+        return 0;
+    f[0] = m[0];
+    f[1] = m[1];
+    f[2] = n > 2 ? m[2] : 0;
+    drain(0);
+    return 1;
 }
 
 static void sysex_done(void)
 {
     sx_owner = SRC_NONE;
     for (uint32_t i = 0; i < pend_n; i++)
-        out(pend[i] + 1, pend[i][0]);
+        put(pend[i] + 1, pend[i][0] & 3u, q_lim[pend[i][0] >> 2]);
     pend_n = 0;
+}
+
+/* End the SysEx going out now (F7, which needs no room), and drop its rest
+ * if skip. */
+static void sysex_cut(uint8_t skip)
+{
+    static const uint8_t f7 = 0xF7;
+    sx_skip[sx_owner] = skip;
+    out(&f7, 1, NO_LIMIT);
+    sysex_done();
 }
 
 static void send_short(uint8_t src, const uint8_t *m, uint32_t n)
 {
     if (n == 0 || n > 3)
         return;
-    if (m[0] < 0xF8 && sx_owner == src) {
-        static const uint8_t f7 = 0xF7;     /* a status byte ends its own SysEx */
-        out(&f7, 1);
-        sysex_done();
-    }
-    if (m[0] >= 0xF8 || sx_owner == SRC_NONE) {
-        out(m, n);
+    uint8_t s = m[0], t = s & 0xF0;
+    uint32_t cls = (src == SRC_LOCAL) + (s >= 0xF8 || t == 0x80 || (t == 0x90 && n == 3 && m[2] == 0));
+    if (s < 0xF8 && sx_owner == src)
+        sysex_cut(0);                       /* a status byte ends its own SysEx */
+    if (s >= 0xF8) {
+        put(m, 1, q_lim[cls]);              /* realtime: between any two bytes */
         return;
     }
-    if (pend_n >= PEND_MAX) {
-        gm_din_out_drops++;
+    if (continuous(m, n) && coalesce(m, n))
+        return;
+    if (sx_owner != SRC_NONE && pend_n >= p_lim[cls]) {
+        gm_din_out_drops++;                 /* this message, or the SysEx's rest */
+        if (cls < 2)
+            return;
+        sysex_cut(1);                       /* the controller's Note Off goes now */
+    }
+    if (sx_owner == SRC_NONE) {
+        drain(1);
+        put(m, n, q_lim[cls]);
         return;
     }
-    pend[pend_n][0] = (uint8_t)n;
+    pend[pend_n][0] = (uint8_t)(n | cls << 2);
     for (uint32_t i = 0; i < n; i++)
         pend[pend_n][1 + i] = m[i];
     pend_n++;
@@ -113,7 +287,7 @@ static void send_sysex(uint8_t src, uint8_t b)
         sx_skip[src] = 0;
         sx_owner = src;
         sx_t = now_ms;
-        if (!out(&b, 1)) {
+        if (!out_sx(b)) {
             sx_skip[src] = 1;
             sysex_done();
         }
@@ -127,13 +301,10 @@ static void send_sysex(uint8_t src, uint8_t b)
     if (sx_owner != src)
         return;                             /* no F0 seen */
     sx_t = now_ms;
-    if (!out(&b, 1)) {
+    if (!out_sx(b)) {
         /* No room: cut it short. The F7 may not fit either; the next
          * status byte ends it for the receiver then. */
-        static const uint8_t f7 = 0xF7;
-        sx_skip[src] = b != 0xF7;
-        (void)hal_din_write(&f7, 1);
-        sysex_done();
+        sysex_cut(b != 0xF7);
         return;
     }
     if (b == 0xF7)
@@ -302,6 +473,9 @@ void gm_din_init(void)
 {
     sx_owner = SRC_NONE;
     pend_n = 0;
+    rs = 0;
+    for (uint32_t i = 0; i < N_SLOT; i++)
+        slot[i][0] = 0;
     in_n = in_need = in_sx = 0;
 #ifndef GM_DIN_DMA
 #define GM_DIN_DMA 0
@@ -319,12 +493,9 @@ void gm_din_poll(uint32_t now)
             break;
         parse((uint8_t)b);
     }
-    if (sx_owner != SRC_NONE && now - sx_t > SX_TIMEOUT_MS) {
-        static const uint8_t f7 = 0xF7;
-        sx_skip[sx_owner] = 1;              /* the rest of it, if it ever comes */
-        out(&f7, 1);
-        sysex_done();
-    }
+    if (sx_owner != SRC_NONE && now - sx_t > SX_TIMEOUT_MS)
+        sysex_cut(1);                       /* and drop the rest, if it ever comes */
+    drain(0);
 }
 
 void gm_din_local(const uint8_t *m, uint32_t n)

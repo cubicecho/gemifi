@@ -58,22 +58,42 @@ void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
-/* The DIN UART. dout_room: free space left in the platform's TX ring. */
+/* The DIN UART. dout: every byte written (the wire, in order). dq: bytes
+ * of it still in the platform's TX ring of dq_size (stm32f1: 512), which
+ * sends dq_rate thousandths of a byte a millisecond (31250 baud: 3125); 0
+ * sends everything at each millisecond. */
 static uint16_t open_tx, open_rx;
 static uint32_t open_baud, open_flags;
-static uint8_t dout[4096], din[4096];
-static int dout_n, din_n, din_at, dout_room = 100000;
+static uint8_t dout[16384], din[4096];
+static int dout_n, din_n, din_at;
+static int dq, dq_size = 512, dq_max;
+static uint32_t dq_rate, dq_acc;
 int hal_din_open(uint16_t tx, uint16_t rx, uint32_t baud, uint32_t flags) { open_tx = tx; open_rx = rx; open_baud = baud; open_flags = flags; return 1; }
 int hal_din_write(const uint8_t *b, uint32_t n)
 {
-    if ((int)n > dout_room || dout_n + (int)n > (int)sizeof dout)
+    if (dq + (int)n > dq_size || dout_n + (int)n > (int)sizeof dout)
         return 0;
     memcpy(dout + dout_n, b, n);
     dout_n += (int)n;
-    dout_room -= (int)n;
+    dq += (int)n;
+    if (dq > dq_max)
+        dq_max = dq;
     return 1;
 }
+uint32_t hal_din_tx_queued(void) { return (uint32_t)dq; }
 int hal_din_read(void) { return din_at < din_n ? din[din_at++] : -1; }
+
+static void dq_send_ms(void)
+{
+    if (!dq_rate) {
+        dq = 0;
+        return;
+    }
+    for (dq_acc += dq_rate; dq_acc >= 1000u && dq > 0; dq_acc -= 1000u)
+        dq--;
+    if (dq == 0)
+        dq_acc = 0;
+}
 
 /* ---- helpers ---------------------------------------------------------- */
 
@@ -83,11 +103,29 @@ static void run_ms(uint32_t ms)
         for (uint32_t t = 0; t < 1000u / gm_device.scan_us; t++)
             gm_scan_tick();
         now_ms++;
+        dq_send_ms();
         gm_poll();
     }
 }
 
 static void clear(void) { usb_n = ev_n = dout_n = 0; }
+
+/* Long enough for DIN Out to send the status byte again (running status). */
+static void idle(void)
+{
+    run_ms(300);
+    clear();
+}
+
+static void local(uint8_t a, uint8_t b, uint8_t c, uint32_t n)
+{
+    const uint8_t m[3] = { a, b, c };
+    gm_din_local(m, n);
+}
+
+#define DOUT_IS(...) do { const uint8_t want_[] = { __VA_ARGS__ }; \
+        int ok_ = dout_is(want_, (int)sizeof want_); checks++; \
+        if (!ok_) { fails++; printf("FAIL %s:%d: DIN Out\n", __FILE__, __LINE__); dump_dout(); } } while (0)
 
 static void din_bytes(const uint8_t *b, int n)
 {
@@ -120,6 +158,39 @@ static void dump_dout(void)
     for (int i = 0; i < dout_n; i++)
         printf(" %02X", dout[i]);
     printf("\n");
+}
+
+/* DIN Out read back as a receiver would: the channel messages, running
+ * status applied (realtime, SysEx and system common skipped). */
+static uint8_t rx[8192][3];
+
+static int rx_msgs(void)
+{
+    int n = 0, k = 0, need = 0, sx = 0;
+    uint8_t st = 0;
+    for (int i = 0; i < dout_n && n < 8192; i++) {
+        uint8_t b = dout[i];
+        if (b >= 0xF8)
+            continue;
+        if (b & 0x80) {
+            sx = b == 0xF0;
+            st = b < 0xF0 ? b : 0;
+            need = !st ? 0 : (b & 0xE0) == 0xC0 ? 1 : 2;
+            k = 0;
+            continue;
+        }
+        if (sx || !st)
+            continue;
+        rx[n][0] = st;
+        rx[n][1 + k++] = b;
+        if (k == need) {
+            if (need == 1)
+                rx[n][2] = 0;
+            n++;
+            k = 0;
+        }
+    }
+    return n;
 }
 
 /* ---- tests ------------------------------------------------------------ */
@@ -259,7 +330,7 @@ int main(void)
 
     /* DIN Out full: whole messages or nothing */
     clear();
-    dout_room = 4;
+    dq_size = 4;
     {
         uint32_t d0 = gm_din_out_drops;
         const uint8_t m[] = { 0x90, 1, 2 };
@@ -267,7 +338,248 @@ int main(void)
         gm_din_local(m, 3);
         CHECK(dout_n == 3 && gm_din_out_drops == d0 + 1, "no room: the second message is dropped whole");
     }
-    dout_room = 100000;
+    dq_size = 512;
+
+    /* Running status: the status byte only when it changes; Note Off as
+     * Note On velocity 0 after a Note On (velocity 0 or 64 only) */
+    idle();
+    local(0x90, 60, 100, 3);
+    local(0x90, 62, 90, 3);
+    local(0x80, 60, 0, 3);
+    local(0x80, 62, 64, 3);
+    local(0x80, 64, 30, 3);             /* a real release velocity: kept */
+    local(0x80, 65, 30, 3);
+    run_ms(1);                          /* sent: CCs wait while 16 bytes do */
+    local(0xB0, 1, 10, 3);
+    local(0xB0, 1, 20, 3);
+    local(0xB1, 1, 20, 3);              /* another channel: another status */
+    local(0xD1, 50, 0, 2);
+    local(0xD1, 51, 0, 2);
+    DOUT_IS(0x90, 60, 100, 62, 90, 60, 0, 62, 0, 0x80, 64, 30, 65, 30, 0xB0, 1, 10, 1, 20, 0xB1, 1, 20,
+            0xD1, 50, 51);
+    /* realtime between messages keeps it; between a status and its data too
+     * (DIN In thru) */
+    idle();
+    local(0x90, 60, 100, 3);
+    local(0xF8, 0, 0, 1);
+    local(0x90, 62, 90, 3);
+    DOUT_IS(0x90, 60, 100, 0xF8, 62, 90);
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        const uint8_t b[] = { 0x92, 0xF8, 60, 0xFA, 100, 62, 0xFC, 90 };
+        din_bytes(b, 8);
+    }
+    DOUT_IS(0xF8, 0xFA, 0x92, 60, 100, 0xFC, 62, 90);
+    /* SysEx and system common end it */
+    idle();
+    local(0x90, 60, 100, 3);
+    {
+        const uint8_t b[] = { 0xF0, 0x7D, 0xF7 };
+        din_bytes(b, 3);
+    }
+    local(0x90, 62, 90, 3);
+    {
+        const uint8_t b[] = { 0xF3, 4 };
+        din_bytes(b, 2);
+    }
+    local(0x90, 64, 80, 3);
+    DOUT_IS(0x90, 60, 100, 0xF0, 0x7D, 0xF7, 0x90, 62, 90, 0xF3, 4, 0x90, 64, 80);
+    gm_cfg.din_thru = 0;
+    /* the status byte again after RS_REFRESH_MS (250 ms), idle or not */
+    idle();
+    for (int i = 0; i < 600; i++) {
+        local(0xB0, 1, (uint8_t)(i & 0x7F), 3);
+        run_ms(1);
+    }
+    {
+        int st = 0;
+        for (int i = 0; i < dout_n; i++)
+            st += dout[i] == 0xB0;
+        CHECK(st == 3 && dout_n == 600 * 2 + 3, "600 ms of CCs: the status byte at 0, 250 and 500 ms (%d, %d bytes)",
+              st, dout_n);
+    }
+    clear();
+    local(0xB0, 1, 0, 3);
+    run_ms(260);
+    local(0xB0, 1, 1, 3);
+    DOUT_IS(1, 0, 0xB0, 1, 1);
+
+    /* Coalescing, at the real 31250 baud: a pitch bend sweep with the mod
+     * wheel and channel pressure, each every ms, is 6 bytes a ms with running
+     * status, and DIN carries 3.1. The queue stays short and the latest
+     * values win; each controller's values still only rise. */
+    idle();
+    dq_rate = 3125;
+    dq_max = 0;
+    {
+        uint32_t d0 = gm_din_out_drops;
+        for (int i = 0; i < 160; i++) {
+            uint32_t bend = (uint32_t)i * 103u, v = (uint32_t)i * 127u / 159u;
+            local(0xE0, (uint8_t)(bend & 0x7F), (uint8_t)(bend >> 7), 3);
+            local(0xB0, 1, (uint8_t)v, 3);
+            local(0xD0, (uint8_t)v, 0, 2);
+            run_ms(1);
+        }
+        run_ms(50);
+        int n = rx_msgs(), ok = 1;
+        uint32_t last[3] = { 0, 0, 0 }, cnt[3] = { 0, 0, 0 };
+        for (int i = 0; i < n; i++) {
+            int c = rx[i][0] == 0xE0 ? 0 : rx[i][0] == 0xB0 ? 1 : rx[i][0] == 0xD0 ? 2 : -1;
+            uint32_t v = c == 0 ? (uint32_t)rx[i][1] | (uint32_t)rx[i][2] << 7 : c == 1 ? rx[i][2] : rx[i][1];
+            if (c < 0 || (c == 1 && rx[i][1] != 1) || (cnt[c] && v < last[c]))
+                ok = 0;
+            else
+                last[c] = v, cnt[c]++;
+        }
+        CHECK(ok && last[0] == 159u * 103u && last[1] == 127 && last[2] == 127,
+              "coalesced: in order, ending on the latest values (%u %u %u)", (unsigned)last[0],
+              (unsigned)last[1], (unsigned)last[2]);
+        CHECK(n < 3 * 160 && cnt[0] > 40 && cnt[1] > 40 && cnt[2] > 40,
+              "fewer messages, every controller still moving (%d: %u %u %u)", n, (unsigned)cnt[0],
+              (unsigned)cnt[1], (unsigned)cnt[2]);
+        CHECK(dq_max <= 20, "the queue stays short (%d bytes at most)", dq_max);
+        CHECK(gm_din_out_drops == d0, "nothing dropped");
+    }
+    /* switch-type CCs (sustain) are never coalesced */
+    idle();
+    {
+        for (int i = 0; i < 40; i++) {
+            local(0xB0, 64, 127, 3);
+            local(0xB0, 64, 0, 3);
+        }
+        run_ms(100);
+        int n = rx_msgs(), ok = n == 80;
+        for (int i = 0; ok && i < n; i++)
+            ok = rx[i][0] == 0xB0 && rx[i][1] == 64 && rx[i][2] == (i & 1 ? 0 : 127);
+        CHECK(ok, "40 sustain presses: all 80 CC 64s, in order (%d)", n);
+    }
+    /* a coalesced CC goes out before the note that came after it */
+    idle();
+    {
+        for (int i = 0; i < 8; i++)
+            local(0x90, (uint8_t)(60 + i), 100, 3);     /* 17 bytes: past OUT_WM */
+        local(0xB0, 1, 5, 3);
+        local(0xB0, 1, 6, 3);
+        local(0xB0, 7, 80, 3);
+        local(0x80, 60, 0, 3);
+        local(0xB0, 1, 9, 3);
+        run_ms(20);
+        DOUT_IS(0x90, 60, 100, 61, 100, 62, 100, 63, 100, 64, 100, 65, 100, 66, 100, 67, 100,
+                0xB0, 1, 6, 7, 80, 0x80, 60, 0, 0xB0, 1, 9);
+    }
+    dq_rate = 0;
+    /* while the thru's SysEx goes out, the controller's bends wait in their
+     * slot, not in the 16-message queue */
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        const uint8_t b[] = { 0xF0, 0x7D, 1 };
+        din_bytes(b, 3);
+        for (int i = 0; i < 100; i++)
+            local(0xE0, (uint8_t)i, 64, 3);
+        local(0xB0, 64, 127, 3);
+        const uint8_t e[] = { 2, 0xF7 };
+        din_bytes(e, 2);
+        DOUT_IS(0xF0, 0x7D, 1, 2, 0xF7, 0xB0, 64, 127, 0xE0, 99, 64);
+        CHECK(gm_din_out_drops == d0, "100 bends during a SysEx: none dropped");
+    }
+    gm_cfg.din_thru = 0;
+
+    /* Priority: the host floods DIN Out (usb_to_din's LED feedback, or the
+     * DIN port) with 10 notes a ms at 31250 baud. Its backlog stays under
+     * 64 bytes, so the controller's notes go out within ~20 ms, and none of
+     * them is lost. */
+#if !PORT
+    gm_cfg.din_usb = 1;
+#endif
+    idle();
+    dq_rate = 3125;
+    {
+        uint32_t d0 = gm_din_out_drops;
+        int qmax = 0, on = 0, off = 0, usb_on = 0;
+        for (int ms = 0; ms < 200; ms++) {
+            for (int i = 0; i < 10; i++)
+                from_usb(CABLE << 4 | 9, 0x91, (uint8_t)((ms * 10 + i) & 0x7F), 127);
+            if (ms >= 50 && ms < 110) {
+                if (dq > qmax)
+                    qmax = dq;
+                local(ms & 1 ? 0x80 : 0x90, (uint8_t)(40 + (ms - 50) / 2), ms & 1 ? 0 : 100, 3);
+            }
+            run_ms(1);
+        }
+        run_ms(100);
+        int n = rx_msgs();
+        for (int i = 0; i < n; i++) {
+            if (rx[i][0] == 0x90 && rx[i][2])
+                on++;
+            else if ((rx[i][0] == 0x90 || rx[i][0] == 0x80) && !rx[i][2])
+                off++;
+            else if (rx[i][0] == 0x91)
+                usb_on++;
+        }
+        CHECK(qmax <= 67, "the host's backlog stays under the 64-byte cap (%d)", qmax);
+        CHECK(on == 30 && off == 30, "every note of the controller's, on and off (%d %d)", on, off);
+        CHECK(usb_on > 100 && usb_on < 2000 && gm_din_out_drops - d0 == (uint32_t)(2000 - usb_on),
+              "the host's notes: what fits, the rest dropped and counted (%d sent)", usb_on);
+    }
+    /* the host's Note Offs pass the cap */
+    dq_rate = 0;
+    idle();
+    {
+        for (int i = 0; i < 40; i++)
+            from_usb(CABLE << 4 | 9, 0x91, (uint8_t)i, 127);
+        from_usb(CABLE << 4 | 8, 0x81, 5, 0);
+        int n = rx_msgs();
+        CHECK(n > 20 && n < 40 && rx[n - 1][0] == 0x91 && rx[n - 1][1] == 5 && rx[n - 1][2] == 0,
+              "capped Note Ons, then the host's Note Off (as Note On velocity 0)");
+    }
+#if !PORT
+    gm_cfg.din_usb = 0;
+#endif
+    /* the controller alone fills the queue (448 of its 512 bytes): Note
+     * Ons stop there, Note Offs have the rest */
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        for (int i = 0; i < 250; i++)
+            local(0x90, (uint8_t)(i & 0x7F), 100, 3);
+        int q_on = dq;
+        for (int i = 0; i < 30; i++)
+            local(0x80, (uint8_t)i, 0, 3);
+        int n = rx_msgs(), off = 0;
+        for (int i = 0; i < n; i++)
+            off += rx[i][2] == 0;
+        CHECK(q_on <= 448 && off == 30 && gm_din_out_drops - d0 == (uint32_t)(250 - (n - 30)),
+              "Note Ons up to 448 bytes (%d), then all 30 Note Offs (%d)", q_on, off);
+    }
+    /* while the thru's SysEx goes out: Note Ons use 12 of the 16 pend
+     * entries, the controller's Note Offs the rest; one that finds it full
+     * ends the SysEx */
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        uint32_t d0 = gm_din_out_drops;
+        const uint8_t b[] = { 0xF0, 0x7D, 1 };
+        din_bytes(b, 3);
+        for (int i = 0; i < 20; i++)
+            local(0x90, (uint8_t)(30 + i), 100, 3);
+        for (int i = 0; i < 20; i++)
+            local(0x80, (uint8_t)(30 + i), 0, 3);
+        const uint8_t e[] = { 2, 3, 0xF7 };
+        din_bytes(e, 3);
+        int n = rx_msgs(), on = 0, off = 0, f7 = 0;
+        for (int i = 0; i < n; i++)
+            rx[i][2] ? on++ : off++;
+        for (int i = 0; i < dout_n; i++)
+            f7 += dout[i] == 0xF7;
+        CHECK(dout_n > 4 && dout[3] == 0xF7 && f7 == 1, "SysEx cut short with F7, its rest dropped");
+        CHECK(on == 12 && off == 20 && gm_din_out_drops - d0 == 9,
+              "12 Note Ons (8 dropped), all 20 Note Offs (%d %d, %u drops)", on, off,
+              (unsigned)(gm_din_out_drops - d0));
+    }
+    gm_cfg.din_thru = 0;
 
 #if PORT
     /* USB cable 1 -> DIN Out: short messages and SysEx */
@@ -289,7 +601,7 @@ int main(void)
     CHECK(dout_n == 0, "USB cable 0 -> not DIN Out");
 #else
     /* usb_merge: the main port's channel and realtime messages, when on */
-    clear();
+    idle();
     from_usb(0x09, 0x90, 1, 1);
     CHECK(dout_n == 0, "midi.usb_to_din off: nothing");
     gm_cfg.din_usb = 1;

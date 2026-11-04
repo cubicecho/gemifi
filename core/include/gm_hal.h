@@ -82,10 +82,12 @@ void hal_midi_send_usb(const uint8_t ev[4]);
  * baud, 8N1, with HAL_UART_DMA flags; 0 if the platform can't. hal_din_write: queue all n bytes, or
  * none (0) if they don't fit; never waits. hal_din_read: the next received
  * byte, or -1. Interrupt- or DMA-driven: the main loop only queues and
- * takes. */
+ * takes. hal_din_tx_queued: bytes written but not yet sent (din.c keeps
+ * its backlog short with it; the weak default says 0). */
 int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud, uint32_t flags);
 int hal_din_write(const uint8_t *b, uint32_t n);
 int hal_din_read(void);
+uint32_t hal_din_tx_queued(void);
 
 /* identity */
 void hal_uid(uint8_t uid[12]);

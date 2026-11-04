@@ -569,6 +569,16 @@ int hal_din_write(const uint8_t *b, uint32_t n)
     return 1;
 }
 
+uint32_t hal_din_tx_queued(void)
+{
+    uint32_t pm = irq_save();               /* the DMA interrupt moves tail and run */
+    uint32_t n = din_tx_head - din_tx_tail;
+    if (din_tx_run)
+        n -= din_tx_run - DMA1_CNDTR(CH_DIN_TX);    /* the part of the run already sent */
+    irq_restore(pm);
+    return n;
+}
+
 int hal_din_read(void)
 {
     if (din_dma) {

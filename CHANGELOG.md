@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.24.0](https://github.com/cubicecho/gemifi/compare/v0.23.0...v0.24.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **leds:** resend rgb_serial LEDs while idle; a pad hit shows active for 80 ms ([2ea9d7d](https://github.com/cubicecho/gemifi/commit/2ea9d7d36ffd512cb409912ce8451410586c2ee4))
+
+
+### Features
+
+* **din:** usb_merge is the default din_midi mode; drop garbled DIN In bytes ([0a91ebf](https://github.com/cubicecho/gemifi/commit/0a91ebf92615f660fd54a16d11becbd344007811)), closes [#54](https://github.com/cubicecho/gemifi/issues/54)
+* **stm32f1:** hold the power button 2 s to switch off ([528043a](https://github.com/cubicecho/gemifi/commit/528043a3c31b1b7655c2dfde632f870d6e012b70))
+
 # [0.23.0](https://github.com/cubicecho/gemifi/compare/v0.22.0...v0.23.0) (2026-11-04)
 
 

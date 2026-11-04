@@ -358,6 +358,11 @@ final class BitwigModel implements Model {
     }
 
     @Override
+    public void stepStrip(int d) {
+        trackBank.scrollBy(d);
+    }
+
+    @Override
     public Param master(MasterParam p) {
         switch (p) {
             case VOLUME: return masterVolume.present() ? masterVolume : null;

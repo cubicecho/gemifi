@@ -118,9 +118,13 @@ class MappingTest {
         List<Component> comps = FakeDevice.defaultComponents();
         comps.add(FakeDevice.button("frobnicate", Protocol.NONE_INDEX));
         comps.add(FakeDevice.c(Protocol.KIND_ANALOG, "cue_volume"));
+        comps.add(FakeDevice.button("zynthian.toggle_audio_play", Protocol.NONE_INDEX));  // another host's
+        comps.add(FakeDevice.button("bitwig.not_yet", Protocol.NONE_INDEX));
         setUp(comps);
-        assertEquals(1, mapping.unknownRoles().size());
+        assertEquals(2, mapping.unknownRoles().size());
         assertTrue(mapping.unknownRoles().get(0).endsWith("frobnicate"));
+        assertTrue(mapping.unknownRoles().get(1).endsWith("bitwig.not_yet"));
+        assertTrue(logs.stream().noneMatch(s -> s.contains("zynthian.")));
         assertEquals(1, mapping.unsupportedRoles().size());
         assertTrue(logs.stream().anyMatch(s -> s.contains("cue_volume")));
         assertTrue(logs.stream().noneMatch(s -> s.contains("x_custom")));
@@ -469,5 +473,30 @@ class MappingTest {
         fake.boot();                                                         // re-enumerates: onLost + onReady
         assertTrue(device.isReady());
         assertEquals(8, leds().size());
+    }
+
+    @Test
+    void stripPrevNextMoveTheBankByOne() throws ProtocolException {
+        List<Component> comps = FakeDevice.defaultComponents();
+        comps.add(FakeDevice.button("channel_left", Protocol.NONE_INDEX));    // mcu: name -> strip_prev (9)
+        comps.add(FakeDevice.button("strip_next", Protocol.NONE_INDEX));      // 10
+        setUp(comps);
+        press(10);
+        assertEquals(1, model.bankOffset);
+        press(10);
+        press(10);
+        press(10);                                                  // 10 tracks: stops at 2
+        assertEquals(2, model.bankOffset);
+        press(9);
+        assertEquals(1, model.bankOffset);
+    }
+
+    @Test
+    void touchAndPadEventsAreIgnored() {
+        fake.take(-1);
+        fake.event(5, 0, 1);                                        // touch (daw-scripts.md §4.5)
+        fake.event(7, 0, 9000);                                     // a pad twin's hit
+        fake.event(7, 0, 0);
+        assertTrue(fake.take(-1).isEmpty());
     }
 }

@@ -90,9 +90,11 @@ def test_contiguous_leds_go_as_fb_leds():
 
 
 def test_unknown_roles_are_reported_not_bound():
-    comps = [C(B, 0, "frobnicate", led=0), C(B, 1, "x_mine"), C(A, 0, "volume_9")]
+    comps = [C(B, 0, "frobnicate", led=0), C(B, 1, "x_mine"), C(A, 0, "volume_9"),
+             C(B, 2, "zynthian.toggle_audio_play"), C(B, 3, "live.not_yet")]
     r = Rig(comps)
-    assert sorted(role for _, _, role in r.m.unknown_roles) == ["frobnicate", "volume_9"]
+    # Another host's <host>.<command> is ignored quietly, like x_; an unknown live.* one is reported.
+    assert sorted(role for _, _, role in r.m.unknown_roles) == ["frobnicate", "live.not_yet", "volume_9"]
     r.m.refresh()
     assert r.take() == []
 
@@ -395,3 +397,39 @@ def test_added_fields_limit_what_is_sent():
     t1 = r.song.tracks[0]
     r.analog(0, 1000)
     assert t1.params["volume"].value == pytest.approx(0.85)
+
+
+def test_strip_prev_next_move_the_bank_by_one():
+    comps = [C(B, 0, "strip_prev", led=0), C(B, 1, "strip_next", led=1), C(B, 2, "bank_next", led=2),
+             C(B, 3, "arm_1", led=3)]
+    r = Rig(comps, n_tracks=10)
+    r.m.refresh()
+    leds = r.leds()
+    assert (leds[0], leds[1]) == (OFF, ON)
+    r.press(1)
+    assert r.m.bank_offset == 1
+    r.song.tracks[1].flags["arm"] = True
+    r.m.refresh()
+    assert r.leds()[3] == ON                         # arm_1 now shows track 2
+    r.press(1)
+    r.press(1)                                       # offset 3: tracks 4..11, but only 10 exist
+    assert r.m.bank_offset == 2                      # stops once the last track is in the bank
+    assert r.leds()[1] == OFF
+    r.press(0)
+    assert r.m.bank_offset == 1
+
+
+def test_mcu_channel_buttons_are_strip_roles():
+    comps = [C(B, 0, "channel_right", led=0)]
+    r = Rig(comps, n_tracks=10)
+    assert r.comps[0].role == "strip_next"
+    r.press(0)
+    assert r.m.bank_offset == 1
+
+
+def test_touch_and_pad_events_are_ignored(rig):
+    rig.take()
+    rig.m.handle_event(P.Event(5, 0, 1))             # touch (daw-scripts.md 4.5)
+    rig.m.handle_event(P.Event(7, 0, 9000))          # pad twin hit
+    rig.m.handle_event(P.Event(7, 0, 0))
+    assert rig.take() == []

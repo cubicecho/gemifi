@@ -27,7 +27,7 @@ def test_normalise_role():
     assert n("vpot_8") == "pan_8"
     assert n("rec_1") == "arm_1"
     assert (n("bank_left"), n("bank_right")) == ("bank_prev", "bank_next")
-    assert (n("channel_left"), n("channel_right")) == ("track_prev", "track_next")
+    assert (n("channel_left"), n("channel_right")) == ("strip_prev", "strip_next")
     assert (n("cycle"), n("click")) == ("loop", "metronome")
     for same in ("solo_2", "mute_4", "select_1", "play", "stop", "record", "rewind", "fast_forward", "undo",
                  "device_param_3", "x_mine", ""):

@@ -59,10 +59,10 @@ Notifications go out at any time, and only to a device with caps bit 6.
 `mcu:` names are mapped first, as `hosts/README.md` says:
 - `fader_N` → `volume_N`, `vpot_N` → `pan_N`, `rec_N` → `arm_N`
 - `master` → `master_volume`
-- `bank_left/right`, `channel_left/right`
+- `bank_left/right` → `bank_prev/next`, `channel_left/right` → `strip_prev/next`
 - `cycle` → `loop`, `click` → `metronome`
 
-Unknown roles are logged and ignored. `x_…` roles are ignored without a log line. A role Bitwig can't do is logged as "not supported in this host".
+Unknown roles are logged and ignored. `x_…` roles and other hosts' commands (`zynthian.…`) are ignored without a log line. A role Bitwig can't do is logged as "not supported in this host".
 
 A role on a button acts on press, and the button's LED (if it has one) shows the state. A role on a kind-5 LED shows the same state. LED levels are 127 on, 0 off and 1 blink.
 
@@ -84,6 +84,7 @@ A role on a button acts on press, and the button's LED (if it has one) shows the
 | `mute_N`, `solo_N`, `arm_N` | toggle on strip N of the 8-track bank | that track's state |
 | `select_N` | select strip N's track (`CursorTrack.selectChannel`) | lit when it is the selected track |
 | `bank_prev`, `bank_next` | scroll the bank by 8 tracks | lit if it can scroll |
+| `strip_prev`, `strip_next` | scroll the bank by 1 track | lit if it can scroll |
 | `device_prev`, `device_next` | `CursorDevice.selectPrevious()` / `selectNext()` | lit if there is one |
 | `device_bank_prev`, `device_bank_next` | previous / next remote-controls page | lit if there is one |
 | `device_on` | toggle the selected device's `isEnabled` | lit while on |

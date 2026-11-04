@@ -120,6 +120,9 @@ public interface Model {
     /** Moves the 8 strips by 8 tracks. */
     default void stepBank(int d) {}
 
+    /** Moves the 8 strips by 1 track ({@code strip_prev} / {@code strip_next}). */
+    default void stepStrip(int d) {}
+
     // ---- master ----
 
     default Param master(MasterParam p) {

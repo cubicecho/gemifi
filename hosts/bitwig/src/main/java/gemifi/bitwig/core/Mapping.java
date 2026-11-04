@@ -33,6 +33,8 @@ import java.util.function.Supplier;
  */
 public final class Mapping {
     public static final int STRIPS = 8;
+    /** This extension's {@code <host>.<command>} namespace (no commands yet); other hosts' are ignored. */
+    public static final String HOST_NAMESPACE = "bitwig";
     public static final int V14 = Protocol.U14_MAX;
     /** FB_LED levels (§4.6.2: 0 off, 1 blink, 2..127 on). */
     public static final int ON = 127, OFF = 0, BLINK = 1;
@@ -259,7 +261,7 @@ public final class Mapping {
     }
 
     private boolean usable(Component c) {
-        if (c.role.startsWith("x_")) return false;
+        if (c.role.startsWith("x_") || Roles.isOtherHostCommand(c.role, HOST_NAMESPACE)) return false;
         if (!model.supports(c.role)) {
             unsupportedRoles.add(describe(c));
             return false;
@@ -337,6 +339,11 @@ public final class Mapping {
             case "bank_next": {
                 int d = role.endsWith("prev") ? -1 : 1;
                 return ButtonRole.of(() -> m.stepBank(d), () -> lit(m.canStepBank(d)));
+            }
+            case "strip_prev":
+            case "strip_next": {
+                int d = role.endsWith("prev") ? -1 : 1;
+                return ButtonRole.of(() -> m.stepStrip(d), () -> lit(m.canStepBank(d)));
             }
             case "device_prev":
             case "device_next": {

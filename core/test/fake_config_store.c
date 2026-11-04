@@ -26,6 +26,7 @@ typedef struct {
 static fake_rec_t recs[FAKE_SLOTS];
 int fake_cs_writes;                  /* records written (incl. tombstones) */
 int fake_cs_fail;                    /* next writes fail with GSX_FLASH_ERR */
+int fake_cs_reads;                   /* config_store_read calls */
 
 int config_store_write(uint8_t slot, uint16_t revision, const char *name,
                        const cs_entry_t *e, uint32_t n)
@@ -51,6 +52,7 @@ int config_store_write(uint8_t slot, uint16_t revision, const char *name,
 int config_store_read(uint8_t slot, cs_slot_info_t *info,
                       void (*cb)(const cs_entry_t *e, void *ctx), void *ctx)
 {
+    fake_cs_reads++;
     if (slot >= FAKE_SLOTS || !recs[slot].used)
         return 0;
     const fake_rec_t *r = &recs[slot];

@@ -25,6 +25,15 @@
 #include "gsx.h"
 
 static int fails, checks;
+
+/* The display's messages (linked with --wrap=gm_display_message). */
+void __real_gm_display_message(const char *s);
+static char shown[32];
+void __wrap_gm_display_message(const char *s)
+{
+    strncpy(shown, s, sizeof shown - 1);
+    __real_gm_display_message(s);
+}
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 /* ---- simulated hardware ---------------------------------------------- */
@@ -562,6 +571,21 @@ static void test_presets(void)
     CHECK(preset_name(0, "x") == GSX_BAD_PARAM && preset_name(9, "x") == GSX_BAD_PARAM, "bad slot");
     CHECK(preset_name(4, "") == GSX_OK && fake_cs_count(4) == -1 && preset_info(4, &in) == GSX_OK &&
           !strcmp(in.name, "Preset 4"), "empty name: back to the YAML name");
+
+    /* A switch shows the preset's name, read with its values (one read) */
+    {
+        static const struct { uint32_t slot; const char *name; } sw[] = {
+            { 2, "Kit" }, { 3, "DAW" }, { 4, "Preset 4" }, { 1, "Default" },
+        };
+        for (uint32_t i = 0; i < sizeof sw / sizeof sw[0]; i++) {
+            shown[0] = 0;
+            int reads = fake_cs_reads;
+            set_param(P_PRESET_ACTIVE, 0, (int32_t)sw[i].slot);
+            CHECK(gm_cfg.preset_active == (int32_t)sw[i].slot && !strcmp(shown, sw[i].name) &&
+                  fake_cs_reads - reads == 1, "switch to %u: shows '%s' (got '%s'), %d store reads (1)",
+                  (unsigned)sw[i].slot, sw[i].name, shown, fake_cs_reads - reads);
+        }
+    }
 
     /* PRESET_SAVE (save as) from slot 3 with edits */
     set_param(P_PRESET_ACTIVE, 0, 3);

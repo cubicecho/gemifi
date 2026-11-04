@@ -33,9 +33,10 @@ extern volatile uint32_t gm_scan_period_us;
 /* Longest time, in hal_cycles() units, of each part of a scan: key matrix,
  * switch matrices, encoders. All 0 where hal_cycles() isn't implemented. */
 extern volatile uint32_t gm_scan_part_max[3];
-/* Longest time, in hal_cycles() units, of each part of gm_poll(): protocol
- * and presets, keys/buttons/ramps, analog, pads, encoders, the LED update
- * (every 10 ms), the LED writes (TM1628 bytes, serial LEDs). Wall time:
+/* Longest time, in hal_cycles() units, of each part of gm_poll(): protocol,
+ * DIN, presets and I2C hubs; keys/buttons/ramps; analog; pads; encoders;
+ * the LED update (every 10 ms); the LED writes (TM1628 bytes, serial LEDs).
+ * By index, not run order: keys/buttons (1) run first. Wall time:
  * interrupts that land in a part count too. */
 #define GM_POLL_PARTS 7
 extern uint32_t gm_poll_part_max[GM_POLL_PARTS];

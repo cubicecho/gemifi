@@ -35,6 +35,8 @@ uint32_t hal_millis(void)
 /* ---- short delays: DWT cycle counter, SysTick fallback ----------------- */
 
 static uint8_t have_dwt;
+static uint32_t cyc_per_us = 8u;    /* HCLK MHz: HSI until hal_delay_calibrate() */
+static uint32_t cyc_per_ns_q12;     /* HCLK cycles per ns, << 12; 0 = no DWT */
 
 void hal_delay_calibrate(void)
 {
@@ -45,6 +47,8 @@ void hal_delay_calibrate(void)
     for (volatile uint32_t i = 0; i < 16u; i++) {
     }
     have_dwt = DWT_CYCCNT != t0;    /* a clone without a working CYCCNT */
+    cyc_per_us = sys_hclk_hz / 1000000u;    /* once, not a division per delay */
+    cyc_per_ns_q12 = have_dwt ? (sys_hclk_hz / 1000u * 4096u + 999999u) / 1000000u : 0u;
 }
 
 void hal_delay_us(uint32_t us)
@@ -53,7 +57,7 @@ void hal_delay_us(uint32_t us)
         sys_delay_ms((us + 999u) / 1000u);
         return;
     }
-    uint32_t want = us * (sys_hclk_hz / 1000000u);
+    uint32_t want = us * cyc_per_us;
     if (have_dwt) {
         uint32_t t0 = DWT_CYCCNT;
         while (DWT_CYCCNT - t0 < want) {
@@ -68,6 +72,13 @@ void hal_delay_us(uint32_t us)
         done += now <= prev ? prev - now : prev + reload - now;
         prev = now;
     }
+}
+
+/* DWT cycles (HCLK) in ns, rounded up: a multiply and a shift. 72 MHz:
+ * 295 / 4096 a ns, 0.03 % long. */
+uint32_t hal_ns_to_cycles(uint32_t ns)
+{
+    return (ns * cyc_per_ns_q12 + 4095u) >> 12;
 }
 
 /* ---- GPIO ------------------------------------------------------------- */
@@ -245,9 +256,10 @@ int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n)
 
 /* ---- MIDI over USB ---------------------------------------------------- */
 
-/* MIDI out waits: a send finds the 64-byte packet buffer full and waits
- * for the host to take the last packet (or a protocol reply flushes). Sends
- * that took over 100 us, and the longest, for the scan report. */
+/* MIDI out waits: a send finds usb_midi.c's packet ring full and waits for
+ * the host to take a packet (or a protocol reply flushes). Sends that took
+ * over 100 us, and the longest, for the scan report. With no host reading
+ * there are none: usb_midi.c then drops sends at once. */
 volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;
 
 static void midi_timed(uint32_t c0)
@@ -566,6 +578,16 @@ int hal_din_write(const uint8_t *b, uint32_t n)
         USART1_CR1 |= USART_CR1_TXEIE;      /* the handler takes it from here */
     }
     return 1;
+}
+
+uint32_t hal_din_tx_queued(void)
+{
+    uint32_t pm = irq_save();               /* the DMA interrupt moves tail and run */
+    uint32_t n = din_tx_head - din_tx_tail;
+    if (din_tx_run)
+        n -= din_tx_run - DMA1_CNDTR(CH_DIN_TX);    /* the part of the run already sent */
+    irq_restore(pm);
+    return n;
 }
 
 int hal_din_read(void)

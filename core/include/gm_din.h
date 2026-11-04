@@ -13,9 +13,9 @@
  *                    when midi.usb_to_din is on
  *     din_only       no USB link
  *
- * DIN Out carries whole messages: a SysEx from one source holds back the
- * others' messages (realtime bytes still go straight through, as MIDI
- * allows) until its F7.
+ * DIN Out carries whole messages, with running status: a SysEx from one
+ * source holds back the others' messages (realtime bytes still go straight
+ * through, as MIDI allows) until its F7.
  *
  * SPDX-License-Identifier: MIT
  */

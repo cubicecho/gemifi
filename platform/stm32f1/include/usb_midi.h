@@ -92,18 +92,27 @@ int midi_rx_poll(gsx_rx_t *rx);
 void midi_rx_drain(void (*cb)(const uint8_t ev[4]));
 
 /* ---- transmit --------------------------------------------------------- */
-/* Queue one 4-byte USB-MIDI event; sent in 64-byte packets. */
+/* Queue one 4-byte USB-MIDI event; sent in 64-byte packets. MIDI_TX_PKTS
+ * of them (default 4, usb_midi.c) queue behind the one in flight, so this
+ * only waits when more than that is sent before the host takes a packet,
+ * and then at most until the packet in flight is MIDI_TX_TIMEOUT_MS (50 ms)
+ * old. Host absent: once the host leaves a packet that long (no app has
+ * the port open), the queue and everything sent after it are dropped at
+ * once, until the host reads again (a zero-length packet waits in the
+ * endpoint to notice that). */
 void midi_tx_event(uint8_t cin, uint8_t b0, uint8_t b1, uint8_t b2);
 /* Queue a complete SysEx message (F0 ... F7) as CIN 4/5/6/7 events, on
  * cable 0 / on a cable. */
 void midi_tx_sysex(const uint8_t *p, uint32_t n);
 void midi_tx_sysex_cable(uint8_t cable, const uint8_t *p, uint32_t n);
-/* Send whatever is queued. Waits up to timeout_ms for the IN endpoint
- * (polling usbd_poll() meanwhile); on timeout the data is dropped.
- * Returns 0 if sent, -1 if dropped. */
+/* Send whatever is queued: returns once the last packet is in the IN
+ * endpoint. Waits up to timeout_ms for the host (polling usbd_poll()
+ * meanwhile); on timeout the data is dropped and the host marked absent.
+ * Returns 0 if sent, -1 if dropped (at once if the host is absent). */
 int midi_tx_flush(uint32_t timeout_ms);
-/* Non-blocking: send what is queued if the IN endpoint is free. Call it
- * from the main loop; events queue up (64 B) while the host is busy. */
+/* Non-blocking: hand the next queued packet to the IN endpoint if it is
+ * free, and notice a host that stopped reading. Call it from the main
+ * loop. */
 void midi_tx_poll(void);
 
 #endif

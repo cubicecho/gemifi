@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.19.0](https://github.com/cubicecho/gemifi/compare/v0.18.0...v0.19.0) (2026-11-04)
+
+
+### Features
+
+* **web:** preset controls in the Config card ([1219227](https://github.com/cubicecho/gemifi/commit/1219227b16db70ff6d1cf22f2825b2506ebc4b05))
+
 # [0.18.0](https://github.com/cubicecho/gemifi/compare/v0.17.0...v0.18.0) (2026-11-04)
 
 

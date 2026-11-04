@@ -100,6 +100,7 @@ Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol
 | `select_N` | button | make chain `pos` the active chain | to check (chain_manager API) |
 | `bank_prev`, `bank_next` | button | `scroll_h ∓ 8` (clamped to `get_num_filtered_chains()`), then `refresh()` | verified pattern (base class scrolling) |
 | `master_volume` | analog / encoder | `"level"` on `pos = -1` (main chain) | verified (mackiecontrol) |
+| `master_mute` | button | toggles `"mute"` on the main chain (chain 0); LED lit while muted | unit-tested |
 | `track_volume`, `track_pan`, `track_mute`, `track_solo`, `track_arm` | as above | the same mixer params on the **active** chain (its display index) | to check (finding the active chain's index) |
 | `track_prev`, `track_next` | button | select the previous / next chain (`ARROW_LEFT` / `ARROW_RIGHT` CUIA in the mixer view is one option) | to check |
 | `play` | button | `TOGGLE_AUDIO_PLAY` (or `TOGGLE_MIDI_PLAY`, a driver option) | verified CUIA names (mackiecontrol) |

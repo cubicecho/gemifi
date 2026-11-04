@@ -6,7 +6,7 @@
 # Up / Down (Channel held: the MIDI channel), the soft power button (hold 2 s
 # to switch off) and settings saving. Values still tagged [guess] below are
 # untuned. DAW scripts (Bitwig, Live; hosts/README.md) find the transport,
-# faders, encoders and B1-B8 by their daw: roles; without a script those send
+# faders, encoders and B1-B9 by their daw: roles; without a script those send
 # their CCs as usual.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
@@ -256,9 +256,10 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders,
-# 29 = button mode). Slots 38 and 39 have no button (placeholders). A
-# switch_matrix takes at most 32 switches, so row 20 is its own.
+# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders:
+# b1 under the master fader, b2-b9 under faders 1-8; 29 = button mode).
+# Slots 38 and 39 have no button (placeholders). A switch_matrix takes at
+# most 32 switches, so row 20 is its own.
 switch_matrix:
   - id: panel
     rows: { decoder: rows, first: 16, count: 4 }
@@ -361,15 +362,15 @@ buttons:
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
-  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led, daw: mute_1 }   # under fader 1
-  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led, daw: mute_2 }   # under fader 2
-  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led, daw: mute_3 }   # under fader 3
-  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led, daw: mute_4 }   # under fader 4
-  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led, daw: mute_5 }   # under fader 5
-  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led, daw: mute_6 }   # under fader 6
-  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led, daw: mute_7 }   # under fader 7
-  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led, daw: mute_8 }   # under fader 8
-  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led }   # under fader 9
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led, daw: master_mute }   # under the master fader
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led, daw: mute_1 }   # under fader 1
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led, daw: mute_2 }   # under fader 2
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led, daw: mute_3 }   # under fader 3
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led, daw: mute_4 }   # under fader 4
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led, daw: mute_5 }   # under fader 5
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led, daw: mute_6 }   # under fader 6
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led, daw: mute_7 }   # under fader 7
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led, daw: mute_8 }   # under fader 8
   - { id: button_mode, name: "Button mode", pin: { switch_matrix: panel, number: 29 }, action: cc_momentary, cc: 84, led: button_mode_led }
   - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led, daw: bank_prev }
   - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led, daw: bank_next }

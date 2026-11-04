@@ -2,6 +2,21 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.28.0](https://github.com/cubicecho/gemifi/compare/v0.27.0...v0.28.0) (2026-11-04)
+
+
+### Bug Fixes
+
+* **code61:** B1 is master mute, B2-B9 mute strips 1-8 ([12b3aea](https://github.com/cubicecho/gemifi/commit/12b3aeaa82f3fbac5892c853d91a986d32c7ca06))
+
+
+### Features
+
+* **code61:** DAW roles, 4 preset slots and a refreshed header ([5ef36f2](https://github.com/cubicecho/gemifi/commit/5ef36f215fc77bdb870e1a9ef261265b516c4161))
+* **code61:** pad grid and pan layer (0.2.81); YAML reference examples ([0960976](https://github.com/cubicecho/gemifi/commit/09609764b0a398635792134ee059dc03d3308185))
+* **core:** pad and encoder twins, pads as components, fader touch ([875146f](https://github.com/cubicecho/gemifi/commit/875146f14188f81cd36870c0881bbbbef68b1363))
+* **modes:** button layers and toggle-with; Code 61 mute / arm ([b758390](https://github.com/cubicecho/gemifi/commit/b758390f7015c89e23d16d82981ce9994ad0c08a))
+
 # [0.27.0](https://github.com/cubicecho/gemifi/compare/v0.26.0...v0.27.0) (2026-11-04)
 
 

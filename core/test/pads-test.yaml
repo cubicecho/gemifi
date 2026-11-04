@@ -37,12 +37,12 @@ xy_pad:
   - { id: xy, x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10 }
 
 analog:
-  - { id: fader, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 20 }
+  - { id: fader, pin: { cd74hc4051: fader_mux, number: 3 }, cc: 20, touch: movement }
   - { id: xy_x, pin: { xy_pad: xy, number: x }, cc: 16, adc_min: 592, adc_max: 3408 }
   - { id: xy_y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 592, adc_max: 3408 }
 
 pads:                                  # 0..7 on mux_a, 8..15 on mux_b, 16 direct
-  - { id: pad_1,  pin: { cd74hc4051: mux_a, number: 0 }, note: 36 }
+  - { id: pad_1,  pin: { cd74hc4051: mux_a, number: 0 }, note: 36, led: pad_1_led }
   - { id: pad_2,  pin: { cd74hc4051: mux_a, number: 1 }, note: 37 }
   - { id: pad_3,  pin: { cd74hc4051: mux_a, number: 2 }, note: 38 }
   - { id: pad_4,  pin: { cd74hc4051: mux_a, number: 3 }, note: 39 }
@@ -59,6 +59,21 @@ pads:                                  # 0..7 on mux_a, 8..15 on mux_b, 16 direc
   - { id: pad_15, pin: { cd74hc4051: mux_b, number: 6 }, note: 50 }
   - { id: pad_16, pin: { cd74hc4051: mux_b, number: 7 }, note: 51 }
   - { id: direct, pin: { number: PA2, inverted: true }, note: 60 }
+
+# A pad layer (modes: layer:): while the grid mode is on (the grid button
+# toggles it), pads 1 and 2 are their twins: EVENTs, no notes. Modes need a
+# key matrix: one key on PB12 / PB13.
+key_matrix: { type: switch, rows: [PB12], columns: [PB13], keys: 1, first_note: 72 }
+buttons:
+  - { id: grid, pin: PB14 }
+leds:
+  - { id: pad_1_led, pin: PB15 }
+modes:
+  - id: grid
+    toggle: { button: grid }
+    layer:
+      pad_1: { daw: clip_1_1 }
+      pad_2: { daw: clip_2_1, name: Clip 2 }
 
 pad_settings:
   channel: 10

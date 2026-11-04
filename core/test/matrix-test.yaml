@@ -67,12 +67,15 @@ modes:
     hold: { button: chan }
     buttons: { up: channel_up, down: channel_down }
   # Shift + lmode switches the arm layer on and off (lmode alone: CC 23); in
-  # it, mute is its twin: CC 25, its own toggle state, colour 2 on the LED.
+  # it, mute is its twin: CC 25, its own toggle state, colour 2 on the LED;
+  # lmode and the encoder have twins too.
   - id: arm
     toggle: { button: lmode, with: shift }
     led: arm_led
     layer:
       mute: { cc: 25, daw: arm_1, active: colour2 }
+      lmode: { cc: 26 }              # lmode alone in the layer: CC 26; Shift + it still leaves
+      enc: { cc: 31, daw: pan_1 }    # the encoder's twin: CC 31
 
 encoders:
   - { id: enc, pin_a: { switch_matrix: panel, number: 4 }, pin_b: { switch_matrix: panel, number: 5 }, cc: 30 }

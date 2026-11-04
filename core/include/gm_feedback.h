@@ -11,6 +11,9 @@
  *   GM_LED_OWNER      default LED owner (GM_OWNER_*) without the table
  *   GM_LED_TIMEOUT    default host_then_local timeout, 10 ms units
  *   GM_ANALOG_PICKUP  gm_analog_pickup[] (analog takeover: pickup)
+ *   GM_ANALOG_TOUCH   gm_analog_touch[] (analog touch:, EVENT touch)
+ *   GM_PAD_TWINS      gm_pad_twins[] (pads in a modes: layer:)
+ *   GM_ENC_TWINS      encoder layer twins, the last in gm_device.encoders
  *   GM_MCU            Mackie Control (gm_mcu.h, src/mcu.c)
  *   GM_HOST_FB        DAW-script messages: GET_COMPONENT and the FB_*
  *                     notifications (sysex.md 4.6, src/app_proto.c)
@@ -40,6 +43,15 @@
 #endif
 #ifndef GM_ANALOG_PICKUP
 #define GM_ANALOG_PICKUP 0
+#endif
+#ifndef GM_ANALOG_TOUCH
+#define GM_ANALOG_TOUCH 0
+#endif
+#ifndef GM_PAD_TWINS
+#define GM_PAD_TWINS 0
+#endif
+#ifndef GM_ENC_TWINS
+#define GM_ENC_TWINS 0
 #endif
 #ifndef GM_MCU
 #define GM_MCU 0

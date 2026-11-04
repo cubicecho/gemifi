@@ -218,6 +218,19 @@ static void release(int p, int c)
     run_ms(2);
 }
 
+/* encoder: A = output 17 col 0, B = output 17 col 1, one detent clockwise */
+static void turn(void)
+{
+    static const uint8_t seq[5][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };
+    out_n = 0;
+    for (int i = 0; i < 5; i++) {
+        closed[17][0] = seq[i][0];
+        closed[17][1] = seq[i][1];
+        run_ms(2);
+    }
+    run_ms(5);
+}
+
 int main(void)
 {
     fast_cols = getenv("GM_TEST_FAST_COLS") != NULL;
@@ -375,6 +388,22 @@ int main(void)
     TAP(17, 3);
     CHECK(last_msg(0xB0, &d1, &d2) && d1 == 25 && d2 == 127, "twin: CC 25 on (got %d %d)", d1, d2);
     CHECK(level[33] == 0 && level[34] == 1, "twin on: colour 2");
+    /* lmode's twin (a toggle: { with: } button may have one): alone it is
+     * CC 26, and the layer stays; Shift + it leaves (below) */
+    out_n = 0;
+    TAP(17, 2);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 26 && d2 == 0, "lmode in the layer: its twin's CC 26 (got %d)", d1);
+    CHECK(level[35] == 1, "lmode's twin alone: still in the layer");
+    /* the encoder's twin: CC 31, its own value; the base isn't stepped */
+    turn();
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 31 && d2 == 1, "encoder in the layer: CC 31 = 1 (got %d %d)", d1, d2);
+    {
+        int base_sent = 0;
+        for (int k = 0; k + 2 < out_n; k++)
+            if (out[k] == 0xB0 && out[k + 1] == 30)
+                base_sent = 1;
+        CHECK(!base_sent, "the base encoder sends nothing in the layer");
+    }
     closed[16][3] = 1;                /* back to the base layer */
     run_ms(20);
     TAP(17, 2);
@@ -412,16 +441,9 @@ int main(void)
 #undef TAP
 #endif
 
-    /* encoder: A = output 17 col 0, B = output 17 col 1, one detent clockwise */
-    out_n = 0;
-    static const uint8_t seq[5][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };
-    for (int i = 0; i < 5; i++) {
-        closed[17][0] = seq[i][0];
-        closed[17][1] = seq[i][1];
-        run_ms(2);
-    }
-    run_ms(5);
-    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30, "encoder turn: CC 30 (got %d %d)", d1, d2);
+    /* encoder, out of any layer: CC 30, from its own value (the twin's turns left it alone) */
+    turn();
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 1, "encoder turn: CC 30 = 1 (got %d %d)", d1, d2);
 
 #ifdef HW_SCAN_TEST
     /* Velocity resolution: the frames are 12 us, so 200 us apart is two

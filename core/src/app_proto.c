@@ -369,6 +369,7 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
         if (v < d->min || v > d->max || !presets_value_ok(id, v))
             return GSX_BAD_VALUE;
     }
+    params_gen++;
     for (uint32_t i = 0; i < n; i++) {
         d->values[index + i] = (int32_t)gsx_get_u(vp + 5 * i, 5);
         presets_host_set(id, (uint16_t)(index + i));

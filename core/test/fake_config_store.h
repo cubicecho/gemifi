@@ -11,6 +11,7 @@
 
 extern int fake_cs_writes;
 extern int fake_cs_fail;
+extern int fake_cs_reads;            /* config_store_read calls */
 
 /* Entries in slot's newest record, or -1 if it has none (or a tombstone). */
 int fake_cs_count(uint8_t slot);

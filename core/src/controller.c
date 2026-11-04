@@ -481,7 +481,14 @@ static void matrix_scan(void)
 #if GM_N_ENCODERS > 0
 static uint8_t enc_ab[NE];
 static int8_t enc_acc[NE];
-static volatile int16_t enc_delta[NE];
+/* Detents, free running: only encoder_step writes it (the scan interrupt,
+ * or the main loop for I2C hubs, never both for one encoder), and the main
+ * loop takes the turns as count - enc_seen. No read-modify-write from both
+ * sides, so a detent counted between the main loop's load and store isn't
+ * lost (the M0 has no LDREX; a halfword load or store is atomic). Twins
+ * aren't scanned: only the scanned encoders have counts. */
+static volatile uint16_t enc_count[GM_ARR(NE_HW)];
+static uint16_t enc_seen[GM_ARR(NE_HW)];
 static uint8_t enc_i2c[NE];
 static int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
@@ -525,10 +532,10 @@ static void encoder_step(uint32_t i)
     int32_t spd = e->steps_per_detent ? e->steps_per_detent : 4;
     if (enc_acc[i] >= spd) {
         enc_acc[i] = 0;
-        enc_delta[i]++;
+        enc_count[i]++;
     } else if (enc_acc[i] <= -spd) {
         enc_acc[i] = 0;
-        enc_delta[i]--;
+        enc_count[i]--;
     }
 }
 #endif
@@ -734,21 +741,35 @@ static int32_t log2_q8(uint32_t x)
     return msb * 256 + (int32_t)frac;
 }
 
+/* log2_q8 of the key times, for the fast / slow they were taken of (the
+ * settings change rarely; a note on shouldn't pay for two logs). 0 / 0 to
+ * start, which is never a key: slow > fast. */
+static int32_t vk_fast, vk_slow;
+static int16_t vk_lf, vk_ls;
+
 /* Stock-like curve: 127 at vel_fast, 1 at vel_slow, linear in log(time)
  * between (about -18 velocity per doubling with the defaults). */
-static uint32_t velocity(uint32_t dt_ticks)
+static uint32_t velocity(uint16_t dt_ticks)
 {
     if (gm_cfg.vel_curve == CURVE_FIXED || gm_device.matrix->kind != GM_MATRIX_KIND_VELOCITY)
         return (uint32_t)gm_cfg.vel_fixed;
     /* In microseconds: a hardware scan's ticks (frames) are a few tens of
      * us, finer than the 0.1 ms steps of vel_fast / vel_slow. The tick
-     * period is in 1/16 us; a product that won't fit 32 bits saturates. */
+     * period is in 1/16 us. (dt * q4) >> 4 as two products that fit 32
+     * bits, dt <= 0xFFFF (kq_push saturates it) and q4 < 2^20 (the scan
+     * period is at most 0xFFFF us; the platforms slow it to 5 ms at most,
+     * frames are tens of us): no divide. A time of 2^28 or more (the whole
+     * product over 32 bits) saturates there, as it always has. */
     uint32_t q4 = gm_scan_period_us * 16u;
 #if GM_HW_SCAN
     if (hw_on)
         q4 = hw_frame_q4;
 #endif
-    uint32_t t = q4 && dt_ticks > 0xFFFFFFFFu / q4 ? 0x0FFFFFFFu : (dt_ticks * q4) >> 4;
+    if (q4 > 0xFFFFFu)
+        q4 = 0xFFFFFu;
+    uint32_t t = dt_ticks * (q4 >> 4) + ((dt_ticks * (q4 & 15u)) >> 4);
+    if (t > 0x0FFFFFFFu)
+        t = 0x0FFFFFFFu;
     int32_t fast = gm_cfg.vel_fast * 100, slow = gm_cfg.vel_slow * 100;
     if (slow <= fast)
         slow = fast + 1;
@@ -758,7 +779,13 @@ static uint32_t velocity(uint32_t dt_ticks)
     } else if ((int32_t)t >= slow) {
         v = 1;
     } else {
-        int32_t lf = log2_q8((uint32_t)fast), ls = log2_q8((uint32_t)slow);
+        if (fast != vk_fast || slow != vk_slow) {
+            vk_fast = fast;
+            vk_slow = slow;
+            vk_lf = (int16_t)log2_q8((uint32_t)fast);
+            vk_ls = (int16_t)log2_q8((uint32_t)slow);
+        }
+        int32_t lf = vk_lf, ls = vk_ls;
         v = 127 - 126 * (log2_q8(t) - lf) / (ls - lf);
     }
     if (gm_cfg.vel_curve == CURVE_SOFT)
@@ -1392,6 +1419,9 @@ static uint8_t a_next;
 #define BEND_STEP 6                 /* raw counts */
 static int16_t a_center[NA];        /* 0..4095 */
 static int16_t a_bend[NA];          /* last pitch bend sent, 0..16383 */
+/* BEND_DEAD in 0..4095 units and BEND_STEP in bend units for each input's
+ * adc_min..adc_max (bend_scale, at init: the range is in the device table). */
+static uint16_t a_dead[NA], a_step[NA];
 #if GM_ANALOG_PICKUP
 /* Pick-up: after the host sets a value the knob isn't at, the knob stays
  * silent until it reaches or crosses that value. */
@@ -1448,16 +1478,25 @@ void gm_analog_host(uint32_t i, uint32_t value)
 #endif
 }
 
-/* Pitch bend from analog input i at pos (0..4095): centre to each end is
- * one half of the 14-bit range. */
-static void analog_bend(uint32_t i, int32_t pos)
+/* a_dead / a_step for input i. A step over 16384 acts as 16384 (no change
+ * of bend is that big); the dead zone fits (at most 16 * 4095). */
+static void bend_scale(uint32_t i)
 {
     const gm_analog_t *a = &gm_device.analogs[i];
     int32_t range = a->raw_max > a->raw_min ? a->raw_max - a->raw_min : a->raw_min - a->raw_max;
     if (range == 0)
         range = 4095;
-    int32_t dead = BEND_DEAD * 4095 / range;          /* in 0..4095 units */
-    int32_t step = BEND_STEP * 16384 / range;         /* in bend units */
+    int32_t step = BEND_STEP * 16384 / range;
+    a_dead[i] = (uint16_t)(BEND_DEAD * 4095 / range);
+    a_step[i] = (uint16_t)(step > 16384 ? 16384 : step);
+}
+
+/* Pitch bend from analog input i at pos (0..4095): centre to each end is
+ * one half of the 14-bit range. */
+static void analog_bend(uint32_t i, int32_t pos)
+{
+    int32_t dead = a_dead[i];                         /* in 0..4095 units */
+    int32_t step = a_step[i];                         /* in bend units */
     int32_t c = a_center[i], b = 8192;
     if (pos > c + dead) {
         int32_t span = 4095 - BEND_END - c - dead;
@@ -1765,10 +1804,11 @@ static void encoders_poll(void)
     for (uint32_t p = 0; p < NE_HW; p++) {
         if (enc_i2c[p])
             encoder_step(p);
-        int16_t d = enc_delta[p];
+        uint16_t c = enc_count[p];
+        int16_t d = (int16_t)(uint16_t)(c - enc_seen[p]);
         if (!d)
             continue;
-        enc_delta[p] = (int16_t)(enc_delta[p] - d);
+        enc_seen[p] = c;
         uint32_t i = ENC_LIVE(p);
         event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
 #if GM_MCU
@@ -2296,6 +2336,50 @@ void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center)
 #if GM_FEEDBACK
 static uint8_t clock_n;             /* MIDI clocks since the last beat, 0..23 */
 
+#if GM_N_BUTTONS > 0 || GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
+/* The note and CC numbers some button, analog input or encoder (a twin
+ * too) has, whatever its action or mode, so a host message for any other
+ * number skips the walk over all of them. It may say used when the
+ * component wouldn't take the message, never unused when it would. Built
+ * again when the params changed (params_gen; 0 = never set, so never
+ * built: gm_init's params_defaults moves it first). */
+static uint32_t fb_note_used[4], fb_cc_used[4];
+static uint32_t fb_used_gen;
+
+static void fb_mark(uint32_t *map, int32_t num)
+{
+    if (num >= 0 && num < 128)
+        map[num >> 5] |= 1u << (num & 31);
+}
+
+static int fb_used(uint32_t type, uint32_t num)
+{
+    if (fb_used_gen != params_gen || !params_gen) {
+        for (uint32_t w = 0; w < 4; w++)
+            fb_note_used[w] = fb_cc_used[w] = 0;
+#if GM_N_BUTTONS > 0
+        for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+            fb_mark(fb_note_used, gm_cfg.btn_number[i]);
+            fb_mark(fb_cc_used, gm_cfg.btn_number[i]);
+        }
+#endif
+#if GM_N_ANALOGS > 0
+        for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+            fb_mark(fb_cc_used, gm_cfg.analog_cc[i]);
+#endif
+#if GM_N_ENCODERS > 0
+        for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+            fb_mark(fb_cc_used, gm_cfg.enc_cc[i]);
+#endif
+        fb_used_gen = params_gen;
+    }
+    const uint32_t *map = type == 0x90 ? fb_note_used : fb_cc_used;
+    return num < 128 && ((map[num >> 5] >> (num & 31)) & 1u);
+}
+#else
+#define fb_used(type, num) 0
+#endif
+
 #if GM_LED_FB
 /* The host's value for every LED with this explicit source. */
 static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value)
@@ -2346,7 +2430,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
     if (type != 0x90 && type != 0xB0)
         return;                     /* pitch bend, poly pressure: nothing yet */
     leds_from(type == 0x90 ? GM_FB_NOTE : GM_FB_CC, num, ch, v);
-    if (ch != chan())
+    if (ch != chan() || !fb_used(type, num))
         return;
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
@@ -2575,6 +2659,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_N_ANALOGS > 0
     for (uint32_t i = 0; i < NA; i++) {
         a_sent[i] = -1;
+        bend_scale(i);
 #if GM_ANALOG_PICKUP
         a_pick[i] = -1;
 #endif

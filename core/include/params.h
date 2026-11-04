@@ -62,6 +62,11 @@ typedef struct {
 /* Provided by the app. */
 extern const param_table_t app_params;
 
+/* Bumped whenever values may have changed: params_set, params_defaults, and
+ * the code that writes `values` itself (SET_PARAMS, a preset load), so
+ * anything worked out from the values can tell it is out of date. */
+extern uint32_t params_gen;
+
 void params_defaults(void);
 /* Default of index i (the per-index default, or def). */
 int32_t params_default_at(const param_def_t *p, uint32_t i);
@@ -72,7 +77,10 @@ const param_def_t *params_find(uint16_t id);
 int params_get(uint16_t id, uint16_t index, int32_t *out);
 int params_set(uint16_t id, uint16_t index, int32_t value, int from_host);
 
-/* Schema blob: total size, and a window of it (returns bytes copied). */
+/* Schema blob: total size, and a window of it (returns bytes copied). The
+ * size is worked out once: call params_schema_measure() again if the table
+ * (labels, ...) changes after the first params_schema_size(). */
+void params_schema_measure(void);
 uint32_t params_schema_size(void);
 uint32_t params_schema_read(uint32_t offset, uint8_t *dst, uint32_t max);
 

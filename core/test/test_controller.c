@@ -25,6 +25,15 @@
 #include "gsx.h"
 
 static int fails, checks;
+
+/* The display's messages (linked with --wrap=gm_display_message). */
+void __real_gm_display_message(const char *s);
+static char shown[32];
+void __wrap_gm_display_message(const char *s)
+{
+    strncpy(shown, s, sizeof shown - 1);
+    __real_gm_display_message(s);
+}
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 /* ---- simulated hardware ---------------------------------------------- */
@@ -587,6 +596,21 @@ static void test_presets(void)
     CHECK(preset_name(4, "") == GSX_OK && fake_cs_count(4) == -1 && preset_info(4, &in) == GSX_OK &&
           !strcmp(in.name, "Preset 4"), "empty name: back to the YAML name");
 
+    /* A switch shows the preset's name, read with its values (one read) */
+    {
+        static const struct { uint32_t slot; const char *name; } sw[] = {
+            { 2, "Kit" }, { 3, "DAW" }, { 4, "Preset 4" }, { 1, "Default" },
+        };
+        for (uint32_t i = 0; i < sizeof sw / sizeof sw[0]; i++) {
+            shown[0] = 0;
+            int reads = fake_cs_reads;
+            set_param(P_PRESET_ACTIVE, 0, (int32_t)sw[i].slot);
+            CHECK(gm_cfg.preset_active == (int32_t)sw[i].slot && !strcmp(shown, sw[i].name) &&
+                  fake_cs_reads - reads == 1, "switch to %u: shows '%s' (got '%s'), %d store reads (1)",
+                  (unsigned)sw[i].slot, sw[i].name, shown, fake_cs_reads - reads);
+        }
+    }
+
     /* PRESET_SAVE (save as) from slot 3 with edits */
     set_param(P_PRESET_ACTIVE, 0, 3);
     set_param(P_ANALOG_CC, 0, 12);
@@ -851,6 +875,109 @@ static void test_modes(void)
     request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
 }
 
+/* ---- velocity sweep ----------------------------------------------------
+ * The key velocity as controller.c worked it out before the divide-free
+ * time and the cached logs (0.29.0), to check the firmware still gives
+ * exactly this over a sweep of key times, key-time settings, curves and
+ * scan periods. */
+static int32_t ref_log2_q8(uint32_t x)
+{
+    if (!x)
+        return 0;
+    int32_t msb = 31 - __builtin_clz(x);
+    uint32_t frac = msb >= 8 ? (x >> (msb - 8)) & 0xFFu : (x << (8 - msb)) & 0xFFu;
+    return msb * 256 + (int32_t)frac;
+}
+
+static int ref_velocity(uint32_t dt_ticks, uint32_t q4)
+{
+    if (gm_cfg.vel_curve == CURVE_FIXED)
+        return (int)gm_cfg.vel_fixed;
+    uint32_t t = q4 && dt_ticks > 0xFFFFFFFFu / q4 ? 0x0FFFFFFFu : (dt_ticks * q4) >> 4;
+    int32_t fast = gm_cfg.vel_fast * 100, slow = gm_cfg.vel_slow * 100;
+    if (slow <= fast)
+        slow = fast + 1;
+    int32_t v;
+    if ((int32_t)t <= fast) {
+        v = 127;
+    } else if ((int32_t)t >= slow) {
+        v = 1;
+    } else {
+        int32_t lf = ref_log2_q8((uint32_t)fast), ls = ref_log2_q8((uint32_t)slow);
+        v = 127 - 126 * (ref_log2_q8(t) - lf) / (ls - lf);
+    }
+    if (gm_cfg.vel_curve == CURVE_SOFT)
+        v = 127 - (127 - v) * (127 - v) / 127;
+    else if (gm_cfg.vel_curve == CURVE_HARD)
+        v = v * v / 127;
+    return v < 1 ? 1 : v > 127 ? 127 : v;
+}
+
+/* Key 0 with its contacts n ticks apart: the firmware sees n + 1 (the
+ * first contact is seen on the tick after it closes, the second on the
+ * one it closes on). The velocity sent, -1 = no Note On. */
+static int key_velocity(uint32_t n)
+{
+    int d1, d2;
+    out_n = 0;
+    contact[0][1] = 1;
+    ticks(1);
+    ticks(n);
+    contact[0][0] = 1;
+    ticks(1);
+    run_ms(1);
+    int v = find_msg(0x90, &d1, &d2) && d1 == 48 ? d2 : -1;
+    release_key(0);
+    return v;
+}
+
+static void test_velocity_sweep(void)
+{
+    static const int32_t times[][2] = {     /* velocity.fast, velocity.slow (0.1 ms) */
+        { 12, 1200 }, { 1, 20 }, { 500, 2000 }, { 30, 600 }, { 100, 101 },
+    };
+    int bad = 0, n_keys = 0;
+    for (uint32_t ti = 0; ti < sizeof times / sizeof times[0]; ti++) {
+        set_param(P_VEL_FAST, 0, times[ti][0]);
+        set_param(P_VEL_SLOW, 0, times[ti][1]);
+        for (int32_t curve = CURVE_NORMAL; curve <= CURVE_HARD; curve++) {
+            set_param(P_VEL_CURVE, 0, curve);
+            for (uint32_t n = 0; n < 2600; n += n < 300 ? 1 : 7) {
+                int got = key_velocity(n), want = ref_velocity(n + 1, gm_scan_period_us * 16u);
+                n_keys++;
+                if (got != want && bad++ < 5)
+                    printf("  fast %d slow %d curve %d, %u ticks: velocity %d, want %d\n",
+                           (int)times[ti][0], (int)times[ti][1], (int)curve, (unsigned)n + 1, got, want);
+            }
+        }
+    }
+    CHECK(bad == 0, "velocity sweep: %d keys as before, %d differ", n_keys, bad);
+    /* A slowed scan (5 ms, 80000/16 us) and long key times: the time no
+     * longer fits 32 bits in 1/16 us and saturates; the queue saturates
+     * the ticks at 0xFFFF. */
+    set_param(P_VEL_FAST, 0, 12);
+    set_param(P_VEL_SLOW, 0, 1200);
+    set_param(P_VEL_CURVE, 0, CURVE_SOFT);
+    uint32_t period = gm_scan_period_us;
+    static const uint32_t slow_scan[][2] = {    /* scan period (us), ticks */
+        { 5000, 1 }, { 5000, 2 }, { 5000, 53000 }, { 5000, 53687 }, { 5000, 65534 }, { 5000, 70000 },
+        { 4000, 65534 }, { 7, 65534 }, { 2, 3000 }, { 3, 2001 },
+    };
+    bad = 0;
+    for (uint32_t i = 0; i < sizeof slow_scan / sizeof slow_scan[0]; i++) {
+        gm_scan_period_us = slow_scan[i][0];
+        uint32_t n = slow_scan[i][1];
+        int got = key_velocity(n);
+        int want = ref_velocity(n + 1 > 0xFFFFu ? 0xFFFFu : n + 1, slow_scan[i][0] * 16u);
+        if (got != want && bad++ < 5)
+            printf("  scan %u us, %u ticks: velocity %d, want %d\n", (unsigned)slow_scan[i][0],
+                   (unsigned)n + 1, got, want);
+    }
+    gm_scan_period_us = period;
+    CHECK(bad == 0, "velocity with slowed scans and long key times: %d differ", bad);
+    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+}
+
 /* ---- tests ------------------------------------------------------------ */
 
 int main(int argc, char **argv)
@@ -897,6 +1024,20 @@ int main(int argc, char **argv)
         CHECK(n == 64 && memcmp(data, schema + 10, 64) == 0, "GET_SCHEMA window matches");
         put_u(p + 4, 65, 2);
         CHECK(request(GSX_CMD_GET_SCHEMA, p, 6, 0) == GSX_BAD_LEN, "GET_SCHEMA max 65");
+    }
+    {
+        /* every window (the walk stops at its end) is that part of the whole */
+        static const uint32_t maxes[] = { 1, 2, 13, 63, 64 };
+        int bad = 0;
+        for (uint32_t m = 0; m < sizeof maxes / sizeof maxes[0]; m++)
+            for (uint32_t off = 0; off <= ssize + 1u; off++) {
+                uint8_t data[64];
+                uint32_t want = off >= ssize ? 0 : ssize - off < maxes[m] ? ssize - off : maxes[m];
+                uint32_t n = params_schema_read(off, data, maxes[m]);
+                if (n != want || (n && memcmp(data, schema + off, n) != 0))
+                    bad++;
+            }
+        CHECK(bad == 0 && params_schema_size() == ssize, "every schema window matches the whole (%d differ)", bad);
     }
 
     /* keys and velocity */
@@ -1196,6 +1337,7 @@ int main(int argc, char **argv)
 
     test_presets();
     test_modes();
+    test_velocity_sweep();
 
     /* HELLO, FW_* in the app, REBOOT */
     {

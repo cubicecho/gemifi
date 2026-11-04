@@ -159,7 +159,9 @@ static void preset_changed(void)
 
 /* ---- loading ------------------------------------------------------------ */
 
-static void load_slot(uint32_t slot)
+/* Load slot's values. With info, also its record's info (info->flags 0 and
+ * name "" without one), from the same read: 1 = the slot has a record. */
+static int load_slot_info(uint32_t slot, cs_slot_info_t *info)
 {
     for (uint32_t k = 0; k < app_params.param_count; k++) {
         const param_def_t *p = &app_params.params[k];
@@ -167,17 +169,31 @@ static void load_slot(uint32_t slot)
             for (uint32_t i = 0; i < p->count; i++)
                 p->values[i] = params_default_at(p, i);
     }
+    params_gen++;
     const gm_preset_def_t *d = def_of(slot);
     gm_cfg.preset_program = d->program;     /* also without the param (1 slot) */
     for (uint32_t k = 0; k < d->n_vals; k++)
         params_set(d->vals[k].id, d->vals[k].index, d->vals[k].value, 0);
+    int has = 0;
+    if (info) {
+        info->flags = 0;
+        info->name[0] = 0;
+    }
     if (!no_store) {
         int want_preset = 1;
-        config_store_read((uint8_t)slot, 0, apply_cb, &want_preset);
+        has = config_store_read((uint8_t)slot, info, apply_cb, &want_preset);
+    } else if (info) {
+        has = config_store_read((uint8_t)slot, info, 0, 0);   /* safe: only the name, as PRESET_INFO has it */
     }
     cur = (uint8_t)slot;
     gm_cfg.preset_active = (int32_t)slot;
     gm_cfg.preset_dirty = 0;
+    return has;
+}
+
+static void load_slot(uint32_t slot)
+{
+    load_slot_info(slot, 0);
 }
 
 void presets_boot(int safe)
@@ -213,7 +229,8 @@ uint32_t presets_active(void)
 static void do_select(uint32_t slot, int from_host)
 {
     gm_release_all();
-    load_slot(slot);
+    cs_slot_info_t info;
+    int has = load_slot_info(slot, &info);
     if (gm_cfg.preset_program >= 0) {
         uint8_t m[2] = { (uint8_t)(0xC0 | ((gm_cfg.channel - 1) & 0x0F)),
                          (uint8_t)(gm_cfg.preset_program & 0x7F) };
@@ -223,9 +240,10 @@ static void do_select(uint32_t slot, int from_host)
     }
     if (!from_host)
         app_param_changed(P_PRESET_ACTIVE, 0);   /* the host knows its own SETs */
-    preset_info_t info;
-    if (presets_info(slot, &info) == GSX_OK)
-        gm_display_message(info.name);          /* over the Program Change, if any */
+    /* The name presets_info gives, from the read above: over the Program
+     * Change, if any. */
+    const char *name = has && (info.flags & CS_F_NAME) && info.name[0] ? info.name : def_of(slot)->name;
+    gm_display_message(name ? name : "");
     preset_changed();
     active_pending = 1;
     active_t = hal_millis();

@@ -389,6 +389,8 @@ The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder acc
 
 Lower-case roles before matching.
 
+**Button layers.** A device may give a physical button a second meaning while one of its modes is active (core/README.md "Button layers"): a *twin*, listed as its own button with its own role and its own LED (for example `b2` with `mute_1` and `b2_arm` with `arm_1`, on the same switch and the same LED pins). Treat it like any other button. Only the live one sends EVENTs; set both LEDs anyway: the device keeps each state and shows the live one.
+
 **Which component drives an LED.** A button with a role and an LED shows that role's state on its LED. An LED component (kind 5) with its own role shows that role's state. If both apply to the same LED, the button's role wins.
 
 ## 7. Writing the script: structure and checklist

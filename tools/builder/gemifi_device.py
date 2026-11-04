@@ -775,6 +775,7 @@ class _V:
         self.hub_by_id = {}
         self.presets = None      # the presets: mapping, once preset_slots has checked it
         self.mode_toggles = {}   # button index -> mode id, for the preset check
+        self.mode_with_toggles = {}   # toggle: { button, with }: button index -> mode id (keeps its action)
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
 
     def err(self, path, line, msg):
@@ -3053,7 +3054,9 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel": (10, "channel"), "velocity_curve": (11, "curve"),
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
-MODE_KEYS = ["id", "toggle", "hold", "parent", "led", "preset_blink", "keys", "buttons"]
+MODE_KEYS = ["id", "toggle", "hold", "parent", "led", "preset_blink", "keys", "buttons", "layer"]
+# modes[].layer.<button id>: what the twin of that button is (core/README.md "Button layers")
+LAYER_KEYS = ["name", "action", "cc", "note", "preset", "daw", "idle", "active"]
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
 RANGE_ACTIONS = ("preset_select", "channel")
 MAX_MODES = 64
@@ -3188,7 +3191,7 @@ def validate_modes(v, dev, data):
             v.err(f"{p}.id", d.line_of("id"), f"mode '{mid}' is already {by_id[mid].path}: mode ids are unique")
             continue
         m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
-                root=None, led=None, blink=False, show=None, keys=[], buttons=[])
+                root=None, led=None, blink=False, show=None, keys=[], buttons=[], with_=None, twins=0)
         given = [k for k in ("toggle", "hold", "parent") if d.get(k) is not None]
         if len(given) != 1:
             v.err(p, d.line, f"mode '{mid}' needs " + (
@@ -3239,9 +3242,11 @@ def validate_modes(v, dev, data):
         keys = d.get("keys")
         if d.get("buttons") is not None:
             mode_buttons(v, dev, m, d["buttons"], f"{p}.buttons", d.line_of("buttons"))
+        if d.get("layer") is not None:
+            mode_layer(v, dev, m, d["layer"], f"{p}.layer", d.line_of("layer"))
         if keys is None:
-            if d.get("buttons") is None:
-                v.warn(p, d.line, f"mode '{m.id}' has no keys or buttons: it does nothing")
+            if d.get("buttons") is None and d.get("layer") is None:
+                v.warn(p, d.line, f"mode '{m.id}' has no keys, buttons or layer: it does nothing")
         elif not isinstance(keys, dict):
             v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
                                                    "`keys: { C3: octave_reset, E3: { mode: pick } }`")
@@ -3277,7 +3282,7 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
     hold: the same form, the button that keeps a hold mode active while it is held."""
     t, tl = d[key], d.line_of(key)
     if isinstance(t, dict):
-        if v.mapping(t, f"{p}.{key}", tl, ["button"]) is None:
+        if v.mapping(t, f"{p}.{key}", tl, ["button", "with"] if key == "toggle" else ["button"]) is None:
             return
         if "button" not in t:
             v.err(f"{p}.{key}", tl, f"needs button: (e.g. `{key}: {{ button: edit }}`)")
@@ -3291,8 +3296,26 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
         return
     b = dev.buttons[idx]
     verb = "toggles" if key == "toggle" else "holds"
-    if idx in v.mode_toggles:
-        v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode '{v.mode_toggles[idx]}'")
+    if holder.get("with") is not None:
+        # toggle: { button, with }: the mode only with `with` held; a plain press keeps the button's action
+        w = v.ref(holder, "with", f"{p}.{key}.with", holder.line_of("with"), "button", "buttons")
+        if w is None:
+            return
+        if w == idx:
+            v.err(f"{p}.{key}.with", holder.line_of("with"), "the button can't be held with itself")
+        elif idx in v.mode_toggles or idx in v.mode_with_toggles:
+            v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode "
+                                    f"'{v.mode_toggles.get(idx) or v.mode_with_toggles[idx]}'")
+        elif w in v.mode_toggles:
+            v.err(f"{p}.{key}.with", holder.line_of("with"), f"button '{dev.buttons[w].id}' enters mode "
+                                                             f"'{v.mode_toggles[w]}' itself")
+        else:
+            v.mode_with_toggles[idx] = m.id
+            m.toggle, m.with_ = idx, w
+        return
+    if idx in v.mode_toggles or idx in v.mode_with_toggles:
+        v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode "
+                                f"'{v.mode_toggles.get(idx) or v.mode_with_toggles[idx]}'")
     elif b.action_name != "none":
         v.err(f"{p}.{key}", tl, f"button '{b.id}' {verb} this mode, so its own action would never run: remove "
                                 f"`action: {b.action_name}` (and its cc:/note:) from the button")
@@ -3315,7 +3338,7 @@ def mode_buttons(v, dev, m, btns, bp, bl):
         idx = v.ref(holder, "button", path, line, "button", "buttons")
         if idx is None:
             continue
-        if idx in v.mode_toggles or idx == m.toggle:
+        if idx in v.mode_toggles or idx in v.mode_with_toggles or idx == m.toggle:
             v.err(path, line, f"button '{bid}' enters a mode (toggle:/hold:): it can't also be bound in one")
             continue
         b = btns[bid]
@@ -3329,6 +3352,92 @@ def mode_buttons(v, dev, m, btns, bp, bl):
                               "...); buttons can't go to a sub-mode")
         if r:
             m.buttons.append((idx, r[0], r[1], f"{dev.buttons[idx].id}: {r[2]}"))
+
+
+def mode_layer(v, dev, m, layer, lp, ll):
+    """layer: { <button id>: { action/cc/note/preset, daw, name, idle, active } } (core/README.md "Button
+    layers"): while the mode is active those buttons are their twins, appended to dev.buttons (and the
+    button's LED to dev.leds): an action, number, role and toggle state of their own, and the button's LED
+    pins with the twin's looks. What a twin leaves out is the button's."""
+    if m.parent is not None:
+        v.err(lp, ll, "only a root mode (toggle: or hold:) has a layer: a sub-mode lasts one action")
+        return
+    if not isinstance(layer, dict) or not layer:
+        v.err(lp, ll, "must be a mapping of button ids to what they are in the layer, e.g. "
+                      "`layer: { b2: { cc: 52, daw: arm_1, active: red } }`")
+        return
+    bound = {k[0] for k in m.buttons}
+    for bid in layer:
+        path, line = f"{lp}.{bid}", layer.line_of(bid)
+        holder = LDict(button=bid)
+        holder.line = line
+        idx = v.ref(holder, "button", path, line, "button", "buttons")
+        if idx is None:
+            continue
+        b = dev.buttons[idx]
+        if getattr(b, "layer", 0):
+            v.err(path, line, f"'{bid}' is a layer twin: give the layer the button itself")
+            continue
+        if idx in (m.toggle, m.with_) or idx in v.mode_toggles or idx in v.mode_with_toggles:
+            v.err(path, line, f"button '{bid}' enters a mode (or is held for one): it can't have a twin")
+            continue
+        if idx in bound:
+            v.err(path, line, f"button '{bid}' is also in this mode's buttons:; give it one of the two")
+            continue
+        e = layer[bid]
+        if e is None:
+            e = LDict()
+            e.line = line
+        e = v.mapping(e, path, line, LAYER_KEYS)
+        if e is None:
+            continue
+        act, num = button_action(v, dev, e, path, base=(b.action_name, b.number))
+        tid = v.register(f"{b.id}_{m.id}", path, line, "button", len(dev.buttons))
+        if tid is None:
+            continue
+        name = v.string(e, "name", path)
+        led = -1
+        if b.led >= 0:
+            bl = dev.leds[b.led]
+            led = len(dev.leds)
+            if led > 127:
+                v.err(path, line, "LED index over 127 can't be referenced: too many LEDs for another twin")
+                continue
+            looks = layer_led_looks(v, e, path, led_kind(bl.pin2, bl.pin3), bl.looks)
+            lid = v.register(f"{bl.id}_{m.id}", path, line, "LED", led) or f"{bl.id}_{m.id}"
+            dev.leds.append(Hub(id=lid, name=f"{bl.name} {m.id}", pin=bl.pin, pin2=bl.pin2, pin3=bl.pin3,
+                                looks=looks, source=None, owner=bl.owner, timeout=bl.timeout, path=path,
+                                line=line, used_by=[("button", act)], daw=None, local_line=None,
+                                layer=m.index + 1, base=b.led))
+        elif e.get("idle") is not None or e.get("active") is not None:
+            v.warn(path, line, f"button '{bid}' has no LED (led:): idle: / active: do nothing")
+        dev.buttons.append(Hub(id=tid, name=name if name is not None else f"{b.name} {m.id}", pin=b.pin,
+                               action=ACTION_IDS[act], action_name=act, number=num, led=led,
+                               daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
+        m.twins += 1
+
+
+def layer_led_looks(v, e, p, kind, base_looks):
+    """A twin LED's (idle, active): the button LED's, with the twin's idle: / active: in their place."""
+    looks = list(base_looks or LED_DEFAULT_LOOK[kind])
+    given = False
+    for k, key in enumerate(("idle", "active")):
+        if e.get(key) is None:
+            continue
+        w = look_word(e, key)
+        if w not in LED_LOOKS[kind]:
+            close = difflib.get_close_matches(w, list(LED_LOOKS[kind]), 1)
+            hint = f"did you mean '{close[0]}'? " if close else ""
+            v.err(f"{p}.{key}", e.line_of(key), f"unknown look '{w}' for this LED ({hint}valid: "
+                                                f"{', '.join(LED_LOOKS[kind])})")
+            continue
+        looks[k] = LED_LOOKS[kind][w]
+        given = True
+    if not given:
+        return base_looks
+    if looks[0] == looks[1]:
+        v.warn(p, e.line, "idle and active look the same: the LED never shows its state")
+    return tuple(looks)
 
 
 def mode_show(v, dev, m, d, p):
@@ -3458,10 +3567,11 @@ def mode_tables(dev):
         toggle = "GM_MODE_NONE" if m.toggle is None else m.toggle
         parent = "GM_MODE_NONE" if m.parent is None else m.parent
         rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
-                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr} }}, "
+                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr}"
+                    f", {0 if m.with_ is None else m.with_ + 1} }}, "
                     f"/* {_comment(m.id)} */")
     c += ["/* { toggle/hold button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys, hold, "
-          "n_buttons, buttons } */",
+          "n_buttons, buttons, with } */",
           "const gm_mode_t gm_modes[GM_N_MODES] = {", *rows, "};", ""]
     return c
 
@@ -3671,6 +3781,9 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
+    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
+    if twins:
+        h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
     h += pad_defines(dev)
     h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
     if dev.platform.is_esp:
@@ -3723,12 +3836,12 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.buttons:
         c.append("static const gm_button_t buttons[GM_N_BUTTONS] = {")
-        c += [f"    {{ {pin_c(b.pin)}, {c_str(b.name)}, {b.led} }}, /* {_comment(b.id)}: {_comment(b.pin.desc)} */"
-              for b in dev.buttons]
+        c += [f"    {{ {pin_c(b.pin)}, {c_str(b.name)}, {b.led}{twin_c(b)} }}, "
+              f"/* {_comment(b.id)}: {_comment(b.pin.desc)} */" for b in dev.buttons]
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)} }}, "
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)}{twin_c(x)} }}, "
               f"/* {_comment(x.id)}: {_comment(x.pin.desc)} */" for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:
@@ -3838,6 +3951,12 @@ def fmt_timeout(t):
     if t == TIMEOUT_NEVER:
         return "never"
     return f"{t / 100:g}s" if t % 10 == 0 and t >= 100 else fmt_us(t * 10_000)
+
+
+def twin_c(x):
+    """gm_button_t / gm_led_t .layer, .base for a layer twin (mode index + 1, the button or LED it is a
+    twin of); 0, 0 for the others."""
+    return f", {x.layer}, {x.base}" if getattr(x, "layer", 0) else ", 0, 0"
 
 
 def led_looks_c(x):

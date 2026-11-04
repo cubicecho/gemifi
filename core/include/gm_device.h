@@ -117,6 +117,11 @@ typedef struct {
     gm_pin_t pin;
     const char *name;
     int8_t led;           /* index into leds, or -1                        */
+    /* A layer twin (core/README.md "Button layers"): the same physical button
+     * as buttons[base], live only while mode layer - 1 is active (and base
+     * then isn't). 0 = an ordinary button. */
+    uint8_t layer;
+    uint8_t base;
 } gm_button_t;
 
 /* An LED with one, two or three pins. Two pins = a bicolour LED shown with
@@ -132,6 +137,8 @@ typedef struct {
     gm_pin_t pin2;        /* LEDs have no name: nothing shows it */
     gm_pin_t pin3;        /* RGB: blue; GM_NO_PIN otherwise */
     uint8_t looks;        /* GM_LED_LOOKS(idle, active), 0 = defaults */
+    uint8_t layer;        /* a layer twin of leds[base] (as gm_button_t), 0 = none */
+    uint8_t base;
 } gm_led_t;
 
 typedef struct {
@@ -336,6 +343,8 @@ typedef struct {
     uint8_t hold;                /* 1: active while the toggle button is held */
     uint8_t n_buttons;
     const gm_mode_key_t *buttons;   /* { button index, op, arg }, sorted  */
+    uint8_t with;                /* toggle only while button with - 1 is held
+                                    (else the toggle button's own action runs); 0 = none */
 } gm_mode_t;
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */

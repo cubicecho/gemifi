@@ -7,7 +7,9 @@
 # to switch off) and settings saving. Values still tagged [guess] below are
 # untuned. DAW scripts (Bitwig, Live; hosts/README.md) find the transport,
 # faders, encoders and B1-B9 by their daw: roles; without a script those send
-# their CCs as usual.
+# their CCs as usual. B1-B9 mute (white, blue while muted); Shift + Button
+# mode switches B2-B9 to record arm (red while armed) and back (modes: arm,
+# untested on hardware).
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -31,7 +33,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.75
+  version: 0.2.80
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -180,16 +182,16 @@ leds:
   - { id: num_2_led, name: "2", pin: { tm1628: leds_a, number: 100 } }
   - { id: num_3_led, name: "3", pin: { tm1628: leds_a, number: 101 } }
   - { id: num_4_led, name: "4", pin: { tm1628: leds_a, number: 102 } }
-  - { id: b1_led, name: "B1", pin: { tm1628: leds_b, number: 32 }, pin2: { tm1628: leds_b, number: 16 }, pin3: { tm1628: leds_b, number: 0 } }
-  - { id: b2_led, name: "B2", pin: { tm1628: leds_b, number: 33 }, pin2: { tm1628: leds_b, number: 17 }, pin3: { tm1628: leds_b, number: 1 } }
-  - { id: b3_led, name: "B3", pin: { tm1628: leds_b, number: 34 }, pin2: { tm1628: leds_b, number: 18 }, pin3: { tm1628: leds_b, number: 2 } }
-  - { id: b4_led, name: "B4", pin: { tm1628: leds_b, number: 35 }, pin2: { tm1628: leds_b, number: 19 }, pin3: { tm1628: leds_b, number: 3 } }
-  - { id: b5_led, name: "B5", pin: { tm1628: leds_b, number: 36 }, pin2: { tm1628: leds_b, number: 20 }, pin3: { tm1628: leds_b, number: 4 } }
-  - { id: b6_led, name: "B6", pin: { tm1628: leds_b, number: 37 }, pin2: { tm1628: leds_b, number: 21 }, pin3: { tm1628: leds_b, number: 5 } }
-  - { id: b7_led, name: "B7", pin: { tm1628: leds_b, number: 38 }, pin2: { tm1628: leds_b, number: 22 }, pin3: { tm1628: leds_b, number: 6 } }
-  - { id: b8_led, name: "B8", pin: { tm1628: leds_b, number: 39 }, pin2: { tm1628: leds_b, number: 23 }, pin3: { tm1628: leds_b, number: 7 } }
-  - { id: b9_led, name: "B9", pin: { tm1628: leds_b, number: 40 }, pin2: { tm1628: leds_b, number: 24 }, pin3: { tm1628: leds_b, number: 8 } }
-  - { id: button_mode_led, name: "Button mode", pin: { tm1628: leds_b, number: 41 }, pin2: { tm1628: leds_b, number: 25 }, pin3: { tm1628: leds_b, number: 9 } }
+  - { id: b1_led, name: "B1", pin: { tm1628: leds_b, number: 32 }, pin2: { tm1628: leds_b, number: 16 }, pin3: { tm1628: leds_b, number: 0 }, idle: white, active: blue }
+  - { id: b2_led, name: "B2", pin: { tm1628: leds_b, number: 33 }, pin2: { tm1628: leds_b, number: 17 }, pin3: { tm1628: leds_b, number: 1 }, idle: white, active: blue }
+  - { id: b3_led, name: "B3", pin: { tm1628: leds_b, number: 34 }, pin2: { tm1628: leds_b, number: 18 }, pin3: { tm1628: leds_b, number: 2 }, idle: white, active: blue }
+  - { id: b4_led, name: "B4", pin: { tm1628: leds_b, number: 35 }, pin2: { tm1628: leds_b, number: 19 }, pin3: { tm1628: leds_b, number: 3 }, idle: white, active: blue }
+  - { id: b5_led, name: "B5", pin: { tm1628: leds_b, number: 36 }, pin2: { tm1628: leds_b, number: 20 }, pin3: { tm1628: leds_b, number: 4 }, idle: white, active: blue }
+  - { id: b6_led, name: "B6", pin: { tm1628: leds_b, number: 37 }, pin2: { tm1628: leds_b, number: 21 }, pin3: { tm1628: leds_b, number: 5 }, idle: white, active: blue }
+  - { id: b7_led, name: "B7", pin: { tm1628: leds_b, number: 38 }, pin2: { tm1628: leds_b, number: 22 }, pin3: { tm1628: leds_b, number: 6 }, idle: white, active: blue }
+  - { id: b8_led, name: "B8", pin: { tm1628: leds_b, number: 39 }, pin2: { tm1628: leds_b, number: 23 }, pin3: { tm1628: leds_b, number: 7 }, idle: white, active: blue }
+  - { id: b9_led, name: "B9", pin: { tm1628: leds_b, number: 40 }, pin2: { tm1628: leds_b, number: 24 }, pin3: { tm1628: leds_b, number: 8 }, idle: white, active: blue }
+  - { id: button_mode_led, name: "Button mode", pin: { tm1628: leds_b, number: 41 }, pin2: { tm1628: leds_b, number: 25 }, pin3: { tm1628: leds_b, number: 9 }, idle: blue, active: red }
   - { id: bank_left_led, name: "Bank left", pin: { tm1628: leds_b, number: 42 }, pin2: { tm1628: leds_b, number: 26 }, pin3: { tm1628: leds_b, number: 10 } }
   - { id: bank_right_led, name: "Bank right", pin: { tm1628: leds_b, number: 43 }, pin2: { tm1628: leds_b, number: 27 }, pin3: { tm1628: leds_b, number: 11 } }
   - { id: fader_mode_led, name: "Fader mode", pin: { tm1628: leds_b, number: 44 }, pin2: { tm1628: leds_b, number: 28 }, pin3: { tm1628: leds_b, number: 12 } }
@@ -362,16 +364,16 @@ buttons:
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
-  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_momentary, cc: 85, led: b1_led, daw: master_mute }   # under the master fader
-  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_momentary, cc: 86, led: b2_led, daw: mute_1 }   # under fader 1
-  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_momentary, cc: 87, led: b3_led, daw: mute_2 }   # under fader 2
-  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_momentary, cc: 88, led: b4_led, daw: mute_3 }   # under fader 3
-  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_momentary, cc: 89, led: b5_led, daw: mute_4 }   # under fader 4
-  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_momentary, cc: 90, led: b6_led, daw: mute_5 }   # under fader 5
-  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_momentary, cc: 91, led: b7_led, daw: mute_6 }   # under fader 6
-  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_momentary, cc: 92, led: b8_led, daw: mute_7 }   # under fader 7
-  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_momentary, cc: 93, led: b9_led, daw: mute_8 }   # under fader 8
-  - { id: button_mode, name: "Button mode", pin: { switch_matrix: panel, number: 29 }, action: cc_momentary, cc: 84, led: button_mode_led }
+  - { id: b1, name: "B1", pin: { switch_matrix: panel, number: 20 }, action: cc_toggle, cc: 85, led: b1_led, daw: master_mute }   # under the master fader
+  - { id: b2, name: "B2", pin: { switch_matrix: panel, number: 21 }, action: cc_toggle, cc: 86, led: b2_led, daw: mute_1 }   # under fader 1
+  - { id: b3, name: "B3", pin: { switch_matrix: panel, number: 22 }, action: cc_toggle, cc: 87, led: b3_led, daw: mute_2 }   # under fader 2
+  - { id: b4, name: "B4", pin: { switch_matrix: panel, number: 23 }, action: cc_toggle, cc: 88, led: b4_led, daw: mute_3 }   # under fader 3
+  - { id: b5, name: "B5", pin: { switch_matrix: panel, number: 24 }, action: cc_toggle, cc: 89, led: b5_led, daw: mute_4 }   # under fader 4
+  - { id: b6, name: "B6", pin: { switch_matrix: panel, number: 25 }, action: cc_toggle, cc: 90, led: b6_led, daw: mute_5 }   # under fader 5
+  - { id: b7, name: "B7", pin: { switch_matrix: panel, number: 26 }, action: cc_toggle, cc: 91, led: b7_led, daw: mute_6 }   # under fader 6
+  - { id: b8, name: "B8", pin: { switch_matrix: panel, number: 27 }, action: cc_toggle, cc: 92, led: b8_led, daw: mute_7 }   # under fader 7
+  - { id: b9, name: "B9", pin: { switch_matrix: panel, number: 28 }, action: cc_toggle, cc: 93, led: b9_led, daw: mute_8 }   # under fader 8
+  - { id: button_mode, name: "Button mode", pin: { switch_matrix: panel, number: 29 }, action: cc_momentary, cc: 84 }   # Shift + it: the mute / arm layers (modes: below); its LED shows which
   - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led, daw: bank_prev }
   - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led, daw: bank_next }
   - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96, led: fader_mode_led }
@@ -447,3 +449,21 @@ modes:
     buttons:
       up: channel_up
       down: channel_down
+  # B1-B9 start as mute buttons (B1 the master, B2-B9 strips 1-8): white,
+  # blue while muted, and Button mode's LED is blue. Shift + Button mode
+  # switches B2-B9 to record arm (their twins, core/README.md "Button
+  # layers"): CC 52-59, red while armed, and Button mode's LED red; again
+  # goes back. Each layer keeps its own on/off states. B1 stays master mute.
+  # Button mode alone still sends CC 84.
+  - id: arm
+    toggle: { button: button_mode, with: shift }
+    led: button_mode_led
+    layer:
+      b2: { cc: 52, daw: arm_1, active: red }
+      b3: { cc: 53, daw: arm_2, active: red }
+      b4: { cc: 54, daw: arm_3, active: red }
+      b5: { cc: 55, daw: arm_4, active: red }
+      b6: { cc: 56, daw: arm_5, active: red }
+      b7: { cc: 57, daw: arm_6, active: red }
+      b8: { cc: 58, daw: arm_7, active: red }
+      b9: { cc: 59, daw: arm_8, active: red }

@@ -349,6 +349,69 @@ int main(void)
     run_ms(20);
 #endif
 
+#if GM_LAYERS
+    /* Button layers: mute (output 17 col 3) is a CC 24 toggle with colour 1
+     * on its LED (PC1/PC2); Shift (16/3) + lmode (17/2) toggles the arm
+     * layer, where mute is its twin: CC 25, its own state, colour 2. */
+#define TAP(r, c) do { closed[r][c] = 1; run_ms(20); closed[r][c] = 0; run_ms(20); } while (0)
+    out_n = 0;
+    TAP(17, 3);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 24 && d2 == 127, "mute: CC 24 on (got %d %d)", d1, d2);
+    CHECK(level[33] == 1 && level[34] == 0, "mute on: colour 1");
+    out_n = 0;
+    TAP(17, 2);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 23 && d2 == 0, "lmode alone: its own CC 23, press and release");
+    CHECK(level[35] == 0, "lmode alone: no layer, arm LED off");
+    closed[16][3] = 1;                /* Shift held + lmode: the arm layer */
+    run_ms(20);
+    out_n = 0;
+    TAP(17, 2);
+    CHECK(!last_msg(0xB0, &d1, &d2) || d1 != 23, "Shift + lmode: no CC 23");
+    closed[16][3] = 0;
+    run_ms(20);
+    CHECK(level[35] == 1, "arm layer: its LED is lit");
+    CHECK(level[33] == 0 && level[34] == 0, "arm layer: the twin's state (off) on the LED");
+    out_n = 0;
+    TAP(17, 3);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 25 && d2 == 127, "twin: CC 25 on (got %d %d)", d1, d2);
+    CHECK(level[33] == 0 && level[34] == 1, "twin on: colour 2");
+    closed[16][3] = 1;                /* back to the base layer */
+    run_ms(20);
+    TAP(17, 2);
+    closed[16][3] = 0;
+    run_ms(20);
+    CHECK(level[35] == 0, "base layer again: arm LED off");
+    CHECK(level[33] == 1 && level[34] == 0, "base layer again: mute's own state (on, colour 1)");
+    out_n = 0;
+    TAP(17, 3);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 24 && d2 == 0, "mute: CC 24 off; the twin's state untouched");
+    CHECK(level[33] == 0 && level[34] == 0, "mute off: LED dark");
+    /* a press goes to the button live when it went down, its release too */
+    closed[16][3] = 1;
+    run_ms(20);
+    TAP(17, 2);                       /* arm layer */
+    closed[16][3] = 0;
+    run_ms(20);
+    out_n = 0;
+    closed[17][3] = 1;                /* twin pressed: off -> ... it was on: CC 25 off */
+    run_ms(20);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 25 && d2 == 0, "twin again: CC 25 off");
+    closed[16][3] = 1;
+    run_ms(20);
+    TAP(17, 2);                       /* layer off while it is held */
+    closed[16][3] = 0;
+    run_ms(20);
+    out_n = 0;
+    closed[17][3] = 0;
+    run_ms(20);
+    CHECK(!last_msg(0xB0, &d1, &d2) || d1 != 24, "its release isn't the base's press");
+    out_n = 0;
+    TAP(17, 3);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 24 && d2 == 127, "the next press is the base's: CC 24 on");
+    TAP(17, 3);
+#undef TAP
+#endif
+
     /* encoder: A = output 17 col 0, B = output 17 col 1, one detent clockwise */
     out_n = 0;
     static const uint8_t seq[5][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };

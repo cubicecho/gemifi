@@ -544,6 +544,7 @@ modes:
 ```
 
 - **Entering and leaving.** The toggle button enters the mode and, pressed again, leaves it, also from one of its sub-modes; there is no timeout. A `hold:` mode is active only while its button is held (it can't have sub-modes); it can be held during a toggled mode, and goes first. Keys held when the mode starts get their Note Off then, and their release sends nothing. A sub-mode (`parent:`) goes back to its parent after one action, so Edit → E3 → D4 picks preset 1 and leaves you in edit mode for another action, until Edit is pressed again.
+- **`toggle: { button: <id>, with: <id> }`** toggles the mode only while the `with:` button is held (Shift + Button mode, say). A plain press runs the toggle button's own action, so it keeps its `action:` and presets can change it; a press that toggled the mode sends nothing on release. `with:` is for `toggle:` only.
 - **The toggle (or hold) button** has no action of its own (leave `action:` out): it only toggles the mode, and presets can't rebind it. A `button.action` set for it from the host is stored but not used. Its presses still show as EVENTs. Its LED is lit while the mode is active (the default `led:`).
 - **While a mode is active,** unbound keys are silent, and the buttons keep their normal actions. A mode with no `keys:` leaves the keyboard playing.
 - **Buttons.** `buttons:` maps button ids to the same actions as keys (not sub-modes or ranges). While the mode is active, a bound button runs that instead of its own action; its release sends nothing, even if the mode has ended by then. A button pressed before the mode started is released normally. A mode's own toggle/hold button can't be bound.
@@ -553,6 +554,31 @@ modes:
 - **The builder checks** that ids are unique, that every mode has exactly one of `toggle:`, `hold:` or `parent:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that keys are on the keyboard and bound once per mode, and the actions' numbers.
 
 **Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds). The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink.
+
+### Button layers
+
+A root mode (`toggle:` or `hold:`) can give buttons a second meaning while it is active: a **layer**. Each button in `layer:` gets a **twin**, a button of its own on the same switch, with its own action, CC or note, toggle state, DAW role and LED look, and the button's LED pins.
+
+```yaml
+buttons:
+  - { id: b2, pin: ..., action: cc_toggle, cc: 86, led: b2_led, daw: mute_1 }
+leds:
+  - { id: b2_led, pin: ..., pin2: ..., pin3: ..., idle: white, active: blue }
+modes:
+  - id: arm
+    toggle: { button: button_mode, with: shift }
+    led: button_mode_led
+    layer:
+      b2: { cc: 52, daw: arm_1, active: red }   # B2 in the arm layer: CC 52, red while on
+```
+
+- **What a twin leaves out is the button's:** `action:` (so `cc:` alone keeps a `cc_toggle` a toggle), `cc:` / `note:` / `preset:`, and the LED looks. `name:` defaults to "<button name> <mode id>" ("B2 arm"). `daw:` is the twin's own, or none.
+- **One live at a time.** While the mode is active the twin takes the button's presses and drives the LED; otherwise the button does. A press's release goes to whichever took the press, even if the layer changed in between. A held hold mode's layer goes before the toggled mode's.
+- **Each keeps its state.** Toggling B2 in the arm layer leaves its mute state alone; switching layers redraws the LED with the live one's state.
+- **They are ordinary components:** the twin is the next button after the YAML's (id `<button>_<mode>`, e.g. `b2_arm`) and its LED the next LED (`b2_led_arm`). Their params (action, number) show in the config and can differ per preset, a host's echo of the twin's CC sets its toggle state, and GET_COMPONENT lists them with their roles, so DAW scripts see `arm_1` next to `mute_1` and drive each LED as usual.
+- **The builder checks** that layers are on root modes, that a button isn't both in the mode's `buttons:` and its `layer:`, and that the mode's toggle and `with:` buttons have no twin.
+
+**Generated code:** `gm_button_t` / `gm_led_t` `.layer` (mode index + 1; 0 = not a twin) and `.base` (the button / LED it is a twin of), `gm_mode_t.with` (button index + 1, 0 = none), and `GM_LAYERS` (the number of twins) in `gm_device_config.h`; without twins the layer code is left out.
 
 ## DAW feedback
 

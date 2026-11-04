@@ -12,8 +12,9 @@
  * Covers the packed v3 groups (widths, gaps, limits), the Code 61's worst
  * case (5 presets + the globals on 3 pages), the old two-page layout, old v2
  * records, CRC-valid records with bad groups, junk pages, power cuts through
- * compactions (also a second cut while recovering), and how often a typical
- * save erases a page.
+ * compactions (also a second cut while recovering), how often a typical
+ * save erases a page, and the index the store keeps between calls (reads
+ * don't scan; every write keeps it true or drops it).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -27,6 +28,11 @@
 #include "crc32.h"
 
 uint8_t sim_flash[BOARD_CONFIG_PAGES * BOARD_FLASH_PAGE];
+
+/* config_store.c's test hooks (-DCS_TEST) */
+extern unsigned cs_test_scans;
+void cs_test_reboot(void);
+int cs_test_index_matches(void);
 
 static long cut_after = -1;               /* halfword programs + erases left; -1 = no cut */
 static long sim_erases;                    /* page erases so far */
@@ -193,17 +199,21 @@ static uint32_t rd(uint32_t off)
     return flash_read(BOARD_CONFIG_BASE + off);
 }
 
+/* Program a word behind the store's back (then it scans, as after a reset). */
 static void wr(uint32_t *off, uint32_t w, uint32_t *crc)
 {
+    cs_test_reboot();
     flash_program_word(BOARD_CONFIG_BASE + *off, w);
     if (crc)
         *crc = crc32_word(*crc, w);
     *off += 4u;
 }
 
+/* Blank pages, as on a new device (the store scans them, as after a reset). */
 static void fresh(void)
 {
     memset(sim_flash, 0xFF, sizeof(sim_flash));
+    cs_test_reboot();
 }
 
 /* ---- tests ---- */
@@ -289,6 +299,10 @@ static void test_compaction(void)
             CHECK(0, "rewrite %d failed", i);
             break;
         }
+        if (cs_test_index_matches() == 0) {
+            CHECK(0, "rewrite %d: the kept index is wrong", i);
+            break;
+        }
         if (value_of(0) != i || value_of(1) != 100 || value_of(3) != 300 || value_of(2) != -1) {
             CHECK(0, "after rewrite %d: %d %d %d %d", i, value_of(0), value_of(1), value_of(2), value_of(3));
             break;
@@ -325,6 +339,10 @@ static void test_code61(void)
             break;
         }
         cur[slot] = 10 + round;
+        if (cs_test_index_matches() == 0) {
+            CHECK(0, "rewrite %d of slot %u: the kept index is wrong", round, slot);
+            break;
+        }
         int ok = 1;
         for (uint8_t s = 0; s < 6; s++)
             ok &= is_code61(s, cur[s]);
@@ -416,6 +434,7 @@ static void test_old_layout(void)
         if (junk)
             for (uint32_t i = 2048; i < sizeof(sim_flash); i++)
                 sim_flash[i] = (uint8_t)(i * 13u + 5u);
+        cs_test_reboot();
         CHECK(value_of(0) == 5 && value_of(1) == 6 && value_of(3) == 33 && value_of(2) == -1,
               "old layout reads (junk %d): %d %d %d", junk, value_of(0), value_of(1), value_of(3));
         int ok = 1;
@@ -501,6 +520,7 @@ static void test_malformed(void)
     }
     for (uint32_t i = 0; i < sizeof(sim_flash); i++)
         sim_flash[i] = (uint8_t)(i * 37u + 11u);
+    cs_test_reboot();
     CHECK(config_store_read(0, 0, 0, 0) == 0, "junk pages read as empty");
     CHECK(write_code61(0, 3) == GSX_OK && write_code61(1, 4) == GSX_OK && is_code61(0, 3) && is_code61(1, 4),
           "writes over junk pages");
@@ -545,6 +565,12 @@ static void test_power_cuts(void)
             done = 1;
         }
         cut_after = -1;
+        if (!done && cs_test_index_matches() != -1) {
+            CHECK(0, "cut %ld: the store kept its index over a cut write", cut);
+            break;
+        }
+        if (cut & 1)
+            cs_test_reboot();              /* the reset after a cut (else: the store's own rescan) */
         if (sim_erases > 0 && !done)
             in_compaction++;
         int next = last + 1;               /* the write that was cut */
@@ -567,6 +593,8 @@ static void test_power_cuts(void)
         cut_after = -1;
         if (!cut2_done)
             second++;
+        if (cut & 2)
+            cs_test_reboot();
         if (!pc_check(3, 88)) {
             CHECK(0, "cut %ld + second cut: slots wrong", cut);
             break;
@@ -577,7 +605,7 @@ static void test_power_cuts(void)
         }
         pc_cur[3] = 89;
         pc_cur[1] = 90;
-        if (!pc_check(-1, 0)) {
+        if (!pc_check(-1, 0) || cs_test_index_matches() == 0) {
             CHECK(0, "cut %ld: slots wrong after recovery", cut);
             break;
         }
@@ -588,6 +616,82 @@ static void test_power_cuts(void)
     CHECK(in_compaction > 1000 && ran > 3000 && second > 1000,
           "only %d cut points (%d after a compaction began, %d second cuts)", ran, in_compaction, second);
     printf("power cuts: %d points, %d after a compaction began, %d second cuts\n", ran, in_compaction, second);
+}
+
+/* The index kept between calls: reads cost no scan; an append keeps it
+ * (updated), a compaction, an erase or a failed write drops it and the next
+ * call scans; a record that no longer checks out makes a read scan again. */
+static void test_index(void)
+{
+    fresh();
+    int32_t cur[6];
+    for (uint8_t s = 0; s <= 5; s++) {
+        CHECK(write_code61(s, 20 + s) == GSX_OK, "preset %u", s);
+        cur[s] = 20 + s;
+    }
+    unsigned before = cs_test_scans;
+    int ok = 1;
+    for (int k = 0; k < 10; k++)
+        for (uint8_t s = 0; s <= 5; s++)
+            ok &= is_code61(s, cur[s]);
+    CHECK(ok && config_store_read(7, 0, 0, 0) == 0 && config_store_read(200, 0, 0, 0) == 0, "reads");
+    CHECK(cs_test_scans == before, "60 reads: no scan (%u)", cs_test_scans - before);
+
+    /* write -> read -> compaction -> read, the index checked against a scan */
+    int appends = 0, compactions = 0;
+    for (int i = 0; i < 60; i++) {
+        uint8_t s = (uint8_t)(i % 6);
+        long erases = sim_erases;
+        CHECK(write_code61(s, 100 + i) == GSX_OK, "write %d", i);
+        cur[s] = 100 + i;
+        /* -1: a compaction (into a blank spare: no erase) */
+        int m = cs_test_index_matches();
+        if (m == -1)
+            compactions++;
+        else
+            appends++;
+        CHECK(m != 0 && (sim_erases == erases || m == -1), "write %d: index %d", i, m);
+        if (m == -1) {
+            before = cs_test_scans;
+            CHECK(is_code61(s, cur[s]) && cs_test_scans == before + 1, "read %d: one scan", i);
+        }
+        before = cs_test_scans;
+        ok = 1;
+        for (uint8_t k = 0; k <= 5; k++)
+            ok &= is_code61(k, cur[k]);
+        CHECK(ok && cs_test_scans == before, "write %d: every slot reads, no scan", i);
+    }
+    CHECK(appends > 10 && compactions > 3, "%d appends, %d compactions", appends, compactions);
+
+    /* tombstones and erase */
+    CHECK(config_store_erase_slot(2) == GSX_OK && cs_test_index_matches() != 0 && value_of(2) == -1,
+          "tombstone");
+    before = cs_test_scans;
+    CHECK(config_store_erase_slot(2) == GSX_OK && value_of(2) == -1 && cs_test_scans == before,
+          "a second reset writes nothing, scans nothing");
+    CHECK(config_store_erase() == GSX_OK && cs_test_index_matches() == -1, "erase drops the index");
+    for (uint8_t s = 0; s <= 5; s++)
+        CHECK(value_of(s) == -1, "slot %u gone after erase", s);
+    CHECK(cs_test_index_matches() == 1, "erased store indexed");
+
+    /* a failed write (a word in the way is not blank: PGERR) drops the index */
+    CHECK(write_n(1, 5, 4, 0) == GSX_OK && write_n(1, 6, 4, 0) == GSX_OK, "two records of slot 1");
+    uint32_t newest_at = 0;
+    while (rd(newest_at) != 0x33464347u || rd(newest_at + 4u) != 2u)   /* the second record: seq 2 */
+        newest_at += 4u;
+    uint32_t end = newest_at;
+    while (rd(end) != 0xFFFFFFFFu)
+        end += 4u;
+    flash_program_half(BOARD_CONFIG_BASE + end + 8u, 0);   /* where the next record's header goes */
+    CHECK(write_n(3, 7, 4, 0) == GSX_FLASH_ERR && cs_test_index_matches() == -1, "a failed write drops it");
+    CHECK(value_of(1) == 6 && write_n(3, 8, 4, 0) == GSX_OK && value_of(3) == 8, "and the store goes on");
+
+    /* defensive: the indexed record changed behind the store's back: a read
+     * scans again, and the older record of the slot answers */
+    CHECK(cs_test_index_matches() == 1, "indexed");
+    flash_program_half(BOARD_CONFIG_BASE + newest_at + 16u, 0);   /* slot 1's newest: its group */
+    before = cs_test_scans;
+    CHECK(value_of(1) == 5 && cs_test_scans == before + 1, "a broken record: one scan, the older one");
 }
 
 int main(void)
@@ -601,6 +705,7 @@ int main(void)
     test_v2();
     test_malformed();
     test_wear();
+    test_index();
     test_power_cuts();
     printf("%s\n", fails ? "FAILED" : "cs_test ok");
     return fails != 0;

@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.23.0](https://github.com/cubicecho/gemifi/compare/v0.22.0...v0.23.0) (2026-11-04)
+
+
+### Features
+
+* **web:** show presets, DIN MIDI ports and the DMA map on Validate; YAML examples ([fe7f3d0](https://github.com/cubicecho/gemifi/commit/fe7f3d050518440da2a267b6a2b653cb79ff30f9))
+
 # [0.22.0](https://github.com/cubicecho/gemifi/compare/v0.21.0...v0.22.0) (2026-11-04)
 
 

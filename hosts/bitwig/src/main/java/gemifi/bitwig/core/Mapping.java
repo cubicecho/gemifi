@@ -487,8 +487,13 @@ public final class Mapping {
                 }
                 break;
             }
+            case Protocol.EVENT_LAYER:
+                // A layer on or off. Each twin has its own binding, so twins with one role in two
+                // modes both drive it and both get its feedback; the device only sends EVENTs from
+                // live ones. Device pages stay Bitwig's remote-control pages of 8.
+                break;
             default:
-                break;                  // keys (type 2) and reserved types: not mapped
+                break;                  // keys (type 2), pads, touch and reserved types: not mapped
         }
     }
 

@@ -110,7 +110,8 @@ Continuous roles work on analog inputs (absolute, 0..16383) and encoders (signed
   - **Boost/cut** with the centre LED for bipolar parameters: pan, the crossfader, and on API 20+ any remote control whose origin (`getOrigin()`) is in the middle.
   - **Wrap** otherwise.
   - **Ring off** (flags bit 1) when the encoder has no target, e.g. no device or an empty remote-control slot.
-- Keys (kind 2) and displays (kind 6) have no roles yet, so they're left alone.
+- **Layers** (`protocol/daw-scripts.md` §5.11). A twin (GET_COMPONENT `layer` > 0) is live only while its mode is on, and EVENT 8 says when; the device replays the layers that are on when `debug.events` becomes 1. The device layer keeps that state (`Device.layersOn()`), but the mapping doesn't need it: every component has its own binding, so twins with one role in two modes (`device_param_1` in two encoder modes) both drive it and both get its feedback, and only live ones send EVENTs. `device_bank_prev` / `device_bank_next` keep stepping Bitwig's remote-control pages of 8, even on a layer with only `device_param_1..4`. Firmware without the `layer` byte: everything is live.
+- Keys (kind 2), pads (kind 7) and displays (kind 6) are left alone.
 
 ## Files
 
@@ -135,10 +136,10 @@ Nothing in `core/` imports Bitwig; a test checks that.
 cd hosts/bitwig && mvn test
 ```
 
-You don't need Bitwig to run them. 66 tests:
-- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies, with and without the added fields, BOOTED and all FB_* frames), the integer encodings, packing, the checksum and the bad frames.
-- **Device:** a fake device answering per §4.6, covering a lost reply, BUSY, silence and rescan, the bootloader, a restart caught by BOOTED or by the keep-alive, the two keep-alive intervals, PARAM_CHANGED turning events off, and release.
-- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, the mcu: names, the added fields (no FB_VALUE to relative encoders or non-pick-up inputs, nothing to `owner: local` LEDs) and the re-send after BOOTED.
+You don't need Bitwig to run them. 75 tests:
+- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies, with and without the added fields, BOOTED and all FB_* frames), the `layer` byte and EVENT 8 frames from `daw-scripts.md`, the integer encodings, packing, the checksum and the bad frames.
+- **Device:** a fake device answering per §4.6, covering a lost reply, BUSY, silence and rescan, the bootloader, a restart caught by BOOTED or by the keep-alive, the two keep-alive intervals, PARAM_CHANGED turning events off, the EVENT 8 replay (kept even before ready) and release.
+- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, the mcu: names, the added fields (no FB_VALUE to relative encoders or non-pick-up inputs, nothing to `owner: local` LEDs), twins sharing a role and the re-send after BOOTED.
 - **Packaging:** the service file loads the definition, and `core/` stays free of Bitwig imports.
 
 ## Bitwig API notes (and how sure)

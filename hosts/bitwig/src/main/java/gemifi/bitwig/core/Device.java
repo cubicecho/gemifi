@@ -9,9 +9,11 @@ import gemifi.bitwig.core.Protocol.ProtocolException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
@@ -98,6 +100,8 @@ public final class Device {
     private Hello hello;
     private final Map<Integer, List<Component>> components = new LinkedHashMap<>();
     private Integer eventsBefore;
+    /** Mode indexes whose layers are on (EVENT 8, sysex.md §4.6.1 {@code layer}). */
+    private final Set<Integer> layersOn = new HashSet<>();
     private int seq;
     private Request pending;
     private final Deque<Request> queue = new ArrayDeque<>();
@@ -150,6 +154,14 @@ public final class Device {
         return hello != null && hello.hasFeedback();
     }
 
+    /**
+     * The mode indexes whose layers are on, from EVENT 8. Kept from SET_PARAM debug.events = 1 on,
+     * since the device replays them then, possibly before its reply (daw-scripts.md §3).
+     */
+    public Set<Integer> layersOn() {
+        return layersOn;
+    }
+
     public List<Component> components(int kind) {
         List<Component> l = components.get(kind);
         return l == null ? new ArrayList<>() : l;
@@ -172,6 +184,7 @@ public final class Device {
         queue.clear();
         hello = null;
         components.clear();
+        layersOn.clear();
         sendsBooted = booted;
         state = State.SEARCHING;
         request(Protocol.HELLO, new byte[0], this::onHello, s -> onSearchFailed());
@@ -311,6 +324,10 @@ public final class Device {
         try {
             if (frame.cmd == Protocol.EVENT) {
                 Event ev = Protocol.parseEvent(frame.payload);
+                if (ev.type == Protocol.EVENT_LAYER && (state == State.ENABLING || state == State.READY)) {
+                    if (ev.value != 0) layersOn.add(ev.index);
+                    else layersOn.remove(ev.index);
+                }
                 if (state == State.READY) listener.onEvent(ev);
             } else if (frame.cmd == Protocol.LOG) {
                 int n = Math.max(0, frame.payload.length - 5);

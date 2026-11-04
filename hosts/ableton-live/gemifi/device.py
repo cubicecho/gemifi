@@ -67,7 +67,7 @@ class Device(object):
     Callbacks (assign after construction):
       on_ready(device)  - components are known and EVENTs are on; drive feedback now
       on_lost(device)   - the device stopped answering (or rebooted); feedback state is gone
-      on_event(event)   - a protocol.Event (button / key / analog / encoder)
+      on_event(event)   - a protocol.Event (button / key / analog / encoder / layer)
       on_log(text)      - diagnostics for the script's log
     """
 
@@ -88,6 +88,7 @@ class Device(object):
         self.hello = None
         self.components = {}          # kind -> list of Component, by index
         self.events_before = None     # debug.events before we turned it on (restored on release)
+        self.layers_on = set()        # mode indexes whose layers are on (EVENT 8, sysex.md 4.6.1 `layer`)
         self._seq = 0
         self._pending = None
         self._queue = []
@@ -103,6 +104,7 @@ class Device(object):
         self._queue = []
         self.hello = None
         self.components = {}
+        self.layers_on = set()
         self.sends_booted = False
         self.state = SEARCHING
         self._request(P.HELLO, b"", self._on_hello, self._on_search_failed)
@@ -237,6 +239,13 @@ class Device(object):
                 ev = P.parse_event(frame.payload)
             except P.ProtocolError:
                 return
+            if ev.type == P.EVENT_LAYER and self.state in (ENABLING, READY):
+                # Kept from SET_PARAM debug.events = 1 on: the device replays the layers that are on
+                # then, and may do so before its reply (daw-scripts.md 3).
+                if ev.value:
+                    self.layers_on.add(ev.index)
+                else:
+                    self.layers_on.discard(ev.index)
             if self.state == READY and self.on_event is not None:
                 self.on_event(ev)
         elif frame.cmd == P.LOG:

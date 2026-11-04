@@ -363,4 +363,36 @@ class DeviceTest {
         assertEquals(50, Device.KEEPALIVE_TICKS);                           // ~5 s
         assertEquals(300, Device.KEEPALIVE_BOOTED_TICKS);                   // ~30 s
     }
+
+    @Test
+    void layerReplayIsKeptBeforeReady() {
+        // SET_PARAM debug.events = 1 makes the device replay EVENT 8 for each layer that is on, maybe
+        // before its reply (daw-scripts.md §3).
+        FakeDevice fake = new FakeDevice();
+        fake.layersOn.add(0);
+        fake.layersOn.add(2);
+        Device d = connect(fake);
+        d.start();
+        assertTrue(d.isReady());
+        assertEquals(java.util.Set.of(0, 2), d.layersOn());
+        assertTrue(events.isEmpty());                                       // before ready: not passed on
+        fake.event(Protocol.EVENT_LAYER, 2, 0);
+        fake.event(Protocol.EVENT_LAYER, 3, 1);
+        assertEquals(java.util.Set.of(0, 3), d.layersOn());
+        assertEquals(2, events.size());
+        assertEquals(Protocol.EVENT_LAYER, events.get(0).type);
+    }
+
+    @Test
+    void layersForgottenOnRestart() {
+        FakeDevice fake = new FakeDevice();
+        fake.layersOn.add(1);
+        Device d = connect(fake);
+        d.start();
+        assertEquals(java.util.Set.of(1), d.layersOn());
+        fake.layersOn.clear();                                              // rebooted: every layer off
+        fake.boot();
+        assertTrue(d.isReady());
+        assertTrue(d.layersOn().isEmpty());
+    }
 }

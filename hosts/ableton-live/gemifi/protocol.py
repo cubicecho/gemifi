@@ -61,6 +61,10 @@ TAKEOVER_NONE, TAKEOVER_PICKUP = 0, 1
 ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU = 0, 1, 2, 3
 OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
 
+# EVENT types beyond the component kinds (sysex.md 4.6.1 `layer`): type 8 = a mode's layer turned
+# on (value 1) or off (value 0); index = the mode index. A twin with `layer` n is live while mode n-1 is on.
+EVENT_LAYER = 8
+
 U14_MAX = 0x3FFF
 
 
@@ -360,7 +364,7 @@ class Component(object):
 
     def __init__(self, kind, index, count, id="", name="", role="", led=NONE_INDEX, keys=0, first_note=0,
                  ring=0, center=NONE_INDEX, colours=1, cols=0, rows=0, display_type=0, takeover=None,
-                 mode=None, owner=None):
+                 mode=None, owner=None, layer=None):
         self.kind = kind
         self.index = index
         self.count = count
@@ -379,6 +383,8 @@ class Component(object):
         self.takeover = takeover        # analog: 0 none, 1 pick-up; None = not reported (older firmware)
         self.mode = mode                # encoder: 0 absolute, 1/2 relative, 3 Mackie V-Pot; None = not reported
         self.owner = owner              # LED: 0 host_then_local, 1 host, 2 local; None = not reported
+        self.layer = layer              # button / encoder / LED: 0 always there, n = a twin in mode n-1;
+                                        # None = not reported (older firmware: treat as 0)
 
     @property
     def has_led(self):
@@ -398,6 +404,15 @@ class Component(object):
     def local_only(self):
         """An LED with owner: local ignores every FB_* (sysex.md 4.6.2 "Ownership")."""
         return self.kind == KIND_LED and self.owner == OWNER_LOCAL
+
+    @property
+    def mode_index(self):
+        """The mode whose layer this component is a twin in, or None if it's always there."""
+        return self.layer - 1 if self.layer else None
+
+    def live(self, layers_on):
+        """Whether it's live, given the set of mode indexes whose layers are on (EVENT 8)."""
+        return not self.layer or (self.layer - 1) in layers_on
 
     @property
     def reports_added_fields(self):
@@ -430,6 +445,7 @@ def parse_component_reply(payload):
     if kind == KIND_BUTTON:
         need(2)
         c.led = dec_u14(rest[0:2])
+        c.layer = rest[2] if len(rest) > 2 else None
     elif kind == KIND_KEYS:
         need(3)
         c.keys, c.first_note = dec_u14(rest[0:2]), rest[2]
@@ -439,31 +455,34 @@ def parse_component_reply(payload):
         need(3)
         c.ring, c.center = rest[0], dec_u14(rest[1:3])
         c.mode = rest[3] if len(rest) > 3 else None
+        c.layer = rest[4] if len(rest) > 4 else None
     elif kind == KIND_LED:
         need(1)
         c.colours = rest[0]
         c.owner = rest[1] if len(rest) > 1 else None
+        c.layer = rest[2] if len(rest) > 2 else None
     elif kind == KIND_DISPLAY:
         need(3)
         c.cols, c.rows, c.display_type = rest[0], rest[1], rest[2]
-    # takeover / mode / owner are absent in older firmware; unknown kinds: ignore whatever follows.
+    # takeover / mode / owner / layer are absent in older firmware; unknown kinds: ignore whatever follows.
     return c
 
 
 def build_component_reply(c):
-    """Device side (tests, fake device)."""
+    """Device side (tests, fake device). `layer` goes out only after the field before it."""
+    layer = b"" if c.layer is None else bytes([c.layer])
     out = (bytes([OK, c.kind]) + u14(c.index) + u14(c.count) + enc_lstring(c.id) + enc_lstring(c.name) +
            enc_lstring(c.role))
     if c.kind == KIND_BUTTON:
-        out += u14(c.led)
+        out += u14(c.led) + layer
     elif c.kind == KIND_KEYS:
         out += u14(c.keys) + bytes([c.first_note])
     elif c.kind == KIND_ANALOG:
         out += b"" if c.takeover is None else bytes([c.takeover])
     elif c.kind == KIND_ENCODER:
-        out += bytes([c.ring]) + u14(c.center) + (b"" if c.mode is None else bytes([c.mode]))
+        out += bytes([c.ring]) + u14(c.center) + (b"" if c.mode is None else bytes([c.mode]) + layer)
     elif c.kind == KIND_LED:
-        out += bytes([c.colours]) + (b"" if c.owner is None else bytes([c.owner]))
+        out += bytes([c.colours]) + (b"" if c.owner is None else bytes([c.owner]) + layer)
     elif c.kind == KIND_DISPLAY:
         out += bytes([c.cols, c.rows, c.display_type])
     return out

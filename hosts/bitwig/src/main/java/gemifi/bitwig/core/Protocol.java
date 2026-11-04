@@ -4,6 +4,7 @@ package gemifi.bitwig.core;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Set;
 
 /**
  * gemifi SysEx protocol v1 codec, the parts a DAW extension needs ({@code protocol/sysex.md}).
@@ -97,6 +98,11 @@ public final class Protocol {
     public static final int TAKEOVER_NONE = 0, TAKEOVER_PICKUP = 1;
     public static final int ENC_ABSOLUTE = 0, ENC_REL_TWOS = 1, ENC_REL_OFFSET = 2, ENC_MCU = 3;
     public static final int OWNER_HOST_THEN_LOCAL = 0, OWNER_HOST = 1, OWNER_LOCAL = 2;
+    /**
+     * EVENT type 8 (sysex.md §4.6.1 {@code layer}): a mode's layer turned on (value 1) or off (0);
+     * index = the mode index. A twin with {@code layer} n is live while mode n − 1 is on.
+     */
+    public static final int EVENT_LAYER = 8;
 
     public static final int U14_MAX = 0x3FFF;
     public static final int LSTRING_MAX = 31;
@@ -504,6 +510,11 @@ public final class Protocol {
         public Integer mode;
         /** LED: 0 host_then_local, 1 host, 2 local; null = not reported. */
         public Integer owner;
+        /**
+         * Button, encoder, LED: 0 always there, n = a twin in mode n − 1 (live only while that mode
+         * is on); null = not reported (older firmware: treat as 0).
+         */
+        public Integer layer;
 
         public Component() {}
 
@@ -533,6 +544,17 @@ public final class Protocol {
         /** An LED with owner: local ignores every FB_* (sysex.md §4.6.2 "Ownership"). */
         public boolean localOnly() {
             return kind == KIND_LED && owner != null && owner == OWNER_LOCAL;
+        }
+
+        /** The mode this component is a twin in, or -1 if it's always there. */
+        public int modeIndex() {
+            return layer == null || layer == 0 ? -1 : layer - 1;
+        }
+
+        /** Whether it's live, given the mode indexes whose layers are on (EVENT 8). */
+        public boolean isLive(Set<Integer> layersOn) {
+            int m = modeIndex();
+            return m < 0 || layersOn.contains(m);
         }
 
         /** Whether the reply carried its kind's added field (so the firmware also sends BOOTED). */
@@ -570,6 +592,7 @@ public final class Protocol {
             case KIND_BUTTON:
                 if (left < 2) throw new ProtocolException(missing);
                 c.led = decU14(payload, p);
+                c.layer = left > 2 ? at(payload, p + 2) : null;
                 break;
             case KIND_KEYS:
                 if (left < 3) throw new ProtocolException(missing);
@@ -584,11 +607,13 @@ public final class Protocol {
                 c.ring = at(payload, p);
                 c.center = decU14(payload, p + 1);
                 c.mode = left > 3 ? at(payload, p + 3) : null;
+                c.layer = left > 4 ? at(payload, p + 4) : null;
                 break;
             case KIND_LED:
                 if (left < 1) throw new ProtocolException(missing);
                 c.colours = at(payload, p);
                 c.owner = left > 1 ? at(payload, p + 1) : null;
+                c.layer = left > 2 ? at(payload, p + 2) : null;
                 break;
             case KIND_DISPLAY:
                 if (left < 3) throw new ProtocolException(missing);
@@ -597,22 +622,24 @@ public final class Protocol {
                 c.displayType = at(payload, p + 2);
                 break;
             default:
-                // unknown kinds: ignore whatever follows (takeover / mode / owner are absent in older firmware)
+                // unknown kinds: ignore whatever follows (takeover / mode / owner / layer are absent in older firmware)
                 break;
         }
         return c;
     }
 
-    /** Device side (tests, fake device). */
+    /** Device side (tests, fake device). {@code layer} goes out only after the field before it. */
     public static byte[] buildComponentReply(Component c) {
         byte[] head = concat(bytes(OK, c.kind), u14(c.index), u14(c.count), encLstring(c.id),
                 encLstring(c.name), encLstring(c.role));
         switch (c.kind) {
-            case KIND_BUTTON: return concat(head, u14(c.led));
+            case KIND_BUTTON: return concat(head, u14(c.led), opt(c.layer));
             case KIND_KEYS: return concat(head, u14(c.keys), bytes(c.firstNote));
             case KIND_ANALOG: return concat(head, opt(c.takeover));
-            case KIND_ENCODER: return concat(head, bytes(c.ring), u14(c.center), opt(c.mode));
-            case KIND_LED: return concat(head, bytes(c.colours), opt(c.owner));
+            case KIND_ENCODER:
+                return concat(head, bytes(c.ring), u14(c.center), opt(c.mode), c.mode == null ? new byte[0] : opt(c.layer));
+            case KIND_LED:
+                return concat(head, bytes(c.colours), opt(c.owner), c.owner == null ? new byte[0] : opt(c.layer));
             case KIND_DISPLAY: return concat(head, bytes(c.cols, c.rows, c.displayType));
             default: return head;
         }
@@ -624,7 +651,7 @@ public final class Protocol {
 
     // ---- EVENT (0x61) ----
 
-    /** An EVENT: type 1 button, 2 key, 3 analog (0..16383), 4 encoder (signed 14-bit delta). */
+    /** An EVENT: type 1 button, 2 key, 3 analog (0..16383), 4 encoder (signed 14-bit delta), 8 layer. */
     public static final class Event {
         public final int type;
         public final int index;

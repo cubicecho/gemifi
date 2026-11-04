@@ -13,8 +13,9 @@
  * case (5 presets + the globals on 3 pages), the old two-page layout, old v2
  * records, CRC-valid records with bad groups, junk pages, power cuts through
  * compactions (also a second cut while recovering), how often a typical
- * save erases a page, and the index the store keeps between calls (reads
- * don't scan; every write keeps it true or drops it).
+ * save erases a page, the index the store keeps between calls (reads
+ * don't scan; every write keeps it true or drops it), and the presets of
+ * a firmware with more of them, kept through compactions.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -694,6 +695,26 @@ static void test_index(void)
     CHECK(value_of(1) == 5 && cs_test_scans == before + 1, "a broken record: one scan, the older one");
 }
 
+/* Presets a firmware with more of them stored (up to slot 64) survive the
+ * compactions of one that writes fewer slots, for when it is flashed back. */
+static void test_other_slots(void)
+{
+    fresh();
+    CHECK(write_n(64, 64, 10, "Last") == GSX_OK && write_n(40, 40, 10, 0) == GSX_OK, "slots 40 and 64");
+    CHECK(write_n(65, 1, 1, 0) == GSX_BAD_LEN, "no slot 65");
+    sim_erases = 0;
+    int ok = 1;
+    for (int i = 0; i < 400 && ok; i++) {
+        uint8_t s = (uint8_t)(i % 5);
+        ok = write_n(s, i, 20, 0) == GSX_OK && value_of(s) == i && value_of(40) == 40 && value_of(64) == 64;
+    }
+    CHECK(ok && sim_erases > 10, "slots 40 and 64 kept over %ld compactions", sim_erases);
+    cs_test_reboot();
+    cs_slot_info_t info;
+    CHECK(value_of(40) == 40 && config_store_read(64, &info, 0, 0) == 1 && strcmp(info.name, "Last") == 0,
+          "and after a reset");
+}
+
 int main(void)
 {
     test_basics();
@@ -706,6 +727,7 @@ int main(void)
     test_malformed();
     test_wear();
     test_index();
+    test_other_slots();
     test_power_cuts();
     printf("%s\n", fails ? "FAILED" : "cs_test ok");
     return fails != 0;

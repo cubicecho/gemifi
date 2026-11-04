@@ -17,6 +17,7 @@ import { Capability, Role, Status } from '../protocol/wire.ts';
 
 /** Where loading the schema and values is. */
 export type ConfigState =
+  | { kind: 'off' }
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; schema: Schema; values: ParamValues };
@@ -119,19 +120,19 @@ export function offersConfig(info: HelloInfo | null): boolean {
  * Loads the schema and every value from the device, keeps them in step with PARAM_CHANGED, and
  * runs the editor's actions: live SET_PARAM, COMMIT, FACTORY_RESET, reload and JSON import/export.
  *
- * @param client - The connected device.
+ * @param client - The connected device, or null when there is none to configure (state `off`).
  * @param device - Its HELLO, for the profile's board id and firmware version.
  * @returns The state and the actions.
  */
-export function useConfig(client: SysexClient, device: HelloInfo): ConfigController {
-  const [state, setState] = useState<ConfigState>({ kind: 'loading' });
+export function useConfig(client: SysexClient | null, device: HelloInfo | null): ConfigController {
+  const [state, setState] = useState<ConfigState>(client === null ? { kind: 'off' } : { kind: 'loading' });
   const [fieldErrors, setFieldErrors] = useState<ReadonlyMap<string, string>>(new Map());
   const [isDirty, setIsDirty] = useState(false);
   const [action, setAction] = useState<ConfigAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const hasPresets = offersPresets(device);
+  const hasPresets = device !== null && offersPresets(device);
   /** Whether a stored edit of this param counts towards {@link ConfigController.isDirty}. */
   const countsAsEdit = useCallback(
     (param: ParamSpec) => isVolatile(param) === false && (hasPresets === false || isPreset(param) === false),
@@ -140,6 +141,10 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the reload trigger.
   useEffect(() => {
+    if (client === null) {
+      setState({ kind: 'off' });
+      return;
+    }
     const controller = new AbortController();
     setState({ kind: 'loading' });
     setFieldErrors(new Map());
@@ -168,7 +173,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
 
   useEffect(
     () =>
-      client.onMessage((message) => {
+      client?.onMessage((message) => {
         if (message.kind !== 'param') {
           return;
         }
@@ -187,6 +192,9 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
 
   const setValue = useCallback(
     (param: ParamSpec, index: number, value: number) => {
+      if (client === null) {
+        return;
+      }
       const key = valueKey(param.id, index);
       setFieldErrors((prev) => withEntry(prev, key, null));
       setParam(client, { id: param.id, index, value }).then(
@@ -225,7 +233,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
 
   const refreshValues = useCallback(() => {
     const current = state;
-    if (current.kind !== 'ready') {
+    if (client === null || current.kind !== 'ready') {
       return;
     }
     setFieldErrors(new Map());
@@ -236,6 +244,9 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
   }, [client, state]);
 
   const save = useCallback(() => {
+    if (client === null) {
+      return;
+    }
     run('save', async () => {
       await commit(client);
       setIsDirty(false);
@@ -243,6 +254,9 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
   }, [client, run]);
 
   const reset = useCallback(() => {
+    if (client === null) {
+      return;
+    }
     run('reset', async () => {
       await factoryReset(client);
       setIsDirty(false);
@@ -254,7 +268,7 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
   const importText = useCallback(
     (text: string) => {
       const current = state;
-      if (current.kind !== 'ready') {
+      if (client === null || device === null || current.kind !== 'ready') {
         return;
       }
       setImportReport(null);
@@ -294,11 +308,11 @@ export function useConfig(client: SysexClient, device: HelloInfo): ConfigControl
         });
       });
     },
-    [client, countsAsEdit, device.boardId, run, state],
+    [client, countsAsEdit, device, run, state],
   );
 
   const exportJson = useCallback(() => {
-    if (state.kind !== 'ready') {
+    if (device === null || state.kind !== 'ready') {
       return null;
     }
     const profile = exportProfile(state.schema, state.values, device);

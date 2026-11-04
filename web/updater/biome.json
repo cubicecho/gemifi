@@ -42,7 +42,7 @@
       "assist": { "enabled": false }
     },
     {
-      "includes": ["**/*.test.ts", "**/test-support.ts"],
+      "includes": ["**/*.test.ts", "**/test-support.ts", "**/dev/demo-device.ts"],
       "linter": { "rules": { "style": { "noMagicNumbers": "off" } } }
     }
   ]

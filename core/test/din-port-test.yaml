@@ -1,0 +1,18 @@
+# Test device for core/test/test_din.c: 5-pin DIN MIDI as a USB port of its
+# own (din_midi.mode separate_port). din-merge-test.yaml is the same board
+# with mode usb_merge (keep the two in step). Not a real board.
+gemifi: 2
+name: din-test
+friendly_name: DIN Test
+board_id: 0x3F12
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+
+din_midi:
+  tx_pin: PA9
+  rx_pin: PA10
+  mode: separate_port
+
+buttons:
+  - { id: b, pin: PA1, action: cc_momentary, cc: 64 }

@@ -20,6 +20,7 @@
 #include "gm_feedback.h"
 #include "gm_mcu.h"
 #include "app_proto.h"
+#include "gm_din.h"
 
 #define GM_LISTEN (GM_FEEDBACK || GM_MCU)
 
@@ -45,6 +46,8 @@ static void msg(uint32_t cable, const uint8_t *m, uint32_t n)
 void gm_midi_rx_usb(const uint8_t ev[4])
 {
     uint32_t cable = ev[0] >> 4, cin = ev[0] & 0x0Fu;
+    if (gm_din_usb(ev))
+        return;                         /* the DIN port's (din_midi: separate_port) */
     if (cin >= 4 && cin <= 7) {
         uint32_t k = (cin == 5) ? 1 : (cin == 6) ? 2 : 3;
         for (uint32_t i = 0; i < k; i++) {

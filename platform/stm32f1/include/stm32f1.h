@@ -284,6 +284,7 @@
 #define IRQ_TIM2            28
 #define IRQ_TIM3            29
 #define IRQ_TIM4            30
+#define IRQ_USART1          37
 #define IRQ_USBWAKEUP       42
 #define VECTOR_IRQS_F1      60
 
@@ -309,6 +310,19 @@ static inline void irq_restore(uint32_t pm)
     __asm__ volatile ("msr primask, %0" :: "r"(pm) : "memory");
 }
 
+
+/* ---- USART1 (5-pin DIN MIDI: TX PA9, RX PA10), interrupt-driven ---- */
+#define USART1_BASE     0x40013800u
+#define USART1_SR       REG32(USART1_BASE + 0x00u)
+#define USART1_DR       REG32(USART1_BASE + 0x04u)
+#define USART1_BRR      REG32(USART1_BASE + 0x08u)
+#define USART1_CR1      REG32(USART1_BASE + 0x0Cu)
+#define USART_SR_RXNE   (1u << 5)
+#define USART_SR_TXE    (1u << 7)
+#define USART_SR_ORE    (1u << 3)
+#define USART_CR1_RE    (1u << 2)
+#define USART_CR1_RXNEIE (1u << 5)
+#define USART_CR1_TXEIE (1u << 7)
 
 /* ---- USART2 (TX on PA2) and its transmit DMA, DMA1 channel 7 ---- */
 #define USART2_BASE     0x40004400u

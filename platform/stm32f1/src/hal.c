@@ -382,6 +382,99 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
     return 1;
 }
 
+/* 5-pin DIN MIDI (din_midi:, core/src/din.c): USART1, TX on PA9, RX on
+ * PA10. Interrupt-driven rings, not DMA: DMA1 channel 4 (USART1 TX) is the
+ * hardware analog scan's. The interrupt is the highest priority (0x00): at
+ * 31250 baud a byte lasts 320 us, and the handler is a few dozen cycles. */
+#define DIN_TX_PIN 9u                       /* PA9 */
+#define DIN_RX_PIN 10u                      /* PA10 */
+#define DIN_TX_SIZE 512u                    /* powers of two */
+#define DIN_RX_SIZE 256u
+static uint8_t din_tx[DIN_TX_SIZE], din_rx[DIN_RX_SIZE];
+static volatile uint32_t din_tx_head, din_tx_tail, din_rx_head, din_rx_tail;
+static uint8_t din_open;
+volatile uint32_t hal_din_overruns;         /* RX bytes lost: UART overrun or a full ring */
+
+void USART1_IRQHandler(void)
+{
+    uint32_t sr = USART1_SR;
+    if (sr & (USART_SR_RXNE | USART_SR_ORE)) {
+        uint8_t b = (uint8_t)USART1_DR;     /* reading DR clears RXNE and ORE */
+        if (sr & USART_SR_ORE)
+            hal_din_overruns++;
+        if (sr & USART_SR_RXNE) {
+            uint32_t h = din_rx_head;
+            if (h - din_rx_tail < DIN_RX_SIZE) {
+                din_rx[h % DIN_RX_SIZE] = b;
+                din_rx_head = h + 1u;
+            } else {
+                hal_din_overruns++;
+            }
+        }
+    }
+    if ((USART1_CR1 & USART_CR1_TXEIE) && (sr & USART_SR_TXE)) {
+        uint32_t t = din_tx_tail;
+        if (t != din_tx_head) {
+            USART1_DR = din_tx[t % DIN_TX_SIZE];
+            din_tx_tail = t + 1u;
+        } else {
+            USART1_CR1 &= ~USART_CR1_TXEIE;
+        }
+    }
+}
+
+int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud)
+{
+    if (tx_pin != DIN_TX_PIN || (rx_pin != DIN_RX_PIN && rx_pin != 0xFFFFu) || baud == 0)
+        return 0;
+    RCC_APB2ENR |= RCC_APB2_IOP(0) | RCC_APB2_USART1;
+    GPIO_CRH(0) = (GPIO_CRH(0) & ~(0xFu << 4)) | (0xBu << 4);     /* PA9: AF push-pull, 50 MHz */
+    uint32_t cr1 = USART_CR1_UE | USART_CR1_TE;
+    if (rx_pin == DIN_RX_PIN) {
+        GPIO_BSRR(0) = 1u << 10;                                    /* pull-up */
+        GPIO_CRH(0) = (GPIO_CRH(0) & ~(0xFu << 8)) | (0x8u << 8);  /* PA10: input, pull-up/down */
+        cr1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+    }
+    USART1_BRR = (sys_hclk_hz + baud / 2u) / baud;                  /* APB2 = HCLK */
+    USART1_CR1 = cr1;
+    NVIC_IPR8(IRQ_USART1) = 0x00;
+    NVIC_ICPR(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
+    NVIC_ISER(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
+    din_open = 1;
+    return 1;
+}
+
+int hal_din_write(const uint8_t *b, uint32_t n)
+{
+    if (!din_open)
+        return 0;
+    uint32_t h = din_tx_head;
+    if (DIN_TX_SIZE - (h - din_tx_tail) < n)
+        return 0;
+    for (uint32_t i = 0; i < n; i++)
+        din_tx[(h + i) % DIN_TX_SIZE] = b[i];
+    din_tx_head = h + n;
+    USART1_CR1 |= USART_CR1_TXEIE;          /* the handler takes it from here */
+    return 1;
+}
+
+int hal_din_read(void)
+{
+    uint32_t t = din_rx_tail;
+    if (t == din_rx_head)
+        return -1;
+    int b = din_rx[t % DIN_RX_SIZE];
+    din_rx_tail = t + 1u;
+    return b;
+}
+
+void hal_midi_send_usb(const uint8_t ev[4])
+{
+    uint32_t c0 = DWT_CYCCNT;
+    midi_tx_event(ev[0], ev[1], ev[2], ev[3]);
+    midi_timed(c0);
+}
+
 /* Which bootloader sits below us: gemifi's marks itself at 0x08000130
  * (gemifi_image.h); anything else is taken to be M-Audio's. */
 uint16_t hal_extra_caps(void)

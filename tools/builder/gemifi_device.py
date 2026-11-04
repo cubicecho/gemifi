@@ -76,7 +76,12 @@ PARAMS = [  # (name, id, scope, count(dev))
         ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
         ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
     ("analog.mode", 29, PRESET, lambda d: len(d.analogs)),
+    ("midi.thru", 30, GLOBAL, lambda d: 1 if d.din else 0),
+    ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
+    ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
 ]
+# din_midi.mode (gm_din.h GM_DIN_ONLY / _PORT / _MERGE)
+DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # Params whose stored values can need 16 bits (settings.c min/max outside -128..127); every other
 # value fits a byte. The packed stm32f1 record (platform/stm32f1/src/config_store.c) sizes its groups
 # from this, so keep it in step with settings.c (test_builder checks it).
@@ -259,7 +264,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "key_matrix", "pads", "pad_settings", "presets", "modes",
-            "displays"]
+            "displays", "din_midi"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -491,6 +496,10 @@ class Platform:
         """-> None if num can be an rgb_serial tx_pin, else why not."""
         return f"rgb_serial isn't supported on {self.name} yet"
 
+    def din_uart(self, tx, rx):
+        """-> None if tx / rx (None: no MIDI In) can be the DIN MIDI UART, else why not."""
+        return f"din_midi isn't supported on {self.name} yet"
+
     def adc(self, num):
         """-> (ok, warning or None)"""
         return False, None
@@ -564,6 +573,11 @@ class Stm32F1Platform(Platform):
     def serial_tx(self, num):
         """-> None if num can be an rgb_serial tx_pin, else why not."""
         return None if num == 2 else "only PA2 (USART2 TX) is supported as an rgb_serial tx_pin on stm32f1"
+
+    def din_uart(self, tx, rx):
+        if tx != 9 or rx not in (None, 10):
+            return "din_midi on stm32f1 is USART1: tx_pin PA9, rx_pin PA10"
+        return None
 
 
 class EspPlatform(Platform):
@@ -694,6 +708,7 @@ class Device:
         self.host_fb = True          # feedback.script: GET_COMPONENT and FB_* (sysex.md 4.6)
         self.mcu = None              # Hub(extender=bool, cable=0|1) when mcu: is given
         self.daw_port = False
+        self.din = None              # Hub(tx, rx, mode, port_name, thru, out, usb) for din_midi:
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
         self.n_presets = 1
         self.presets_given = False   # the YAML has presets:
@@ -1305,6 +1320,7 @@ def validate(data, file=None):
         v.warn("usb", data.line, "not given: using the pid.codes test IDs 1209:0002 (development only)")
     validate_feedback(v, dev, data)
     validate_mcu(v, dev, data, tr, daw_port)
+    validate_din(v, dev, data, tr, plat)
 
     dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
     validate_hw_scan(v, dev, data, plat)
@@ -1443,6 +1459,54 @@ def validate_feedback(v, dev, data):
     if not dev.feedback and len(fb) > 1:
         v.warn("feedback", data.line_of("feedback"), "enabled: false: the other feedback settings only "
                                                      "matter for the MCU port")
+
+
+def validate_din(v, dev, data, tr, plat):
+    """din_midi: 5-pin DIN MIDI In / Out on a UART (core/README.md "DIN MIDI"). mode: how the jacks reach
+    USB: separate_port (a second USB-MIDI port), usb_merge (on the main port) or din_only. thru,
+    controller_out and usb_to_din are the start values of midi.thru, midi.din_out, midi.usb_to_din."""
+    if "din_midi" not in data:
+        return
+    line = data.line_of("din_midi")
+    d = v.mapping(data["din_midi"], "din_midi", line, ["tx_pin", "rx_pin", "mode", "port_name", "thru",
+                                                         "controller_out", "usb_to_din"])
+    if d is None:
+        return
+    tx = v.pin(d.get("tx_pin"), "din_midi.tx_pin", d.line_of("tx_pin") if "tx_pin" in d else d.line, "out",
+               allow_hub=False)
+    rx = None
+    if d.get("rx_pin") is not None:
+        rx = v.pin(d["rx_pin"], "din_midi.rx_pin", d.line_of("rx_pin"), "in", allow_hub=False)
+    mode = DIN_MODES.index("separate_port")
+    if "mode" in d:
+        m = enum_value(v, d, "mode", "din_midi.mode", DIN_MODES)
+        mode = mode if m is None else m
+    if tx is not None and (rx is not None or d.get("rx_pin") is None):
+        why = plat.din_uart(tx.num, rx.num if rx is not None else None)
+        if why:
+            v.err("din_midi", line, why)
+    if mode != 0 and tr != "usb":
+        v.err("din_midi.mode", d.line_of("mode") if "mode" in d else line,
+              f"{DIN_MODES[mode]} links the jacks to USB, but midi.transport is {tr} (use din_only)")
+    if mode == DIN_MODES.index("separate_port") and dev.daw_port:
+        v.err("din_midi.mode", d.line_of("mode") if "mode" in d else line,
+              "separate_port needs the second USB port, which the DAW port (mcu:) already uses: "
+              "use usb_merge or din_only, or usb.daw_port: false")
+    name = v.string(d, "port_name", "din_midi")
+    if name is not None and mode != DIN_MODES.index("separate_port"):
+        v.warn("din_midi.port_name", d.line_of("port_name"), f"ignored: only separate_port has its own port "
+                                                              f"(mode is {DIN_MODES[mode]})")
+    if name is not None and len(name) > COMP_STR_MAX:
+        v.err("din_midi.port_name", d.line_of("port_name"), f"{len(name)} characters: at most {COMP_STR_MAX}")
+    usb = v.boolean(d, "usb_to_din", "din_midi", default=False)
+    if "usb_to_din" in d and mode != DIN_MODES.index("usb_merge"):
+        v.warn("din_midi.usb_to_din", d.line_of("usb_to_din"),
+               "ignored: only usb_merge has it (separate_port always sends its port's messages to DIN Out)")
+    if rx is None and d.get("rx_pin") is None and "thru" in d:
+        v.warn("din_midi.thru", d.line_of("thru"), "there is no rx_pin (MIDI In) to pass through")
+    dev.din = Hub(tx=tx or NO_PIN, rx=rx, mode=mode, port_name=name,
+                  thru=v.boolean(d, "thru", "din_midi", default=False),
+                  out=v.boolean(d, "controller_out", "din_midi", default=True), usb=usb)
 
 
 def validate_mcu(v, dev, data, tr, daw_port):
@@ -3585,6 +3649,19 @@ def feedback_defines(dev):
               f"#define GM_MCU_ID 0x{0x15 if mcu.extender else 0x14:02X} /* {'MCU XT' if mcu.extender else 'MCU'} */"]
     if dev.daw_port:
         h.append(f"#define GM_DAW_PORT_NAME {c_str(dev.name + ' DAW')}")
+    din = dev.din
+    h.append(f"#define GM_DIN {1 if din else 0} /* din_midi: (core/README.md \"DIN MIDI\") */")
+    if din:
+        rx = din.rx.num if din.rx is not None else 0xFFFF
+        h += [f"#define GM_DIN_MODE {din.mode} /* {DIN_MODES[din.mode]} */",
+              f"#define GM_DIN_TX_PIN {din.tx.num} /* {din.tx.desc} */",
+              f"#define GM_DIN_RX_PIN {rx} /* {din.rx.desc if din.rx is not None else 'no MIDI In'} */",
+              f"#define GM_DIN_THRU_DEFAULT {1 if din.thru else 0}",
+              f"#define GM_DIN_OUT_DEFAULT {1 if din.out else 0}",
+              f"#define GM_DIN_USB_DEFAULT {1 if din.usb else 0}"]
+        if din.mode == DIN_MODES.index("separate_port"):
+            name = din.port_name or (dev.name + " MIDI")[:COMP_STR_MAX]
+            h += ["#define GM_DIN_CABLE 1", f"#define GM_DIN_PORT_NAME {c_str(name)}"]
     return h
 
 

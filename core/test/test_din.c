@@ -89,6 +89,23 @@ static void run_ms(uint32_t ms)
 
 static void clear(void) { usb_n = ev_n = dout_n = 0; }
 
+/* Long enough for DIN Out to send the status byte again (running status). */
+static void idle(void)
+{
+    run_ms(300);
+    clear();
+}
+
+static void local(uint8_t a, uint8_t b, uint8_t c, uint32_t n)
+{
+    const uint8_t m[3] = { a, b, c };
+    gm_din_local(m, n);
+}
+
+#define DOUT_IS(...) do { const uint8_t want_[] = { __VA_ARGS__ }; \
+        int ok_ = dout_is(want_, (int)sizeof want_); checks++; \
+        if (!ok_) { fails++; printf("FAIL %s:%d: DIN Out\n", __FILE__, __LINE__); dump_dout(); } } while (0)
+
 static void din_bytes(const uint8_t *b, int n)
 {
     memcpy(din + din_n, b, (size_t)n);
@@ -269,6 +286,70 @@ int main(void)
     }
     dout_room = 100000;
 
+    /* Running status: the status byte only when it changes; Note Off as
+     * Note On velocity 0 after a Note On (velocity 0 or 64 only) */
+    idle();
+    local(0x90, 60, 100, 3);
+    local(0x90, 62, 90, 3);
+    local(0x80, 60, 0, 3);
+    local(0x80, 62, 64, 3);
+    local(0x80, 64, 30, 3);             /* a real release velocity: kept */
+    local(0x80, 65, 30, 3);
+    local(0xB0, 1, 10, 3);
+    local(0xB0, 1, 20, 3);
+    local(0xB1, 1, 20, 3);              /* another channel: another status */
+    local(0xD1, 50, 0, 2);
+    local(0xD1, 51, 0, 2);
+    DOUT_IS(0x90, 60, 100, 62, 90, 60, 0, 62, 0, 0x80, 64, 30, 65, 30, 0xB0, 1, 10, 1, 20, 0xB1, 1, 20,
+            0xD1, 50, 51);
+    /* realtime between messages keeps it; between a status and its data too
+     * (DIN In thru) */
+    idle();
+    local(0x90, 60, 100, 3);
+    local(0xF8, 0, 0, 1);
+    local(0x90, 62, 90, 3);
+    DOUT_IS(0x90, 60, 100, 0xF8, 62, 90);
+    gm_cfg.din_thru = 1;
+    idle();
+    {
+        const uint8_t b[] = { 0x92, 0xF8, 60, 0xFA, 100, 62, 0xFC, 90 };
+        din_bytes(b, 8);
+    }
+    DOUT_IS(0xF8, 0xFA, 0x92, 60, 100, 0xFC, 62, 90);
+    /* SysEx and system common end it */
+    idle();
+    local(0x90, 60, 100, 3);
+    {
+        const uint8_t b[] = { 0xF0, 0x7D, 0xF7 };
+        din_bytes(b, 3);
+    }
+    local(0x90, 62, 90, 3);
+    {
+        const uint8_t b[] = { 0xF3, 4 };
+        din_bytes(b, 2);
+    }
+    local(0x90, 64, 80, 3);
+    DOUT_IS(0x90, 60, 100, 0xF0, 0x7D, 0xF7, 0x90, 62, 90, 0xF3, 4, 0x90, 64, 80);
+    gm_cfg.din_thru = 0;
+    /* the status byte again after RS_REFRESH_MS (250 ms), idle or not */
+    idle();
+    for (int i = 0; i < 600; i++) {
+        local(0xB0, 1, (uint8_t)(i & 0x7F), 3);
+        run_ms(1);
+    }
+    {
+        int st = 0;
+        for (int i = 0; i < dout_n; i++)
+            st += dout[i] == 0xB0;
+        CHECK(st == 3 && dout_n == 600 * 2 + 3, "600 ms of CCs: the status byte at 0, 250 and 500 ms (%d, %d bytes)",
+              st, dout_n);
+    }
+    clear();
+    local(0xB0, 1, 0, 3);
+    run_ms(260);
+    local(0xB0, 1, 1, 3);
+    DOUT_IS(1, 0, 0xB0, 1, 1);
+
 #if PORT
     /* USB cable 1 -> DIN Out: short messages and SysEx */
     clear();
@@ -289,7 +370,7 @@ int main(void)
     CHECK(dout_n == 0, "USB cable 0 -> not DIN Out");
 #else
     /* usb_merge: the main port's channel and realtime messages, when on */
-    clear();
+    idle();
     from_usb(0x09, 0x90, 1, 1);
     CHECK(dout_n == 0, "midi.usb_to_din off: nothing");
     gm_cfg.din_usb = 1;

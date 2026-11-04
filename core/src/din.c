@@ -63,6 +63,20 @@ static uint32_t sx_t;               /* ms of the owner's last SysEx byte */
 static uint8_t pend[PEND_MAX][4];   /* [0] = length, then the message */
 static uint8_t pend_n;
 
+/* Running status (MIDI 1.0): a channel message leaves out its status byte
+ * when it's the one the receiver already has, and a Note Off (velocity 0 or
+ * the default 64) goes as Note On velocity 0 after a Note On. Realtime
+ * bytes, which may come between any two bytes, keep it; system common and
+ * SysEx end it. The status byte goes again at least every RS_REFRESH_MS, so
+ * a receiver plugged in mid-stream picks it up. */
+#ifndef GM_DIN_RUNNING_STATUS
+#define GM_DIN_RUNNING_STATUS 1
+#endif
+#define RS_REFRESH_MS 250u
+
+static uint8_t rs;                  /* the status byte the receiver has, 0 = none */
+static uint32_t rs_t;               /* ms it was last sent */
+
 static int out(const uint8_t *b, uint32_t n)
 {
     if (hal_din_write(b, n))
@@ -71,11 +85,52 @@ static int out(const uint8_t *b, uint32_t n)
     return 0;
 }
 
+/* A short message (status, 0..2 data bytes) onto DIN Out, whole or not at
+ * all (counted). */
+static int put(const uint8_t *m, uint32_t n)
+{
+    uint8_t b[3], s = m[0], v = n > 2 ? m[2] : 0;
+    uint32_t k = 0;
+#if GM_DIN_RUNNING_STATUS
+    if ((s & 0xF0) == 0x80 && n == 3 && rs == (s | 0x10) && (v == 0 || v == 64)) {
+        s |= 0x10;
+        v = 0;
+    }
+    int fresh = s >= 0xF0 || s != rs || now_ms - rs_t >= RS_REFRESH_MS;
+#else
+    int fresh = 1;
+#endif
+    if (fresh)
+        b[k++] = s;
+    if (n > 1)
+        b[k++] = m[1];
+    if (n > 2)
+        b[k++] = v;
+    if (!out(b, k))
+        return 0;
+    if (s < 0xF0) {
+        rs = s;
+        if (fresh)
+            rs_t = now_ms;
+    } else if (s < 0xF8) {
+        rs = 0;
+    }
+    return 1;
+}
+
+/* A SysEx byte. F0 ends running status. */
+static int out_sx(uint8_t b)
+{
+    if (b == 0xF0)
+        rs = 0;
+    return out(&b, 1);
+}
+
 static void sysex_done(void)
 {
     sx_owner = SRC_NONE;
     for (uint32_t i = 0; i < pend_n; i++)
-        out(pend[i] + 1, pend[i][0]);
+        put(pend[i] + 1, pend[i][0]);
     pend_n = 0;
 }
 
@@ -89,7 +144,7 @@ static void send_short(uint8_t src, const uint8_t *m, uint32_t n)
         sysex_done();
     }
     if (m[0] >= 0xF8 || sx_owner == SRC_NONE) {
-        out(m, n);
+        put(m, n);
         return;
     }
     if (pend_n >= PEND_MAX) {
@@ -113,7 +168,7 @@ static void send_sysex(uint8_t src, uint8_t b)
         sx_skip[src] = 0;
         sx_owner = src;
         sx_t = now_ms;
-        if (!out(&b, 1)) {
+        if (!out_sx(b)) {
             sx_skip[src] = 1;
             sysex_done();
         }
@@ -127,7 +182,7 @@ static void send_sysex(uint8_t src, uint8_t b)
     if (sx_owner != src)
         return;                             /* no F0 seen */
     sx_t = now_ms;
-    if (!out(&b, 1)) {
+    if (!out_sx(b)) {
         /* No room: cut it short. The F7 may not fit either; the next
          * status byte ends it for the receiver then. */
         static const uint8_t f7 = 0xF7;
@@ -302,6 +357,7 @@ void gm_din_init(void)
 {
     sx_owner = SRC_NONE;
     pend_n = 0;
+    rs = 0;
     in_n = in_need = in_sx = 0;
 #ifndef GM_DIN_DMA
 #define GM_DIN_DMA 0

@@ -342,26 +342,50 @@ const hal_fw_ops_t *hal_fw_ops(void)
     return 0;                       /* the bootloader takes uploads */
 }
 
-/* rgb_serial (core/README.md): USART2 TX on PA2, sent by DMA1 channel 7 so
- * the main loop never waits on it. */
+/* rgb_serial (core/README.md): USART2 TX on PA2, in the background so the
+ * main loop never waits on it: by DMA1 channel 7 (HAL_UART_DMA, the
+ * default), or from the USART2 interrupt, which frees the channel. */
 #define SERIAL_TX_PIN 2u                    /* PA2 */
 static uint8_t serial_buf[16];
-static uint8_t serial_open;
+static uint8_t serial_open, serial_dma;
+static volatile uint8_t serial_at, serial_n;   /* interrupt mode: next byte, bytes */
 
-int hal_serial_open(uint16_t tx_pin, uint32_t baud)
+void USART2_IRQHandler(void)
+{
+    if (!(USART2_SR & USART_SR_TXE))
+        return;
+    uint8_t i = serial_at;
+    if (i < serial_n) {
+        USART2_DR = serial_buf[i];
+        serial_at = (uint8_t)(i + 1u);
+    } else {
+        USART2_CR1 &= ~USART_CR1_TXEIE;
+    }
+}
+
+int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
 {
     if (tx_pin != SERIAL_TX_PIN || baud == 0)
         return 0;
+    serial_dma = (flags & HAL_UART_DMA) != 0;
     RCC_APB2ENR |= RCC_APB2_IOP(0);
     RCC_APB1ENR |= RCC_APB1_USART2;
-    RCC_AHBENR |= RCC_AHBENR_DMA1EN;
     GPIO_CRL(0) = (GPIO_CRL(0) & ~(0xFu << 8)) | (0xBu << 8);   /* AF push-pull, 50 MHz */
     uint32_t pclk1 = sys_hclk_hz / 2u;                          /* APB1 = HCLK / 2 */
     USART2_BRR = (pclk1 + baud / 2u) / baud;
-    USART2_CR3 = USART_CR3_DMAT;
+    if (serial_dma) {
+        RCC_AHBENR |= RCC_AHBENR_DMA1EN;
+        USART2_CR3 = USART_CR3_DMAT;
+        DMA1_CCR(7) = 0;
+        DMA1_CPAR(7) = (uint32_t)&USART2_DR;
+    } else {
+        USART2_CR3 = 0;
+        serial_at = serial_n = 0;
+        NVIC_IPR8(IRQ_USART2) = 0x40;       /* a byte per 87 us at 115200: below USART1, with USB */
+        NVIC_ICPR(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
+        NVIC_ISER(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
+    }
     USART2_CR1 = USART_CR1_UE | USART_CR1_TE;
-    DMA1_CCR(7) = 0;
-    DMA1_CPAR(7) = (uint32_t)&USART2_DR;
     serial_open = 1;
     return 1;
 }
@@ -370,6 +394,16 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
 {
     if (!serial_open || tx_pin != SERIAL_TX_PIN || n == 0 || n > sizeof serial_buf)
         return 0;
+    if (!serial_dma) {
+        if (serial_at < serial_n)
+            return 0;                       /* the last write is still going */
+        for (uint32_t i = 0; i < n; i++)
+            serial_buf[i] = b[i];
+        serial_at = 0;
+        serial_n = (uint8_t)n;
+        USART2_CR1 |= USART_CR1_TXEIE;
+        return 1;
+    }
     if ((DMA1_CCR(7) & DMA_CCR_EN) && DMA1_CNDTR(7) != 0)
         return 0;                           /* the last write is still going */
     DMA1_CCR(7) = 0;
@@ -383,16 +417,24 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
 }
 
 /* 5-pin DIN MIDI (din_midi:, core/src/din.c): USART1, TX on PA9, RX on
- * PA10. Interrupt-driven rings, not DMA: DMA1 channel 4 (USART1 TX) is the
- * hardware analog scan's. The interrupt is the highest priority (0x00): at
- * 31250 baud a byte lasts 320 us, and the handler is a few dozen cycles. */
+ * PA10, through rings. Two ways to move the bytes:
+ *  - interrupt (the default): the USART1 interrupt, highest priority (0x00):
+ *    at 31250 baud a byte lasts 320 us, and the handler is a few dozen
+ *    cycles;
+ *  - HAL_UART_DMA (din_midi dma: true): DMA1 channel 4 sends each run of the
+ *    TX ring (its transfer-complete interrupt starts the next), channel 5
+ *    fills the RX ring in circular mode. Those are the hardware analog
+ *    scan's and the matrix scan's channels: the builder refuses both. */
 #define DIN_TX_PIN 9u                       /* PA9 */
 #define DIN_RX_PIN 10u                      /* PA10 */
 #define DIN_TX_SIZE 512u                    /* powers of two */
 #define DIN_RX_SIZE 256u
+#define CH_DIN_TX 4u                        /* USART1_TX */
+#define CH_DIN_RX 5u                        /* USART1_RX */
 static uint8_t din_tx[DIN_TX_SIZE], din_rx[DIN_RX_SIZE];
 static volatile uint32_t din_tx_head, din_tx_tail, din_rx_head, din_rx_tail;
-static uint8_t din_open;
+static volatile uint32_t din_tx_run;        /* DMA: bytes of the run going out, 0 = idle */
+static uint8_t din_open, din_dma, din_rx_on;
 volatile uint32_t hal_din_overruns;         /* RX bytes lost: UART overrun or a full ring */
 
 void USART1_IRQHandler(void)
@@ -423,23 +465,72 @@ void USART1_IRQHandler(void)
     }
 }
 
-int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud)
+/* DMA: send the next run of the TX ring (up to its end), if idle. Called
+ * with interrupts off, or from the channel's interrupt. */
+static void din_dma_next(void)
+{
+    if (din_tx_run)
+        return;
+    uint32_t t = din_tx_tail, n = din_tx_head - t, at = t % DIN_TX_SIZE;
+    if (n == 0)
+        return;
+    if (n > DIN_TX_SIZE - at)
+        n = DIN_TX_SIZE - at;
+    din_tx_run = n;
+    DMA1_CCR(CH_DIN_TX) = 0;
+    DMA1_IFCR = 0xFu << (4u * (CH_DIN_TX - 1u));
+    DMA1_CMAR(CH_DIN_TX) = (uint32_t)(din_tx + at);
+    DMA1_CNDTR(CH_DIN_TX) = n;
+    DMA1_CCR(CH_DIN_TX) = DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_TCIE | DMA_CCR_EN;
+}
+
+void DMA1_Channel4_IRQHandler(void)
+{
+    DMA1_IFCR = 0xFu << (4u * (CH_DIN_TX - 1u));
+    din_tx_tail += din_tx_run;
+    din_tx_run = 0;
+    din_dma_next();
+}
+
+int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud, uint32_t flags)
 {
     if (tx_pin != DIN_TX_PIN || (rx_pin != DIN_RX_PIN && rx_pin != 0xFFFFu) || baud == 0)
         return 0;
+    din_dma = (flags & HAL_UART_DMA) != 0;
+    din_rx_on = rx_pin == DIN_RX_PIN;
     RCC_APB2ENR |= RCC_APB2_IOP(0) | RCC_APB2_USART1;
     GPIO_CRH(0) = (GPIO_CRH(0) & ~(0xFu << 4)) | (0xBu << 4);     /* PA9: AF push-pull, 50 MHz */
     uint32_t cr1 = USART_CR1_UE | USART_CR1_TE;
-    if (rx_pin == DIN_RX_PIN) {
+    if (din_rx_on) {
         GPIO_BSRR(0) = 1u << 10;                                    /* pull-up */
         GPIO_CRH(0) = (GPIO_CRH(0) & ~(0xFu << 8)) | (0x8u << 8);  /* PA10: input, pull-up/down */
-        cr1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+        cr1 |= USART_CR1_RE;
     }
     USART1_BRR = (sys_hclk_hz + baud / 2u) / baud;                  /* APB2 = HCLK */
+    if (din_dma) {
+        RCC_AHBENR |= RCC_AHBENR_DMA1EN;
+        DMA1_CCR(CH_DIN_TX) = 0;
+        DMA1_CPAR(CH_DIN_TX) = (uint32_t)&USART1_DR;
+        USART1_CR3 = USART_CR3_DMAT | (din_rx_on ? USART_CR3_DMAR : 0u);
+        if (din_rx_on) {
+            DMA1_CCR(CH_DIN_RX) = 0;
+            DMA1_CPAR(CH_DIN_RX) = (uint32_t)&USART1_DR;
+            DMA1_CMAR(CH_DIN_RX) = (uint32_t)din_rx;
+            DMA1_CNDTR(CH_DIN_RX) = DIN_RX_SIZE;
+            DMA1_CCR(CH_DIN_RX) = DMA_CCR_MINC | DMA_CCR_CIRC | DMA_CCR_EN;
+        }
+        NVIC_IPR8(IRQ_DMA1_CH4) = 0x40;
+        NVIC_ICPR(IRQ_DMA1_CH4 / 32u) = 1u << (IRQ_DMA1_CH4 % 32u);
+        NVIC_ISER(IRQ_DMA1_CH4 / 32u) = 1u << (IRQ_DMA1_CH4 % 32u);
+    } else {
+        USART1_CR3 = 0;
+        if (din_rx_on)
+            cr1 |= USART_CR1_RXNEIE;
+        NVIC_IPR8(IRQ_USART1) = 0x00;
+        NVIC_ICPR(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
+        NVIC_ISER(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
+    }
     USART1_CR1 = cr1;
-    NVIC_IPR8(IRQ_USART1) = 0x00;
-    NVIC_ICPR(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
-    NVIC_ISER(IRQ_USART1 / 32u) = 1u << (IRQ_USART1 % 32u);
     din_open = 1;
     return 1;
 }
@@ -454,12 +545,30 @@ int hal_din_write(const uint8_t *b, uint32_t n)
     for (uint32_t i = 0; i < n; i++)
         din_tx[(h + i) % DIN_TX_SIZE] = b[i];
     din_tx_head = h + n;
-    USART1_CR1 |= USART_CR1_TXEIE;          /* the handler takes it from here */
+    if (din_dma) {
+        uint32_t pm = irq_save();
+        din_dma_next();
+        irq_restore(pm);
+    } else {
+        USART1_CR1 |= USART_CR1_TXEIE;      /* the handler takes it from here */
+    }
     return 1;
 }
 
 int hal_din_read(void)
 {
+    if (din_dma) {
+        if (!din_rx_on)
+            return -1;
+        /* the DMA's write position; a full lap unread would be lost unseen */
+        uint32_t at = (DIN_RX_SIZE - DMA1_CNDTR(CH_DIN_RX)) % DIN_RX_SIZE;   /* CNDTR 0: reloading */
+        uint32_t t = din_rx_tail % DIN_RX_SIZE;
+        if (t == at)
+            return -1;
+        int b = din_rx[t];
+        din_rx_tail = (t + 1u) % DIN_RX_SIZE;
+        return b;
+    }
     uint32_t t = din_rx_tail;
     if (t == din_rx_head)
         return -1;

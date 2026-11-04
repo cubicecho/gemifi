@@ -136,10 +136,12 @@ typedef struct { uint32_t t; uint8_t b[6]; uint32_t n; } ser_msg_t;
 static ser_msg_t ser_log[256];
 static int ser_n;
 
-int hal_serial_open(uint16_t tx_pin, uint32_t baud)
+static uint32_t ser_flags;
+int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
 {
     ser_pin = tx_pin;
     ser_baud = baud;
+    ser_flags = flags;
     return 1;
 }
 
@@ -303,6 +305,7 @@ int main(void)
     /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
      * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */
     CHECK(ser_pin == 2 && ser_baud == 115200u, "serial opened on PA2 at 115200 (%u, %u)", ser_pin, ser_baud);
+    CHECK(ser_flags == HAL_UART_DMA, "rgb_serial: by DMA (the default)");
     uint32_t gap;
     int n0 = ser_msgs(0, &gap);
     CHECK(n0 >= 4, "every LED sent at start (%d messages)", n0);

@@ -64,7 +64,7 @@ void hal_midi_flush(uint32_t t) { (void)t; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
-int hal_serial_open(uint16_t tx_pin, uint32_t baud) { (void)tx_pin; (void)baud; return 1; }
+int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags) { (void)tx_pin; (void)baud; (void)flags; return 1; }
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n) { (void)tx_pin; (void)b; (void)n; return 1; }
 
 /* ---- helpers ---------------------------------------------------------- */

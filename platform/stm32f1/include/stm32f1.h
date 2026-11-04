@@ -284,7 +284,9 @@
 #define IRQ_TIM2            28
 #define IRQ_TIM3            29
 #define IRQ_TIM4            30
+#define IRQ_DMA1_CH4        14
 #define IRQ_USART1          37
+#define IRQ_USART2          38
 #define IRQ_USBWAKEUP       42
 #define VECTOR_IRQS_F1      60
 
@@ -334,6 +336,8 @@ static inline void irq_restore(uint32_t pm)
 #define USART_CR1_UE    (1u << 13)
 #define USART_CR1_TE    (1u << 3)
 #define USART_CR3_DMAT  (1u << 7)
+#define USART_CR3_DMAR  (1u << 6)
+#define USART1_CR3      REG32(USART1_BASE + 0x14u)
 #define DMA1_BASE       0x40020000u
 #define DMA1_ISR        REG32(DMA1_BASE + 0x00u)
 #define DMA1_IFCR       REG32(DMA1_BASE + 0x04u)

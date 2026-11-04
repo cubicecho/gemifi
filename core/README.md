@@ -46,7 +46,7 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `count` (1–32 LEDs, default 16) | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
+| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
@@ -113,7 +113,7 @@ Some boards drive their RGB LEDs from a second small controller over a serial li
 
 ```yaml
 rgb_serial:
-  - { id: pad_leds, tx_pin: PA2, count: 16 }
+  - { id: pad_leds, tx_pin: PA2, count: 16 }   # dma: false sends from the interrupt ("DMA channels")
 leds:
   - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
 pads:
@@ -258,6 +258,21 @@ hardware_scan:
 - **Analog** (`analog: true`): the analog inputs and pads are read in sweeps by the hardware. Every mux used must share the same select lines (one set/reset register), and nothing may read a mux digitally (a button on a mux). Each step of a sweep stores the select lines, waits the muxes' `delay:`, and converts every mux's common pin plus every analog input or pad on an ADC pin. The Code 61's 8 steps × PA7, PA6, PA1, PA0 take 200 us. `vpin_analog()` then returns the latest reading (an ADC pin: the mean of its readings in the sweep), the analog inputs are all read every millisecond instead of one every 2 ms, and the pads see their strongest reading of the sweeps since their last pass (about 5), so a strike's peak isn't lost between passes. The main loop does no conversions or mux settles at all.
 - **Code.** The core side is in `controller.c` (`gm_scan_plan()`, `gm_scan_frames()`, `gm_controller.h`) and `vpin.c` (`vpin_scan_plan()`, `vpin_scan_feed()`, `gm_adc_plan()`, `gm_adc_sweep()`, `vpin_analog_peak()`); the STM32F1 drivers are `platform/stm32f1/src/scan_dma.c` and `adc_dma.c`. Host tests: `core/test` `test_matrix_hw` (`matrix-hw-test.yaml`) and `test_pads_hw` (`pads-hw-test.yaml`).
 
+### DMA channels (stm32f1)
+
+The STM32F103 has 7 DMA channels, and each peripheral's DMA request is wired to one of them (RM0008 table 78). The YAML decides which features get DMA, and the builder checks they fit:
+
+| Feature | Channels | Without DMA |
+|---|---|---|
+| `hardware_scan.matrix` | 3, 5; with `precharge` also 2, 6 | the scan interrupt reads the matrix |
+| `hardware_scan.analog` | 1, 4 | the main loop reads one input per pass |
+| `rgb_serial` (`dma: true`, the default) | 7 | `dma: false`: the USART2 interrupt sends the bytes |
+| `din_midi` (`dma: false`, the default) | `dma: true`: 4 (TX), 5 (RX) | the USART1 interrupt moves the bytes |
+
+The scans claim their channels first. A feature whose channel is taken stops the build, and the message names both: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false ...`. The build output and the top of `gm_device_config.h` show the map, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), ... 7 USART2_TX (rgb_serial 'pad_leds'); free: none`.
+
+The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and the interrupt for it takes about a microsecond. Spend the channels on the scans, and use DMA for the UARTs on boards that don't scan by hardware.
+
 ## Displays
 
 A 14-segment character display (like the Code 61's 6-character one) is a row of characters on output pins of a hub, usually a TM1628. Each character is 15 pins in a row from its first one: segments a b c d e f g1 g2 h i j k l m, then the dot (the layout is drawn in `core/include/gm_display.h`). `chars:` lists each character's first pin, left to right, so characters can sit anywhere on the hub.
@@ -303,6 +318,7 @@ din_midi:
   thru: false                  # start values of the settings
   controller_out: true
   usb_to_din: false            # usb_merge only
+  dma: false                   # stm32f1: DMA channels 4 and 5 ("DMA channels")
 ```
 
 - **Whole messages.** DIN Out mixes three sources: the device, the thru, and USB. Each message goes out whole and with its status byte (no running status). While one source's SysEx is going out, the others' messages wait (up to 16) and follow its F7. Realtime bytes such as clock go straight through, which MIDI allows. A SysEx from a second source meanwhile is dropped, and one that stalls for 500 ms is ended with F7.

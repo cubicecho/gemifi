@@ -106,6 +106,7 @@ typedef struct {
      * is read on, clock = the X-plate pin Y is read on (both ADC pins). A
      * touch: both readings within touch_min..touch_max. */
     uint16_t touch_min, touch_max;
+    uint8_t dma;          /* RGB_SERIAL: send by DMA (rgb_serial dma:), else interrupt */
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */

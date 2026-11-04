@@ -17,11 +17,12 @@
 #include "app_proto.h"
 
 /* Platforms without DIN MIDI (gm_hal.h). */
-__attribute__((weak)) int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud)
+__attribute__((weak)) int hal_din_open(uint16_t tx_pin, uint16_t rx_pin, uint32_t baud, uint32_t flags)
 {
     (void)tx_pin;
     (void)rx_pin;
     (void)baud;
+    (void)flags;
     return 0;
 }
 
@@ -302,7 +303,10 @@ void gm_din_init(void)
     sx_owner = SRC_NONE;
     pend_n = 0;
     in_n = in_need = in_sx = 0;
-    if (!hal_din_open(GM_DIN_TX_PIN, GM_DIN_RX_PIN, 31250u))
+#ifndef GM_DIN_DMA
+#define GM_DIN_DMA 0
+#endif
+    if (!hal_din_open(GM_DIN_TX_PIN, GM_DIN_RX_PIN, 31250u, GM_DIN_DMA ? HAL_UART_DMA : 0u))
         app_log(LOG_WARN, "DIN MIDI: the platform has no UART for din_midi.tx_pin", "");
 }
 

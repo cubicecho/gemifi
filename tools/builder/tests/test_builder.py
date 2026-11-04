@@ -334,6 +334,42 @@ class TestValidation(unittest.TestCase):
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
+    def test_dma_alloc(self):
+        """stm32f1: each DMA user gets its fixed channels (RM0008 table 78); a clash is an error on
+        the optional user, and the map goes in the header."""
+        path = os.path.join(REPO, "devices", "m-audio-code61.yaml")
+        with open(path, encoding="utf-8") as f:
+            c61 = f.read()
+        d, diags = load(c61)
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 2, 3, 4, 5, 6, 7])   # every channel
+        self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: none")
+        h = gd.generate(d, "t.yaml")["gm_device_config.h"]
+        self.assertIn("/* DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix)", h)
+        self.assertIn("#define GM_DIN_DMA 0 ", h)
+        self.assertIn(".ram_bytes = 6, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
+        # DIN by DMA: channels 4 and 5 are the scans'
+        din_dma = c61.replace("  mode: separate_port\n", "  mode: separate_port\n  dma: true\n")
+        e = self.assertError(din_dma, r"needs DMA1 channel 4 \(USART1_TX\), which hardware_scan.analog uses "
+                                      r"\(TIM4_CH2\): set din_midi dma: false", path="din_midi.dma")
+        self.assertError(din_dma, r"needs DMA1 channel 5 \(USART1_RX\), which hardware_scan.matrix uses")
+        # ... fine without the scans; and the pad LEDs can give channel 7 back
+        no_scan = din_dma.replace("    precharge: true\n  analog: true\n", "    precharge: true\n  analog: false\n")
+        no_scan = no_scan.replace("hardware_scan:\n  matrix:\n    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
+                                  "hardware_scan:\n")
+        d, diags = load(no_scan.replace("    count: 16\n", "    count: 16\n    dma: false\n", 1))
+        self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])
+        self.assertEqual(d.dma_map, [(4, "USART1_TX", "din_midi"), (5, "USART1_RX", "din_midi")])
+        self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: 1, 2, 3, 6, 7")
+        files = gd.generate(d, "t.yaml")
+        self.assertIn("#define GM_DIN_DMA 1 ", files["gm_device_config.h"])
+        self.assertIn(".ram_bytes = 6, .dma = 0,", files["gm_device_config.c"])
+        # the matrix scan without precharge leaves 2 and 6
+        d, _ = load(c61.replace("    precharge: true\n", ""))
+        self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 3, 4, 5, 7])
+        # other platforms: no map
+        self.assertEqual(gd.dma_text(load(MINIMAL_NUC)[0]), "")
+
     def test_din_midi(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 

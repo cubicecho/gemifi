@@ -437,4 +437,69 @@ class ProtocolTest {
         assertArrayEquals(b, Protocol.fromHex("F0 7D 00 F7"));
         assertArrayEquals(b, Protocol.fromHex("f07d00f7"));
     }
+
+    // ---- the layer byte (sysex.md §4.6.1) and EVENT 8 ----
+
+    @Test
+    void layerByte() throws ProtocolException {
+        // daw-scripts.md §4.4: button 9 of 12, "b2_arm", role "arm_1", LED 20, layer 1 (a twin in mode 0)
+        Frame f = Protocol.parseFrame(hex("F0 7D 67 6D 01 51 55 19 00 00 01 09 00 0C 00 06 62 32 5F 61 72 6D 02 42 32"
+                + " 05 61 72 6D 5F 31 14 00 01 6F F7"));
+        Component b = Protocol.parseComponentReply(f.payload);
+        assertEquals("b2_arm", b.id);
+        assertEquals(20, b.led);
+        assertEquals(1, (int) b.layer);
+        assertEquals(0, b.modeIndex());
+        assertFalse(b.isLive(Set.of()));
+        assertTrue(b.isLive(Set.of(0)));
+        assertArrayEquals(f.payload, Protocol.buildComponentReply(b));
+        // encoder twin (cc: none), no ring or centre, mode 1, layer 3
+        f = Protocol.parseFrame(hex("F0 7D 67 6D 01 51 57 2D 00 00 04 0C 00 18 00 08 65 6E 63 35 5F 7A 79 6E 09 45 6E"
+                + " 63 6F 64 65 72 20 35 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 00 7F 7F 01 03 4F F7"));
+        Component e = Protocol.parseComponentReply(f.payload);
+        assertEquals("device_param_1", e.role);
+        assertEquals(Protocol.NONE_INDEX, e.center);
+        assertEquals(1, (int) e.mode);
+        assertEquals(3, (int) e.layer);
+        assertEquals(2, e.modeIndex());
+        assertArrayEquals(f.payload, Protocol.buildComponentReply(e));
+        // LED 4 of 30, colours 2, owner 0, layer 0
+        f = Protocol.parseFrame(hex("F0 7D 67 6D 01 51 58 11 00 00 05 04 00 1E 00 05 6C 65 64 5F 34 00 00 02 00 00 31 F7"));
+        Component l = Protocol.parseComponentReply(f.payload);
+        assertEquals(0, (int) l.owner);
+        assertEquals(0, (int) l.layer);
+        assertTrue(l.isLive(Set.of()));
+    }
+
+    @Test
+    void layerByteMissingOrFollowedByMore() throws ProtocolException {
+        Component c = new Component(Protocol.KIND_ENCODER, 0, 8, "e1", "E1", "device_param_1");
+        c.ring = 11;
+        c.mode = 0;
+        Component old = Protocol.parseComponentReply(Protocol.buildComponentReply(c));    // older firmware
+        assertNull(old.layer);
+        assertEquals(-1, old.modeIndex());
+        assertTrue(old.isLive(Set.of()));
+        c.layer = 4;
+        Component newer = Protocol.parseComponentReply(Protocol.concat(Protocol.buildComponentReply(c), Protocol.bytes(5, 6)));
+        assertEquals(4, (int) newer.layer);
+        assertFalse(newer.isLive(Set.of(2)));
+        assertTrue(newer.isLive(Set.of(3)));
+        Component b = new Component(Protocol.KIND_BUTTON, 0, 1, "b", "", "play");
+        b.led = 3;
+        assertNull(Protocol.parseComponentReply(Protocol.buildComponentReply(b)).layer);
+    }
+
+    @Test
+    void layerEvents() throws ProtocolException {
+        Event on = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0E 09 00 08 02 00 01 00 70 2E 00 00 22 F7")).payload);
+        Event off = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0F 09 00 08 01 00 00 00 70 2E 00 00 21 F7")).payload);
+        assertEquals(Protocol.EVENT_LAYER, on.type);
+        assertEquals(2, on.index);
+        assertEquals(1, on.value);
+        assertEquals(6000, on.tMs);
+        assertEquals(Protocol.EVENT_LAYER, off.type);
+        assertEquals(1, off.index);
+        assertEquals(0, off.value);
+    }
 }

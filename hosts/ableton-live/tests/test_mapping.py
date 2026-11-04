@@ -433,3 +433,86 @@ def test_touch_and_pad_events_are_ignored(rig):
     rig.m.handle_event(P.Event(7, 0, 9000))          # pad twin hit
     rig.m.handle_event(P.Event(7, 0, 0))
     assert rig.take() == []
+
+
+# ---- layers (daw-scripts.md 5.11) ----
+
+def _encoder_modes():
+    """The Code 61's encoder cycle in miniature: 8 base encoders with plain CCs (no role), then
+    twins in mode 1 (layer 2: zynpots 1..4, device_param_1..4) and mode 2 (layer 3: device_param_1..8)."""
+    comps = [C(E, i, "") for i in range(8)]
+    comps += [C(E, 8 + i, "zynthian.zynpot_%d" % (i + 1), layer=2) for i in range(4)]
+    comps += [C(E, 12 + i, "device_param_%d" % (i + 1), layer=2) for i in range(4)]
+    comps += [C(E, 16 + i, "device_param_%d" % (i + 1), layer=3) for i in range(8)]
+    comps += [C(B, 0, "device_bank_next", led=0, layer=2), C(B, 1, "device_bank_next", led=1, layer=3),
+              C(B, 2, "device_bank_prev", led=2, layer=3)]
+    return comps
+
+
+def test_twins_with_one_role_both_drive_it():
+    r = Rig(_encoder_modes())
+    assert r.m.unknown_roles == []                       # zynthian.* is another host's: ignored quietly
+    r.m.refresh()
+    r.take()
+    p = r.song.devices[0][0]
+    p.value = 0.5
+    r.turn(12, 2)                                        # device_param_1 in mode 1
+    r.turn(16, 2)                                        # device_param_1 in mode 2
+    assert p.value == pytest.approx(0.5 + 4.0 / ENCODER_STEPS)
+    r.take()
+    p.value = 0.25
+    r.m.refresh()
+    assert r.values() == {(E, 12): to14(0.25), (E, 16): to14(0.25)}   # both twins get FB_VALUE
+
+
+def test_device_page_follows_live_device_params():
+    r = Rig(_encoder_modes())
+    assert r.m.device_page() == 8                        # no layer on: nothing live, pages of 8
+    r.m.handle_event(P.Event(P.EVENT_LAYER, 1, 1))       # mode 1: device_param_1..4 live
+    assert r.m.device_page() == 4
+    r.press(0)
+    assert r.m.device_offset == 4
+    assert r.m._encoders[12].target() is r.song.devices[0][4]
+    r.m.handle_event(P.Event(P.EVENT_LAYER, 1, 0))
+    r.m.handle_event(P.Event(P.EVENT_LAYER, 2, 1))       # mode 2: device_param_1..8 live
+    assert r.m.device_page() == 8
+    r.press(1)                                           # 4 + 8 = 12: past the 12 params, so no move
+    assert r.m.device_offset == 4
+    r.press(2)
+    assert r.m.device_offset == 0
+
+
+def test_device_page_from_bind_and_older_firmware():
+    comps = _encoder_modes()
+    r = Rig(comps)
+    r.m.bind(r.comps, layers_on={1})                     # Device.layers_on, replayed before ready
+    assert r.m.device_page() == 4
+    for c in r.comps:
+        c.layer = None                                   # older firmware: no layer byte, all live
+    r.m.bind(r.comps)
+    assert r.m.device_page() == 8
+
+
+def test_button_twins_with_one_role_both_get_its_led():
+    r = Rig(_encoder_modes())
+    r.m.refresh()
+    leds = r.leds()
+    assert leds[0] == leds[1] == ON                      # device_bank_next in both modes: 12 params
+    assert leds[2] == OFF
+    r.press(1)                                           # either twin pages
+    assert r.leds() == {0: OFF, 1: OFF, 2: ON}
+
+
+def test_device_paging_with_layers_reported():
+    """The same device on firmware that sends the `layer` byte: one live device_param, so pages of 4."""
+    comps = [C(E, 0, "device_param_1", ring=11, mode=0, layer=0), C(B, 0, "device_bank_next", led=0, layer=0),
+             C(B, 1, "device_bank_prev", led=1, layer=0)]
+    r = Rig(comps)
+    assert r.m.reports_layers and r.m.device_page() == 4
+    r.m.refresh()
+    r.take()
+    r.press(0)                                       # param 5 of the first device
+    assert r.m.device_offset == 4 and r.m.device_bank == 1
+    assert r.values((P.FB_RING,))[("ring", 0)] == (P.RING_WRAP, to14(4 / 20.0), 0)
+    r.press(1)
+    assert r.m.device_offset == 0

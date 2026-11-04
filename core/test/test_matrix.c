@@ -17,6 +17,10 @@
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_settings.h"
+#include "gm_presets.h"
+#include "app_proto.h"
+#include "params.h"
+#include "gsx.h"
 
 static int fails, checks;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -139,7 +143,85 @@ void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
+/* The display's messages (linked with --wrap=gm_display_message). */
+void __real_gm_display_message(const char *s);
+static char shown[32];
+void __wrap_gm_display_message(const char *s)
+{
+    strncpy(shown, s, sizeof shown - 1);
+    __real_gm_display_message(s);
+}
+
 /* ---- helpers ------------------------------------------------------------ */
+
+#if GM_N_CYCLES
+/* The n-th EVENT of this type for index i: its offset in out (*v its value), or -1. */
+static int event_nth(int type, int i, int nth, int *v)
+{
+    for (int k = 0; k + GSX_OVERHEAD < out_n; k++) {
+        if (out[k] != 0xF0 || out[k + 1 + GSX_OFF_CMD] != GSX_MSG_EVENT)
+            continue;
+        const uint8_t *p = out + k + 1 + GSX_OFF_PAYLOAD;
+        if (p[0] == type && (i < 0 || (int)gsx_get_u(p + 1, 2) == i) && nth-- == 0) {
+            *v = (int)gsx_get_u(p + 3, 2);
+            return k;
+        }
+    }
+    return -1;
+}
+
+static int n_events(int type, int i)
+{
+    int n = 0, v;
+    while (event_nth(type, i, n, &v) >= 0)
+        n++;
+    return n;
+}
+
+/* A gemifi message from the host (USB-MIDI events on cable 0). */
+static void host_sysex(uint8_t cmd, const uint8_t *p, int n)
+{
+    static uint8_t buf[64];
+    static uint8_t seq = 20;
+    gsx_tx_t t;
+    seq = (uint8_t)((seq + 1) & 0x7F);
+    gsx_tx_begin(&t, buf, cmd, seq);
+    for (int i = 0; i < n; i++)
+        gsx_put(&t, p[i]);
+    int len = gsx_tx_end(&t);
+    for (int k = 0; k < len; k += 3) {
+        int m = len - k > 3 ? 3 : len - k;
+        uint8_t ev[4] = { (uint8_t)(len - k > 3 ? 4 : 4 + m), buf[k], m > 1 ? buf[k + 1] : 0, m > 2 ? buf[k + 2] : 0 };
+        gm_midi_rx_usb(ev);
+    }
+}
+
+/* SET_PARAM from the host: id, index, value (u35). */
+static void host_set(uint16_t id, uint16_t index, int32_t v)
+{
+    uint8_t q[9] = { (uint8_t)(id & 0x7F), (uint8_t)(id >> 7), (uint8_t)(index & 0x7F), (uint8_t)(index >> 7) };
+    uint32_t u = (uint32_t)v;
+    for (int k = 0; k < 5; k++)
+        q[4 + k] = (uint8_t)((u >> (7 * k)) & 0x7F);
+    host_sysex(GSX_CMD_SET_PARAM, q, 9);
+}
+
+/* GET_COMPONENT kind / index: the reply status; *r = the payload after it, *rn its length. */
+static int get_component(int kind, int index, const uint8_t **r, int *rn)
+{
+    uint8_t q[3] = { (uint8_t)kind, (uint8_t)(index & 0x7F), (uint8_t)(index >> 7) };
+    out_n = 0;
+    host_sysex(GSX_CMD_GET_COMPONENT, q, 3);
+    for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++)
+        if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == (GSX_CMD_GET_COMPONENT | GSX_REPLY)) {
+            const uint8_t *b = out + i + 1;
+            *r = b + GSX_OFF_PAYLOAD + 1;
+            *rn = (b[GSX_OFF_LEN] | b[GSX_OFF_LEN + 1] << 7) - 1;
+            return b[GSX_OFF_PAYLOAD];
+        }
+    return -1;
+}
+#endif
 
 static uint32_t tick_ns;             /* scan_us, or a hardware-scan frame */
 #ifdef HW_SCAN_TEST
@@ -444,6 +526,182 @@ int main(void)
     /* encoder, out of any layer: CC 30, from its own value (the twin's turns left it alone) */
     turn();
     CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 1, "encoder turn: CC 30 = 1 (got %d %d)", d1, d2);
+
+#if GM_N_CYCLES
+    /* Cycles (core/README.md "Cycles"): Shift (16/3) + emode (PC4) moves
+     * the encs cycle to its next enabled step: OFF (2, disabled), PLAIN (3),
+     * DEV (4), PAN (5); emode_led (PD0-PD2, RGB) shows the step's colour. */
+#define EMODE 36                     /* PC4 */
+#define ELED 48                      /* PD0..PD2: red, green, blue */
+#define LED_IS(r, g, b) (level[ELED] == (r) && level[ELED + 1] == (g) && level[ELED + 2] == (b))
+#define TAP(r, c) do { closed[r][c] = 1; run_ms(20); closed[r][c] = 0; run_ms(20); } while (0)
+#define SHIFT_TAP_PIN(pin) do { closed[16][3] = 1; run_ms(20); level[pin] = 1; run_ms(20); level[pin] = 0; \
+                                run_ms(20); closed[16][3] = 0; run_ms(20); } while (0)
+#define CYCLE() SHIFT_TAP_PIN(EMODE)
+#define ARM() do { closed[16][3] = 1; run_ms(20); TAP(17, 2); closed[16][3] = 0; run_ms(20); } while (0)
+    {
+        int v;
+        CHECK(LED_IS(0, 0, 1), "power-on: the first enabled step, PLAIN: blue (OFF is disabled)");
+        /* the schema: layer.* global, button.* / encoder.* the YAML's own */
+        const param_def_t *p = params_find(P_BTN_ACTION);
+        CHECK(p && p->count == 7 && (p->flags & PF_PRESET), "button.action: the 7 own buttons, per preset");
+        p = params_find(P_LAYER_BTN_NUMBER);
+        CHECK(p && p->count == 3 && !(p->flags & PF_PRESET) && p->defs[2] == 40 &&
+              !strcmp(p->index_labels[2], "Mute s_dev"), "layer.button.number: 3 twins, global, mute_s_dev = 40");
+        p = params_find(P_ENC_CC);
+        CHECK(p && p->count == 1, "encoder.cc: the own encoder only");
+        p = params_find(P_LAYER_ENC_CC);
+        CHECK(p && p->count == 4 && p->min == -1 && p->defs[0] == 31 && p->defs[1] == 33 && p->defs[2] == -1 &&
+              p->defs[3] == 34, "layer.encoder.cc: 4 twins, -1..127, DEV's is none (-1)");
+        p = params_find(P_LAYER_ENABLED);
+        CHECK(p && p->count == 6 && p->defs[2] == 0 && p->defs[3] == 1 && !strcmp(p->index_labels[3], "PLAIN") &&
+              !strcmp(p->index_labels[1], "arm"), "layer.enabled: per mode, OFF off, labels name / id");
+
+        /* debug.events 1 from the host: EVENT 8 for each mode on, every time */
+        out_n = 0;
+        host_set(P_EVENTS, 0, 1);
+        run_ms(2);
+        CHECK(n_events(EV_LAYER, -1) == 1 && event_nth(EV_LAYER, 3, 0, &v) >= 0 && v == 1,
+              "events on: EVENT 8 mode 3 (PLAIN) = 1, nothing else (%d)", n_events(EV_LAYER, -1));
+        out_n = 0;
+        host_set(P_EVENTS, 0, 1);
+        run_ms(2);
+        CHECK(n_events(EV_LAYER, 3) == 1, "set to 1 again (already 1): the replay again");
+
+        /* emode alone: its own CC 27; the cycle stays */
+        out_n = 0;
+        level[EMODE] = 1;
+        run_ms(20);
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 27 && d2 == 127, "emode alone: CC 27");
+        level[EMODE] = 0;
+        run_ms(20);
+        CHECK(LED_IS(0, 0, 1) && n_events(EV_LAYER, -1) == 0, "still PLAIN, no EVENT 8");
+
+        /* Shift + emode: DEV, its name, green, EVENT 8 3 = 0 then 4 = 1 */
+        out_n = 0;
+        shown[0] = 0;
+        CYCLE();
+        int off = event_nth(EV_LAYER, 3, 0, &v), off_v = v, on = event_nth(EV_LAYER, 4, 0, &v);
+        CHECK(off >= 0 && off_v == 0 && on > off && v == 1, "EVENT 8: PLAIN off, then DEV on");
+        CHECK(!strcmp(shown, "DEV"), "the display: DEV (got '%s')", shown);
+        CHECK(LED_IS(0, 1, 0), "emode_led green");
+        CHECK(!last_msg(0xB0, &d1, &d2) || d1 != 27, "Shift + emode: no CC 27");
+        /* DEV's encoder twin: cc none, an EVENT with its index (3), no CC */
+        turn();
+        CHECK(!last_msg(0xB0, &d1, &d2), "DEV: the encoder sends no CC");
+        CHECK(event_nth(EV_ENCODER, 3, 0, &v) >= 0 && v == 1, "DEV: EVENT encoder 3 = +1");
+
+        /* arm on as well: independent of the cycle */
+        out_n = 0;
+        ARM();
+        CHECK(event_nth(EV_LAYER, 1, 0, &v) >= 0 && v == 1 && n_events(EV_LAYER, 4) == 0,
+              "arm on: EVENT 8 1 = 1; DEV stays");
+        CHECK(level[35] == 1 && LED_IS(0, 1, 0), "arm LED lit, emode_led still green");
+        /* mute has twins in both: DEV's wins (a cycle step before a layer-only toggle) */
+        out_n = 0;
+        TAP(17, 3);
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 40 && d2 == 127, "mute: DEV's twin, CC 40 (got %d %d)", d1, d2);
+        turn();
+        CHECK(!last_msg(0xB0, &d1, &d2) && event_nth(EV_ENCODER, 3, 0, &v) >= 0,
+              "the encoder: DEV's twin, not arm's CC 31");
+        out_n = 0;
+        host_set(P_EVENTS, 0, 1);
+        run_ms(2);
+        CHECK(n_events(EV_LAYER, -1) == 2 && n_events(EV_LAYER, 1) == 1 && n_events(EV_LAYER, 4) == 1,
+              "the replay: arm and DEV");
+
+        /* the twins' settings are global: a preset switch keeps them */
+        host_set(P_LAYER_BTN_NUMBER, 2, 41);
+        host_set(P_LAYER_ENC_CC, 2, 35);
+        run_ms(2);
+        presets_select(2);
+        run_ms(50);
+        CHECK(gm_cfg.btn_number[5] == 44, "preset 2: mute's own CC 44 (per preset)");
+        CHECK(gm_cfg.btn_number[9] == 41 && gm_cfg.enc_cc[3] == 35, "preset 2: the twins keep 41 / 35");
+        presets_select(1);
+        run_ms(50);
+        CHECK(gm_cfg.btn_number[5] == 24 && gm_cfg.btn_number[9] == 41 && gm_cfg.enc_cc[3] == 35,
+              "preset 1: mute 24 again, the twins still 41 / 35");
+        CHECK(LED_IS(0, 1, 0) && level[35] == 1, "a preset switch keeps the layers on");
+        out_n = 0;
+        TAP(17, 3);
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 41 && d2 == 127, "DEV's mute twin: CC 41 (toggles dropped)");
+        TAP(17, 3);
+        turn();
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 35 && d2 == 1, "DEV's encoder twin with a CC now: 35 = 1");
+        host_set(P_LAYER_ENC_CC, 2, -1);
+        run_ms(2);
+
+        /* GET_COMPONENT's layer byte: mode index + 1 for a twin, 0 else */
+        const uint8_t *r;
+        int rn;
+        CHECK(get_component(GSX_KIND_ENCODER, 3, &r, &rn) == GSX_OK && r[rn - 1] == 5 && r[rn - 2] == 0,
+              "encoder 3 (enc_s_dev): mode 0, layer 5 (mode 4)");
+        get_component(GSX_KIND_ENCODER, 0, &r, &rn);
+        CHECK(r[rn - 1] == 0, "encoder 0: layer 0");
+        get_component(GSX_KIND_BUTTON, 9, &r, &rn);
+        CHECK(r[rn - 1] == 5 && gsx_get_u(r + rn - 3, 2) == 5, "button 9 (mute_s_dev): LED 5, layer 5");
+        get_component(GSX_KIND_BUTTON, 7, &r, &rn);
+        CHECK(r[rn - 1] == 2, "button 7 (mute_arm): layer 2 (mode 1)");
+        get_component(GSX_KIND_LED, 5, &r, &rn);
+        CHECK(r[rn - 1] == 5, "LED 5 (mute_led_s_dev): layer 5");
+        get_component(GSX_KIND_LED, 3, &r, &rn);
+        CHECK(r[rn - 1] == 0 && r[rn - 3] == 3, "LED 3 (emode_led): RGB, layer 0");
+
+        /* next: PAN (yellow), then OFF is skipped: PLAIN */
+        out_n = 0;
+        CYCLE();
+        CHECK(!strcmp(shown, "PAN") && LED_IS(1, 1, 0), "PAN: yellow (got '%s')", shown);
+        CHECK(event_nth(EV_LAYER, 4, 0, &v) >= 0 && v == 0 && event_nth(EV_LAYER, 5, 0, &v) >= 0 && v == 1,
+              "EVENT 8: DEV off, PAN on");
+        turn();
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 34, "PAN: the encoder's CC 34");
+        out_n = 0;
+        TAP(17, 3);
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 25, "PAN has no mute twin: arm's, CC 25");
+        TAP(17, 3);
+        out_n = 0;
+        ARM();
+        CHECK(event_nth(EV_LAYER, 1, 0, &v) >= 0 && v == 0 && level[35] == 0 && LED_IS(1, 1, 0),
+              "arm off: EVENT 8 1 = 0; PAN stays");
+        CYCLE();
+        CHECK(!strcmp(shown, "PLAIN") && LED_IS(0, 0, 1), "past the end: OFF skipped, PLAIN (got '%s')", shown);
+
+        /* enable OFF: it's visited; disable every step: the first one */
+        host_set(P_LAYER_ENABLED, 2, 1);
+        run_ms(2);
+        CYCLE();
+        CYCLE();
+        CYCLE();
+        CHECK(!strcmp(shown, "OFF") && LED_IS(1, 0, 0), "OFF enabled: PAN -> OFF, red (got '%s')", shown);
+        for (uint16_t m = 2; m <= 5; m++)
+            host_set(P_LAYER_ENABLED, m, 0);
+        run_ms(2);
+        CYCLE();
+        CHECK(!strcmp(shown, "OFF"), "every step disabled: the first (OFF)");
+        for (uint16_t m = 3; m <= 5; m++)
+            host_set(P_LAYER_ENABLED, m, 1);
+        run_ms(2);
+        CYCLE();
+        CHECK(!strcmp(shown, "PLAIN"), "enabled again: PLAIN");
+        /* a disabled toggle mode can't be entered: Shift + lmode is lmode's own */
+        host_set(P_LAYER_ENABLED, 1, 0);
+        run_ms(2);
+        out_n = 0;
+        ARM();
+        CHECK(level[35] == 0 && n_events(EV_LAYER, 1) == 0, "arm disabled: no layer");
+        {
+            int cc23 = 0;
+            for (int k = 0; k + 2 < out_n; k++)
+                cc23 |= out[k] == 0xB0 && out[k + 1] == 23 && out[k + 2] == 127;
+            CHECK(cc23, "Shift + lmode: lmode's own CC 23");
+        }
+        host_set(P_LAYER_ENABLED, 1, 1);
+        host_set(P_EVENTS, 0, 0);
+        run_ms(2);
+    }
+#undef TAP
+#endif
 
 #ifdef HW_SCAN_TEST
     /* Velocity resolution: the frames are 12 us, so 200 us apart is two

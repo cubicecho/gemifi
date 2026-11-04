@@ -50,7 +50,7 @@ A role on a button acts on press, and the button's LED (if it has one) shows the
 | `bank_prev`, `bank_next` | move the 8 strips by 8 tracks | lit if possible |
 | `strip_prev`, `strip_next` | move the 8 strips by 1 track | lit if possible |
 | `device_prev`, `device_next` | select the previous / next device on the selected track | lit if possible |
-| `device_bank_prev`, `device_bank_next` | page `device_param_1..8` by 8 parameters | lit if possible |
+| `device_bank_prev`, `device_bank_next` | page `device_param_1..8` by 8 parameters. On firmware that reports layers (a `layer` byte in GET_COMPONENT), by the live `device_param_N` in steps of 4: by 4 while only `device_param_1..4` are live (a 4-encoder layer), else by 8 | lit if possible |
 | `device_on` | toggle the selected device on / off | lit while on |
 | `scene_launch` | fire the selected scene | lit while held |
 | `scene_prev`, `scene_next` | select the previous / next scene | lit if possible |
@@ -68,7 +68,8 @@ Continuous roles work on analog inputs (absolute, 0..16383) and encoders (signed
 
 - **Analog inputs** use pick-up: after the target changed in Live (mouse, automation, a bank switch), the knob does nothing until it comes within 3 % of the value or crosses it. The script also sends the value as FB_VALUE, so a device with `takeover: pickup` does the same for its own MIDI.
 - **Encoders** move a parameter by 1/128 of its range per step (quantized parameters: one value per detent), and get FB_VALUE (for absolute mode) and, with a ring, FB_RING: boost/cut with the centre LED for bipolar parameters (pan, crossfader), wrap otherwise; wrap at 0 for a control with no target.
-- Keys (kind 2) and displays (kind 6) have no roles yet and are left alone.
+- **Layers** (`protocol/daw-scripts.md` §5.11). A twin (GET_COMPONENT `layer` > 0) is live only while its mode is on; EVENT 8 says when (the device replays the layers that are on when `debug.events` becomes 1). Every component gets its own binding, so twins with one role in two modes (`device_param_1` in two encoder modes) both drive it, and both get its FB_VALUE and LED state. The script uses liveness only for the device page size above. Firmware without the `layer` byte: everything is live, and device pages stay at 8.
+- Keys (kind 2), pads (kind 7) and displays (kind 6) are left alone.
 
 ## Files
 

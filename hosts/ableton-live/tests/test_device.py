@@ -253,3 +253,29 @@ def test_keepalive_slows_down_with_booted():
     assert new.count(P.GET_PARAM) == 1
     dev.tick()
     assert new.count(P.GET_PARAM) == 2
+
+
+def test_layer_replay_is_kept_before_ready():
+    """SET_PARAM debug.events = 1 makes the device replay EVENT 8 for each layer that is on; the
+    replay can come before the reply, so the device layer keeps it (daw-scripts.md 3)."""
+    fake = FakeDevice()
+    fake.layers_on = {0, 2}
+    dev = connect(fake)
+    dev.start()
+    assert dev.ready and dev.layers_on == {0, 2}
+    assert dev.events == []                              # sent before ready: not passed on
+    fake.event(P.EVENT_LAYER, 2, 0)                      # a layer turns off
+    fake.event(P.EVENT_LAYER, 3, 1)                      # another turns on
+    assert dev.layers_on == {0, 3}
+    assert [(e.type, e.index, e.value) for e in dev.events] == [(8, 2, 0), (8, 3, 1)]
+
+
+def test_layers_forgotten_on_restart():
+    fake = FakeDevice()
+    fake.layers_on = {1}
+    dev = connect(fake)
+    dev.start()
+    assert dev.layers_on == {1}
+    fake.layers_on = set()                               # rebooted: every layer back off
+    fake.boot()
+    assert dev.ready and dev.layers_on == set()

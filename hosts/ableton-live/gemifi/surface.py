@@ -68,7 +68,7 @@ class GemifiSurface(object):
     # ---- device callbacks ----
 
     def _on_ready(self, device):
-        self.mapping.bind(device.all_components())
+        self.mapping.bind(device.all_components(), device.layers_on)
         for kind, index, role in self.mapping.unknown_roles:
             self._log("ignoring unknown role %r (kind %d, index %d)" % (role, kind, index))
         self.mapping.refresh()

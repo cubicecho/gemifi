@@ -55,11 +55,13 @@ buttons:
   - { id: shift, pin: { switch_matrix: panel, number: 3 }, action: cc_momentary, cc: 22 }
   - { id: lmode, pin: { switch_matrix: panel, number: 6 }, action: cc_momentary, cc: 23 }   # Shift + it: the arm layer
   - { id: mute, pin: { switch_matrix: panel, number: 7 }, action: cc_toggle, cc: 24, led: mute_led }
+  - { id: emode, pin: PC4, action: cc_momentary, cc: 27 }   # Shift + it: the encoder cycle
 
 leds:
   - { id: chan_led, pin: PC0 }
   - { id: mute_led, pin: PC1, pin2: PC2, active: colour1 }
   - { id: arm_led, pin: PC3 }
+  - { id: emode_led, pin: PD0, pin2: PD1, pin3: PD2 }        # RGB: the cycle step's colour
 
 # While chan is held, up / down change the channel; the keys keep playing.
 modes:
@@ -76,6 +78,24 @@ modes:
       mute: { cc: 25, daw: arm_1, active: colour2 }
       lmode: { cc: 26 }              # lmode alone in the layer: CC 26; Shift + it still leaves
       enc: { cc: 31, daw: pan_1 }    # the encoder's twin: CC 31
+  # Shift + emode: the next enabled step (core/README.md "Cycles"), its name
+  # on the display, its colour on emode_led. Independent of arm. OFF starts
+  # disabled, so power-on is PLAIN; DEV's encoder sends no CC (EVENTs only),
+  # and its mute twin beats arm's (a cycle step before a layer-only toggle).
+  - id: encs
+    cycle: { button: emode, with: shift }
+    led: emode_led
+    steps:
+      - { id: s_off, name: "OFF", colour: red, enabled: false, layer: { enc: { cc: 33 } } }
+      - { id: s_plain, name: PLAIN, colour: blue }
+      - { id: s_dev, name: DEV, colour: green, layer: { enc: { cc: none, daw: device_param_1 }, mute: { cc: 40 } } }
+      - { id: s_pan, name: PAN, colour: yellow, layer: { enc: { cc: 34, daw: pan_2 } } }
+
+presets:
+  list:
+    - name: One
+    - name: Two
+      buttons: { mute: { cc: 44 } }
 
 encoders:
   - { id: enc, pin_a: { switch_matrix: panel, number: 4 }, pin_b: { switch_matrix: panel, number: 5 }, cc: 30 }

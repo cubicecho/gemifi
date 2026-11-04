@@ -112,7 +112,10 @@ typedef struct {
 /* ---- components ------------------------------------------------------- */
 /* name: the display name (YAML name:, or derived from the id): the index
  * label of the button's params in the schema, and the debug log. Ids are a
- * build-time thing and don't reach the firmware. */
+ * build-time thing and don't reach the firmware.
+ * Layer twins come after the YAML's own components (GM_BTN_TWINS buttons,
+ * GM_ENC_TWINS encoders): their settings are the global layer.* params,
+ * the others' the per-preset button.* / encoder.* (gm_settings.h). */
 typedef struct {
     gm_pin_t pin;
     const char *name;
@@ -358,6 +361,15 @@ typedef struct {
     const gm_mode_key_t *buttons;   /* { button index, op, arg }, sorted  */
     uint8_t with;                /* toggle only while button with - 1 is held
                                     (else the toggle button's own action runs); 0 = none */
+    /* Cycles (core/README.md "Cycles"): a step of cycle group cycle - 1, 0 =
+     * not a step. A step's toggle / with are its cycle's button: each press
+     * moves the group to its next enabled step (layer.enabled), whose led
+     * shows colour: 0x80 | pin mask (bit 0 pin, 1 pin2, 2 pin3), 0 = the
+     * LED's active look. name: shown on the display when the step is
+     * switched to, and the label of layer.enabled (the id for other modes). */
+    uint8_t cycle;
+    uint8_t colour;
+    const char *name;
 } gm_mode_t;
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */

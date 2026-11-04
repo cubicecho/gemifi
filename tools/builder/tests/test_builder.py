@@ -1867,7 +1867,7 @@ class TestModes(unittest.TestCase):
         # it keeps cc_toggle (action 2), with CC 7; sel (5) toggles with shift (3 + 1) held, sel keeps CC 8
         self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 1, 0, 4, 1, 2, 1, 2 }", c)
         self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 1, 0, 60, 5, 6, 8, 7 }", c)
-        self.assertIn("{ 5, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 4 }, /* arm */", c)
+        self.assertIn("{ 5, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 4, 0, 0x00, \"arm\" }, /* arm */", c)
         self.assertNotIn("GM_LAYERS", self.gen(MODES_NUC)[1])
         # checks
         self.assertError(modes("- id: arm\n  toggle: { button: sel }\n  layer: { mute: { cc: 7 } }\n", base),
@@ -1929,13 +1929,18 @@ class TestModes(unittest.TestCase):
         # the with: toggle's twin: sel's switch, its action and CC, and a twin of its LED
         sel = next(b for b in dev.buttons if b.id == "sel_grid")
         self.assertEqual((sel.action_name, sel.number, sel.daw, sel.base), ("cc_momentary", 8, "grid_left", 4))
-        # stored: encoder.cc and encoder.mode of 4 encoders (2 twins); pad.note of the 2 pads only
-        n_preset, _ = gd.stored_counts(dev)
+        # stored: the twins' settings are globals (layer.*), once, not per preset; pad.note of the 2 pads only
+        n_preset, n_global = gd.stored_counts(dev)
         dev0, _ = load(self.LAYER_BASE)
-        self.assertEqual(n_preset - gd.stored_counts(dev0)[0], 2 + 2 + 2)   # button twin: action, number
-        # a preset can set a twin encoder's CC; a pad twin has no note
+        self.assertEqual(n_preset, gd.stored_counts(dev0)[0])
+        # layer.enabled (1 mode), layer.button.action / number (1 twin), layer.encoder.cc / mode (2 twins)
+        self.assertEqual(n_global - gd.stored_counts(dev0)[1], 1 + 2 + 4)
+        # a preset can't set a twin's settings (global); a pad twin has no note
         pre = "presets:\n  slots: 4\n  list:\n    - name: A\n    - name: B\n      %s\n"
-        self.assertClean(text.replace("presets: { slots: 4 }\n", pre % "encoders: { e1_grid: { cc: 50 } }"))
+        self.assertError(text.replace("presets: { slots: 4 }\n", pre % "encoders: { e1_grid: { cc: 50 } }"),
+                         r"'e1_grid' is a layer twin: its settings are global \(layer.encoder.\*\)")
+        self.assertError(text.replace("presets: { slots: 4 }\n", pre % "buttons: { sel_grid: { cc: 50 } }"),
+                         r"'sel_grid' is a layer twin: its settings are global \(layer.button.\*\)")
         self.assertError(text.replace("presets: { slots: 4 }\n", pre % "pads: { kick_grid: { note: 50 } }"),
                          r"'kick_grid' is the id of .*a pad twin")
         self.assertNotIn("gm_pad_twins", self.gen(self.LAYER_BASE)[2])
@@ -1963,6 +1968,99 @@ class TestModes(unittest.TestCase):
             dev, diags = load(modes(self.GRID + "    kick: { daw: clip_1_1 }\n    e1: { cc: 41 }\n    sel: {}\n",
                                     self.LAYER_BASE.replace("cc: 21 }", "cc: 21 }\nanalog:\n  - { id: f, pin: PA0, "
                                                                         "cc: 7, touch: movement }")))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
+        finally:
+            shutil.rmtree(tmp)
+
+    CYCLE_BASE = LAYER_BASE.replace("  - { id: lamp, pin: PA13 }\n",
+                                    "  - { id: lamp, pin: PA13 }\n  - { id: rgb, pin: PC8, pin2: PC9, pin3: PC10 }\n")
+    CYCLE = ("- id: encs\n  cycle: { button: sel, with: shift }\n  led: rgb\n  steps:\n"
+             "    - { id: plain, name: MIDI, colour: blue }\n"
+             "    - id: dev\n      name: DEVICE\n      colour: green\n      layer: { e1: { cc: none, daw: device_param_1 }, "
+             "kick: { daw: clip_1_1 } }\n"
+             "    - { id: pan, colour: red, enabled: false, layer: { e1: { cc: 41, daw: pan_1 }, e2: { cc: none } } }\n")
+
+    def test_cycle(self):
+        """cycle: + steps: (core/README.md "Cycles"): one root mode per step, the cycle's button on each."""
+        text = modes(self.CYCLE + "- id: arm\n  toggle: { button: menu }\n  layer: { e2: { cc: 50 } }\n",
+                     self.CYCLE_BASE)
+        self.assertClean(text)
+        dev, h, c = self.gen(text)
+        self.assertEqual([m.id for m in dev.modes], ["plain", "dev", "pan", "arm"])
+        self.assertIn("#define GM_N_CYCLES 1 ", h)
+        self.assertIn("#define GM_MODES_ENABLED 1, 1, 0, 1 ", h)
+        self.assertIn("#define GM_ENC_TWINS 4 ", h)
+        # steps: toggle sel (4), with shift (3 + 1), root = itself, the cycle's LED (rgb, 2), cycle 1, colour
+        # 0x80 | the pins (blue 4, green 2, red 1), the name (or the id)
+        self.assertIn('{ 4, GM_MODE_NONE, 0, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x84, "MIDI" }, /* plain */', c)
+        self.assertIn('{ 4, GM_MODE_NONE, 1, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x82, "DEVICE" }, /* dev */', c)
+        self.assertIn('{ 4, GM_MODE_NONE, 2, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x81, "pan" }, /* pan */', c)
+        self.assertIn('{ 1, GM_MODE_NONE, 3, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0x00, "arm" }, /* arm */', c)
+        # twins: layer = step index + 1; cc: none = -1
+        self.assertIn('"E1 dev", 4, 2, 0 }', c)
+        self.assertIn('"E1 pan", 4, 3, 0 }', c)
+        self.assertIn("gm_encoder_cc_defaults[GM_N_ENCODERS] = { 20, 21, -1, 41, -1, 50 }", c)
+        # params: the YAML's own components per preset, the layer.* globals (counted once in the budget)
+        counts = {n: cnt(dev) for n, _i, _s, cnt in gd.PARAMS}
+        self.assertEqual((counts["encoder.cc"], counts["layer.encoder.cc"], counts["layer.encoder.mode"]), (2, 4, 4))
+        self.assertEqual((counts["button.action"], counts["layer.button.action"], counts["layer.enabled"]), (5, 0, 4))
+        self.assertEqual([gd.PARAM_ID[n] for n in ("layer.enabled", "layer.button.action", "layer.button.number",
+                                                   "layer.encoder.cc", "layer.encoder.mode")], [34, 35, 36, 37, 38])
+        dev0, _ = load(self.CYCLE_BASE)
+        b, b0 = gd.storage_budget(dev), gd.storage_budget(dev0)
+        self.assertEqual(b["preset_values"], b0["preset_values"])          # no twin value per preset
+        self.assertEqual(b["global_values"], b0["global_values"] + 4 + 8)  # layer.enabled + 4 encoder twins x 2
+        self.assertEqual(b["worst_bytes"] - b0["worst_bytes"], b["global_record"] - b0["global_record"])
+        # without twins or cycles: no layer.enabled (the Keystation's edit mode)
+        self.assertEqual(next(cnt for n, _i, _s, cnt in gd.PARAMS if n == "layer.enabled")(load(modes(
+            ROOT + "    C3: octave_reset\n"))[0]), 0)
+        # power-on and the disabled steps are the firmware's; at least one step must be enabled
+        bad = lambda body: modes(body, self.CYCLE_BASE)    # noqa: E731
+        self.assertError(bad(self.CYCLE.replace("colour: blue }", "colour: blue, enabled: false }")
+                             .replace("colour: green\n", "colour: green\n      enabled: false\n")),
+                         "every step has enabled: false")
+        two = "- id: c\n  cycle: { button: sel, with: shift }\n  steps:\n"
+        self.assertError(bad(two + "    - { id: a }\n"), "1 step: a cycle has 2 to 8")
+        self.assertError(bad(two + "".join(f"    - {{ id: s{k} }}\n" for k in range(9))), "9 steps: a cycle has 2 to 8")
+        self.assertError(bad(two + "    - { id: a }\n    - { id: c }\n"), r"mode 'c' is already modes\[0\]")
+        self.assertError(bad(two + "    - { id: a }\n    - { id: b }\n- { id: a, toggle: menu }\n"),
+                         r"mode 'a' is already modes\[0\]\.steps\[0\]")
+        self.assertError(bad(two + "    - { id: a, keys: { C3: octave_up } }\n    - { id: b }\n"),
+                         r"unknown key .*known: id, name, colour, enabled, layer")
+        self.assertError(bad("- id: c\n  cycle: { button: sel }\n  toggle: { button: menu }\n  steps:\n"
+                             "    - { id: a }\n    - { id: b }\n"), "cycle: and steps: only, not toggle:")
+        self.assertError(bad("- id: c\n  cycle: { button: sel, with: shift }\n"), "needs steps:")
+        self.assertError(bad("- id: c\n  steps:\n    - { id: a }\n    - { id: b }\n"), "needs cycle:")
+        self.assertError(bad(two + "    - { id: a }\n    - { id: b }\n  layer: { e1: {} }\n"),
+                         "a cycle has no layer: of its own")
+        self.assertError(bad(two + "    - { id: a }\n    - { id: b }\n- { id: m, toggle: { button: sel, with: shift } }\n"),
+                         "button 'sel' already enters mode 'c'")
+        self.assertError(bad("- id: c\n  cycle: { button: menu }\n  steps:\n    - { id: a }\n    - { id: b }\n"
+                             "- { id: m, hold: menu }\n"), "button 'menu' already enters mode 'c'")
+        self.assertError(bad("- id: c\n  cycle: { button: shift }\n  steps:\n    - { id: a }\n    - { id: b }\n"),
+                         "its own action would never run")
+        self.assertError(bad(two.replace("sel", "other") + "    - { id: a, colour: red }\n    - { id: b }\n"),
+                         "no LED to show it")                          # other has no LED, the cycle no led:
+        self.assertError(bad(self.CYCLE.replace("colour: blue", "colour: purple")), "unknown colour 'purple' for LED 'rgb'")
+        self.assertError(bad(two.replace("steps:", "led: lamp\n  steps:") + "    - { id: a, name: ABCDEFGHIJKLMNOPQ }\n"
+                             "    - { id: b }\n"), "at most 16 ASCII characters")
+        w = self.warns(bad(two.replace("steps:", "led: lamp\n  steps:") + "    - { id: a, colour: red }\n"
+                           "    - { id: b, colour: off }\n"))
+        self.assertTrue(any("can't show red" in x for x in w), w)
+        self.assertFalse(any("does nothing" in x for x in w), w)      # a step without a layer: the base components
+        # a key can't go to a step; a step's encoder twin takes cc: none, a button twin doesn't
+        self.assertError(bad(self.CYCLE.replace("e2: { cc: none }", "sel: { cc: none }")), "must be an integer")
+        self.assertError(bad(self.CYCLE + "- id: m\n  toggle: { button: menu }\n  keys: { C3: { mode: plain } }\n"),
+                         "mode 'plain' has no parent")
+
+    def test_cycle_compiles(self):
+        if not GCC:
+            self.skipTest("needs host gcc")
+        tmp = tempfile.mkdtemp()
+        try:
+            dev, diags = load(modes(self.CYCLE + "- id: arm\n  toggle: { button: menu }\n  layer: { e2: { cc: 50 } }\n",
+                                    self.CYCLE_BASE))
             self.assertIsNotNone(dev, [str(d) for d in diags])
             TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
         finally:
@@ -2003,9 +2101,9 @@ class TestModes(unittest.TestCase):
             (24, 10, 1, "C5: channel 1"), (25, 10, 2, "C#5: channel 2"), (26, 10, 3, "D5: channel 3")])
         # toggle, parent, root, led, blink, count LED, done LED, n, keys
         # ..., hold, n_buttons, buttons
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0, 0 }, /* menu */", c)
-        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0, 0 }, /* pick */", c)   # parent's LED, blinking
-        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0, 0 }, /* chan */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\" }, /* menu */", c)
+        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0, 0, 0, 0x00, \"pick\" }, /* pick */", c)   # parent's LED, blinking
+        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0, 0, 0, 0x00, \"chan\" }, /* chan */", c)
         self.assertEqual(dev.modes[2].root, 0)
 
     def test_modes_compile(self):
@@ -2126,8 +2224,8 @@ class TestModes(unittest.TestCase):
         self.assertEqual([(int(k), int(op), int(a), t) for k, op, a, t in rows], [
             (0, 2, 0, "a: preset_next"), (2, 10, 3, "other: channel 3"), (0, 14, 0, "a: channel_down")])
         # the hold button's LED is lit while it is held; hold = 1; no keys: the keyboard plays
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons, 0 }, /* hold */", c)
-        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons, 0 }, /* edit */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons, 0, 0, 0x00, \"hold\" }, /* hold */", c)
+        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons, 0, 0, 0x00, \"edit\" }, /* edit */", c)
         self.assertEqual(self.warns(modes("- { id: x, hold: menu, buttons: { a: channel_up } }")), [])
         self.assertTrue(any("has no keys, buttons or layer" in w for w in self.warns(modes("- { id: x, hold: menu }"))))
 
@@ -2163,7 +2261,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes(base + "  preset_blink: [lamp, menu_led, lamp]"), r"needs one or two LED ids")
         self.assertError(modes(base + "  preset_blink: [lmp]"), r"no LED with id 'lmp'")
         _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0 }", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\" }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 

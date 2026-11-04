@@ -39,10 +39,10 @@ static uint8_t data_buf[256];        /* unpacked FW_DATA chunk */
 static uint8_t rx_buf[GSX_OVERHEAD + 4 + 300];   /* FW_DATA: 256 B packed */
 static gsx_rx_t rx;
 /* The largest reply: GET_PARAMS (6 + 16 values), or GET_COMPONENT (kind,
- * index, count, three lstrings, up to 4 bytes of extras: an encoder's ring,
- * centre and mode). */
+ * index, count, three lstrings, up to 5 bytes of extras: an encoder's ring,
+ * centre, mode and layer). */
 #define REPLY_PARAMS    (6u + PARAMS_RUN * 5u + 8u)
-#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 4u)
+#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 5u)
 #define REPLY_MAX       (REPLY_PARAMS > REPLY_COMPONENT ? REPLY_PARAMS : REPLY_COMPONENT)
 static uint8_t tx_buf[GSX_OVERHEAD + 1 + REPLY_MAX];
 static uint16_t tx_len;
@@ -287,6 +287,8 @@ static int cmd_set_param(const gsx_frame_t *f, gsx_tx_t *t)
         return st;
     presets_host_set(id, index);
     app_on_param_set(id, index);
+    if (id == P_EVENTS && v == 1)
+        gm_layers_report();             /* EVENT 8 for each mode on, every time (sysex.md 4.6) */
     gsx_put_u(t, id, 2);
     gsx_put_u(t, index, 2);
     gsx_put_u(t, (uint32_t)v, 5);
@@ -353,6 +355,8 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
         d->values[index + i] = (int32_t)gsx_get_u(vp + 5 * i, 5);
         presets_host_set(id, (uint16_t)(index + i));
         app_on_param_set(id, (uint16_t)(index + i));
+        if (id == P_EVENTS && d->values[index + i] == 1)
+            gm_layers_report();
     }
     gsx_put_u(t, id, 2);
     gsx_put_u(t, index, 2);
@@ -541,6 +545,7 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_KIND_BUTTON: {
         int8_t led = gm_device.buttons[index].led;
         gsx_put_u(t, led >= 0 ? (uint32_t)led : GSX_NONE_INDEX, 2);
+        gsx_put(t, gm_device.buttons[index].layer);     /* layer: 0 always, n = mode n - 1's twin */
         break;
     }
     case GSX_KIND_MATRIX:
@@ -574,6 +579,7 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
             mode = GSX_ENC_MODE_MCU;                    /* a V-Pot ignores encoder.mode */
 #endif
         gsx_put(t, (uint8_t)mode);
+        gsx_put(t, gm_device.encoders[index].layer);
         break;
     }
     case GSX_KIND_LED:
@@ -584,15 +590,20 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
 #else
         gsx_put(t, GM_LED_OWNER);
 #endif
+        gsx_put(t, gm_device.leds[index].layer);
         break;
 #if GM_N_PADS > 0
     case GSX_KIND_PAD: {
         int8_t led = gm_pads[index < GM_N_PADS ? index : 0].led;
+        uint8_t layer = 0;
 #if GM_PAD_TWINS
-        if (index >= GM_N_PADS)
+        if (index >= GM_N_PADS) {
             led = gm_pad_twins[index - GM_N_PADS].led;
+            layer = gm_pad_twins[index - GM_N_PADS].layer;
+        }
 #endif
         gsx_put_u(t, led >= 0 ? (uint32_t)led : GSX_NONE_INDEX, 2);
+        gsx_put(t, layer);
         break;
     }
 #endif

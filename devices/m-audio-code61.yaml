@@ -10,9 +10,10 @@
 # their CCs as usual. B1-B9 mute (white, blue while muted); Shift + Button
 # mode switches B2-B9 to record arm (red while armed) and back (modes: arm,
 # untested on hardware). Shift + Pad octave - turns the pads into a clip grid
-# for a DAW script (modes: pads), Shift + Encoder mode the encoders into pan
-# knobs (modes: pan); the display shows what a DAW script sends it (daw:
-# param). Both untested on hardware.
+# for a DAW script (modes: pads), Shift + Encoder mode steps the encoders
+# through MIDI / ZYN / DEVICE / PAN (modes: encoders); the three are
+# independent. The display shows what a DAW script sends it (daw: param).
+# The layers are untested on hardware.
 # Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
 # Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
 #
@@ -36,7 +37,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.81
+  version: 0.2.82
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -381,7 +382,7 @@ buttons:
   - { id: bank_left, name: "Bank left", pin: { switch_matrix: panel, number: 30 }, action: cc_momentary, cc: 94, led: bank_left_led, daw: bank_prev }
   - { id: bank_right, name: "Bank right", pin: { switch_matrix: panel, number: 31 }, action: cc_momentary, cc: 95, led: bank_right_led, daw: bank_next }
   - { id: fader_mode, name: "Fader mode", pin: { switch_matrix: panel_row20, number: 0 }, action: cc_momentary, cc: 96, led: fader_mode_led }
-  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }   # Shift + it: pan (modes: pan); its LED shows which
+  - { id: encoder_mode, name: "Encoder mode", pin: { switch_matrix: panel_row20, number: 1 }, action: cc_momentary, cc: 97 }   # Shift + it: the next encoder mode (modes: encoders); its LED shows which
   - { id: x_mode, name: "X mode", pin: { switch_matrix: panel_row20, number: 2 }, action: cc_momentary, cc: 98, led: x_mode_led }
   - { id: x_button, name: "X", pin: { switch_matrix: panel_row20, number: 3 }, action: cc_momentary, cc: 99 }
   - { id: y_mode, name: "Y mode", pin: { switch_matrix: panel_row20, number: 4 }, action: cc_momentary, cc: 100, led: y_mode_led }
@@ -391,14 +392,14 @@ buttons:
 
 # x1 decoding in the stock firmware: one step per A rising edge. [guess] 4 quadrature steps per detent.
 encoders:
-  - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70, daw: device_param_1 }
-  - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71, daw: device_param_2 }
-  - { id: encoder_3, name: "E3", pin_a: { switch_matrix: encoder_rows, number: 4 }, pin_b: { switch_matrix: encoder_rows, number: 5 }, cc: 72, daw: device_param_3 }
-  - { id: encoder_4, name: "E4", pin_a: { switch_matrix: encoder_rows, number: 6 }, pin_b: { switch_matrix: encoder_rows, number: 7 }, cc: 73, daw: device_param_4 }
-  - { id: encoder_5, name: "E5", pin_a: { switch_matrix: encoder_rows, number: 8 }, pin_b: { switch_matrix: encoder_rows, number: 9 }, cc: 74, daw: device_param_5 }
-  - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75, daw: device_param_6 }
-  - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76, daw: device_param_7 }
-  - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77, daw: device_param_8 }
+  - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70 }
+  - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71 }
+  - { id: encoder_3, name: "E3", pin_a: { switch_matrix: encoder_rows, number: 4 }, pin_b: { switch_matrix: encoder_rows, number: 5 }, cc: 72 }
+  - { id: encoder_4, name: "E4", pin_a: { switch_matrix: encoder_rows, number: 6 }, pin_b: { switch_matrix: encoder_rows, number: 7 }, cc: 73 }
+  - { id: encoder_5, name: "E5", pin_a: { switch_matrix: encoder_rows, number: 8 }, pin_b: { switch_matrix: encoder_rows, number: 9 }, cc: 74 }
+  - { id: encoder_6, name: "E6", pin_a: { switch_matrix: encoder_rows, number: 10 }, pin_b: { switch_matrix: encoder_rows, number: 11 }, cc: 75 }
+  - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76 }
+  - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77 }
 
 # Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
 # right. Pad k is pad_k. Mapped on hardware (2026-11-03): the mux slots count
@@ -436,9 +437,9 @@ pad_settings:
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
 # display shows the name. The settings store (3 pages of 1 KB) holds 4 slots
-# at most since the pan layer's encoder params (0.2.81); 4 is just over 85%
-# at worst case (1460 of 1712 B: the builder warns), 3 would be under. Slots
-# 2-4 start free: make,
+# at most. The layer twins' settings are global (layer.*, 0.2.82), stored
+# once, so a preset is smaller: 4 slots are 1460 of 1744 B at worst case
+# (84%, under the builder's 85% warning). Slots 2-4 start free: make,
 # rename, reorder and delete presets on the web page's Presets tab, or with
 # `gemifi.py preset save/rename/move/delete`.
 presets:
@@ -500,18 +501,61 @@ modes:
       pad_16: { daw: clip_4_1, idle: off }
       pad_octave_down: { daw: grid_left }
       pad_octave_up: { daw: grid_right }
-  # Shift + Encoder mode: E1-E8 are pan knobs (CC 41-48, pan_1-pan_8 for a
-  # DAW script), Encoder mode's LED red; again goes back (blue). Encoder mode
-  # alone still sends CC 97.
-  - id: pan
-    toggle: { button: encoder_mode, with: shift }
+  # Shift + Encoder mode cycles E1-E8 through the encoder modes below
+  # (core/README.md "Cycles"), skipping the disabled ones (layer.enabled in
+  # the config; PAN starts disabled). The display shows the mode's name and
+  # Encoder mode's LED its colour. Power-on starts in the first enabled one.
+  # Encoder mode alone still sends CC 97. Independent of arm and pads.
+  #   MIDI   (blue):  plain CC 70-77, Bank left / right as they are
+  #   ZYN    (cyan):  E1-E4 Zynthian's 4 knobs, E5-E8 device_param_1-4,
+  #                   Bank left / right page E5-E8 (device_bank_prev / next)
+  #   DEVICE (green): E1-E8 device_param_1-8, Bank left / right page all 8
+  #   PAN    (red):   E1-E8 pan_1-8
+  # In ZYN, DEVICE and PAN the encoders send no CC (cc: none), only EVENTs
+  # for a DAW script; Bank left / right keep their CCs.
+  - id: encoders
+    cycle: { button: encoder_mode, with: shift }
     led: encoder_mode_led
-    layer:
-      encoder_1: { cc: 41, daw: pan_1 }
-      encoder_2: { cc: 42, daw: pan_2 }
-      encoder_3: { cc: 43, daw: pan_3 }
-      encoder_4: { cc: 44, daw: pan_4 }
-      encoder_5: { cc: 45, daw: pan_5 }
-      encoder_6: { cc: 46, daw: pan_6 }
-      encoder_7: { cc: 47, daw: pan_7 }
-      encoder_8: { cc: 48, daw: pan_8 }
+    steps:
+      - { id: enc_midi, name: MIDI, colour: blue }
+      - id: enc_zyn
+        name: ZYN
+        colour: cyan
+        layer:
+          encoder_1: { cc: none, daw: zynthian.zynpot_1 }
+          encoder_2: { cc: none, daw: zynthian.zynpot_2 }
+          encoder_3: { cc: none, daw: zynthian.zynpot_3 }
+          encoder_4: { cc: none, daw: zynthian.zynpot_4 }
+          encoder_5: { cc: none, daw: device_param_1 }
+          encoder_6: { cc: none, daw: device_param_2 }
+          encoder_7: { cc: none, daw: device_param_3 }
+          encoder_8: { cc: none, daw: device_param_4 }
+          bank_left: { daw: device_bank_prev }
+          bank_right: { daw: device_bank_next }
+      - id: enc_device
+        name: DEVICE
+        colour: green
+        layer:
+          encoder_1: { cc: none, daw: device_param_1 }
+          encoder_2: { cc: none, daw: device_param_2 }
+          encoder_3: { cc: none, daw: device_param_3 }
+          encoder_4: { cc: none, daw: device_param_4 }
+          encoder_5: { cc: none, daw: device_param_5 }
+          encoder_6: { cc: none, daw: device_param_6 }
+          encoder_7: { cc: none, daw: device_param_7 }
+          encoder_8: { cc: none, daw: device_param_8 }
+          bank_left: { daw: device_bank_prev }
+          bank_right: { daw: device_bank_next }
+      - id: enc_pan
+        name: PAN
+        colour: red
+        enabled: false
+        layer:
+          encoder_1: { cc: none, daw: pan_1 }
+          encoder_2: { cc: none, daw: pan_2 }
+          encoder_3: { cc: none, daw: pan_3 }
+          encoder_4: { cc: none, daw: pan_4 }
+          encoder_5: { cc: none, daw: pan_5 }
+          encoder_6: { cc: none, daw: pan_6 }
+          encoder_7: { cc: none, daw: pan_7 }
+          encoder_8: { cc: none, daw: pan_8 }

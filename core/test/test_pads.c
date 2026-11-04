@@ -641,11 +641,11 @@ int main(void)
         CHECK(gsx_get_u(r + 3, 2) == 19, "19 pads (17 + 2 twins): %u", (unsigned)gsx_get_u(r + 3, 2));
         r += 5;
         CHECK(lstr_is(&r, "pad_1_grid") && lstr_is(&r, "Pad 1 grid") && lstr_is(&r, "clip_1_1"), "twin id, name, role");
-        CHECK(gsx_get_u(r, 2) == 1, "its LED: the twin LED, 1");
+        CHECK(gsx_get_u(r, 2) == 1 && r[2] == 1, "its LED: the twin LED, 1; layer 1 (mode 0)");
         get_component(GSX_KIND_PAD, 1, &r, &rn);
-        CHECK(r[rn - 2] == 0x7F && r[rn - 1] == 0x7F, "pad 2: no LED (0x3FFF)");
+        CHECK(r[rn - 3] == 0x7F && r[rn - 2] == 0x7F && r[rn - 1] == 0, "pad 2: no LED (0x3FFF), layer 0");
         get_component(GSX_KIND_PAD, 0, &r, &rn);
-        CHECK(gsx_get_u(r + rn - 2, 2) == 0, "pad 1: LED 0");
+        CHECK(gsx_get_u(r + rn - 3, 2) == 0, "pad 1: LED 0");
         CHECK(get_component(GSX_KIND_PAD, 19, &r, &rn) == GSX_BAD_PARAM, "pad 19: BAD_PARAM");
         CHECK(get_component(GSX_KIND_METER, 0, &r, &rn) == GSX_BAD_PARAM, "no meters: BAD_PARAM");
         get_component(GSX_KIND_ANALOG, 0, &r, &rn);
@@ -661,7 +661,12 @@ int main(void)
               "pad.note: 17, note type, per preset");
         p = params_find(P_PAD_THRESHOLD);
         CHECK(p && !(p->flags & PF_PRESET) && p->def == 200, "pad.threshold: global, default 200");
-        CHECK(app_params.group_count == 8 && !strcmp(app_params.groups[7], "Pads"), "group Pads");
+        CHECK(app_params.group_count == 9 && !strcmp(app_params.groups[7], "Pads") &&
+              !strcmp(app_params.groups[8], "Layers"), "groups Pads, Layers (a pad layer)");
+        p = params_find(P_LAYER_ENABLED);
+        CHECK(p && p->count == 1 && !(p->flags & PF_PRESET) && p->defs[0] == 1 && !strcmp(p->index_labels[0], "grid"),
+              "layer.enabled: one per mode, global, labelled by id");
+        CHECK(!params_find(P_LAYER_BTN_ACTION) && !params_find(P_LAYER_ENC_CC), "no button or encoder twins: none");
     }
 
     printf("%d checks, %d failures\n", checks, fails);

@@ -22,12 +22,14 @@
 #define ACTIVE_STABLE_MS 10000u
 
 /* Upper bound on the values one record can hold: every param value. The
- * per-component arrays, plus 16 for the single-value params, plus the pad
- * notes and the 8 pad settings (pad.*) on a device with pads. put() and
- * collect_cb() never write past it. */
+ * per-component arrays (the layer twins' layer.* included), plus 16 for the
+ * single-value params, plus the pad notes and the 8 pad settings (pad.*) on
+ * a device with pads, plus layer.enabled. put() and collect_cb() never
+ * write past it. */
 #define PAD_ENTRIES (GM_N_PADS > 0 ? (uint32_t)GM_N_PADS + 8u : 0u)
+#define LAYER_ENTRIES (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u)
 #define MAX_ENTRIES (2u * GM_ARR(GM_N_BUTTONS) + GM_ARR(GM_N_ANALOGS) + \
-                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES)
+                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES)
 
 static uint8_t cur;                  /* active slot, 1..GM_N_PRESETS */
 static uint8_t no_store;             /* safe mode: loads ignore the store */

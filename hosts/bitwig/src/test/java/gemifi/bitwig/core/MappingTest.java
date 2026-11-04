@@ -499,4 +499,36 @@ class MappingTest {
         fake.event(7, 0, 0);
         assertTrue(fake.take(-1).isEmpty());
     }
+
+    // ---- layers (daw-scripts.md §5.11) ----
+
+    @Test
+    void twinsWithOneRoleBothDriveItAndGetFeedback() throws ProtocolException {
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.encoder("", 0));                                        // base: plain CC, no role
+        comps.add(FakeDevice.twin(FakeDevice.encoder("zynthian.zynpot_1", 0), 2));  // another host's: ignored
+        comps.add(FakeDevice.twin(FakeDevice.encoder("device_param_1", 0), 2));     // mode 1
+        comps.add(FakeDevice.twin(FakeDevice.encoder("device_param_1", 0), 3));     // mode 2
+        comps.add(FakeDevice.twin(FakeDevice.button("device_bank_next", 0), 2));
+        comps.add(FakeDevice.twin(FakeDevice.button("device_bank_next", 1), 3));
+        for (int i = 0; i < 2; i++) comps.add(FakeDevice.led(""));
+        setUp(comps);
+        assertTrue(mapping.unknownRoles().isEmpty());
+        Map<Integer, Integer> l = leds();
+        assertEquals(Mapping.ON, (int) l.get(0));                                     // both twins' LEDs
+        assertEquals(Mapping.ON, (int) l.get(1));
+        fake.event(Protocol.EVENT_LAYER, 1, 1);                                       // known, ignored
+        Model.Param p = model.deviceParam(0);
+        double before = p.get();
+        fake.event(Protocol.KIND_ENCODER, 2, 1);
+        fake.event(Protocol.KIND_ENCODER, 3, 1);
+        assertEquals(before + 2.0 / Mapping.ENCODER_STEPS, p.get(), 1e-9);
+        fake.take(-1);
+        ((FakeModel.FParam) p).value = 0.25;
+        mapping.refresh();
+        Values v = values();
+        assertEquals(Mapping.to14(0.25), (int) v.values.get(Protocol.KIND_ENCODER + ":2"));
+        assertEquals(Mapping.to14(0.25), (int) v.values.get(Protocol.KIND_ENCODER + ":3"));
+        assertEquals(2, v.values.size());
+    }
 }

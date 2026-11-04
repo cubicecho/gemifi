@@ -56,6 +56,14 @@ final class FakeDevice {
         return c;
     }
 
+    /** A twin (sysex.md §4.6.1 {@code layer}): live while mode {@code layer} − 1 is on. */
+    static Component twin(Component c, int layer) {
+        c.layer = layer;
+        if (c.kind == Protocol.KIND_ENCODER && c.mode == null) c.mode = Protocol.ENC_ABSOLUTE;
+        if (c.kind == Protocol.KIND_LED && c.owner == null) c.owner = Protocol.OWNER_HOST_THEN_LOCAL;
+        return c;
+    }
+
     /** A small device using several roles (plus mcu: names and an x_ role). */
     static List<Component> defaultComponents() {
         List<Component> l = new ArrayList<>();
@@ -90,6 +98,8 @@ final class FakeDevice {
     /** "cmd:n" = the n-th request with that cmd gets BUSY. */
     final Set<String> busy = new HashSet<>();
     boolean silent;
+    /** Mode indexes whose layers are on: replayed as EVENT 8 when debug.events is set to 1. */
+    final Set<Integer> layersOn = new java.util.TreeSet<>();
     private final Map<Integer, Integer> count = new HashMap<>();
     Consumer<byte[]> out;
 
@@ -125,6 +135,10 @@ final class FakeDevice {
         int n = count.merge(f.cmd, 1, Integer::sum);
         if (silent || drop.contains(f.cmd + ":" + n)) return;
         byte[] reply = busy.contains(f.cmd + ":" + n) ? Protocol.bytes(Protocol.BUSY) : answer(f);
+        if (f.cmd == Protocol.SET_PARAM && f.payload[0] == Protocol.PARAM_DEBUG_EVENTS
+                && params.get(Protocol.PARAM_DEBUG_EVENTS) == 1 && out != null) {
+            for (int mode : layersOn) event(Protocol.EVENT_LAYER, mode, 1);   // the replay may come before the reply
+        }
         if (reply != null && out != null) out.accept(Protocol.buildFrame(f.cmd | Protocol.REPLY, f.seq, reply));
     }
 

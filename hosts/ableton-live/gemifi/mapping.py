@@ -7,6 +7,12 @@ below); live_song.py adapts the real Live Object Model to it and the tests use a
 Inputs: EVENTs from the device (protocol.Event), by component index.
 Outputs: FB_* notifications through `notify(cmd, payload)`.
 
+Layers (daw-scripts.md 5.11): a twin (`layer` > 0) is live only while its mode is on.
+Each component gets its own binding, so two components with one role (device_param_1 in two
+modes) both drive it, and feedback goes to both. The device only sends EVENTs from live ones;
+the mapping uses liveness only to page device parameters by the live device_param_N, and only
+when the firmware reports layers (else pages of 8, as before).
+
 State is polled, not listened to: refresh() (called every tick, ~100 ms) reads every bound
 state, compares it with what was last sent, and sends only the differences. That keeps the
 script free of per-track / per-parameter listener bookkeeping, and a lost notification is
@@ -218,7 +224,9 @@ class Mapping(object):
         self.notify = notify
         self.log = log
         self.bank_offset = 0
-        self.device_bank = 0
+        self.device_offset = 0        # the first device parameter device_param_1 controls
+        self.layers_on = set()        # mode indexes whose layers are on (EVENT 8)
+        self.reports_layers = False   # some component came with a `layer` byte (newer firmware)
         self._device_key = None
         self._buttons = {}
         self._leds = {}
@@ -231,10 +239,13 @@ class Mapping(object):
 
     # ---- setup ----
 
-    def bind(self, components):
+    def bind(self, components, layers_on=()):
         """Build the bindings from the device's component list (roles already normalised).
-        LEDs with owner: local ignore FB_LED, so they get no binding (sysex.md 4.6.1 `owner`)."""
+        LEDs with owner: local ignore FB_LED, so they get no binding (sysex.md 4.6.1 `owner`).
+        `layers_on`: the mode indexes whose layers are on (Device.layers_on)."""
         self._buttons, self._leds, self._analogs, self._encoders = {}, {}, {}, {}
+        self.layers_on = set(layers_on)
+        self.reports_layers = any(c.layer is not None for c in components)
         self.unknown_roles = []
         self.forget()
         local = set(c.index for c in components if c.kind == P.KIND_LED and c.local_only)
@@ -418,7 +429,7 @@ class Mapping(object):
         if base is not None:
             def dev_target(i=n - 1):
                 params = s.device_params()
-                k = self.device_bank * STRIPS + i
+                k = self.device_offset + i
                 return params[k] if 0 <= k < len(params) else None
             return dev_target
         return None
@@ -439,16 +450,32 @@ class Mapping(object):
         if self._can_bank_step(d):
             self.bank_offset = max(0, self.bank_offset + d * by)
 
-    def _device_bank_count(self):
-        n = len(self.song.device_params())
-        return (n + STRIPS - 1) // STRIPS
+    def device_page(self):
+        """How far device_bank_prev / _next move. Firmware that reports layers: the live
+        device_param_N in steps of 4 (4 while only device_param_1..4 are live, e.g. a 4-encoder
+        layer; 8 with 5..8), or STRIPS when none is. Older firmware: always STRIPS, as before."""
+        if not self.reports_layers:
+            return STRIPS
+        top = 0
+        for b in list(self._analogs.values()) + list(self._encoders.values()):
+            base, n = _strip_role(b.component.role, ("device_param",))
+            if base is not None and b.component.live(self.layers_on):
+                top = max(top, n)
+        return (top + 3) // 4 * 4 if top else STRIPS
+
+    @property
+    def device_bank(self):
+        """The current device page, in pages of device_page()."""
+        return self.device_offset // self.device_page()
 
     def _can_device_bank_step(self, d):
-        return self.device_bank > 0 if d < 0 else self.device_bank + 1 < self._device_bank_count()
+        if d < 0:
+            return self.device_offset > 0
+        return self.device_offset + self.device_page() < len(self.song.device_params())
 
     def device_bank_step(self, d):
         if self._can_device_bank_step(d):
-            self.device_bank += d
+            self.device_offset = max(0, self.device_offset + d * self.device_page())
 
     def _track_index(self):
         cur = self.song.selected_track()
@@ -496,7 +523,13 @@ class Mapping(object):
                 if p is not None and ev.delta:
                     p.nudge(ev.delta)
                     self._refresh_encoder(b)
-        # keys (type 2) and reserved types: not mapped
+        elif ev.type == P.EVENT_LAYER:
+            if ev.value:
+                self.layers_on.add(ev.index)
+            else:
+                self.layers_on.discard(ev.index)
+            self.refresh()                      # device_bank_* LEDs follow the live page size
+        # keys (type 2), pads, touch and reserved types: not mapped
 
     def _analog(self, b, raw):
         p = b.target()
@@ -530,10 +563,11 @@ class Mapping(object):
         dk = self.song.device_key()
         if dk != self._device_key:
             self._device_key = dk
-            self.device_bank = 0
-        n = self._device_bank_count()
-        if self.device_bank >= max(1, n):
-            self.device_bank = max(0, n - 1)
+            self.device_offset = 0
+        n = len(self.song.device_params())
+        if self.device_offset and self.device_offset >= n:
+            page = self.device_page()
+            self.device_offset = max(0, ((n - 1) // page) * page)
         n = len(self.song.bank_tracks())
         if self.bank_offset and self.bank_offset >= n:
             self.bank_offset = max(0, ((n - 1) // STRIPS) * STRIPS)

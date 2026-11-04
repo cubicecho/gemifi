@@ -56,6 +56,7 @@ class FakeDevice(object):
         self.notifications = []      # Frame
         self.drop = set()            # (cmd, nth request with that cmd): its reply is lost
         self.silent = False          # unplugged: answers nothing
+        self.layers_on = set()       # mode indexes whose layers are on: replayed as EVENT 8 (daw-scripts.md 3)
         self._count = {}
         self.out = None              # callable(bytes): into the script
 
@@ -70,6 +71,10 @@ class FakeDevice(object):
         if self.silent or (f.cmd, n) in self.drop:
             return
         reply = self.answer(f)
+        if (f.cmd == P.SET_PARAM and P.dec_u14(f.payload[0:2]) == P.PARAM_DEBUG_EVENTS and
+                self.params[P.PARAM_DEBUG_EVENTS] == 1 and self.out is not None):
+            for mode in sorted(self.layers_on):  # the replay may come before the reply
+                self.event(P.EVENT_LAYER, mode, 1)
         if reply is not None and self.out is not None:
             self.out(P.build_frame(f.cmd | P.REPLY, f.seq, reply))
 

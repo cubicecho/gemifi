@@ -216,3 +216,54 @@ def test_newer_analog_fields_are_skipped():
     assert c.takeover == P.TAKEOVER_PICKUP and c.takes_value
     motor = P.parse_component_reply(base[:-1] + bytes([2, 0]))
     assert motor.takeover == 2 and not motor.takes_value
+
+
+# ---- the `layer` byte (sysex.md 4.6.1) and EVENT 8 ----
+
+@pytest.mark.parametrize("c", [
+    P.Component(P.KIND_BUTTON, 9, 12, "b2_arm", "B2", "arm_1", led=20, layer=1),
+    P.Component(P.KIND_ENCODER, 8, 24, "encoder_5_enc_zyn", "E5", "device_param_1", ring=0,
+                center=P.NONE_INDEX, mode=1, layer=3),
+    P.Component(P.KIND_LED, 4, 30, "led", "", "", colours=3, owner=0, layer=0),
+])
+def test_component_layer_round_trip(c):
+    got = P.parse_component_reply(P.build_component_reply(c))
+    assert got.layer == c.layer
+    assert (got.led, got.mode, got.owner) == (c.led, c.mode, c.owner)
+
+
+def test_component_layer_missing_or_followed_by_more():
+    c = P.Component(P.KIND_ENCODER, 0, 8, "e1", "E1", "device_param_1", ring=11, center=40, mode=0)
+    old = P.parse_component_reply(P.build_component_reply(c))       # no layer byte: older firmware
+    assert old.layer is None and old.mode_index is None and old.live(set())
+    c.layer = 4
+    newer = P.parse_component_reply(P.build_component_reply(c) + hx("05 06"))   # later fields ignored
+    assert newer.layer == 4 and newer.mode_index == 3
+    assert not newer.live(set()) and not newer.live({2}) and newer.live({3})
+    b = P.Component(P.KIND_BUTTON, 0, 1, "b", "", "play", led=3)
+    assert P.parse_component_reply(P.build_component_reply(b)).layer is None
+    assert P.parse_component_reply(P.build_component_reply(b) + hx("00")).layer == 0
+
+
+def test_component_layer_frame():
+    # daw-scripts.md 4.4: button 9 of 12, "b2_arm", role "arm_1", LED 20, layer 1 (a twin in mode 0)
+    c = P.Component(P.KIND_BUTTON, 9, 12, "b2_arm", "B2", "arm_1", led=20, layer=1)
+    assert P.build_frame(P.GET_COMPONENT | P.REPLY, 0x55, P.build_component_reply(c)) == hx(
+        "F0 7D 67 6D 01 51 55 19 00 00 01 09 00 0C 00 06 62 32 5F 61 72 6D 02 42 32 05 61 72 6D 5F 31 "
+        "14 00 01 6F F7")
+
+
+def test_component_layer_encoder_frame():
+    # daw-scripts.md 4.4: encoder twin 12 of 24 (cc: none), "enc5_zyn", no ring or centre, mode 1, layer 3
+    f = P.parse_frame(hx("F0 7D 67 6D 01 51 57 2D 00 00 04 0C 00 18 00 08 65 6E 63 35 5F 7A 79 6E 09 45 6E 63 6F "
+                         "64 65 72 20 35 0E 64 65 76 69 63 65 5F 70 61 72 61 6D 5F 31 00 7F 7F 01 03 4F F7"))
+    c = P.parse_component_reply(f.payload)
+    assert (c.kind, c.index, c.count, c.id, c.role) == (P.KIND_ENCODER, 12, 24, "enc5_zyn", "device_param_1")
+    assert (c.ring, c.center, c.mode, c.layer, c.mode_index) == (0, P.NONE_INDEX, 1, 3, 2)
+
+
+def test_layer_event_frames():
+    on = P.parse_event(P.parse_frame(hx("F0 7D 67 6D 01 61 0E 09 00 08 02 00 01 00 70 2E 00 00 22 F7")).payload)
+    off = P.parse_event(P.parse_frame(hx("F0 7D 67 6D 01 61 0F 09 00 08 01 00 00 00 70 2E 00 00 21 F7")).payload)
+    assert (on.type, on.index, on.value, on.t_ms) == (P.EVENT_LAYER, 2, 1, 6000)
+    assert (off.type, off.index, off.value) == (P.EVENT_LAYER, 1, 0)

@@ -36,10 +36,10 @@ A component's `role` (YAML `daw:`, else its `mcu:` name) says what a script conn
 | Clip grid scroll (buttons) | `grid_up`, `grid_down`, `grid_left`, `grid_right` (by 1) |
 | Displays | `time`, `track_name`, `param`, `status` |
 | Meters (reserved: no firmware has meters yet) | `meter_N`, `master_meter` |
-| Host commands (any kind) | `<host>.<command>`, e.g. `zynthian.toggle_audio_play` |
+| Host commands (any kind) | `<host>.<command>`, e.g. `zynthian.toggle_audio_play` (a button), `zynthian.zynpot_N` (an encoder: Zynthian's knob N, 1–4) |
 
 `N` is 1–8. An LED with a role shows that function's state (e.g. `record` lit while recording). A button or pad with a role and an LED shows the same state on its LED.
 
-**Host commands.** `<host>.<command>` is lower case, `[a-z][a-z0-9]*\.[a-z0-9_]+`. It runs one of that host's own commands. The hosts: `live`, `bitwig`, `zynthian`. A script handles only its own namespace and ignores the others without logging them.
+**Host commands.** `<host>.<command>` is lower case, `[a-z][a-z0-9]*\.[a-z0-9_]+`. It runs one of that host's own commands. The hosts: `live`, `bitwig`, `zynthian`. On an encoder it is a knob of the host's own: `zynthian.zynpot_1` .. `zynthian.zynpot_4` turn Zynthian's four knobs (the Code 61's ZYN encoder mode puts them on E1–E4). A script handles only its own namespace and ignores the others without logging them.
 
 `mcu:` names used as roles map like this: `fader_N` → `volume_N`, `master` → `master_volume`, `vpot_N` → `pan_N`, `rec_N` → `arm_N`, `solo_N`, `mute_N`, `select_N` as they are, `bank_left` / `bank_right` → `bank_prev` / `bank_next`, `channel_left` / `channel_right` → `strip_prev` / `strip_next`, and `play`, `stop`, `record`, `rewind`, `fast_forward`, `cycle` (→ `loop`), `click` (→ `metronome`), `undo` as transport.

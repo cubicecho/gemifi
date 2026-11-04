@@ -323,7 +323,7 @@ gemifi.py flash firmware.bin --board 0x3F00 --version 1.2.3 --dry-run --max-chun
 
 ### M-Audio Code 61 (STM32F1, board 0x0002)
 
-The Code 61 keeps M-Audio's bootloader (0x08000000–0x080023FF). gemifi replaces only the app, through M-Audio's own SysEx update protocol, so the case stays closed. **None of this has run on hardware yet.** Background: `research/devices/m-audio-code61/analysis/update-protocol.md` and `custom-firmware-path.md`.
+The Code 61 keeps M-Audio's bootloader (0x08000000–0x080023FF). gemifi replaces only the app, through M-Audio's own SysEx update protocol, so the case stays closed. It has run on hardware: on 2026-11-03 it put stock v1.2.2 back from the web updater. The test unit has since moved to the gemifi bootloader (`bootloader/stm32f1`), which takes gemifi apps over the gemifi protocol, like the Keystation's. Background: `research/devices/m-audio-code61/analysis/update-protocol.md` and `custom-firmware-path.md`.
 
 ```sh
 python3 tools/host/mkimage.py app.bin app.gfw --board 0x0002 --version 0.1.0 \

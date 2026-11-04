@@ -75,6 +75,33 @@
       ],
       "params": ["preset.active", "preset.program", "preset.dirty"],
       "yaml": "buttons:\n  - { id: up, pin: PB5, action: preset_next }\n  - { id: down, pin: PB6, action: preset_prev }\npresets:\n  slots: 3\n  list:\n    - name: Default\n    - name: Drums\n      program: 9\n      midi: { channel: 10 }\n"
+    },
+    {
+      "id": "layers",
+      "title": "Layers (Shift + a button)",
+      "summary": "A mode's layer: gives buttons, pads and encoders a second meaning while the mode is on. Each one listed gets a twin: its own action or CC, toggle state, role and LED look, on the same switch and LED pins.",
+      "notes": [
+        "toggle: { button, with } switches the mode only while the with: button is held (Shift + Button mode). A plain press runs the button's own action, so it keeps its CC.",
+        "A twin leaves out what stays the same: action:, cc:/note:, LED looks. Its name is \"<name> <mode>\" unless given, and its id <id>_<mode> (b2_arm).",
+        "Pad twins (layer: { pad_1: { daw: clip_1_4 } }) play no notes and send their hits to DAW scripts; base pads only play notes. Encoder twins send their own CC.",
+        "A with: toggle button may have a twin too (Shift + Pad octave - to enter a grid, Pad octave - alone to scroll it).",
+        "Modes need a key matrix. core/README.md \"Button layers\"."
+      ],
+      "params": ["button.action", "button.number", "encoder.cc"],
+      "yaml": "key_matrix:\n  type: velocity\n  rows: [PA8, PA9, PC0, PC1]\n  columns: [PC8, PC9, PC10, PC11]\n  keys: 8\n  first_note: 48\nbuttons:\n  - { id: shift, pin: PB4, action: cc_momentary, cc: 102, daw: shift }\n  - { id: button_mode, pin: PB5, action: cc_momentary, cc: 84 }      # alone: CC 84\n  - { id: b2, pin: PB6, action: cc_toggle, cc: 86, led: b2_led, daw: mute_1 }\nleds:\n  - { id: mode_led, pin: PB7, pin2: PB8, pin3: PB9, idle: blue, active: red }\n  - { id: b2_led, pin: PB10, pin2: PB11, pin3: PB12, idle: white, active: blue }\nencoders:\n  - { id: e1, pin_a: PC6, pin_b: PC7, cc: 70, daw: device_param_1 }\nmodes:\n  - id: arm\n    toggle: { button: button_mode, with: shift }   # Shift + Button mode\n    led: mode_led                                  # red while the layer is on\n    layer:\n      b2: { cc: 52, daw: arm_1, active: red }      # still a toggle; its own state\n      e1: { cc: 41, daw: pan_1 }\n"
+    },
+    {
+      "id": "roles_touch",
+      "title": "DAW roles and fader touch",
+      "summary": "daw: tells DAW scripts what a control is for (hosts/README.md lists the roles). touch: movement makes a fader report touch and release, for DAW automation without touch-sensitive faders.",
+      "notes": [
+        "Roles: transport, mixer strips (mute_N, arm_N, volume_N, pan_N ...), navigation (nav_up ... nav_select, nav_back), clip grid (clip_T_S, grid_left ...), modifiers (shift, option, control, alt), and more. A script ignores roles it doesn't know.",
+        "<host>.<command> runs a host's own command, e.g. zynthian.toggle_audio_play; other hosts ignore it. x_<name> is free for your own scripts.",
+        "Displays take daw: too: time, track_name, param (the control being moved) or status.",
+        "touch: movement: touched when the fader starts moving, released 300 ms after it stops. A touch sensor pin isn't supported yet."
+      ],
+      "params": ["analog.cc"],
+      "yaml": "analog:\n  - { id: fader_1, pin: PA0, cc: 20, daw: volume_1, touch: movement }\nbuttons:\n  - { id: play, pin: PB4, action: cc_momentary, cc: 118, daw: play }\n  - { id: back, pin: PB5, action: cc_momentary, cc: 119, daw: nav_back }\n  - { id: panic, pin: PB6, action: cc_momentary, cc: 3, daw: zynthian.all_notes_off }\n"
     }
   ]
 }

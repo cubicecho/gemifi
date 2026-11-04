@@ -181,7 +181,7 @@ static void report_scan(void)
             fmt_num(b, ", over 1 ms ", loop_over1, ""));
     app_log(LOG_INFO, fmt_num(a, "main loop over 2 ms ", loop_over2, ""), "");
     /* gm_poll parts (scan interrupt included): proto, keys/buttons, analog, pads,
-     * encoders, LEDs */
+     * encoders, LEDs (gm_controller.h; keys/buttons run first) */
     app_log(LOG_INFO, fmt_num(a, "poll proto ", gm_poll_part_max[0] / mhz, " us"),
             fmt_num(b, ", keys/buttons ", gm_poll_part_max[1] / mhz, " us"));
     app_log(LOG_INFO, fmt_num(a, "poll analog ", gm_poll_part_max[2] / mhz, " us"),

@@ -67,6 +67,11 @@ static int stores;              /* TM pin changes by a store */
 static int slow_writes;         /* TM pin changes by hal_pin_write, after gm_init */
 static int init_done;
 
+/* MIDI handed to the HAL and not yet polled out: work done meanwhile (an ADC
+ * read, a TM1628 pin, a serial LED message) would delay the packet. */
+static int midi_pending, midi_sent, late_work;
+static void work(void) { late_work += midi_pending; }
+
 /* One chip as the pins see it. */
 typedef struct {
     uint16_t stb;
@@ -206,6 +211,8 @@ void hal_pin_write(uint16_t pin, int l)
 {
     if (init_done && tm_pin(pin))
         slow_writes++;
+    if (tm_pin(pin) && level[pin] != (l != 0))
+        work();
     sim_write(pin, l);
 }
 
@@ -221,6 +228,7 @@ void gm_test_store(volatile uint32_t *reg, uint32_t w)
     uint32_t port = (uint32_t)(reg - bsrr);
     if (port >= 3)
         return;
+    work();
     for (uint32_t b = 0; b < 16; b++) {
         if ((w >> b) & 1u) {
             sim_write((uint16_t)(port * 16 + b), 1);
@@ -234,13 +242,20 @@ void gm_test_store(volatile uint32_t *reg, uint32_t w)
 }
 
 int hal_pin_read(uint16_t pin) { return level[pin]; }
-int32_t hal_adc_read(uint16_t pin) { (void)pin; return -1; }
+int32_t hal_adc_read(uint16_t pin) { (void)pin; work(); return -1; }
 int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
 int hal_i2c_read(uint8_t a, uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
 
-void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n) { (void)cable; (void)m; (void)n; }
-void hal_midi_send(const uint8_t *m, uint32_t n) { (void)m; (void)n; }
-void hal_midi_poll(void) {}
+void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
+{
+    (void)cable;
+    (void)m;
+    (void)n;
+    midi_pending = 1;
+    midi_sent++;
+}
+void hal_midi_send(const uint8_t *m, uint32_t n) { hal_midi_send_cable(0, m, n); }
+void hal_midi_poll(void) { midi_pending = 0; }
 void hal_midi_flush(uint32_t t) { (void)t; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
@@ -265,6 +280,7 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
 
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
 {
+    work();
     if (tx_pin != ser_pin || ser_busy || n > 6)
         return 0;
     if (ser_n < 256) {
@@ -399,6 +415,20 @@ int main(void)
           chip[0].ram_writes - wa, chip[1].cmds - cb);
     CHECK(chip[0].bytes - ba == 3, "one LED: 3 bytes on the bus (%d; the whole RAM was 17)",
           chip[0].bytes - ba);
+    /* the button's CC goes to USB before any LED, ADC or TM1628 work */
+    {
+        int sent = midi_sent;
+        late_work = 0;
+        for (int i = 0; i < 10; i++) {
+            level[PIN_BTN] = 0;
+            run_ms(25 + (uint32_t)i);
+            level[PIN_BTN] = 1;
+            run_ms(26 + (uint32_t)i);       /* odd: each press lands on another phase of the 2 / 10 ms work */
+        }
+        CHECK(midi_sent - sent >= 10, "10 presses: CCs sent (%d)", midi_sent - sent);
+        CHECK(late_work == 0, "nothing between a CC and hal_midi_poll (%d)", late_work);
+        CHECK(chip[0].ram[4] == 0x20, "10 toggles: the LED as it was (%02X)", chip[0].ram[4]);
+    }
 
     /* host feedback: Note On 40 lights B bit 47 = byte 5 bit 7 */
     usb(0x90, 40, 127);

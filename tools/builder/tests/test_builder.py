@@ -334,7 +334,7 @@ class TestValidation(unittest.TestCase):
         c = gd.generate(dev, "t.yaml")["gm_device_config.c"]
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
-    C61_DIN_DMA = ("  mode: separate_port\n", "  mode: separate_port\n  dma: true\n")
+    C61_DIN_DMA = ("  mode: usb_merge\n", "  mode: usb_merge\n  dma: true\n")
     C61_NO_PRE = ("    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
                   "    row_time: 3.5us\n    settle: 3us\n")
 
@@ -522,15 +522,20 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev("tx_pin: PA9, rx_pin: PA3"), r"USART1: tx_pin PA9, rx_pin PA10")
         self.assertError(MINIMAL_NUC + "din_midi: { tx_pin: PA2 }\n", r"din_midi isn't supported on nuvoton")
         self.assertError(dev().replace("pin: PA1", "pin: PA9"), r"PA9")              # pin used twice
-        self.assertTrue(any("ignored: only usb_merge" in w for w in warns(dev("tx_pin: PA9, usb_to_din: true"))))
+        self.assertTrue(any("ignored: only usb_merge" in w
+                            for w in warns(dev("tx_pin: PA9, mode: separate_port, usb_to_din: true"))))
+        # usb_merge is the default; separate_port warns (two ports hang Chrome's Web MIDI on Windows)
+        self.assertEqual(warns(dev()), [])
+        self.assertTrue(any("hang" in w for w in warns(dev("tx_pin: PA9, mode: separate_port"))))
         self.assertTrue(any("no rx_pin" in w for w in warns(dev("tx_pin: PA9, thru: true"))))
         self.assertTrue(any("only separate_port has its own port" in w
                             for w in warns(dev("tx_pin: PA9, mode: din_only, port_name: X"))))
         # separate_port needs cable 1, which a DAW port (mcu:) has
-        self.assertError(dev(more="mcu: {}\n"), r"separate_port needs the second USB port")
-        self.assertClean(dev("tx_pin: PA9, rx_pin: PA10, mode: usb_merge", more="mcu: {}\n"))
+        self.assertError(dev("tx_pin: PA9, mode: separate_port", more="mcu: {}\n"),
+                         r"separate_port needs the second USB port")
+        self.assertClean(dev(more="mcu: {}\n"))
         # the defines and params
-        d, diags = load(dev("tx_pin: PA9, rx_pin: PA10, thru: true"))
+        d, diags = load(dev("tx_pin: PA9, rx_pin: PA10, mode: separate_port, thru: true"))
         self.assertIsNotNone(d, [str(x) for x in diags])
         h = gd.generate(d, "t.yaml")["gm_device_config.h"]
         for line in ("#define GM_DIN 1 ", "#define GM_DIN_MODE 1 /* separate_port */", "#define GM_DIN_TX_PIN 9 ",
@@ -1672,26 +1677,26 @@ list:
             .replace("action: preset_prev", "action: program_prev") + "\n"
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 12))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 13))
         # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
         # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 18)))   # globals + midi.thru, midi.din_out (din_midi:)
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (408, 2048 - 300, 1024))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 19)))   # globals + midi.thru, midi.din_out, midi.usb_to_din (din_midi:)
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (412, 2048 - 300, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (5, 4))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
         self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"], dev2.budget["capacity"]),
-                         (4 * (9 + 67), 716, 2048 - 304))  # + program
-        for n in (2, 3, 4):           # the Code 61's 3 slots: 1020 of 1744 B (58%), was 99% of one page
+                         (4 * (9 + 67), 720, 2048 - 304))  # + program
+        for n in (2, 3, 4):           # the Code 61's 3 slots: 1024 of 1744 B (59%), was 99% of one page
             self.assertFalse([d for d in self.errs(with_slots(n), level="warning") if "config page" in d.msg], n)
         w = [str(d) for d in self.errs(with_slots(5), level="warning") if "config page" in d.msg]
         self.assertTrue(w and "presets use 93% of the stm32f1 config pages" in w[0] and
-                        "1628 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
+                        "1632 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
                         "Up to 5 slots fit; 4 or fewer stay under 85%" in w[0], w)
         e = self.assertError(with_slots(6), r"presets don't fit the stm32f1 config pages", path="presets.slots")
-        self.assertIn("1932 of 1744 B", e.msg)
+        self.assertIn("1936 of 1744 B", e.msg)
         self.assertIn("At most 5 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
@@ -2132,6 +2137,25 @@ class TestPads(unittest.TestCase):
 
 
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestYamlReference(unittest.TestCase):
+    """web/updater/src/builder/yaml-reference.json: the examples the web editor shows must validate, and the
+    settings they name must be the builder's (PARAMS)."""
+    REF = os.path.join(REPO, "web", "updater", "src", "builder", "yaml-reference.json")
+    BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB").split("buttons:")[0]
+
+    def test_examples_validate(self):
+        with open(self.REF, encoding="utf-8") as f:
+            entries = json.load(f)["entries"]
+        self.assertTrue(entries)
+        for e in entries:
+            with self.subTest(e["id"]):
+                dev, diags = load(self.BASE + e["yaml"])
+                self.assertIsNotNone(dev, [str(d) for d in diags])
+                self.assertEqual([str(d) for d in diags if d.level == "warning" and "has no inputs" not in d.msg], [])
+                for name in e["params"]:
+                    self.assertIn(name, gd.PARAM_ID)
+
+
 class TestCli(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -2318,6 +2342,19 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual([p["name"] for p in j["presets"]["slots"]][:3], ["Default", "Drums", "DAW"])
         self.assertEqual(j["presets"]["slots"][1]["changes"], 6)
         self.assertEqual(j["presets"]["storage"]["max_slots"], 9)
+        self.assertIsNone(j["dma"])                                      # not stm32f1
+        self.assertIsNone(j["din_midi"])
+        self.assertEqual(j["midi_ports"], [])
+        with open(os.path.join(REPO, "devices", "m-audio-code61.yaml"), encoding="utf-8") as f:
+            st, body = self.req("/api/validate", {"text": f.read()})
+        j = json.loads(body)
+        self.assertTrue(j["ok"], j["diags"])
+        self.assertEqual([c["channel"] for c in j["dma"]["channels"]], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(j["dma"]["free"], [])
+        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "rgb_serial 'pad_leds'"}, j["dma"]["channels"])
+        self.assertEqual(j["din_midi"], {"mode": "usb_merge", "midi_in": True, "thru": False,
+                                         "controller_out": True, "usb_to_din": True, "dma": False})
+        self.assertEqual(j["midi_ports"], [])                     # usb_merge: the main port only
         st, body = self.req("/api/save", {"id": "mine/dash.yaml", "text": MINIMAL_NUC})
         self.assertEqual(st, 200)
         st, body = self.req("/api/file?id=mine%2Fdash.yaml")

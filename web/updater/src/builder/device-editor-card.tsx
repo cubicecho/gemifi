@@ -10,6 +10,7 @@ import { FormElement } from '@/components/ui/form-element';
 import { CircleAlert, CircleCheck, FilePen, TriangleAlert } from '@/components/ui/icons';
 import { type BuilderDevice, type Diagnostic, saveDevice, type ValidationResult, validateDevice } from './api.ts';
 import { deviceTitle } from './platforms.ts';
+import { ValidationFacts } from './validation-facts.tsx';
 import { INDENT, insertIndent, lineRange } from './yaml-text.ts';
 
 /** Rows the YAML box shows before it scrolls. */
@@ -29,6 +30,17 @@ const LEVEL_LOOKS = {
   error: { label: 'Error', variant: 'destructive-soft', iconSlot: <CircleAlert className="size-4 text-negative" /> },
   warning: { label: 'Warning', variant: 'warning-soft', iconSlot: <TriangleAlert className="size-4 text-warning" /> },
 } as const satisfies Record<Diagnostic['level'], { label: string; variant: string; iconSlot: unknown }>;
+
+/** How the builder words a DMA allocation clash (allocate_dma): "needs DMA1 channel 4 (USART1_TX), which …". */
+const DMA_CLASH = /needs DMA1 channel \d+/;
+
+/**
+ * @param diag - A diagnostic.
+ * @returns Whether it is a DMA channel clash, so it can say so at a glance.
+ */
+function isDmaClash(diag: Diagnostic): boolean {
+  return diag.level === 'error' && DMA_CLASH.test(diag.msg);
+}
 
 /** Props of {@link DeviceEditorCard}. */
 export interface DeviceEditorCardProps {
@@ -112,6 +124,7 @@ function CheckResult({ result, onJump }: { result: ValidationResult; onJump: (li
                 description={
                   <span className="flex flex-wrap items-center gap-1.5">
                     <Badge variant={look.variant}>{look.label}</Badge>
+                    {isDmaClash(diag) ? <Badge variant="outline">DMA channel</Badge> : null}
                     {where === '' ? null : <span className="font-mono text-foreground/60 text-xs">{where}</span>}
                   </span>
                 }
@@ -121,6 +134,7 @@ function CheckResult({ result, onJump }: { result: ValidationResult; onJump: (li
           })}
         />
       )}
+      {result.ok ? <ValidationFacts result={result} /> : null}
     </>
   );
 }

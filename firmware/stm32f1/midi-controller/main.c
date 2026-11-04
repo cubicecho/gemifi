@@ -29,6 +29,43 @@
 #include "scan_dma.h"
 #include "adc_dma.h"
 #include "dma_map.h"
+#include "board.h"
+#include "gm_presets.h"
+
+#ifdef BOARD_POWER_LATCH_PIN
+/* Soft power (board header): the power button held 2 s switches off, as the
+ * stock app and the bootloader do. A press that powered the board on counts
+ * only once it has been released. */
+#define POWER_OFF_HOLD_MS 2000u
+static uint32_t power_btn_since;    /* released at (| 1); 0 = not yet released */
+
+static void power_off(void)
+{
+    presets_flush();                 /* a preset switch still waiting to be stored */
+    usbd_disconnect();
+    GPIO_BRR(PORTC) = 1u << BOARD_POWER_LATCH_PIN;   /* off once the button is released */
+    /* The board runs on the button until then, and on its capacitors for a
+     * while after. Nothing here may reset: any reset (ours, the watchdog's,
+     * a fault spinning into it) runs the bootloader, which latches the
+     * power on again, so the keyboard rebooted instead of switching off.
+     * The button can't be trusted either (it reads pressed as the supply
+     * falls). So: no interrupts, no button, just keep the watchdog quiet. */
+    irq_disable_all();
+    for (;;)
+        sys_iwdg_kick();
+}
+
+static void power_poll(uint32_t now)
+{
+    int pressed = !(GPIO_IDR(PORTC) & (1u << BOARD_POWER_BTN_PIN));
+    if (!pressed)
+        power_btn_since = now | 1u;
+    else if (power_btn_since && now - power_btn_since >= POWER_OFF_HOLD_MS)
+        power_off();
+}
+#else
+static void power_poll(uint32_t now) { (void)now; }
+#endif
 
 #define FW_VERSION GEMIFI_VERSION(FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH)
 
@@ -275,6 +312,7 @@ int main(void)
         loop_over1 += us > 1000u;
         loop_over2 += us > 2000u;
         uint32_t now = sys_tick_ms();
+        power_poll(now);
         if ((reported == 0 && now >= 2500u) || (reported == 1 && now >= 10000u)) {
             reported++;
             report_scan();

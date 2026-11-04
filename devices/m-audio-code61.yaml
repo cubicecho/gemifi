@@ -114,13 +114,17 @@ rgb_serial:
     count: 16
 
 # The rear 5-pin MIDI jacks [sure pins, hw-map.md: USART1 at 31250 baud, TX
-# PA9, RX PA10]. The stock firmware only sends to MIDI Out; here the jacks
-# are also a USB-MIDI interface of their own ("Code 61 MIDI"), with an
-# optional thru (midi.thru, off at first).
+# PA9, RX PA10]. The stock firmware only sends to MIDI Out; here MIDI In
+# also reaches the computer and the computer can play MIDI Out, on the main
+# USB port (usb_merge; midi.usb_to_din), with an optional thru (midi.thru,
+# off at first). mode: separate_port would give the jacks a USB port of their
+# own ("Code 61 MIDI"), but two ports hang Chrome's Web MIDI on Windows for
+# now (tested 2026-11-03, builds 69/71 hang, 70 doesn't).
 din_midi:
   tx_pin: PA9
   rx_pin: PA10
-  mode: separate_port
+  mode: usb_merge
+  usb_to_din: true   # the computer's notes/CCs on the main port also play MIDI Out
 
 # The XY pad, a 4-wire resistive panel [sure, tested 2026-11-03; drive
 # pattern from the stock app, 0x0800277C]: X (left to right) is PC4 high and

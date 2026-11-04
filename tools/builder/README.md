@@ -121,7 +121,7 @@ Everything is under `/api/`. Errors are `{"error": "<message>"}` with a 4xx stat
 | `GET /api/devices` | `{"devices": [{"id", "root": "presets"\|"mine", "file", "name", "platform", "description", "images": [str], "writable": bool}], "user_dir"}`; `images` = the `.gfw`/`.bin` files at the top of that device's output dir |
 | `GET /api/presets` | `{"presets": [{"name", "platform", "description"}]}` |
 | `GET /api/file?id=` | `{"id", "text"}` |
-| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "diags": [{"level": "error"\|"warning", "path", "line", "msg"}], "presets": {"slots": [{"slot", "name", "program", "changes", "listed"}], "revision", "given", "storage": {...the budget numbers}} \| null}` |
+| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "diags": [{"level": "error"\|"warning", "path", "line", "msg"}], "presets": {"slots": [{"slot", "name", "program", "changes", "listed"}], "revision", "given", "storage": {...the budget numbers}} \| null, "dma": {"channels": [{"channel", "request", "user"}], "free": [int], "text"} \| null (stm32f1 only), "din_midi": {"mode", "midi_in", "thru", "controller_out", "usb_to_din", "dma"} \| null, "midi_ports": [{"cable", "name", "role": "daw"\|"din"}]}` (`midi_ports`: the USB-MIDI ports besides the device's own) |
 | `POST /api/save {"id", "text"}` | `{"ok": true}`; 403 on a read-only preset |
 | `POST /api/new {"name", "preset"}` | `{"id"}` (`mine/<name>.yaml`); 400 if it exists or the name is bad |
 | `POST /api/delete {"id"}` | `{"ok": true}`; `mine/` only (403 for presets), also removes its build outputs; 409 during a build |

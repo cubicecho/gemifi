@@ -36,7 +36,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.84
+  version: 0.2.85
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -58,12 +58,12 @@ scan_interval: 400us
 # scanning, the CPU only looks at the results.
 # matrix: keys, panel buttons and encoders (23 decoder rows on the PB8-PB15
 # columns), by TIM1 + DMA: no CPU per row, and a key's two contacts are
-# timed to the frame (23 rows, padded to 24, x row_time = 36 us), not the
+# timed to the frame (23 rows, padded to 24, x row_time = 84 us), not the
 # scan tick. precharge drives the columns high between rows, so the read
-# only waits for a closed key to pull a column down: 1 us is enough (no
-# ghost or missing notes with chords and fast runs on hardware). Without
-# precharge the columns need about 3 us to come back up:
-# `row_time: 3.5us, settle: 3us` (84 us).
+# only waits for a closed contact to pull a column down. Keys were fine at
+# 1 us (row_time 1.5us, 36 us frames), but a lightly pressed panel button
+# (carbon contact, a few kOhm) can take longer than that, which reads as a
+# release mid-press (double presses): 3 us gives it room.
 # Remove a part to go back to the software scan for it.
 # analog: faders and pads, by TIM4 + ADC1 + DMA: TIM4 steps the three muxes'
 # shared select lines (PC0-PC2) and, after their 4 us delay, starts ADC1 on
@@ -72,8 +72,8 @@ scan_interval: 400us
 # and the main loop does no ADC work.
 hardware_scan:
   matrix:
-    row_time: 1.5us
-    settle: 1us
+    row_time: 3.5us
+    settle: 3us
     precharge: true
   analog: true
 

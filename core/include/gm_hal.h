@@ -65,7 +65,8 @@ void hal_midi_send(const uint8_t *msg, uint32_t n);
  * platforms without cables send everything on their one port. */
 void hal_midi_send_cable(uint8_t cable, const uint8_t *msg, uint32_t n);
 void hal_midi_poll(void);
-/* Send queued data now (waits up to timeout_ms): for protocol replies. */
+/* Send queued data now (waits up to timeout_ms): before a reboot. Protocol
+ * replies are only queued; hal_midi_poll sends them. */
 void hal_midi_flush(uint32_t timeout_ms);
 /* One raw USB-MIDI 1.0 event packet (cable << 4 | CIN, 3 bytes), queued
  * like hal_midi_send. Only needed for din_midi: (core/src/din.c, which has

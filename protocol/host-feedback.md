@@ -229,4 +229,6 @@ Not planned: checking the handshake response. No DAW has been tried yet; whether
 
 A script inside the DAW drives the device by component index over gemifi SysEx on the main port: GET_COMPONENT to learn the controls and their `daw:` roles, EVENT messages for presses, and fire-and-forget FB_* notifications for LEDs, values, rings and text. The protocol is `protocol/sysex.md` §4.6; the scripts and the role names are in `hosts/` (`hosts/README.md`). On with `feedback: { script: true }` (the default; off with `enabled: false`). Follow-ups: #21.
 
+F3 costs more bytes per update than F2: an FB_RING frame is 17 bytes (6 USB-MIDI events), an MCU ring CC 3 (one event). Costs and the rates scripts should use: `protocol/daw-scripts.md` §5.12.
+
 How F3 states fit with the rest of this document: they're host states that don't time out (§2.6), `owner: local` LEDs ignore them, FB_VALUE sets the same pick-up targets and absolute-encoder values as §2.2 and §2.5, and FB_RING draws rings as in §3.4.

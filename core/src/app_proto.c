@@ -659,9 +659,11 @@ static void notify(const gsx_frame_t *f)
             gm_led_script_rgb(gsx_get_u(p, 2), p[2], p[3], p[4], p[5] & 1u);
         break;
     case GSX_FB_LEDS:
-        if (n >= 4 && p[2] >= 1 && p[2] <= 64 && n == 3u + p[2])
+        if (n >= 4 && p[2] >= 1 && p[2] <= 64 && n == 3u + p[2]) {
+            uint32_t first = gsx_get_u(p, 2);
             for (uint32_t i = 0; i < p[2]; i++)
-                gm_led_script(gsx_get_u(p, 2) + i, p[3 + i]);
+                gm_led_script(first + i, p[3 + i]);
+        }
         break;
     case GSX_FB_VALUE:
         if (n == 5) {
@@ -752,19 +754,16 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     return GSX_BAD_CMD;
 }
 
-static void send_now(const uint8_t *p, uint32_t n)
-{
-    hal_midi_send(p, n);
-    hal_midi_flush(200);
-}
-
+/* Replies are queued like any other message, not flushed: hal_midi_poll
+ * in the main loop sends them within the pass. Waiting for them held the
+ * main loop until the host had taken every packet (up to 200 ms when it
+ * doesn't read, tens of ms per reply on a serial or BLE link). */
 static void handle_frame(void)
 {
     /* Universal Identity Request: F0 7E <dev> 06 01 F7 */
     if (rx.state == 1 && rx.n == 4 && rx_buf[0] == 0x7E && rx_buf[2] == 0x06 &&
         rx_buf[3] == 0x01) {
         identity_reply();
-        hal_midi_flush(200);
         return;
     }
     gsx_frame_t f;
@@ -789,7 +788,7 @@ static void handle_frame(void)
         gsx_tx_t t;
         gsx_tx_begin(&t, err, f.cmd | GSX_REPLY, f.seq);
         gsx_put(&t, (uint8_t)pst);
-        send_now(err, gsx_tx_end(&t));
+        hal_midi_send(err, gsx_tx_end(&t));
         return;
     }
     uint32_t req = 0x10000u | (uint32_t)f.seq << 8 | f.cmd;
@@ -805,7 +804,7 @@ static void handle_frame(void)
         tx_len = gsx_tx_end(&t);
         last_req = req;
     }
-    send_now(tx_buf, tx_len);
+    hal_midi_send(tx_buf, tx_len);
 }
 
 void app_proto_rx_byte(uint8_t b)
@@ -829,6 +828,7 @@ void app_proto_poll(void)
         if (fw_active)
             fw->abort();
 #endif
+        hal_midi_flush(REBOOT_DELAY_MS);    /* the REBOOT reply, if still queued */
         hal_reboot(reboot_mode == 2);
     }
 }

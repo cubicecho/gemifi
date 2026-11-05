@@ -37,6 +37,10 @@ typedef struct {
     uint8_t xy_touch;     /* XY: readings in a row with both in the window */
     uint8_t xy_fresh;     /* XY: bit = axis, touched since vpin_analog_jump */
     uint32_t xy_t;        /* XY: ms of the last axis switch               */
+    uint32_t seen_hi;     /* SWMATRIX: bits read high / low by any scan   */
+    uint32_t seen_lo;     /*   since the last vpin_span_take()            */
+    uint32_t span_hi;     /* SWMATRIX: seen_hi / seen_lo as of that take  */
+    uint32_t span_lo;
 } hub_state_t;
 
 static hub_state_t hs[N_HUBS];
@@ -936,6 +940,8 @@ void vpin_scan_matrices(void)
         }
         s->channel = (int8_t)r;
         s->in = v;
+        s->seen_hi |= v;
+        s->seen_lo |= ~v;
     }
 }
 
@@ -1000,8 +1006,59 @@ void vpin_scan_feed(const uint16_t *frame)
         uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
         uint32_t bit = fed_row[f] * h->n_cols;
         uint32_t row = (((uint32_t)frame[fed_slot[f]] >> sm_shift[i]) & all) ^ sm_inv[i];
-        hs[i].in = (hs[i].in & ~(all << bit)) | (row << bit);
+        uint32_t v = (hs[i].in & ~(all << bit)) | (row << bit);
+        hs[i].in = v;
+        hs[i].seen_hi |= v;
+        hs[i].seen_lo |= ~v;
     }
+}
+
+__attribute__((weak)) uint32_t hal_irq_save(void)
+{
+    return 0;
+}
+
+__attribute__((weak)) void hal_irq_restore(uint32_t state)
+{
+    (void)state;
+}
+
+/* What every switch matrix read since the last take, and start the next
+ * span from the levels they have now (a level held across the take is in
+ * both spans). Frames only come in when a row changed, so the levels now
+ * stand for the frames since. */
+void vpin_span_take(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        if (gm_device.hubs[i].type != GM_HUB_SWMATRIX)
+            continue;
+        hub_state_t *s = &hs[i];
+        uint32_t irq = hal_irq_save();
+        uint32_t v = s->in;
+        s->span_hi = s->seen_hi | v;
+        s->span_lo = s->seen_lo | ~v;
+        s->seen_hi = v;
+        s->seen_lo = ~v;
+        hal_irq_restore(irq);
+    }
+}
+
+int vpin_read_span(gm_pin_t p, int *any)
+{
+    const gm_hub_t *h = p.hub ? hub_of(p) : 0;
+    if (!h || h->type != GM_HUB_SWMATRIX || p.num >= 32u) {
+        int v = vpin_read(p);
+        *any = v;
+        return v;
+    }
+    const hub_state_t *s = &hs[p.hub - 1];
+    int hi = (int)((s->span_hi >> p.num) & 1u), lo = (int)((s->span_lo >> p.num) & 1u);
+    if (p.flags & GM_PIN_INVERT) {
+        *any = lo;
+        return !hi;
+    }
+    *any = hi;
+    return !lo;
 }
 
 /* ---- TM1628 LED drivers ------------------------------------------------ */

@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.33.1](https://github.com/cubicecho/gemifi/compare/v0.33.0...v0.33.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **host:** flash a Code 61 through its gemifi bootloader ([b6b7664](https://github.com/cubicecho/gemifi/commit/b6b7664cd1d2ec15100387cf48031a25fd434615))
+
 # [0.33.0](https://github.com/cubicecho/gemifi/compare/v0.32.1...v0.33.0) (2026-11-05)
 
 

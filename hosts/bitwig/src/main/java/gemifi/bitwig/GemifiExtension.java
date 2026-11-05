@@ -104,8 +104,9 @@ public final class GemifiExtension extends ControllerExtension {
 
     @Override
     public void flush() {
-        // Bitwig calls this after observed values changed: send the differences as FB_*.
-        if (running && device.isReady()) mapping.refresh();
+        // Bitwig calls this after observed values changed: send the differences as FB_*
+        // (FB_VALUE at most once per control per tick; the tick sends the rest).
+        if (running && device.isReady()) mapping.flush();
     }
 
     @Override

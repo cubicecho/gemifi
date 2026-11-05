@@ -370,13 +370,25 @@ public final class Protocol {
 
     /** Hex text (spaces allowed, any case) to bytes. */
     public static byte[] fromHex(String hex) {
-        String s = hex.replaceAll("\\s+", "");
-        if (s.length() % 2 != 0) throw new IllegalArgumentException("odd-length hex string");
-        byte[] out = new byte[s.length() / 2];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = (byte) Integer.parseInt(s.substring(2 * i, 2 * i + 2), 16);
+        // One pass, no regex or substrings: this runs for every SysEx message the device sends.
+        int len = hex.length();
+        byte[] out = new byte[len / 2];
+        int n = 0;
+        int high = -1;
+        for (int i = 0; i < len; i++) {
+            char ch = hex.charAt(i);
+            if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\u000B') continue;
+            int d = Character.digit(ch, 16);
+            if (d < 0) throw new NumberFormatException("not a hex digit: '" + ch + "'");
+            if (high < 0) {
+                high = d;
+            } else {
+                out[n++] = (byte) (high << 4 | d);
+                high = -1;
+            }
         }
-        return out;
+        if (high >= 0) throw new IllegalArgumentException("odd-length hex string");
+        return n == out.length ? out : Arrays.copyOf(out, n);
     }
 
     // ---- HELLO ----

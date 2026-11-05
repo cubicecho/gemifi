@@ -73,11 +73,12 @@ public final class Protocol {
     /** sysex.md §4.3 / §4.6 step 3 (VOLATILE: a device restart turns it off). */
     public static final int PARAM_DEBUG_EVENTS = 13;
 
-    // Component kinds (sysex.md §4.6.1); 1..4 are also the EVENT types.
+    // Component kinds (sysex.md §4.6.1); 1..4 and 7 are also the EVENT types.
     public static final int KIND_BUTTON = 1, KIND_KEYS = 2, KIND_ANALOG = 3, KIND_ENCODER = 4,
-            KIND_LED = 5, KIND_DISPLAY = 6;
+            KIND_LED = 5, KIND_DISPLAY = 6, KIND_PAD = 7;
+    /** Firmware from before pads answers BAD_PARAM for kind 7: no pads. */
     public static final int[] ALL_KINDS = {KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER,
-        KIND_LED, KIND_DISPLAY};
+        KIND_LED, KIND_DISPLAY, KIND_PAD};
 
     public static String kindName(int kind) {
         switch (kind) {
@@ -87,6 +88,7 @@ public final class Protocol {
             case KIND_ENCODER: return "encoder";
             case KIND_LED: return "led";
             case KIND_DISPLAY: return "display";
+            case KIND_PAD: return "pad";
             default: return "kind " + kind;
         }
     }
@@ -523,7 +525,7 @@ public final class Protocol {
         /** LED: 0 host_then_local, 1 host, 2 local; null = not reported. */
         public Integer owner;
         /**
-         * Button, encoder, LED: 0 always there, n = a twin in mode n − 1 (live only while that mode
+         * Button, encoder, LED, pad: 0 always there, n = a twin in mode n − 1 (live only while that mode
          * is on); null = not reported (older firmware: treat as 0).
          */
         public Integer layer;
@@ -540,7 +542,7 @@ public final class Protocol {
         }
 
         public boolean hasLed() {
-            return kind == KIND_BUTTON && led != NONE_INDEX;
+            return (kind == KIND_BUTTON || kind == KIND_PAD) && led != NONE_INDEX;
         }
 
         /**
@@ -633,6 +635,11 @@ public final class Protocol {
                 c.rows = at(payload, p + 1);
                 c.displayType = at(payload, p + 2);
                 break;
+            case KIND_PAD:
+                if (left < 2) throw new ProtocolException(missing);
+                c.led = decU14(payload, p);
+                c.layer = left > 2 ? at(payload, p + 2) : null;
+                break;
             default:
                 // unknown kinds: ignore whatever follows (takeover / mode / owner / layer are absent in older firmware)
                 break;
@@ -645,7 +652,9 @@ public final class Protocol {
         byte[] head = concat(bytes(OK, c.kind), u14(c.index), u14(c.count), encLstring(c.id),
                 encLstring(c.name), encLstring(c.role));
         switch (c.kind) {
-            case KIND_BUTTON: return concat(head, u14(c.led), opt(c.layer));
+            case KIND_BUTTON:
+            case KIND_PAD:
+                return concat(head, u14(c.led), opt(c.layer));
             case KIND_KEYS: return concat(head, u14(c.keys), bytes(c.firstNote));
             case KIND_ANALOG: return concat(head, opt(c.takeover));
             case KIND_ENCODER:
@@ -663,7 +672,10 @@ public final class Protocol {
 
     // ---- EVENT (0x61) ----
 
-    /** An EVENT: type 1 button, 2 key, 3 analog (0..16383), 4 encoder (signed 14-bit delta), 8 layer. */
+    /**
+     * An EVENT: type 1 button, 2 key, 3 analog (0..16383), 4 encoder (signed 14-bit delta), 7 pad
+     * (a twin's hit, 0 = release), 8 layer.
+     */
     public static final class Event {
         public final int type;
         public final int index;

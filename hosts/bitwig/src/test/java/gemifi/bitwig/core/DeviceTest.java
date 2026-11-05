@@ -79,9 +79,9 @@ class DeviceTest {
         assertEquals("arm_2", d.components(Protocol.KIND_BUTTON).get(5).role);
         assertEquals("volume_2", d.components(Protocol.KIND_ANALOG).get(1).role);
         assertEquals("pan_1", d.components(Protocol.KIND_ENCODER).get(1).role);
-        // one HELLO, 9+3+3+9 components + BAD_PARAM at index 0 for keys and displays, GET + SET
+        // one HELLO, 9+3+3+9 components + BAD_PARAM at index 0 for keys, displays and pads, GET + SET
         assertEquals(1, fake.count(Protocol.HELLO));
-        assertEquals(24 + 2, fake.count(Protocol.GET_COMPONENT));
+        assertEquals(24 + 3, fake.count(Protocol.GET_COMPONENT));
         assertEquals(1, fake.count(Protocol.GET_PARAM));
         assertEquals(1, fake.count(Protocol.SET_PARAM));
     }

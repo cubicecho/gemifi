@@ -496,6 +496,44 @@ class ProtocolTest {
     }
 
     @Test
+    void padReplies() throws ProtocolException {
+        // daw-scripts.md §4.4: pad 28 of 32 (16 pads, then 16 twins), "pad_13_pads", role "clip_1_1", LED 52
+        Frame f = Protocol.parseFrame(hex("F0 7D 67 6D 01 51 51 24 00 00 07 1C 00 20 00 0B 70 61 64 5F 31 33 5F 70 61"
+                + " 64 73 06 50 61 64 20 31 33 08 63 6C 69 70 5F 31 5F 31 34 00 37 F7"));
+        Component p = Protocol.parseComponentReply(f.payload);
+        assertEquals(Protocol.KIND_PAD, p.kind);
+        assertEquals(28, p.index);
+        assertEquals(32, p.count);
+        assertEquals("pad_13_pads", p.id);
+        assertEquals("clip_1_1", p.role);
+        assertEquals(52, p.led);
+        assertTrue(p.hasLed());
+        assertNull(p.layer, "this reply has no layer byte: treated as 0");
+        assertTrue(p.isLive(Set.of()));
+        assertEquals("pad", Protocol.kindName(Protocol.KIND_PAD));
+        assertArrayEquals(f.payload, Protocol.buildComponentReply(p));
+        // with the layer byte, then bytes a later firmware may add
+        p.layer = 2;
+        Component twin = Protocol.parseComponentReply(Protocol.concat(Protocol.buildComponentReply(p), Protocol.bytes(9, 9)));
+        assertEquals(2, (int) twin.layer);
+        assertEquals(52, twin.led);
+        assertEquals(1, twin.modeIndex());
+        // no LED, too short
+        p.led = Protocol.NONE_INDEX;
+        p.layer = null;
+        assertFalse(Protocol.parseComponentReply(Protocol.buildComponentReply(p)).hasLed());
+        byte[] cut = Protocol.buildComponentReply(p);
+        assertThrows(ProtocolException.class, () -> Protocol.parseComponentReply(java.util.Arrays.copyOf(cut, cut.length - 1)));
+        // EVENT 7: pad 28 hit at 9000, then released
+        Event hit = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0C 09 00 07 1C 00 28 46 70 2E 00 00 26 F7")).payload);
+        Event off = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0D 09 00 07 1C 00 00 00 40 2F 00 00 0A F7")).payload);
+        assertEquals(Protocol.KIND_PAD, hit.type);
+        assertEquals(28, hit.index);
+        assertEquals(9000, hit.value);
+        assertEquals(0, off.value);
+    }
+
+    @Test
     void layerEvents() throws ProtocolException {
         Event on = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0E 09 00 08 02 00 01 00 70 2E 00 00 22 F7")).payload);
         Event off = Protocol.parseEvent(Protocol.parseFrame(hex("F0 7D 67 6D 01 61 0F 09 00 08 01 00 00 00 70 2E 00 00 21 F7")).payload);

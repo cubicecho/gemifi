@@ -281,6 +281,24 @@ static int last_msg(uint8_t status, int *d1, int *d2)
     return found;
 }
 
+/* How many CC num = val messages are in the output (SysEx skipped). */
+static int count_cc(int num, int val)
+{
+    int n = 0;
+    for (int i = 0; i + 2 < out_n; i++) {
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+            continue;
+        }
+        if ((out[i] & 0xF0) == 0xB0 && out[i + 1] == num && out[i + 2] == val) {
+            n++;
+            i += 2;
+        }
+    }
+    return n;
+}
+
 /* Key at row pair p, column c: first contact (row 2p) closes, then after
  * gap_us the second (row 2p+1). */
 static void press(int p, int c, uint32_t gap_us)
@@ -392,6 +410,51 @@ int main(void)
     closed[3][0] = 0;
     run_ms(5);
 
+    /* debounce: a press that loses contact for 12 ms is still one press */
+    out_n = 0;
+    closed[16][0] = 1;
+    run_ms(20);
+    closed[16][0] = 0;
+    run_ms(12);
+    closed[16][0] = 1;
+    run_ms(20);
+    CHECK(count_cc(20, 127) == 1 && count_cc(20, 0) == 0, "12 ms gap mid-press: one press (%d), no release (%d)",
+          count_cc(20, 127), count_cc(20, 0));
+    closed[16][0] = 0;
+    run_ms(20);
+    CHECK(count_cc(20, 0) == 1, "and one release");
+#ifdef HW_SCAN_TEST
+    /* a held button that reads open in most frames (a light press) stays
+     * held while some frames still read it closed */
+    {
+        uint32_t per_ms = 1000000u / tick_ns;
+        out_n = 0;
+        closed[16][0] = 1;
+        run_ms(20);
+        for (uint32_t ms = 0; ms < 40; ms++) {
+            for (uint32_t k = 0; k < per_ms; k++) {
+                closed[16][0] = k == 0;  /* closed only in the first frame of each ms */
+                ticks(1);
+            }
+            now_ms++;
+            gm_poll();
+        }
+        closed[16][0] = 0;
+        CHECK(count_cc(20, 127) == 1 && count_cc(20, 0) == 0, "flickering press: held (%d presses, %d releases)",
+              count_cc(20, 127), count_cc(20, 0));
+        run_ms(20);
+        CHECK(count_cc(20, 0) == 1, "released once it reads open");
+
+        /* one frame that reads closed (noise) doesn't press */
+        out_n = 0;
+        closed[16][1] = 1;
+        ticks(1);
+        closed[16][1] = 0;
+        run_ms(20);
+        CHECK(count_cc(21, 127) == 0, "one closed frame: no press");
+    }
+#endif
+
 #if GM_N_MODES > 0
     /* hold mode: while chan (output 16 col 2) is held, up / down change the
      * channel instead of sending their CCs, and the keys keep playing */
@@ -425,7 +488,7 @@ int main(void)
     closed[16][0] = 1;
     run_ms(20);
     closed[16][2] = 0;
-    run_ms(20);
+    run_ms(30);                     /* release debounce + an LED update */
     CHECK(level[32] == 0, "chan released: LED off");
     closed[16][0] = 0;
     run_ms(20);

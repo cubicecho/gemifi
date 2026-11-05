@@ -343,12 +343,20 @@ class TestValidation(unittest.TestCase):
         self.assertIn("gm_analog_mode_defaults[1] = { 0 };", c)
 
     C61_DIN_DMA = ("  mode: usb_merge\n", "  mode: usb_merge\n  dma: true\n")
-    C61_NO_PRE = ("    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
+    C61_NO_PRE = ("    row_time: 3.5us\n    settle: 3us\n    precharge: true\n",
                   "    row_time: 3.5us\n    settle: 3us\n")
 
     def c61(self):
         with open(os.path.join(REPO, "devices", "m-audio-code61.yaml"), encoding="utf-8") as f:
             return f.read()
+
+    def test_c61_fixture_lines(self):
+        """The text the DMA tests replace is still in the Code 61 YAML (else they test nothing)."""
+        c61 = self.c61()
+        for old, _new in (self.C61_DIN_DMA, self.C61_NO_PRE):
+            self.assertIn(old, c61)
+        self.assertIn("hardware_scan:\n  matrix:\n" + self.C61_NO_PRE[0], c61)
+        self.assertIn("    precharge: true\n  analog: true\n", c61)
 
     def test_dma_alloc(self):
         """stm32f1: each DMA user gets its channels (RM0008 table 78); a clash is an error on the
@@ -389,7 +397,7 @@ class TestValidation(unittest.TestCase):
                          r"needs DMA1 channel 4 .*precharge off")
         # ... fine without the scans
         no_scan = din_dma.replace("    precharge: true\n  analog: true\n", "    precharge: true\n  analog: false\n")
-        no_scan = no_scan.replace("hardware_scan:\n  matrix:\n    row_time: 1.5us\n    settle: 1us\n    precharge: true\n",
+        no_scan = no_scan.replace("hardware_scan:\n  matrix:\n    row_time: 3.5us\n    settle: 3us\n    precharge: true\n",
                                   "hardware_scan:\n")
         d, diags = load(no_scan.replace("    count: 16\n", "    count: 16\n    dma: false\n", 1))
         self.assertIsNotNone(d, [str(x) for x in diags if x.level == "error"])

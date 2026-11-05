@@ -22,6 +22,18 @@
  * write, so the scan interrupt and the main loop can't clobber each other). */
 #define GPIO_PDIO(pin) REG32(GPIO_BASE + 0x200u + 0x40u * ((pin) >> 4) + 4u * ((pin) & 15u))
 
+uint32_t hal_irq_save(void)
+{
+    uint32_t pm;
+    __asm__ volatile ("mrs %0, primask\n\tcpsid i" : "=r"(pm) :: "memory");
+    return pm;
+}
+
+void hal_irq_restore(uint32_t state)
+{
+    __asm__ volatile ("msr primask, %0" :: "r"(state) : "memory");
+}
+
 uint32_t hal_millis(void)
 {
     return sys_tick_ms();

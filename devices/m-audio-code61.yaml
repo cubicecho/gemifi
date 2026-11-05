@@ -1,49 +1,48 @@
-# M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
-# Runs under the gemifi bootloader (bootloader/stm32f1). Working on hardware
-# (2026-11-03): keys with velocity, panel buttons, encoders, faders, wheels,
-# aftertouch, the XY pad, pads with their LEDs, the button LEDs (lit while
-# idle), the display (preset names, "CH <n>"), the rear MIDI jacks, presets on
-# Up / Down (Channel held: the MIDI channel), the soft power button (hold 2 s
-# to switch off) and settings saving. Values still tagged [guess] below are
-# untuned. DAW scripts (Bitwig, Live; hosts/README.md) find the transport,
-# faders, encoders and B1-B9 by their daw: roles; without a script those send
-# their CCs as usual. B1-B9 mute (white, blue while muted); Shift + Button
-# mode switches B2-B9 to record arm (red while armed) and back (modes: arm,
-# untested on hardware). Shift + Pad octave - turns the pads into a clip grid
-# for a DAW script (modes: pads), Shift + Encoder mode steps the encoders
-# through MIDI / ZYN / DEVICE / PAN (modes: encoders); the three are
-# independent. The display shows what a DAW script sends it (daw: param).
-# The layers are untested on hardware.
-# Pins come from static analysis of the Code 49 v1.2.1 app, re-checked on the
-# Code 61 v1.2.2 app (same pin setup): research/devices/m-audio-code61/analysis/hw-map.md
+# M-Audio Code 61 with gemifi (STM32F103RBT6), run by the gemifi bootloader
+# (bootloader/stm32f1).
 #
-# Confidence tags on each pin:
-#   [sure]   read directly from the stock app's GPIO and ADC setup
-#   [likely] the setup is clear, but what the pin is for is inferred
+# Works on hardware: keys with velocity, panel buttons, encoders, faders,
+# wheels, aftertouch, the XY pad, pads and their LEDs, the button LEDs, the
+# display (preset names, "CH <n>"), the rear MIDI jacks, presets on Up / Down
+# (Channel held: the MIDI channel), the soft power button (hold 2 s to switch
+# off) and settings saving. Values tagged [guess] are untuned.
+#
+# DAW scripts (Bitwig, Live; hosts/README.md) find the transport, faders,
+# encoders and B1-B9 by their daw: roles; without a script they send their
+# CCs as usual. The display shows what a script sends it (daw: param).
+#
+# Layers (modes: below), independent of each other, untested on hardware:
+#   Shift + Button mode   B2-B9 switch between mute and record arm
+#   Shift + Pad octave -  the pads become a clip grid for a DAW script
+#   Shift + Encoder mode  the encoders step through MIDI / ZYN / DEVICE / PAN
+#
+# Confidence tags:
+#   [sure]   confirmed on hardware
+#   [likely] the pin is clear, what it is for is inferred
 #   [guess]  needs a board photo or a hardware test
 #
-# The matrix (hw-map.md §2, §9): rows come from 3-to-8 decoders on PB3-PB5
-# (address) and PB6/PB7 (group: PB6=1 rows 0-7, PB7=1 rows 8-15, both 0 rows
-# 16-23); columns are PB8-PB15, pull-up, active-low. Keys on rows 0-15 (two
-# contacts on rows 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
+# The matrix: rows come from 3-to-8 decoders on PB3-PB5 (address) and PB6/PB7
+# (group: PB6=1 rows 0-7, PB7=1 rows 8-15, both 0 rows 16-23); columns are
+# PB8-PB15, pull-up, active-low. Keys on rows 0-15 (two contacts on rows
+# 2k / 2k+1), panel buttons on rows 16-20, encoders on 21-22.
 #
-# TODO: hardware the core can't describe yet, so it is left out here:
-#   - PB0 (ch8): most likely the rear "volume" (expression pedal) jack.
+# Left out, because the core can't describe them yet:
+#   - PB0 (ADC ch8): probably the rear "volume" (expression pedal) jack.
 #   - USB D+ pull-up switch on PA8 (high = connected): driven by the platform.
-#   - No boot_combo here: up + down at power-on is the bootloader's update
-#     mode (bootloader/stm32f1), checked before the app runs.
+# No boot_combo: Up + Down at power-on is the bootloader's update mode
+# (bootloader/stm32f1), checked before the app runs.
 gemifi: 2
 name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.88
+  version: 0.2.89
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
 # write_to_flash: (core/README.md "Writes the device makes on its own"): what
-# the device stores without a host asking. Left out = off: a preset picked on
+# the device saves without a host asking. Left out = off: a preset picked on
 # the device isn't remembered, and power-up is preset 1. A flash page erase
 # stalls the scan for 20-40 ms, so the write waits until nothing is played.
 # Saves from the web page or gemifi.py always work.
@@ -51,106 +50,100 @@ usb: { vid: 0x1209, pid: 0x0002 }
 #   last_preset: true   # power up on the preset used last
 #   delay: 10s          # after the last switch (default)
 #   idle: 3s            # and once nothing has been played for this long (default)
-# Scan time on hardware (fw 0.2.6): ~170 us on average for the 16 key rows,
-# the panel/encoder rows (every other tick) and the encoders. 400 us leaves the
-# main loop (USB, pads, faders) more than half the CPU, and matches the stock
-# firmware's key timing resolution (its key timestamps advance every 400 us).
+# The software scan tick. hardware_scan: below does the matrix and the
+# analog inputs, so this mostly matters for a part moved back to the
+# software scan.
 scan_interval: 400us
 # hardware_scan: (core/README.md "Hardware scan"): timers + DMA do the
 # scanning, the CPU only looks at the results.
 # matrix: keys, panel buttons and encoders (23 decoder rows on the PB8-PB15
 # columns), by TIM1 + DMA: no CPU per row, and a key's two contacts are
-# timed to the frame (23 rows, padded to 24, x row_time = 36 us), not the
-# 400 us tick above. precharge drives the columns high between rows like
-# the stock firmware, so the read only waits for a closed key to pull a
-# column down: 1 us is enough (tried 2026-11-03, builds 44-48: no ghost or
-# missing notes with chords and fast runs). Without precharge the columns
-# need about 3 us to come back up: `row_time: 3.5us, settle: 3us` (84 us).
+# timed to the frame (23 rows, padded to 24, x row_time = 84 us), not the
+# scan tick. precharge drives the columns high between rows, so the read
+# only waits for a closed contact to pull a column down. Keys were fine at
+# 1 us (row_time 1.5us, 36 us frames), but a lightly pressed panel button
+# (carbon contact, a few kOhm) can take longer than that, which reads as a
+# release mid-press (double presses): 3 us gives it room.
 # Remove a part to go back to the software scan for it.
 # analog: faders and pads, by TIM4 + ADC1 + DMA: TIM4 steps the three muxes'
 # shared select lines (PC0-PC2) and, after their 4 us delay, starts ADC1 on
 # PA7, PA6, PA1 and PA0; a sweep of all 8 steps takes 200 us. Pads see
-# their strongest reading since the last pass, faders are read every 1 ms
-# (each was every 18 ms), and the main loop does no ADC work at all.
+# their strongest reading since the last pass, faders are read every 1 ms,
+# and the main loop does no ADC work.
 hardware_scan:
   matrix:
-    row_time: 1.5us
-    settle: 1us
+    row_time: 3.5us
+    settle: 3us
     precharge: true
   analog: true
 
-# Analog mux for faders: 8:1, select lines PC0-PC2 [sure], common on PA7 = ADC ch7 [sure].
-# No enable line is set by the stock app. The pads use the same select lines
-# on two more muxes (PA0, PA1, below): allow_other_uses on every use.
+# Analog mux for the faders: 8:1, select lines PC0-PC2, common on PA7
+# (ADC ch7) [sure], no enable line. The pads use the same select lines on two
+# more muxes (PA0, PA1, below), so every use has allow_other_uses.
 cd74hc4051:
   - id: fader_mux
-    pin_s0: { number: PC0, allow_other_uses: true }   # [sure] GPIOC ODR bits 0-2 = mux step (0x080027D0)
+    pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
-    common_pin: PA7        # [sure] ADC rank 6 = ch7; mux step n -> fader slot n+1 (0x08002A5C)
-    delay: 4us             # [guess] the stock app waits a whole ADC frame after switching
+    common_pin: PA7        # [sure] ADC ch7
+    delay: 4us             # [guess] settling time after a mux step
   # Pad muxes: mux step n = pad slot n on PA0 (ADC ch0), slot n + 8 on PA1 (ch1) [sure].
   # Keep delay: the same on muxes that share select lines.
   - id: pad_mux_a
     pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
-    common_pin: PA0        # [sure] ADC rank 1 = ch0
+    common_pin: PA0        # [sure] ADC ch0
     delay: 4us             # [guess]
   - id: pad_mux_b
     pin_s0: { number: PC0, allow_other_uses: true }   # [sure]
     pin_s1: { number: PC1, allow_other_uses: true }   # [sure]
     pin_s2: { number: PC2, allow_other_uses: true }   # [sure]
-    common_pin: PA1        # [sure] ADC rank 2 = ch1
+    common_pin: PA1        # [sure] ADC ch1
     delay: 4us             # [guess]
 
 # LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
-# with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive
-# every LED and the 6-character display. A pin on them is a RAM bit:
-# number = byte * 8 + bit. PA15 is a JTAG pin at reset; the board config
-# turns JTAG off (BOARD_SWJ_NOJTAG, SWD stays on).
-# The stock app never sends a display-mode command (no grids:), and its
-# brightness is unknown (intensity: 7 = the default). [guess]
+# with its own STB [sure]. Together they drive every LED and the 6-character
+# display. A pin on them is a RAM bit: number = byte * 8 + bit. PA15 is a
+# JTAG pin at reset; the board config turns JTAG off (BOARD_SWJ_NOJTAG, SWD
+# stays on). grids: and intensity: are left at their defaults [guess].
 tm1628:
   - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PA15
     ram_bytes: 14
-  - id: leds_b             # the stock app writes 6 bytes [sure]
+  - id: leds_b             # 6 RAM bytes: the 48 bits of the RGB button LEDs [sure]
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
     ram_bytes: 6
 # Pad LEDs: not on the TM1628s but on the pad board, a small controller fed by
-# USART2 TX on PA2 at 115200 baud [sure, found in the stock app and tried
-# 2026-11-03]: one message per LED, 02, 0x80 + LED, R, G, B, 03, and an A5
-# keepalive (core/README.md "RGB serial LEDs"). Its LED index counts from the
-# top row, like the pad mux slots: pad k (1 = bottom left) is LED
-# (3 - (k-1) / 4) * 4 + (k-1) % 4.
+# USART2 TX on PA2 at 115200 baud [sure]: one message per LED, 02, 0x80 + LED,
+# R, G, B, 03, and an A5 keepalive (core/README.md "RGB serial LEDs"). Its
+# LED index counts from the top row, like the pad mux slots: pad k
+# (1 = bottom left) is LED (3 - (k-1) / 4) * 4 + (k-1) % 4.
 rgb_serial:
   - id: pad_leds
     tx_pin: PA2
     count: 16
 
-# The rear 5-pin MIDI jacks [sure pins, hw-map.md: USART1 at 31250 baud, TX
-# PA9, RX PA10]. The stock firmware only sends to MIDI Out; here MIDI In
-# also reaches the computer and the computer can play MIDI Out, on the main
-# USB port (usb_merge; midi.usb_to_din), with an optional thru (midi.thru,
-# off at first). mode: separate_port would give the jacks a USB port of their
-# own ("Code 61 MIDI"), but two ports hang Chrome's Web MIDI on Windows for
-# now (tested 2026-11-03, builds 69/71 hang, 70 doesn't).
+# The rear 5-pin MIDI jacks: USART1 at 31250 baud, TX PA9, RX PA10 [sure].
+# MIDI In reaches the computer and the computer can play MIDI Out, on the
+# main USB port (usb_merge; midi.usb_to_din), with an optional thru
+# (midi.thru, off at first). mode: separate_port would give the jacks a USB
+# port of their own ("Code 61 MIDI"), but two ports hang Chrome's Web MIDI
+# on Windows for now.
 din_midi:
   tx_pin: PA9
   rx_pin: PA10
   mode: usb_merge
   usb_to_din: true   # the computer's notes/CCs on the main port also play MIDI Out
 
-# The XY pad, a 4-wire resistive panel [sure, tested 2026-11-03; drive
-# pattern from the stock app, 0x0800277C]: X (left to right) is PC4 high and
-# PB2 low, read on PC5 (ch15); Y (bottom to top) is PB1 high and PC5 low, read
-# on PC4 (ch14). The stock app counts a touch while both read inside
-# 0x250..0xD50 (592..3408) +- 22, the default touch window here.
+# The XY pad, a 4-wire resistive panel [sure]: X (left to right) is PC4 high
+# and PB2 low, read on PC5 (ADC ch15); Y (bottom to top) is PB1 high and PC5
+# low, read on PC4 (ch14). The touch window is the default (touch_min /
+# touch_max, core/README.md "XY pads").
 xy_pad:
   - id: xy
     x_plus_pin: PC4
@@ -158,8 +151,8 @@ xy_pad:
     y_plus_pin: PB1
     y_minus_pin: PC5
 
-# The 6-character 14-segment display, on chip A (leds_a) [sure, mapped
-# 2026-11-03]: each character is 16 RAM bits (2 bytes): bits 0-13 are
+# The 6-character 14-segment display, on chip A (leds_a) [sure, mapped on
+# hardware]: each character is 16 RAM bits (2 bytes): bits 0-13 are
 # segments a b c d e f g1 g2 h i j k l m (core/include/gm_display.h), bit 14
 # its dot, bit 15 unused. Left to right the characters start at bits 48, 64,
 # 80, 0, 16, 32 (bytes 6, 8, 10, 0, 2, 4).
@@ -175,18 +168,15 @@ displays:
       - { tm1628: leds_a, number: 16 }
       - { tm1628: leds_a, number: 32 }
 
-# LEDs, mapped on hardware (2026-11-03) with the LED-map build
-# (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display
-# (see the TODO at the top); bits 96-102 are single-colour button LEDs.
-# Chip B bit n (0-15) is an RGB LED's blue, n+16 its green, n+32 its red.
-# Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
-# LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
-# the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
-# Looks (core/README.md "LED looks"), the user's request (2026-11-03): every
-# LED lit while idle so the panel is easy to see, and changed while active.
-# RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
-# (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
-# LED with idle: / active:.
+# LEDs, mapped on hardware with the LED-map build
+# (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display,
+# bits 96-102 single-colour button LEDs. Chip B bit n (0-15) is an RGB LED's
+# blue, n+16 its green, n+32 its red. Shift has no LED [sure]: no LED-driver
+# bit, pad board LED 16-31 or unused GPIO (PC6-8, PC14, PD2) lights one.
+# Looks (core/README.md "LED looks"): every LED is lit while idle so the
+# panel is easy to see, and changes while active. RGB LEDs (buttons, pads)
+# idle blue and go white; the single-colour ones (Channel, Edit, Zone, 1-4)
+# are lit and go dark. Change them here, or per LED with idle: / active:.
 led_defaults: { idle: blue, active: white }
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
@@ -229,9 +219,8 @@ leds:
   - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 } }
   - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 } }
 
-# Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
-# used as the range. [likely] Which slot is which physical fader is [guess]:
-# slot 0 is the one direct fader (PA6), slots 1-8 come from the mux.
+# Faders: 12-bit ADC, 80..4000 used as the range [likely]. Eight are on the
+# mux and one (PA6) is direct; which mux slot is which fader is [guess].
 analog:
   - { id: fader_1, pin: { cd74hc4051: fader_mux, number: 0 }, cc: 20, adc_min: 80, adc_max: 4000, daw: volume_1 }   # [guess] position
   - { id: fader_2, pin: { cd74hc4051: fader_mux, number: 1 }, cc: 21, adc_min: 80, adc_max: 4000, daw: volume_2 }   # [guess]
@@ -241,28 +230,25 @@ analog:
   - { id: fader_6, pin: { cd74hc4051: fader_mux, number: 5 }, cc: 25, adc_min: 80, adc_max: 4000, daw: volume_6 }   # [guess]
   - { id: fader_7, pin: { cd74hc4051: fader_mux, number: 6 }, cc: 26, adc_min: 80, adc_max: 4000, daw: volume_7 }   # [guess]
   - { id: fader_8, pin: { cd74hc4051: fader_mux, number: 7 }, cc: 27, adc_min: 80, adc_max: 4000, daw: volume_8 }   # [guess]
-  - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000, daw: master_volume }   # [sure] PA6 = ch6, direct; [guess] that it is the master fader
-  # Wheels on PA4 (ch4) and PA5 (ch5) [sure]; the panel has pitch then mod,
-  # left to right [sure, 2026-11-03: PA4 = pitch, analog 9].
-  # The pitch wheel's resting reading at power-up is its centre.
-  # Measured 2026-11-03: raw 1404 bottom, 1929 at rest, 2375 top; the ends
-  # sit a little inside so full bend is reached.
+  - { id: fader_9, name: Master, pin: PA6, cc: 7, adc_min: 80, adc_max: 4000, daw: master_volume }   # [sure] PA6 (ADC ch6), direct; [guess] that it is the master fader
+  # Wheels: pitch on PA4 (ADC ch4), mod on PA5 (ch5), left to right [sure].
+  # The pitch wheel's reading at power-up is its centre. Measured: raw 1404
+  # bottom, 1929 at rest, 2375 top; the ends sit a little inside so full
+  # bend is reached.
   - { id: pitch_wheel, name: Pitch, pin: PA4, mode: pitch_bend, adc_min: 1420, adc_max: 2360 }
   - { id: mod_wheel, name: Mod, pin: PA5, cc: 1, adc_min: 1420, adc_max: 2360 }   # about the same range as pitch
-  # Aftertouch sensor on PC3 (ch13) [sure pin, likely use: hw-map.md]: channel
-  # pressure. The stock app works in raw 0x4D0..0x900 (1232..2304). The
-  # reading falls as you press [sure: tested], so adc_min is the high end.
+  # Aftertouch sensor on PC3 (ADC ch13): channel pressure. The reading falls
+  # as you press [sure], so adc_min is the high end; the range is [guess].
   - { id: aftertouch, name: Aftertouch, pin: PC3, mode: channel_pressure, adc_min: 2304, adc_max: 1232 }
-  # XY pad axes: CC 16 / 17 [guess: unassigned general-purpose CCs]; 0, 0 is
-  # bottom left [sure, tested]. Its edges read about raw 800..3130 [sure, a
-  # trace around the edge with 592..3408 gave 9..115]. Released, they hold
-  # their last value.
+  # XY pad axes: CC 16 / 17 (general-purpose CCs); 0, 0 is bottom left
+  # [sure]. The edges read about raw 800..3130 [sure, measured]. Released,
+  # they hold their last value.
   - { id: xy_x, name: XY X, pin: { xy_pad: xy, number: x }, cc: 16, adc_min: 830, adc_max: 3100 }
   - { id: xy_y, name: XY Y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 830, adc_max: 3100 }
 
 # ---- the matrix ----------------------------------------------------------
 
-# Row select (hw-map.md §2, [sure]): PB3-PB5 = address, PB6/PB7 = group.
+# Row select [sure]: PB3-PB5 = address, PB6/PB7 = group.
 decoder:
   - id: rows
     address: [PB3, PB4, PB5]
@@ -272,14 +258,14 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23: panel buttons 16-20, encoders 21-22
 
 # Panel buttons: slot = (row - 16) * 8 + column, column c = PB(8+c). Slots
-# 0-37 are mapped on hardware (2026-11-03; 20-28 = b1-b9 under the faders:
-# b1 under the master fader, b2-b9 under faders 1-8; 29 = button mode).
-# Slots 38 and 39 have no button (placeholders). A switch_matrix takes at
-# most 32 switches, so row 20 is its own.
+# 0-37 are mapped on hardware (20-28 = B1-B9 under the faders: B1 under the
+# master fader, B2-B9 under faders 1-8; 29 = Button mode). Slots 38 and 39
+# have no button (placeholders). A switch_matrix takes at most 32 switches,
+# so row 20 is its own.
 switch_matrix:
   - id: panel
     rows: { decoder: rows, first: 16, count: 4 }
-    rows_per_scan: 2       # two rows per scan, in turn: each row every 1.6 ms (quick taps)
+    rows_per_scan: 2       # software scan only: two rows per tick, each row every 1.6 ms
     columns:
       - { number: PB8, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB9, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
@@ -302,7 +288,7 @@ switch_matrix:
       - { number: PB14, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
       - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
     settle: 3us            # [guess]
-  # Encoders 1-4 on row 21, 5-8 on row 22: A = column 2n, B = column 2n+1 [sure, hw-map.md §2]
+  # Encoders 1-4 on row 21, 5-8 on row 22: A = column 2n, B = column 2n+1 [sure]
   - id: encoder_rows
     rows: { decoder: rows, first: 21, count: 2 }
     columns:
@@ -316,8 +302,8 @@ switch_matrix:
       - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
     settle: 3us            # [guess]
 
-# 61 keys, two contacts each on rows 2k / 2k+1 (same column). Key map from the
-# stock firmware's table (hw-map.md §9, [sure]): key 0 = the lowest C = note 36.
+# 61 keys, two contacts each on rows 2k / 2k+1 (same column). key_map gives
+# the key at each row pair and column [sure]: key 0 = the lowest C = note 36.
 key_matrix:
   type: velocity
   contacts: rows
@@ -333,7 +319,7 @@ key_matrix:
     - { number: PB15, mode: INPUT_PULLUP, inverted: true, allow_other_uses: true }
   keys: 61
   first_note: 36
-  settle: 3us              # [guess] the stock scan waits ~30 loop passes per row
+  settle: 3us              # [guess] software scan only
   key_map:
     - [55, 54, 53, 52, 51, 50, 49, 48]   # rows 0/1
     - [47, 46, 45, 44, 43, 42, 41, 40]   # rows 2/3
@@ -344,20 +330,19 @@ key_matrix:
     - [7, 6, 5, 4, 3, 2, 1, 0]   # rows 12/13
     - [null, null, null, 60, 59, 58, 57, 56]   # rows 14/15
 
-# Slots 0-19: labels from the user (2026-11-03). Up + down at power-on is the
-# bootloader's update mode. CC numbers for the unlabelled-function buttons are
-# placeholders to change in the web editor.
+# Names are the panel labels. Up + Down at power-on is the bootloader's
+# update mode. CCs on buttons with no fixed job are placeholders: change
+# them in the web editor.
 buttons:
-  # Sustain jack: PC9, input with pull-up, read directly (0x080120FC). [likely]
-  # The stock app learns the pedal polarity at power-up. "inverted: true"
-  # assumes a normally-open pedal that shorts to ground. [guess]
+  # Sustain jack: PC9, input with pull-up [likely]. inverted: true assumes a
+  # normally-open pedal that shorts to ground [guess].
   - id: sustain
     pin: { number: PC9, mode: INPUT_PULLUP, inverted: true }
     action: cc_momentary
     cc: 64
   # Up / Down step through the presets (the display shows the name); with
   # Channel held they change the MIDI channel instead (modes: below).
-  # Panel slot 0 is the leftmost of the two, Down (the user, 2026-11-03).
+  # Panel slot 0 is the left one of the two, Down.
   - { id: up, name: "Up", pin: { switch_matrix: panel, number: 1 }, action: preset_next }
   - { id: down, name: "Down", pin: { switch_matrix: panel, number: 0 }, action: preset_prev }
   - { id: shift, name: "Shift", pin: { switch_matrix: panel, number: 2 }, action: cc_momentary, cc: 102, daw: shift }
@@ -399,7 +384,7 @@ buttons:
   - { id: slot_38, name: "Slot 38", pin: { switch_matrix: panel_row20, number: 6 }, action: none }
   - { id: slot_39, name: "Slot 39", pin: { switch_matrix: panel_row20, number: 7 }, action: none }
 
-# x1 decoding in the stock firmware: one step per A rising edge. [guess] 4 quadrature steps per detent.
+# On the panel matrix (encoder_rows). steps_per_detent is the default, 4 [guess].
 encoders:
   - { id: encoder_1, name: "E1", pin_a: { switch_matrix: encoder_rows, number: 0 }, pin_b: { switch_matrix: encoder_rows, number: 1 }, cc: 70 }
   - { id: encoder_2, name: "E2", pin_a: { switch_matrix: encoder_rows, number: 2 }, pin_b: { switch_matrix: encoder_rows, number: 3 }, cc: 71 }
@@ -414,12 +399,12 @@ encoders:
 # and their twins: detents at least 80 ms apart move 1 step each, quicker
 # turns up to 8 steps per detent (medium: slow 80ms, fast 10ms, max 8,
 # quadratic): 24 detents in half a second sweep 0..127. [guess] untried on
-# the hardware: try low / high, or `acceleration: off` on one encoder.
+# hardware: try low / high, or `acceleration: off` on one encoder.
 encoder_settings:
   acceleration: medium
 
 # Pads: a 4x4 grid labelled 1-16 from the bottom left, row by row, left to
-# right. Pad k is pad_k. Mapped on hardware (2026-11-03): the mux slots count
+# right. Pad k is pad_k. Mapped on hardware: the mux slots count
 # from the TOP row, left to right: slots 0-7 (pad_mux_a) are the top two rows,
 # 8-15 (pad_mux_b) the bottom two. Polarity confirmed: pressure raises the
 # reading (no inverted:).
@@ -454,9 +439,9 @@ pad_settings:
 
 # Presets (core/README.md "Presets"): Up / Down step through them, and the
 # display shows the name. The settings store (3 pages of 1 KB) holds 4 slots
-# at most. The layer twins' settings are global (layer.*, 0.2.82), stored
-# once, so a preset is smaller: 4 slots are 1460 of 1744 B at worst case
-# (84%, under the builder's 85% warning). Slots 2-4 start free: make,
+# at most. The layer twins' settings are global (layer.*), stored once, so a
+# preset is smaller: 4 slots are 1460 of 1744 B at worst case (84%, under
+# the builder's 85% warning). Slots 2-4 start free: make,
 # rename, reorder and delete presets on the web page's Presets tab, or with
 # `gemifi.py preset save/rename/move/delete`.
 presets:

@@ -31,11 +31,13 @@
 #include "gm_din.h"
 
 #define BTN_SAMPLE_MS   1u
-/* A press counts as soon as it is read, so a quick tap is never lost; a
- * release counts once the button has read released for BTN_STABLE samples in
- * a row (10 ms), which rides out contact bounce (4 ms was too short on the
- * Code 61: taps sometimes counted twice). */
-#define BTN_STABLE      10u
+/* A press counts at the first sample that read it closed throughout (every
+ * scan since the sample before: 1 ms), so a quick tap is never lost; a
+ * release counts once no scan has read it closed for BTN_STABLE samples in a
+ * row (16 ms), which rides out contact bounce and a light press losing
+ * contact for a moment (on the Code 61, 4 ms and sometimes 10 ms counted a
+ * press twice). */
+#define BTN_STABLE      16u
 #define ANALOG_MS       2u          /* one analog input per period */
 #define LED_MS          10u
 #define I2C_MS          1u
@@ -902,12 +904,21 @@ static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
-static btn_bits_t read_buttons(void)
+/* Pressed in every scan since the last sample; *any: in any of them. A
+ * button on a switch matrix is scanned many times a sample (each frame of
+ * a hardware scan), others are read once. */
+static btn_bits_t read_buttons(btn_bits_t *any)
 {
-    btn_bits_t s = 0;
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++)
-        if (vpin_read(gm_device.buttons[i].pin))
+    btn_bits_t s = 0, a = 0;
+    vpin_span_take();
+    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
+        int seen;
+        if (vpin_read_span(gm_device.buttons[i].pin, &seen))
             s |= (btn_bits_t)1 << i;
+        if (seen)
+            a |= (btn_bits_t)1 << i;
+    }
+    *any = a;
     return s;
 }
 
@@ -1330,13 +1341,17 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 static void buttons_sample(void)
 {
-    btn_bits_t now = read_buttons();
-    btn_bits_t recent = now;        /* pressed in any of the last BTN_STABLE samples */
+    /* A press counts once a sample saw it in every scan (a contact that
+     * only flickered closed, or noise, doesn't press); any scan that saw it
+     * closed keeps it held for BTN_STABLE more samples. */
+    btn_bits_t seen;
+    btn_bits_t now = read_buttons(&seen);
+    btn_bits_t recent = seen;       /* seen pressed in any of the last BTN_STABLE samples */
     for (uint32_t k = 0; k < BTN_STABLE - 1u; k++)
         recent |= btn_hist[k];
     for (uint32_t k = BTN_STABLE - 1u; k > 1u; k--)
         btn_hist[k - 1u] = btn_hist[k - 2u];
-    btn_hist[0] = now;
+    btn_hist[0] = seen;
     uint64_t s = now;
     uint64_t st = s | (btn_stable & recent);
     if (st != btn_stable) {

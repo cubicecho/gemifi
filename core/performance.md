@@ -9,7 +9,7 @@ What each component in a device YAML costs: CPU, latency from the physical actio
 | Context | Runs | What runs there |
 |---|---|---|
 | Scan tick (timer interrupt) | every `scan_interval` | key matrix and switch matrices (software scan), HC165/HC595 refresh and flush, encoders on MCU pins, shift registers and switch matrices |
-| Frames (DMA interrupt, stm32f1 `hardware_scan.matrix`) | every 8 frames (288 us at 36 us frames) | key and switch-matrix changes, encoders on switch matrices |
+| Frames (DMA interrupt, stm32f1 `hardware_scan.matrix`) | every 8 frames (672 us at the Code 61's 84 us frames) | key and switch-matrix changes, encoders on switch matrices |
 | ADC sweep (DMA interrupt, `hardware_scan.analog`) | every sweep (200 us on the Code 61) | copies the readings, keeps the pads' peaks |
 | Main loop (`gm_poll`), one pass | as fast as it goes (measured worst pass on the Code 61: 491 us) | keys' MIDI out first, then buttons (1 ms), the protocol, DIN, presets, I2C hubs (1 ms), analog (1 or 2 ms), pads (1 ms), encoders, LEDs (10 ms), TM1628 and RGB writes |
 
@@ -33,9 +33,9 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 | Component | CPU | Action → MIDI | MIDI it sends | RAM | Knobs |
 |---|---|---|---|---|---|
 | Key matrix, software scan | each tick: rows × (`settle` + row overhead). Keystation 8 rows: ~21 us of each 125 us, 17% (derived). STM32 fallback, 16 key rows + 5 panel rows at 3 us: 48-63 us of 400 (#69) | `scan_interval` to see the second contact, + the rest of a pass, + ≤ 1 ms USB | Note On / Off, 3 B each (2 on DIN with running status) | 5 B per key, 8-16 B per row, 128 B key queue | `scan_interval`: velocity step and latency vs CPU; `settle`: ghost notes vs CPU; `velocity: { fast, slow }` |
-| Key matrix, `hardware_scan.matrix` | no tick work; ~12 masked compares per frame where nothing moved; measured interrupt max 45 us per 288 us | one frame (36 us with precharge, 84 us without) + pass + USB | as above | + 220 B (scan plan, last frame) | `row_time`, `settle`, `precharge` (README "Hardware scan") |
-| Button on an MCU pin | read every 1 ms, a few cycles | ≤ 1 ms + pass + USB; a release counts after 10 ms open | one message per press / release (CC, note, program, ...) | 6 B, + 2 params; 72 B shared | none |
-| Button on a switch matrix | the matrix's rows each scan (below); the button read is the cache | as above, + up to one full matrix scan (`rows` / `rows_per_scan` × 2 ticks; one frame with hardware scan) | as above | as above | `rows_per_scan`, `settle` of the `switch_matrix` |
+| Key matrix, `hardware_scan.matrix` | no tick work; ~12 masked compares per frame where nothing moved; measured interrupt max 45 us per 8 frames (at 36 us frames) | one frame (row_time × rows: 84 us on the Code 61, 3.5 us × 24; 36 us at the 1.5 us minimum) + pass + USB | as above | + 220 B (scan plan, last frame) | `row_time`, `settle`, `precharge` (README "Hardware scan") |
+| Button on an MCU pin | read every 1 ms, a few cycles | ≤ 1 ms + pass + USB; a release counts after 16 ms open | one message per press / release (CC, note, program, ...) | 6 B, + 2 params; 72 B shared | none |
+| Button on a switch matrix | the matrix's rows each scan (below); the button read is the cache | as above, + up to one full matrix scan (`rows` / `rows_per_scan` × 2 ticks; one frame with hardware scan). A press counts once every scan in a 1 ms sample read it closed; any scan that reads it closed holds off the release | as above | as above | `rows_per_scan`, `settle` of the `switch_matrix` |
 | Button on an I2C expander | the chip's read (below) | as above, + 1 ms (the chip is read after the buttons in a pass) | as above | as above | none |
 | `cc_ramp` action, bend buttons | every ms: a loop over all buttons, plus one divide per ramping button (~5 us/ms on the Code 61's 55 buttons, derived) | – | a CC per step while ramping; pitch bend at most every 2 ms (`bend.glide`) | in the 6 B | `ramp.time`, `bend.glide` |
 | Encoder on MCU pins, HC165 or a switch matrix | one quadrature step per tick (or frame); main loop: per pass, only when it moved | ≤ one pass after the detent completes | one CC per pass that saw movement (relative modes carry several detents in one); EVENT too with `debug.events` | 23 B per scanned encoder (+8 with acceleration), 10 B per encoder or twin | `scan_interval`: each quadrature state must last one tick, so ~4 ticks per detent at best: about 500 detents/s at 500 us, fewer with uneven contacts (derived); `steps_per_detent`; `acceleration:` |
@@ -81,7 +81,7 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 |---|---|---|
 | `scan_interval` | finer velocity, faster encoders, more scan CPU | less CPU, coarser velocity (one step per tick: fortissimo, 2-4 ms between contacts, is 16-32 steps at 125 us) |
 | `key_matrix.settle`, `switch_matrix.settle` | less busy-wait per row | fewer ghost notes on slow columns |
-| `hardware_scan.matrix.row_time` / `settle` / `precharge` | shorter frames (36 us), finer timing | the safer, slower setting (84 us frames) |
+| `hardware_scan.matrix.row_time` / `settle` / `precharge` | shorter frames (36 us at 1.5 us rows), finer timing | lightly pressed carbon contacts can read open; the Code 61 uses 3.5 / 3 us (84 us frames) |
 | `hardware_scan.analog` | – | on: no conversions in the main loop, all inputs every 1 ms, pad peaks between passes |
 | mux `delay` | faster software analog reads | clean readings on high-impedance sources |
 | `switch_matrix.rows_per_scan` | less scan time per tick | each button seen sooner |

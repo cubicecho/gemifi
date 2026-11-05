@@ -499,8 +499,9 @@ static void matrix_scan(void)
 /* ---- encoders (scan side, or main loop for I2C hubs) ------------------ */
 
 #if GM_N_ENCODERS > 0
-static uint8_t enc_ab[NE];
-static int8_t enc_acc[NE];
+/* Scan state: only the scanned encoders (NE_HW) have it, not their twins. */
+static uint8_t enc_ab[GM_ARR(NE_HW)];
+static int8_t enc_acc[GM_ARR(NE_HW)];
 /* Detents, free running: only encoder_step writes it (the scan interrupt,
  * or the main loop for I2C hubs, never both for one encoder), and the main
  * loop takes the turns as count - enc_seen. No read-modify-write from both
@@ -509,11 +510,11 @@ static int8_t enc_acc[NE];
  * aren't scanned: only the scanned encoders have counts. */
 static volatile uint16_t enc_count[GM_ARR(NE_HW)];
 static uint16_t enc_seen[GM_ARR(NE_HW)];
-static uint8_t enc_i2c[NE];
+static uint8_t enc_i2c[GM_ARR(NE_HW)];
 static int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
-static const volatile uint32_t *enc_ra[NE], *enc_rb[NE];
-static uint32_t enc_ma[NE], enc_mb[NE];
+static const volatile uint32_t *enc_ra[GM_ARR(NE_HW)], *enc_rb[GM_ARR(NE_HW)];
+static uint32_t enc_ma[GM_ARR(NE_HW)], enc_mb[GM_ARR(NE_HW)];
 #endif
 #if GM_ENC_TWINS
 static uint8_t enc_live[NE];        /* per scanned encoder: the index its turns go to (layers_update) */
@@ -895,7 +896,7 @@ typedef uint64_t btn_bits_t;
 #endif
 static btn_bits_t btn_hist[BTN_STABLE - 1u];  /* the samples before the latest */
 static uint64_t btn_ignore;         /* held through a preset switch: release is silent */
-static int32_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 */
+static int16_t ramp_q8[NB];         /* CC ramp position, 0..127 << 8 (fits 16 bits) */
 static int16_t ramp_sent[NB];
 static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
@@ -1388,9 +1389,9 @@ static void ramps_ms(uint32_t now)
         if (step < 1)
             step = 1;
         if (ramp_q8[i] < target)
-            ramp_q8[i] = ramp_q8[i] + step > target ? target : ramp_q8[i] + step;
+            ramp_q8[i] = (int16_t)(ramp_q8[i] + step > target ? target : ramp_q8[i] + step);
         else if (ramp_q8[i] > target)
-            ramp_q8[i] = ramp_q8[i] - step < target ? target : ramp_q8[i] - step;
+            ramp_q8[i] = (int16_t)(ramp_q8[i] - step < target ? target : ramp_q8[i] - step);
         int16_t v = (int16_t)(ramp_q8[i] >> 8);
         if (v != ramp_sent[i]) {
             ramp_sent[i] = v;

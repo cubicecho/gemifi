@@ -167,6 +167,46 @@ def test_tempo():
     assert s.tempo == TEMPO_MAX
 
 
+class CountedParameter(DeviceParameter):
+    """Counts how often a wrapper reads its range (once per LiveParam made)."""
+    made = 0
+
+    def __getattribute__(self, name):
+        if name == "min":
+            CountedParameter.made += 1
+        return object.__getattribute__(self, name)
+
+
+def test_device_params_wrap_only_what_is_used():
+    s = Song()
+    dev = s.tracks[0].view.selected_device
+    dev.parameters = [CountedParameter(1.0)] + [CountedParameter(k / 200.0) for k in range(200)]
+    ls = LiveSong(s)
+    CountedParameter.made = 0
+    params = ls.device_params()
+    assert len(params) == 200 and CountedParameter.made == 0
+    assert params[3].get_norm() == pytest.approx(3 / 200.0)
+    assert params[3] is params[3] and params[-1].get_norm() == pytest.approx(199 / 200.0)
+    assert CountedParameter.made == 2
+    with pytest.raises(IndexError):
+        params[200]
+    assert [p.get_norm() for p in params[1:3]] == [pytest.approx(1 / 200.0), pytest.approx(2 / 200.0)]
+    assert len(list(params)) == 200
+    assert ls.device_on_param().get_norm() == 1.0
+    dev.parameters = []
+    assert len(ls.device_params()) == 0 and ls.device_on_param() is None
+
+
+def test_bank_tracks_are_lazy_but_complete():
+    s = Song()
+    ls = LiveSong(s)
+    tracks = ls.bank_tracks()
+    assert len(tracks) == 3 and tracks[2].t is s.tracks[2]
+    assert [t.t for t in tracks] == s.tracks
+    s.tracks = None                                  # missing: an empty list, no exception
+    assert len(ls.bank_tracks()) == 0
+
+
 def test_continuous_nudge_uses_encoder_steps():
     p = DeviceParameter(0.0)
     LiveParam(p).nudge(ENCODER_STEPS // 2)

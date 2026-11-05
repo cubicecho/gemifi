@@ -18,6 +18,8 @@ import com.bitwig.extension.controller.api.TrackBank;
 import com.bitwig.extension.controller.api.Transport;
 import gemifi.bitwig.core.Mapping;
 import gemifi.bitwig.core.Model;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * {@link Model} on top of the Bitwig controller API. Everything the mapping reads is created in the
@@ -89,7 +91,7 @@ final class BitwigModel implements Model {
         for (int i = 0; i < Mapping.STRIPS; i++) {
             RemoteControl rc = remotes.getParameter(i);
             int index = i;
-            deviceParams[i] = new BwParam(rc, () -> deviceKey() + "/" + index, null, false, true);
+            deviceParams[i] = new BwParam(rc, () -> deviceParamKey(index), null, false, true);
         }
 
         Parameter tempoParam = transport.tempo();
@@ -110,15 +112,60 @@ final class BitwigModel implements Model {
         sceneBank.setIndication(true);
     }
 
+    // The keys are read on every refresh, for every control: build a string only when its parts change.
+    private int keyTrack;
+    private int keyDevice;
+    private int keyPage;
+    private String keyName;
+    private String deviceKey;
+    private final String[] deviceParamKeys = new String[Mapping.STRIPS];
+
     private String deviceKey() {
-        return "dev@" + selected.position() + "/" + cursorDevice.position().get() + "/"
-                + cursorDevice.name().get() + "/" + remotes.selectedPageIndex().get();
+        int track = selected.position();
+        int dev = cursorDevice.position().get();
+        int page = remotes.selectedPageIndex().get();
+        String name = cursorDevice.name().get();
+        if (deviceKey == null || track != keyTrack || dev != keyDevice || page != keyPage
+                || !Objects.equals(name, keyName)) {
+            keyTrack = track;
+            keyDevice = dev;
+            keyPage = page;
+            keyName = name;
+            deviceKey = "dev@" + track + "/" + dev + "/" + name + "/" + page;
+            Arrays.fill(deviceParamKeys, null);
+        }
+        return deviceKey;
+    }
+
+    private String deviceParamKey(int i) {
+        String base = deviceKey();
+        String k = deviceParamKeys[i];
+        if (k == null) k = deviceParamKeys[i] = base + "/" + i;
+        return k;
     }
 
     // ---- wrappers ----
 
     private interface KeyFn {
         String key();
+    }
+
+    /** prefix + the track's position, rebuilt only when the position changes. */
+    private static KeyFn positionKey(String prefix, Track t) {
+        return new KeyFn() {
+            private int pos;
+            private String key;
+
+            @Override
+            public String key() {
+                int p = t.position().get();
+                if (key == null || p != pos) {
+                    pos = p;
+                    key = prefix + p;
+                }
+                return key;
+            }
+        };
     }
 
     /** A Bitwig Parameter as a Model.Param. */
@@ -199,12 +246,12 @@ final class BitwigModel implements Model {
             t.mute().markInterested();
             t.solo().markInterested();
             t.arm().markInterested();
-            volume = new BwParam(t.volume(), () -> "vol@" + position(), t.exists(), false, false);
-            pan = new BwParam(t.pan(), () -> "pan@" + position(), t.exists(), true, false);
+            volume = new BwParam(t.volume(), positionKey("vol@", t), t.exists(), false, false);
+            pan = new BwParam(t.pan(), positionKey("pan@", t), t.exists(), true, false);
             Send a = t.sendBank().getItemAt(0);
             Send b = t.sendBank().getItemAt(1);
-            sendA = new BwParam(a, () -> "sendA@" + position(), t.exists(), false, false);
-            sendB = new BwParam(b, () -> "sendB@" + position(), t.exists(), false, false);
+            sendA = new BwParam(a, positionKey("sendA@", t), t.exists(), false, false);
+            sendB = new BwParam(b, positionKey("sendB@", t), t.exists(), false, false);
         }
 
         int position() {

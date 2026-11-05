@@ -27,6 +27,8 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 
 Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 has 4 KB of RAM and 32 KB of flash). Headers are C++-safe (the ESP platform is Arduino C++).
 
+What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the YAML knobs that trade them: [performance.md](performance.md).
+
 ## Virtual pins and hubs
 
 Every pin in a device is a `gm_pin_t { hub, flags, num }`:
@@ -347,7 +349,7 @@ displays:
 - **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, and a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again. `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
 - **From a host.** GET_COMPONENT lists each display (kind 6: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to it from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own (MIDI values, messages), which carries on underneath. FB_RELEASE 0 or 3 hands the display back, showing the device's text again.
 - **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
-- **Timing.** MIDI messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
+- **Timing.** MIDI messages are only recorded where they're sent (the main loop, keys too). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
@@ -391,6 +393,8 @@ din_midi:
 ## Device YAML
 
 Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: the pin schema, ids, `name`/`friendly_name`, hub components and time periods.
+
+For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
 ```yaml
 gemifi: 2                      # format version

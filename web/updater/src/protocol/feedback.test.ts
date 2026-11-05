@@ -52,6 +52,9 @@ function encodeComponent(c: Component): number[] {
     case ComponentKind.Display:
       out.push(c.cols, c.rows, c.type);
       break;
+    case ComponentKind.Pad:
+      out.push(...encodeU14(c.led ?? NONE_INDEX), ...optional(c.layer));
+      break;
   }
   return out;
 }
@@ -78,6 +81,9 @@ const EXAMPLES: Component[] = [
   { kind: ComponentKind.Led, ...base, index: 0, count: 2, id: 'play_led', name: 'Play LED', colours: 2, owner: 2 },
   { kind: ComponentKind.Led, ...base, index: 1, count: 2, id: 'old_led', name: 'Older', colours: 1, owner: null },
   { kind: ComponentKind.Display, ...base, index: 0, id: 'lcd', name: 'LCD', cols: 16, rows: 2, type: 1 },
+  { kind: ComponentKind.Pad, ...base, index: 0, count: 2, id: 'pad_1', name: 'Pad 1', led: 36, layer: 0 },
+  { kind: ComponentKind.Pad, ...base, index: 1, count: 2, id: 'pad_1_pads', name: 'Pad 1', led: 52, layer: 3 },
+  { kind: ComponentKind.Pad, ...base, index: 0, id: 'old_pad', name: 'Older', led: null, layer: null },
 ];
 
 describe('GET_COMPONENT (§4.6.1)', () => {
@@ -132,7 +138,7 @@ describe('GET_COMPONENT (§4.6.1)', () => {
   });
 
   it('rejects an unknown kind, a short reply and an lstring over 31', () => {
-    expect(() => parseComponent([7, 0, 0, 1, 0, 0, 0, 0])).toThrow(/unknown component kind 7/);
+    expect(() => parseComponent([9, 0, 0, 1, 0, 0, 0, 0])).toThrow(/unknown component kind 9/);
     expect(() => parseComponent([5, 0, 0, 1, 0, 0, 0, 0])).toThrow(DecodeError);
     expect(() => parseComponent([3, 0, 0, 1, 0, 32, ...new Array(32).fill(0x41), 0, 0])).toThrow(/over 31/);
     expect(() => parseComponent([3, 0, 0, 1, 0, 5, 0x41])).toThrow(/runs past/);
@@ -270,6 +276,7 @@ describe('the client side', () => {
       [5, 0],
       [5, 1],
       [6, 0],
+      [7, 0],
     ]);
   });
 

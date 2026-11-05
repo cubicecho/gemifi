@@ -169,6 +169,7 @@ script                                   device
    - GET_COMPONENT index 0. BAD_PARAM means none of this kind. Firmware from before kinds 7 and 8 answers BAD_PARAM for them, so that's "none" too;
    - otherwise the reply's `count` says how many, so ask for indexes 1..count−1.
    - Keep each component's fields (§4.4).
+   - Send each request as soon as the previous reply arrives: a big device has a couple of hundred components (§5.12).
 3. **Enable EVENTs.** GET_PARAM `debug.events` (param id **13**, index 0) and remember the value, then SET_PARAM it to 1.
    - Setting it to 1 makes the device **replay its layers**: one EVENT 8 with value 1 for each mode that is on (§4.5). That tells the script which twins are live (§5.11).
    - The replay can arrive before the SET_PARAM reply. Keep EVENT 8 from the moment you send the SET_PARAM, not only once ready.
@@ -407,7 +408,7 @@ FB_METER meter 8 at 127, clip:             F0 7D 67 6D 01 27 00 04 00 08 00 7F 0
 - 0: all of them. **Send it on exit.**
 
 ### 5.7 Change-only output
-Keep a cache of what you last sent for each LED, value and ring, and send only differences. The device can take notifications as fast as USB carries them, but DAW state (meters especially) changes far more often than a controller needs. Drive meters only with FB_METER, to meter components (§5.8). Don't build meters out of FB_LED or FB_LEDS.
+Keep a cache of what you last sent for each LED, value and ring, and send only differences. The device can take notifications as fast as USB carries them, but DAW state (meters especially) changes far more often than a controller needs. Costs, rates and batching: §5.12. Drive meters only with FB_METER, to meter components (§5.8). Don't build meters out of FB_LED or FB_LEDS.
 
 ### 5.8 Meters (FB_METER, reserved)
 - Only for components of kind 8, with role `meter_N` or `master_meter`. No firmware has them yet.
@@ -443,6 +444,43 @@ A script may leave a display without a role alone: it keeps the device's own tex
 - **One role on several components.** Two twins in different modes may have the same role (`device_param_1` on a twin in mode 2 and another in mode 3), and so may a base and a twin. Bind each one: both drive the role, and both get its LED, FB_VALUE and ring state.
 - **Using it.** A script may page by what is live. E.g. `device_bank_prev` / `device_bank_next` step by the number of live `device_param_N`: on the Code 61, 4 in its ZYN encoder mode and 8 in DEVICE (§6). The Zynthian driver pages this way, and so does the Live script on firmware that sends `layer` (pages of 8 otherwise); the Bitwig extension keeps Bitwig's remote-control pages of 8.
 - **A limit.** The `layer` byte doesn't say which physical control a twin takes over. A base component counts as live even while a twin has its control.
+
+### 5.12 Rates and batching
+**What each message costs.** Every frame has 11 bytes of framing (`F0`, the ID, `gm`, `ver`, `cmd`, `seq`, the length, `chk`, `F7`); the 3-byte manufacturer ID will add 2 (§8). USB-MIDI carries SysEx 3 bytes per 4-byte event, 16 events per 64-byte USB packet.
+
+| Message | Bytes | USB-MIDI events |
+|---|---|---|
+| FB_LED | 14 | 5 |
+| FB_LED_RGB | 17 | 6 |
+| FB_LEDS, n LEDs | 14 + n | ⌈(14 + n) / 3⌉: 8 LEDs = 22 bytes, 8 events |
+| FB_VALUE | 16 | 6 |
+| FB_RING | 17 | 6 |
+| FB_TEXT, c characters | 15 + c | ⌈(15 + c) / 3⌉: 16 characters = 31 bytes, 11 events |
+| FB_RELEASE | 12 | 4 |
+| EVENT (device → host) | 20 | 7 |
+| GET_PARAM / SET_PARAM request | 15 / 20 | 5 / 7 |
+| GET_COMPONENT request / reply | 14 / about 30–80 | 5 / 10–27 |
+
+For comparison, a Mackie Control ring or LED update is one 3-byte message (one event).
+
+**A bank change** (8 FB_RING, 8 FB_VALUE, 8 LEDs in one FB_LEDS, 2 FB_TEXT rows of 16 characters) is 348 bytes, 126 events, 8 USB packets; with 8 separate FB_LED instead of the FB_LEDS, 438 bytes. On USB that is well under a millisecond of bus time. On a serial link it is 30 ms at 115200 baud (the ESP serial transport's default) and 111 ms at 31250. The Code 61 and the Keystation speak this protocol over USB only (the Code 61's DIN port carries plain MIDI).
+
+**How the device takes it.**
+- **USB:** nothing is lost to a burst. The device reads one USB packet (up to 48 SysEx bytes, two or three notifications) per pass of its main loop, and USB flow control holds the rest back until then, so the bank change above is applied over about 8 passes, a few milliseconds. Each notification costs the device roughly 10 µs (an estimate for the Code 61). There's no need to pace notifications for the device's sake.
+- **Serial and BLE** (ESP builds): no flow control. The device's receive buffer holds 512 bytes, so keep a burst below that.
+- **Redraw:** LEDs and displays are redrawn every 10 ms, so of two states sent to one LED within 10 ms only the last shows.
+- **The other way:** read the port promptly. On USB, a host that leaves the device's output unread for 50 ms makes the device drop what it has queued until the host reads again (on ESP builds, what doesn't fit its 1 KB queue). EVENTs in it are lost, and a lost reply means a resend.
+
+**What a script should do:**
+- **Change-only** (§5.7): a cache of what was last sent, per LED, value, ring and display row.
+- **Coalesce per DAW tick.** Collect changes during one DAW callback or timer tick and send each control's latest state once. 25–50 updates a second per control is plenty for values and rings; faster than one per 10 ms can't show.
+- **Send only what the device can show.**
+  - FB_VALUE: a device with 7-bit CCs uses `value >> 7`, so a change that leaves the top 7 bits alone does nothing.
+  - FB_RING: the ring has `ring` LEDs (§4.4). Current firmware lights them from `p = (value × (ring − 1) + 8191) / 16383` for dot, boost/cut and wrap, and from `w = value × ⌊ring / 2⌋ / 16383` for spread (integer division). When `p` (or `w`), `mode` and `flags` are unchanged, the LEDs are too, so a 15-LED ring needs at most 15 updates over its whole range.
+- **Batch:** FB_LEDS for runs of consecutive LEDs (14 + n bytes instead of 14 × n); one FB_TEXT per row, or per changed run of characters, not per character.
+- **Text:** a display that follows a moving knob (role `param`) needs at most about 25 updates a second; always send the last one.
+- **Requests** are one at a time (§2.3), so connecting costs round trips: HELLO, one GET_COMPONENT per component plus one per kind with none, GET_PARAM and SET_PARAM `debug.events`. The Code 61 has 202 components: about 206 round trips and 9 KB of replies; the Keystation Mini 32 about 21. **Send the next request from the reply handler**, not on the next timer tick: at a few milliseconds per round trip the Code 61 connects in about a second, while one request per 100 ms tick would take 20 s.
+- **EVENT rates to expect:** a key, button or pad press is one EVENT. An encoder sends at most one per pass of the device's main loop, with every step since the last, so at most one per detent. An analog input sends at most one per millisecond, only when its 7-bit value changes: at most 128 over its full travel, a few hundred a second while it moves fast. A script that applies them per DAW tick sums an encoder's deltas and keeps the last value of each analog input.
 
 ## 6. Roles
 
@@ -550,6 +588,9 @@ Port the first three from either implementation (MIT), then write the adapter fo
 - [ ] BOOTED → re-enumerate and re-send; keep-alive as a fallback (~30 s with BOOTED/added fields seen, ~5 s otherwise).
 - [ ] No FB_VALUE to `takeover` 0 analogs or relative encoders; no FB_LED to `owner` 2 LEDs (§5).
 - [ ] Change-only output; FB_LEDS for runs.
+- [ ] Changes coalesced per DAW tick; nothing the device can't show (FB_VALUE top 7 bits, FB_RING lit LEDs) (§5.12).
+- [ ] The next request sent from the reply handler, not a timer tick (§5.12).
+- [ ] The MIDI input read promptly; EVENT bursts summed (encoders) or reduced to the last value (analog) per tick (§5.12).
 - [ ] Unknown and unsupported roles ignored (logged once); other hosts' `<host>.<command>` roles ignored quietly; `mcu:` names mapped (§6).
 - [ ] EVENT types it doesn't use (touch, pad, layer, reserved) ignored (§4.5).
 - [ ] Meters: FB_METER rises only, ≤ ~25/s each (§5.8).

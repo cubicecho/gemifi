@@ -171,8 +171,11 @@ export const Capability = {
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
 
-/** GET_COMPONENT's `kind` (§4.6.1): the EVENT type numbers where they overlap, then LED and display. */
-export const ComponentKind = { Button: 1, KeyMatrix: 2, Analog: 3, Encoder: 4, Led: 5, Display: 6 } as const;
+/**
+ * GET_COMPONENT's `kind` (§4.6.1): the EVENT type numbers where they overlap, plus LED and display.
+ * Meters (8) are reserved and left out: no firmware has them.
+ */
+export const ComponentKind = { Button: 1, KeyMatrix: 2, Analog: 3, Encoder: 4, Led: 5, Display: 6, Pad: 7 } as const;
 export type ComponentKind = (typeof ComponentKind)[keyof typeof ComponentKind];
 
 /** A component index field's "none" (§4.6.1): a button without an LED, an encoder without a centre LED. */

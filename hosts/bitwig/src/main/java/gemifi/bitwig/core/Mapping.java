@@ -10,6 +10,7 @@ import gemifi.bitwig.core.Model.TransportFlag;
 import gemifi.bitwig.core.Protocol.Component;
 import gemifi.bitwig.core.Protocol.Event;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -26,10 +27,10 @@ import java.util.function.Supplier;
  * follows {@code hosts/ableton-live/gemifi/mapping.py}.
  *
  * <p>Inputs: EVENTs from the device, by component index. Outputs: FB_* notifications through
- * {@link Notifier}. State is compared, not pushed: {@link #refresh()} (called from the
- * extension's {@code flush()} and its tick) reads every bound state, compares it with what was last
- * sent and sends only the differences. A lost notification is fixed by the next change (§4.6.2
- * says feedback is idempotent).
+ * {@link Notifier}. State is compared, not pushed: {@link #refresh()} (called from the extension's
+ * tick) and {@link #flush()} (from Bitwig's {@code flush()}) read every bound state, compare it with
+ * what was last sent and send only the differences. A lost notification is fixed by the next change
+ * (§4.6.2 says feedback is idempotent).
  */
 public final class Mapping {
     public static final int STRIPS = 8;
@@ -111,60 +112,51 @@ public final class Mapping {
         boolean picked;
         Integer lastRaw;
         int holdTicks;              // > 0: the knob just wrote; the host's value may still be the old one
+        // The value last sent (for an analog input: or what the knob set). hasValue false: nothing
+        // yet, or no target.
+        boolean hasValue;
+        Object valueKey;
+        int value;
+        int valueTick = -1;         // the tick of the last FB_VALUE
+        // The ring last sent (ringMode -1: nothing yet).
+        int ringMode = -1;
+        int ringValue;
+        boolean ringCentre;
+        boolean ringOff;
 
         ContBinding(Component c, Supplier<Param> t) {
             component = c;
             target = t;
         }
-    }
 
-    /** What an encoder's ring shows. */
-    private static final class Ring {
-        final int mode;
-        final int value;
-        final boolean centre;
-        final boolean off;
-
-        Ring(int mode, int value, boolean centre, boolean off) {
-            this.mode = mode;
-            this.value = value;
-            this.centre = centre;
-            this.off = off;
+        void sent(Object key, int v) {
+            hasValue = true;
+            valueKey = key;
+            value = v;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof Ring)) return false;
-            Ring r = (Ring) o;
-            return mode == r.mode && value == r.value && centre == r.centre && off == r.off;
+        void noTarget() {
+            hasValue = false;
+            valueKey = null;
         }
 
-        @Override
-        public int hashCode() {
-            return Objects.hash(mode, value, centre, off);
-        }
-    }
-
-    /** (target key, 14-bit value) last sent as FB_VALUE. */
-    private static final class Sent {
-        final Object key;
-        final int value;
-
-        Sent(Object key, int value) {
-            this.key = key;
-            this.value = value;
+        void forget() {
+            picked = false;
+            lastRaw = null;
+            holdTicks = 0;
+            noTarget();
+            valueTick = -1;
+            ringMode = -1;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof Sent)) return false;
-            Sent s = (Sent) o;
-            return value == s.value && Objects.equals(key, s.key);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(key, value);
+        /** Whether the ring differs from the last one sent; if so it becomes the last one sent. */
+        boolean ringChanged(int mode, int v, boolean centre, boolean off) {
+            if (ringMode == mode && ringValue == v && ringCentre == centre && ringOff == off) return false;
+            ringMode = mode;
+            ringValue = v;
+            ringCentre = centre;
+            ringOff = off;
+            return true;
         }
     }
 
@@ -176,10 +168,16 @@ public final class Mapping {
     private final Map<Integer, IntSupplier> leds = new TreeMap<>();
     private final Map<Integer, ContBinding> analogs = new HashMap<>();
     private final Map<Integer, ContBinding> encoders = new HashMap<>();
-    private final Map<Integer, Integer> ledCache = new HashMap<>();
-    private final Map<Integer, Sent> analogCache = new HashMap<>();
-    private final Map<Integer, Sent> encoderCache = new HashMap<>();
-    private final Map<Integer, Ring> ringCache = new HashMap<>();
+    // The same bindings as arrays (built by bind()), so a refresh allocates nothing. LEDs are in
+    // ascending index order; ledSent is the level last sent (-1: none yet).
+    private int[] ledIndex = new int[0];
+    private IntSupplier[] ledLevel = new IntSupplier[0];
+    private int[] ledSent = new int[0];
+    private int[] ledChanged = new int[0];        // scratch for refreshLeds(): the new level, or -1
+    private ContBinding[] analogList = new ContBinding[0];
+    private ContBinding[] encoderList = new ContBinding[0];
+    private int tickCount;
+    private boolean limitValues;                  // inside flush(): one FB_VALUE per control per tick
     private final List<String> unknownRoles = new ArrayList<>();
     private final List<String> unsupportedRoles = new ArrayList<>();
 
@@ -252,6 +250,20 @@ public final class Mapping {
             }
             // keys (2) and displays (6): no roles in hosts/README.md yet
         }
+        int n = leds.size();
+        ledIndex = new int[n];
+        ledLevel = new IntSupplier[n];
+        ledSent = new int[n];
+        ledChanged = new int[n];
+        int k = 0;
+        for (Map.Entry<Integer, IntSupplier> e : leds.entrySet()) {
+            ledIndex[k] = e.getKey();
+            ledLevel[k] = e.getValue();
+            k++;
+        }
+        Arrays.fill(ledSent, -1);
+        analogList = analogs.values().toArray(new ContBinding[0]);
+        encoderList = encoders.values().toArray(new ContBinding[0]);
         for (String s : unknownRoles) log.accept("unknown role, ignored: " + s);
         for (String s : unsupportedRoles) log.accept("role not supported in this host, ignored: " + s);
     }
@@ -275,15 +287,9 @@ public final class Mapping {
 
     /** Drops what was sent: the next refresh() sends everything (after ready / a release). */
     public void forget() {
-        ledCache.clear();
-        analogCache.clear();
-        encoderCache.clear();
-        ringCache.clear();
-        for (ContBinding b : analogs.values()) {
-            b.picked = false;
-            b.lastRaw = null;
-            b.holdTicks = 0;
-        }
+        Arrays.fill(ledSent, -1);
+        for (ContBinding b : analogList) b.forget();
+        for (ContBinding b : encoderList) b.forget();
     }
 
     /** The device is being handed back (FB_RELEASE goes out from Device.release()). */
@@ -510,7 +516,7 @@ public final class Mapping {
         p.set(raw / (double) V14);
         // What the knob set is not news to the knob: no FB_VALUE echo. The host may apply the value
         // later (Bitwig does), so remember what the knob asked for, not what get() says right now.
-        analogCache.put(b.component.index, new Sent(p.key(), raw));
+        b.sent(p.key(), raw);
         b.holdTicks = SETTLE_TICKS;
     }
 
@@ -518,7 +524,8 @@ public final class Mapping {
 
     /** Call about every 100 ms: held-button repeats, then refresh(). */
     public void tick() {
-        for (ContBinding b : analogs.values()) {
+        tickCount++;
+        for (ContBinding b : analogList) {
             if (b.holdTicks > 0) b.holdTicks--;
         }
         for (ButtonBinding b : buttons.values()) {
@@ -532,87 +539,115 @@ public final class Mapping {
 
     // ---- feedback ----
 
+    /** Sends every difference now. */
     public void refresh() {
         refreshLeds();
-        for (ContBinding b : analogs.values()) refreshAnalog(b);
-        for (ContBinding b : encoders.values()) refreshEncoder(b);
+        for (ContBinding b : analogList) refreshAnalog(b);
+        for (ContBinding b : encoderList) refreshEncoder(b);
+    }
+
+    /**
+     * For Bitwig's {@code flush()}, which can come many times a tick while values move (automation,
+     * a mouse drag): LEDs and rings now, but at most one FB_VALUE per control per tick. A value held
+     * back goes out on the next tick, so the device always ends on the latest one.
+     */
+    public void flush() {
+        limitValues = true;
+        try {
+            refresh();
+        } finally {
+            limitValues = false;
+        }
+    }
+
+    /** Whether an FB_VALUE for {@code b} has to wait for the next tick. */
+    private boolean holdValue(ContBinding b) {
+        return limitValues && b.valueTick == tickCount;
+    }
+
+    private void sendValue(ContBinding b, int kind, int v) {
+        b.valueTick = tickCount;
+        notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(kind, b.component.index, v));
     }
 
     private void refreshLeds() {
-        TreeMap<Integer, Integer> changed = new TreeMap<>();
-        for (Map.Entry<Integer, IntSupplier> e : leds.entrySet()) {
-            int level = e.getValue().getAsInt();
-            Integer old = ledCache.get(e.getKey());
-            if (old == null || old != level) {
-                changed.put(e.getKey(), level);
-                ledCache.put(e.getKey(), level);
+        int changed = 0;
+        for (int i = 0; i < ledIndex.length; i++) {
+            int level = ledLevel[i].getAsInt();
+            if (ledSent[i] != level) {
+                ledSent[i] = level;
+                ledChanged[i] = level;
+                changed++;
+            } else {
+                ledChanged[i] = -1;
             }
         }
+        if (changed == 0) return;
         // Runs of neighbouring LEDs go out as one FB_LEDS (up to 64), single ones as FB_LED.
-        List<Integer> run = new ArrayList<>();
-        for (int led : changed.keySet()) {
-            if (!run.isEmpty() && (led != run.get(run.size() - 1) + 1 || run.size() == 64)) {
-                sendRun(run, changed);
-                run.clear();
+        int i = 0;
+        while (i < ledIndex.length) {
+            if (ledChanged[i] < 0) {
+                i++;
+                continue;
             }
-            run.add(led);
+            int j = i + 1;
+            while (j < ledIndex.length && j - i < 64 && ledChanged[j] >= 0 && ledIndex[j] == ledIndex[j - 1] + 1) j++;
+            if (j - i == 1) {
+                notifier.notify(Protocol.FB_LED, Protocol.fbLed(ledIndex[i], ledChanged[i]));
+            } else {
+                notifier.notify(Protocol.FB_LEDS, Protocol.fbLeds(ledIndex[i], Arrays.copyOfRange(ledChanged, i, j)));
+            }
+            i = j;
         }
-        if (!run.isEmpty()) sendRun(run, changed);
-    }
-
-    private void sendRun(List<Integer> run, Map<Integer, Integer> levels) {
-        if (run.size() == 1) {
-            notifier.notify(Protocol.FB_LED, Protocol.fbLed(run.get(0), levels.get(run.get(0))));
-            return;
-        }
-        int[] lv = new int[run.size()];
-        for (int i = 0; i < lv.length; i++) lv[i] = levels.get(run.get(i));
-        notifier.notify(Protocol.FB_LEDS, Protocol.fbLeds(run.get(0), lv));
     }
 
     private void refreshAnalog(ContBinding b) {
         Param p = b.target.get();
-        int idx = b.component.index;
         if (p == null) {
-            analogCache.put(idx, null);
+            b.noTarget();
             return;
         }
-        Sent now = new Sent(p.key(), to14(p.get()));
-        Sent old = analogCache.get(idx);
-        boolean sameTarget = old != null && Objects.equals(old.key, now.key);
+        Object key = p.key();
+        int v = to14(p.get());
+        boolean sameTarget = b.hasValue && Objects.equals(b.valueKey, key);
         if (sameTarget && b.holdTicks > 0) return;            // the host hasn't caught up with the knob yet
-        if (!sameTarget || Math.abs(old.value - now.value) > SAME_TOLERANCE) {
-            analogCache.put(idx, now);
+        if (!sameTarget || Math.abs(b.value - v) > SAME_TOLERANCE) {
             b.picked = false;                 // the target moved away from the knob
             b.lastRaw = null;
-            if (b.component.takesValue()) {         // takeover: none ignores FB_VALUE (sysex.md §4.6.2)
-                notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ANALOG, idx, now.value));
-            }
+            boolean takes = b.component.takesValue();       // takeover: none ignores FB_VALUE (sysex.md §4.6.2)
+            if (takes && holdValue(b)) return;              // one went out this tick: the tick sends this one
+            b.sent(key, v);
+            if (takes) sendValue(b, Protocol.KIND_ANALOG, v);
         }
     }
 
     private void refreshEncoder(ContBinding b) {
         Component c = b.component;
         Param p = b.target.get();
-        Ring ring;
+        int mode = Protocol.RING_WRAP;
+        int v = 0;
+        boolean centre = false;
+        boolean off = false;
         if (p == null) {
-            ring = new Ring(Protocol.RING_WRAP, 0, false, true);     // nothing mapped: ring off (flags bit 1)
-            encoderCache.put(c.index, null);
+            off = true;                                   // nothing mapped: ring off (flags bit 1)
+            b.noTarget();
         } else {
-            int v = to14(p.get());
-            Sent now = new Sent(p.key(), v);
-            if (!now.equals(encoderCache.get(c.index))) {
-                encoderCache.put(c.index, now);
-                if (c.takesValue()) {                // a relative encoder ignores FB_VALUE (sysex.md §4.6.2)
-                    notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ENCODER, c.index, v));
+            v = to14(p.get());
+            Object key = p.key();
+            if (!b.hasValue || b.value != v || !Objects.equals(b.valueKey, key)) {
+                boolean takes = c.takesValue();           // a relative encoder ignores FB_VALUE (sysex.md §4.6.2)
+                if (!takes || !holdValue(b)) {            // else one went out this tick: the tick sends this one
+                    b.sent(key, v);
+                    if (takes) sendValue(b, Protocol.KIND_ENCODER, v);
                 }
             }
-            ring = p.bipolar() ? new Ring(Protocol.RING_BOOST_CUT, v, true, false)
-                    : new Ring(Protocol.RING_WRAP, v, false, false);
+            if (p.bipolar()) {
+                mode = Protocol.RING_BOOST_CUT;
+                centre = true;
+            }
         }
-        if (c.ring > 0 && !ring.equals(ringCache.get(c.index))) {
-            ringCache.put(c.index, ring);
-            notifier.notify(Protocol.FB_RING, Protocol.fbRing(c.index, ring.mode, ring.value, ring.centre, ring.off));
+        if (c.ring > 0 && b.ringChanged(mode, v, centre, off)) {
+            notifier.notify(Protocol.FB_RING, Protocol.fbRing(c.index, mode, v, centre, off));
         }
     }
 }

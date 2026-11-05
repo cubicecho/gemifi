@@ -173,6 +173,14 @@ The pads of a pad layer (`clip_T_S`, e.g. the Code 61's `pads` mode) are a windo
 - An encoder with a ring (`ring` > 0) mapped to a parameter gets **FB_RING**: boost/cut (mode 1) for bipolar parameters (balance), wrap (mode 2) otherwise, `value` 0..16383 = the parameter's position. Use flags bit 1 (ring off) when its role maps to nothing in the current bank.
 - **Send only changes.** The device takes notifications as fast as USB carries them, but Zynthian's level meters and similar can change often. Don't map meters to LEDs.
 
+### 6.1 Update rate (open items from the 2026-11-05 review)
+
+The driver is change-only, with one cache per LED, RGB LED, value, ring and display, and empties them on BOOTED and `refresh()`. What it still does more often than it needs to:
+- **A full refresh per mixer change.** `update_mixer_strip` refreshes every binding on each `SS_ZYNMIXER_SET_VALUE`, so a fader moving a level costs one full refresh per EVENT. Marking the mapping dirty and refreshing on the next tick (or at most once per ~20 ms) would show the same thing.
+- **The same reads many times per refresh.** Every strip binding calls `bank_tracks()`, which wraps every chain again, and every `device_param_N` binding rebuilds `device_params()`'s signature over all control screens. The Live script now reads each of these once per refresh (`_Reads` in `hosts/ableton-live/gemifi/mapping.py`, MIT), and the fork's copy of `mapping.py` could take the same change.
+- **FB_VALUE per encoder EVENT.** Each EVENT on an absolute encoder sends FB_VALUE back. The Live script now leaves that to the next tick and moves only the ring at once.
+- **FB_TEXT per analog or encoder EVENT.** A `param` display gets a new `"<name> <value>"` on almost every EVENT: 21 bytes each, so a fader swept at ~100 EVENTs a second sends about 2 KB/s of text to a 6-character display. One FB_TEXT per tick (the latest text) would be enough.
+
 ## 7. Testing
 
 **Without hardware:** a fake device that answers HELLO, GET_COMPONENT, SET_PARAM and GET_PARAM per daw-scripts.md §4, records FB_\* and can send EVENT and BOOTED. The Live script's [`tests/fakes.py`](../ableton-live/tests/fakes.py) is one to port. Cross-check the codec against `protocol/test-vectors.json` (`frames`, and the `feedback` section).

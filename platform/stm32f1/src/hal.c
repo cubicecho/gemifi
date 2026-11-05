@@ -257,7 +257,7 @@ int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n)
 /* ---- MIDI over USB ---------------------------------------------------- */
 
 /* MIDI out waits: a send finds usb_midi.c's packet ring full and waits for
- * the host to take a packet (or a protocol reply flushes). Sends that took
+ * the host to take a packet (or a reboot flushes). Sends that took
  * over 100 us, and the longest, for the scan report. With no host reading
  * there are none: usb_midi.c then drops sends at once. */
 volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;

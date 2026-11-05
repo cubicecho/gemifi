@@ -265,6 +265,10 @@ function details(component: Component): string {
       const type = DISPLAY_TYPE_NAMES[component.type] ?? `type ${component.type}`;
       return `${component.cols} × ${component.rows}, ${type}`;
     }
+    case ComponentKind.Pad: {
+      const led = component.led === null ? 'No LED' : `LED ${component.led}`;
+      return component.layer ? `${led}, twin in mode ${component.layer - 1}` : led;
+    }
   }
 }
 

@@ -77,6 +77,7 @@ REBOOT_APP, REBOOT_BOOT = 0, 1
 CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
 CAP_FEEDBACK = 1 << 6          # sysex.md 4.1 bit 6: host feedback (GET_COMPONENT, FB_*)
+CAP_GEMIFI_BOOT = 1 << 7       # sysex.md 4.1 bit 7: REBOOT(1) leads to a gemifi bootloader (Code 61)
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
 EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder", 7: "pad"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
@@ -1408,11 +1409,11 @@ def valid_max_chunk(m):
     return 4 <= m <= PAGE_SIZE and m % 4 == 0 and PAGE_SIZE % m == 0
 
 
-def chunk_plan(size, max_chunk):
+def chunk_plan(size, max_chunk, max_size=APROM_SIZE):
     """[(offset, length)]: 0x200 upward in order, then page 0 last; no chunk crosses a 512-byte page;
-    every length is a multiple of 4 and <= max_chunk."""
-    if size <= 0 or size % 4 or size > APROM_SIZE:
-        raise ValueError("size must be 1..32 KB and a multiple of 4")
+    every length is a multiple of 4 and <= max_chunk. max_size: the board's app area (NUC1xx: 32 KB)."""
+    if size <= 0 or size % 4 or size > max_size:
+        raise ValueError(f"size must be 1..{max_size} bytes and a multiple of 4")
     if not valid_max_chunk(max_chunk):
         raise ValueError(f"max_chunk {max_chunk} is not a multiple of 4 that divides 512")
     step = max_chunk

@@ -29,6 +29,21 @@ The script talks to whatever ports are assigned to the "gemifi" slot; with two d
 
 Requests follow §1's stop-and-wait (one outstanding, same `seq` on a resend, up to 6 sends). The timeout is 3 ticks (≥ 200 ms). Notifications go out at any time, only to a device with caps bit 6.
 
+## Update policy
+
+- **Change-only.** The script keeps what it last sent for each LED, value and ring, and sends only differences. When nothing changes, nothing goes out.
+- **When it looks.** On every tick (about every 100 ms), and right after a button or layer EVENT, so a press lights its LED at once. It polls; it doesn't use LOM listeners.
+- **Re-sending.** The caches are emptied on BOOTED, when the device is lost, and on `refresh_state`, so the next refresh sends everything.
+- **Encoders.** An EVENT moves the parameter and the ring (FB_RING) at once. Its FB_VALUE waits for the next tick, so a fast turn gets one FB_VALUE per tick, not one per EVENT.
+- **No echo.** A value an analog input just set is not sent back to it as FB_VALUE.
+- **Reading the song.** Within one refresh, each list (tracks, the selected track, the device's parameters) is read once. A track or parameter is wrapped only when a control is on it.
+
+**What that costs on the wire.** Frames are 14 bytes for FB_LED, 14 + n for FB_LEDS, 16 for FB_VALUE and 17 for FB_RING.
+- **Idle:** nothing, apart from a 14-byte keep-alive request every ~30 s.
+- **Bank change:** up to 8 FB_VALUE for the faders, plus the strip LEDs that change, mostly as one FB_LEDS. On 8 pick-up faders and 8 LEDs that's 9 messages and about 150 bytes.
+- **Automation on N mapped parameters:** at most N FB_VALUE (and N FB_RING) a tick. 8 pick-up faders under automation: about 1.3 KB/s, under half of a DIN cable's ~3 KB/s.
+- **At connect:** one GET_COMPONENT round trip per component, about 170 on a Code 61 (roughly 11 KB in both directions). Each request goes out from `receive_midi` as the previous reply arrives, so nothing waits on the tick and nothing blocks Live.
+
 ## Roles
 
 `mcu:` names are mapped first, as `hosts/README.md` says (`fader_N` → `volume_N`, `vpot_N` → `pan_N`, `rec_N` → `arm_N`, `master` → `master_volume`, `bank_left/right` → `bank_prev/next`, `channel_left/right` → `strip_prev/next`, `cycle` → `loop`, `click` → `metronome`). Unknown roles are logged and ignored; `x_…` roles and other hosts' commands (`zynthian.…`) are ignored silently.

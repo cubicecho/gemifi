@@ -51,7 +51,7 @@ class GemifiSurface(object):
     # ---- output ----
 
     def _send(self, data):
-        self._c.send_midi(tuple(int(b) for b in data))
+        self._c.send_midi(tuple(data))
 
     def _log(self, text):
         try:

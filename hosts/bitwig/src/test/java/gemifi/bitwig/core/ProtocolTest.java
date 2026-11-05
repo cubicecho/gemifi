@@ -436,6 +436,11 @@ class ProtocolTest {
         assertEquals("f07d00f7", Protocol.toHex(b));
         assertArrayEquals(b, Protocol.fromHex("F0 7D 00 F7"));
         assertArrayEquals(b, Protocol.fromHex("f07d00f7"));
+        assertArrayEquals(b, Protocol.fromHex(" F07d\t00\nF7 "));
+        assertArrayEquals(new byte[0], Protocol.fromHex(""));
+        assertThrows(IllegalArgumentException.class, () -> Protocol.fromHex("f07"));
+        assertThrows(IllegalArgumentException.class, () -> Protocol.fromHex("f0 7"));
+        assertThrows(IllegalArgumentException.class, () -> Protocol.fromHex("f0zz"));
     }
 
     // ---- the layer byte (sysex.md §4.6.1) and EVENT 8 ----

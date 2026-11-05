@@ -516,3 +516,71 @@ def test_device_paging_with_layers_reported():
     assert r.values((P.FB_RING,))[("ring", 0)] == (P.RING_WRAP, to14(4 / 20.0), 0)
     r.press(1)
     assert r.m.device_offset == 0
+
+
+class CountingSong(FakeSong):
+    """Counts the song reads the mapping makes."""
+
+    def __init__(self, n_tracks=10):
+        FakeSong.__init__(self, n_tracks)
+        self.reads = {}
+
+    def _count(self, name):
+        self.reads[name] = self.reads.get(name, 0) + 1
+
+    def bank_tracks(self):
+        self._count("bank_tracks")
+        return FakeSong.bank_tracks(self)
+
+    def selected_track(self):
+        self._count("selected_track")
+        return FakeSong.selected_track(self)
+
+    def device_params(self):
+        self._count("device_params")
+        return FakeSong.device_params(self)
+
+    def device_key(self):
+        self._count("device_key")
+        return FakeSong.device_key(self)
+
+
+def test_refresh_reads_each_song_list_once():
+    comps = [C(B, i, "mute_%d" % (i + 1), led=i) for i in range(8)]
+    comps += [C(B, 8 + i, "select_%d" % (i + 1), led=8 + i) for i in range(8)]
+    comps += [C(B, 16, "bank_prev", led=16), C(B, 17, "bank_next", led=17), C(B, 18, "track_mute", led=18),
+              C(B, 19, "device_bank_next", led=19)]
+    comps += [C(A, i, "volume_%d" % (i + 1)) for i in range(8)]
+    comps += [C(E, i, "device_param_%d" % (i + 1), ring=11) for i in range(8)]
+    r = Rig(comps)
+    r.song = song = CountingSong()
+    r.m = Mapping(song, lambda cmd, payload: r.sent.append((cmd, bytes(payload))))
+    r.m.bind(r.comps)
+    once = {"bank_tracks": 1, "selected_track": 1, "device_params": 1, "device_key": 1}
+    r.m.refresh()
+    assert song.reads == once
+    assert len(r.leds()) == 20                       # and everything still went out
+    r.m.refresh()
+    assert song.reads == dict((k, 2) for k in once)
+    assert r.take() == []
+    # Outside refresh() reads aren't cached: a press sees the song as it is now.
+    song.reads.clear()
+    r.press(17)                                      # bank_next
+    assert r.m.bank_offset == 8
+    assert song.reads["bank_tracks"] == 1 + 2        # the press, then one refresh per EVENT
+
+
+def test_encoder_burst_sends_one_value_per_refresh():
+    comps = [C(E, 0, "device_param_1", ring=11, mode=0), C(E, 1, "device_param_2", ring=0, mode=0)]
+    r = Rig(comps)
+    r.m.refresh()
+    r.take()
+    for _ in range(20):
+        r.turn(0, 1)
+        r.turn(1, 1)
+    assert [c for c, _ in r.take()] == [P.FB_RING] * 20  # the ring follows every step, no FB_VALUE yet
+    p1, p2 = r.song.devices[0][0], r.song.devices[0][1]
+    r.m.tick()
+    assert r.values() == {(E, 0): to14(p1.value), (E, 1): to14(p2.value)}   # one each, the final values
+    r.m.tick()
+    assert r.take() == []

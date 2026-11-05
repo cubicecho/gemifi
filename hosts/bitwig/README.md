@@ -54,6 +54,22 @@ Requests follow §1's stop-and-wait rules:
 
 Notifications go out at any time, and only to a device with caps bit 6.
 
+## Update policy
+
+- **Change-only.** The extension keeps what it last sent for each LED, value and ring, and sends only differences. When nothing changes, nothing goes out.
+- **When it looks.** On every `flush()` and every 100 ms tick, and right after a button EVENT.
+- **FB_VALUE is rate-limited in `flush()`.** Bitwig can call `flush()` many times a tick while values move (automation, a mouse drag). There, LEDs and rings go out at once, but each control gets at most one FB_VALUE per tick. A value held back goes out on the next tick, so the device always ends on the latest one. The pick-up reset happens at once either way.
+- **Re-sending.** The caches are emptied on BOOTED, when the device is lost, and on exit, so the next refresh sends everything.
+- **Encoders.** Bitwig applies `inc()` a little later, so the ring and FB_VALUE follow on the next `flush()` after the turn.
+- **No echo.** A value an analog input just set is not sent back to it as FB_VALUE. Bitwig applies `set()` asynchronously, so the extension also ignores the host's value for ~300 ms after a knob move.
+- **Cost on the Java side.** A refresh where nothing changed allocates nothing. Target keys are rebuilt only when the track, device or page changes, and incoming SysEx hex is parsed in one pass.
+
+**What that costs on the wire.** Frames are 14 bytes for FB_LED, 14 + n for FB_LEDS, 16 for FB_VALUE and 17 for FB_RING.
+- **Idle:** nothing, apart from a 14-byte keep-alive request every ~30 s.
+- **Bank change:** up to 8 FB_VALUE for the faders, plus the strip LEDs that change, mostly as one FB_LEDS. On 8 pick-up faders and 8 LEDs that's 9 messages and about 150 bytes.
+- **Automation on N mapped parameters:** at most N FB_VALUE a tick, plus a ring per flush for an encoder with one. 8 pick-up faders under automation: about 1.3 KB/s, whatever the flush rate. Without the limit, at an assumed 30 flushes a second, that was about 3.8 KB/s, more than a DIN cable's ~3 KB/s.
+- **At connect:** one GET_COMPONENT round trip per component, about 170 on a Code 61 (roughly 11 KB in both directions). Each request goes out from the SysEx callback as the previous reply arrives, so nothing waits on the tick.
+
 ## Roles
 
 `mcu:` names are mapped first, as `hosts/README.md` says:
@@ -136,10 +152,10 @@ Nothing in `core/` imports Bitwig; a test checks that.
 cd hosts/bitwig && mvn test
 ```
 
-You don't need Bitwig to run them. 75 tests:
-- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies, with and without the added fields, BOOTED and all FB_* frames), the `layer` byte and EVENT 8 frames from `daw-scripts.md`, the integer encodings, packing, the checksum and the bad frames.
+You don't need Bitwig to run them. 77 tests:
+- **Protocol:** every frame in `protocol/test-vectors.json` (HELLO, EVENT, the `feedback` section's GET_COMPONENT requests and replies, with and without the added fields, BOOTED and all FB_* frames), the `layer` byte and EVENT 8 frames from `daw-scripts.md`, the integer encodings, packing, the checksum, the bad frames and hex parsing.
 - **Device:** a fake device answering per §4.6, covering a lost reply, BUSY, silence and rescan, the bootloader, a restart caught by BOOTED or by the keep-alive, the two keep-alive intervals, PARAM_CHANGED turning events off, the EVENT 8 replay (kept even before ready) and release.
-- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, the mcu: names, the added fields (no FB_VALUE to relative encoders or non-pick-up inputs, nothing to `owner: local` LEDs), twins sharing a role and the re-send after BOOTED.
+- **Mapping:** a fake DAW covering every role group, pick-up (including a host that applies values late), rings, ring off, LED runs, the mcu: names, the added fields (no FB_VALUE to relative encoders or non-pick-up inputs, nothing to `owner: local` LEDs), twins sharing a role, the re-send after BOOTED, and one FB_VALUE per control per tick from `flush()`.
 - **Packaging:** the service file loads the definition, and `core/` stays free of Bitwig imports.
 
 ## Bitwig API notes (and how sure)

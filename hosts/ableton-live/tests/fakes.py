@@ -2,7 +2,7 @@
 """Test doubles: a gemifi device that answers per sysex.md 4.6, and a song for mapping.py."""
 
 from gemifi import protocol as P
-from gemifi.mapping import Param, Song, Track
+from gemifi.mapping import ClipSlot, ClipState, Param, Scene, Song, Track
 
 
 def C(kind, index, role, **kw):
@@ -133,8 +133,49 @@ class FakeParam(Param):
         self.value = min(1.0, max(0.0, v))
 
 
+class FakeClip(object):
+    def __init__(self, colour=0xFF0000):
+        self.colour = colour
+        self.playing = self.recording = self.triggered = False
+
+
+class FakeClipSlot(ClipSlot):
+    """Firing queues the launch (triggered) as Live does; play() / stopped() finish it."""
+
+    def __init__(self, clip=None):
+        self.clip = clip
+        self.calls = []
+
+    def state(self):
+        c = self.clip
+        return None if c is None else ClipState(c.colour, c.playing, c.recording, c.triggered)
+
+    def fire(self):
+        self.calls.append("fire")
+        self.clip.triggered = True
+
+    def stop(self):
+        self.calls.append("stop")
+        self.clip.triggered = True
+
+
+class FakeScene(Scene):
+    def __init__(self, i):
+        self.i = i
+        self.fired = 0
+        self.triggered = False
+
+    def fire(self):
+        self.fired += 1
+
+    def is_triggered(self):
+        return self.triggered
+
+
 class FakeTrack(Track):
-    def __init__(self, name, can_arm=True):
+    def __init__(self, name, can_arm=True, n_slots=6):
+        self.slots = [FakeClipSlot() for _ in range(n_slots)]
+        self.slot_reads = []         # scene indexes clip_slot() was asked for
         self.name = name
         self.flags = {"mute": False, "solo": False, "arm": False}
         self._can_arm = can_arm
@@ -154,6 +195,10 @@ class FakeTrack(Track):
     def param(self, name):
         return self.params.get(name)
 
+    def clip_slot(self, scene):
+        self.slot_reads.append(scene)
+        return self.slots[scene] if 0 <= scene < len(self.slots) else None
+
 
 class FakeSong(Song):
     def __init__(self, n_tracks=10):
@@ -168,6 +213,7 @@ class FakeSong(Song):
         self.device_index = 0
         self.scene = 0
         self.n_scenes = 3
+        self.scenes = [FakeScene(i) for i in range(6)]      # the grid's rows
         self.jumps = []
         self.calls = []
 
@@ -233,6 +279,12 @@ class FakeSong(Song):
     def fire_selected_scene(self):
         self.calls.append("fire%d" % self.scene)
 
+    def grid_tracks(self):
+        return self.tracks
+
+    def grid_scenes(self):
+        return self.scenes
+
 
 class FakeCInstance(object):
     """The bits of Live's c_instance the surface uses."""
@@ -242,6 +294,10 @@ class FakeCInstance(object):
         self.sent = []
         self.messages = []
         self.logs = []
+        self.highlights = []         # set_session_highlight() calls
+
+    def set_session_highlight(self, *args):
+        self.highlights.append(args)
 
     def song(self):
         raise AssertionError("tests pass a fake song")

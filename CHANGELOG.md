@@ -2,6 +2,22 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.32.1](https://github.com/cubicecho/gemifi/compare/v0.32.0...v0.32.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **web:** list pads (kind 7) in the host-feedback view ([37a30d5](https://github.com/cubicecho/gemifi/commit/37a30d57f8240b78742de0ffa5d35200e7536940))
+
+
+### Performance Improvements
+
+* **bitwig:** one FB_VALUE per control per tick from flush(), no allocation per refresh ([02892b8](https://github.com/cubicecho/gemifi/commit/02892b885c97d4439478b429a38a26751c6995e4))
+* **controller:** encoder scan state for scanned encoders only ([3674d8a](https://github.com/cubicecho/gemifi/commit/3674d8ad6d4167259da30907f61ed1aa2ab4c142))
+* **live:** read the song once per refresh, wrap only what is used ([98d560f](https://github.com/cubicecho/gemifi/commit/98d560fd135456b2d21de9775bd55ba51b6c861b))
+* **proto:** queue replies instead of flushing them ([2c2bda0](https://github.com/cubicecho/gemifi/commit/2c2bda091623788b50251e7abe11db910bafe111))
+* **vpin:** don't read I2C expanders that have no inputs ([7eb498f](https://github.com/cubicecho/gemifi/commit/7eb498f0a748eb8a2a3fba33007cdf1690f1a4ff))
+
 # [0.32.0](https://github.com/cubicecho/gemifi/compare/v0.31.0...v0.32.0) (2026-11-04)
 
 

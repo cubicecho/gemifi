@@ -1,0 +1,27 @@
+# core/test test_i2c: I2C hubs. One MCP23017 with only LEDs on it (never
+# read), one with a button and an LED, one PCF8574 with a button.
+gemifi: 2
+name: i2c-test
+friendly_name: I2C Test
+board_id: 0x3F15
+platform: esp32s3
+chip: esp32-s3-devkitc-1
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
+i2c: { sda: GPIO8, scl: GPIO9 }
+scan_interval: 500us
+
+mcp23017:
+  - { id: led_io, address: 0x20 }
+  - { id: mixed_io, address: 0x21 }
+pcf8574:
+  - { id: btn_io, address: 0x38 }
+
+buttons:
+  - { id: play, pin: { mcp23xxx: mixed_io, number: GPA0, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 20, led: play_led }
+  - { id: stop, pin: { pcf8574: btn_io, number: 0, inverted: true }, action: cc_momentary, cc: 21 }
+
+leds:
+  - { id: play_led, pin: { mcp23xxx: mixed_io, number: GPB0 } }
+  - { id: led_a, pin: { mcp23xxx: led_io, number: 0 } }
+  - { id: led_b, pin: { mcp23xxx: led_io, number: GPB7 } }

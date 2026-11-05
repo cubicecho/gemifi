@@ -492,10 +492,10 @@ class MappingTest {
     }
 
     @Test
-    void touchAndPadEventsAreIgnored() {
+    void touchAndUnboundPadEventsAreIgnored() {
         fake.take(-1);
         fake.event(5, 0, 1);                                        // touch (daw-scripts.md §4.5)
-        fake.event(7, 0, 9000);                                     // a pad twin's hit
+        fake.event(7, 0, 9000);                                     // a pad hit, no pads bound
         fake.event(7, 0, 0);
         assertTrue(fake.take(-1).isEmpty());
     }
@@ -530,5 +530,66 @@ class MappingTest {
         assertEquals(Mapping.to14(0.25), (int) v.values.get(Protocol.KIND_ENCODER + ":2"));
         assertEquals(Mapping.to14(0.25), (int) v.values.get(Protocol.KIND_ENCODER + ":3"));
         assertEquals(2, v.values.size());
+    }
+
+    // ---- rate ----
+
+    @Test
+    void flushSendsOneValuePerControlPerTick() throws ProtocolException {
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.analog("volume_1", Protocol.TAKEOVER_PICKUP));
+        comps.add(FakeDevice.encoder("device_param_1", 11, Protocol.ENC_ABSOLUTE));
+        comps.add(FakeDevice.button("play", 0));
+        comps.add(FakeDevice.led(""));
+        setUp(comps);
+        mapping.tick();
+        fake.take(-1);
+        FakeModel.FParam vol = (FakeModel.FParam) model.tracks.get(0).param(TrackParam.VOLUME);
+        FakeModel.FParam dp = (FakeModel.FParam) model.deviceParam(0);
+        int values = 0;
+        int rings = 0;
+        int leds = 0;
+        for (int i = 1; i <= 10; i++) {                  // automation: ten flushes within one tick
+            vol.value = 0.05 * i;
+            dp.value = 0.05 * i;
+            model.setFlag(TransportFlag.PLAYING, i % 2 == 1);
+            mapping.flush();
+            for (Frame f : fake.take(-1)) {
+                if (f.cmd == Protocol.FB_VALUE) values++;
+                if (f.cmd == Protocol.FB_RING) rings++;
+                if (f.cmd == Protocol.FB_LED) leds++;
+            }
+        }
+        assertEquals(2, values, "the first change of each control goes out at once");
+        assertEquals(10, rings, "rings follow every flush");
+        assertEquals(10, leds, "LEDs follow every flush");
+        mapping.tick();                                  // the latest values
+        Values v = values();
+        assertEquals(Mapping.to14(0.5), (int) v.values.get("3:0"));
+        assertEquals(Mapping.to14(0.5), (int) v.values.get("4:0"));
+        mapping.flush();
+        mapping.tick();
+        assertTrue(fake.take(-1).isEmpty(), "nothing changed: nothing sent");
+    }
+
+    @Test
+    void heldBackValueStillResetsPickup() throws ProtocolException {
+        List<Component> comps = new ArrayList<>();
+        comps.add(FakeDevice.analog("volume_1", Protocol.TAKEOVER_PICKUP));
+        setUp(comps);
+        FakeModel.FParam vol = (FakeModel.FParam) model.tracks.get(0).param(TrackParam.VOLUME);   // 0.85
+        fake.event(Protocol.KIND_ANALOG, 0, Mapping.to14(0.85));                 // picked up
+        for (int i = 0; i < Mapping.SETTLE_TICKS; i++) mapping.tick();
+        vol.value = 0.5;
+        mapping.flush();                                                         // sent
+        vol.value = 0.2;
+        mapping.flush();                                                         // held back
+        assertEquals(Mapping.to14(0.5), (int) values().values.get("3:0"));
+        fake.event(Protocol.KIND_ANALOG, 0, Mapping.to14(0.5));                  // the knob at the old target
+        assertEquals(0.2, vol.value, 1e-9, "not picked up: the target moved on");
+        mapping.tick();
+        assertEquals(Mapping.to14(0.2), (int) values().values.get("3:0"));
+        fake.event(Protocol.KIND_ANALOG, 0, Mapping.to14(0.2));
+        assertEquals(Mapping.to14(0.2) / 16383.0, vol.value, 1e-9);
     }
 }

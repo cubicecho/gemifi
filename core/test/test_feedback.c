@@ -55,7 +55,8 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
 }
 void hal_midi_send(const uint8_t *m, uint32_t n) { hal_midi_send_cable(0, m, n); }
 void hal_midi_poll(void) {}
-void hal_midi_flush(uint32_t t) { (void)t; }
+static int flush_calls;
+void hal_midi_flush(uint32_t t) { (void)t; flush_calls++; }
 void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(0x10 + i); }
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
@@ -708,6 +709,80 @@ int main(void)
         out_n = 0;
         usb_sysex(0, buf, len);
         CHECK(out_n == 0, "bad checksum on a notification: no reply");
+    }
+
+    /* -- wire cost, replies that don't wait, bursts (daw-scripts.md 5.12) -- */
+    {
+        /* frame sizes the docs quote: 11 bytes of framing + the payload */
+        uint8_t buf[256];
+        gsx_tx_t t;
+        gsx_tx_begin(&t, buf, GSX_FB_LED, 0);
+        CHECK(gsx_tx_end(&t) == 11, "framing is 11 bytes");
+        out_n = 0;
+        gm_cfg.events = 1;
+        turn(2, 1);
+        int ev = find_sysex(GSX_MSG_EVENT), ev_end = ev;
+        while (ev_end >= 0 && ev_end < out_n && out[ev_end] != 0xF7)
+            ev_end++;
+        CHECK(ev >= 0 && ev_end - ev + 1 == 20, "EVENT is 20 bytes (%d)", ev_end - ev + 1);
+        gm_cfg.events = 0;
+
+        /* replies are queued, never flushed (the main loop sends them) */
+        flush_calls = 0;
+        CHECK(gsx_request(GSX_CMD_HELLO, 0, 0, 0, 0) == GSX_OK && flush_calls == 0, "HELLO reply without a flush");
+        uint8_t qb[3] = { GSX_KIND_BUTTON, 9, 0 };
+        CHECK(gsx_request(GSX_CMD_GET_COMPONENT, qb, 3, 0, 0) == GSX_BAD_PARAM && flush_calls == 0,
+              "error reply without a flush");
+
+        /* requests back to back, before any main-loop pass: each answered,
+         * in order, with its own seq */
+        static const uint8_t ask[4][3] = { { GSX_KIND_ENCODER, 0, 0 }, { GSX_KIND_ENCODER, 1, 0 },
+                                           { GSX_KIND_ENCODER, 2, 0 }, { GSX_KIND_LED, 15, 0 } };
+        int n = 0;
+        for (int k = 0; k < 4; k++) {
+            gsx_tx_begin(&t, buf + n, GSX_CMD_GET_COMPONENT, (uint8_t)(90 + k));
+            for (int i = 0; i < 3; i++)
+                gsx_put(&t, ask[k][i]);
+            n += gsx_tx_end(&t);
+        }
+        out_n = 0;
+        usb_sysex(0, buf, n);
+        int got = 0, in_order = 1;
+        for (int i = 0; i + 1 + GSX_OFF_PAYLOAD + 3 < out_n; i++)
+            if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == (GSX_CMD_GET_COMPONENT | GSX_REPLY)) {
+                const uint8_t *b = out + i + 1;
+                if (b[GSX_OFF_SEQ] != 90 + got || b[GSX_OFF_PAYLOAD] != GSX_OK ||
+                    b[GSX_OFF_PAYLOAD + 1] != ask[got][0] || b[GSX_OFF_PAYLOAD + 2] != ask[got][1])
+                    in_order = 0;
+                got++;
+            }
+        CHECK(got == 4 && in_order, "4 requests in one burst: 4 replies in order (%d)", got);
+
+        /* a refresh burst of notifications, then one pass applies it */
+        static const uint8_t burst[][8] = {
+            { GSX_FB_RING, 6, 2, 0, 2, 0x7F, 0x7F, 0 },       /* encoder 2 wrap full: LEDs 6..8 */
+            { GSX_FB_RING, 6, 2, 0, 0, 0x00, 0x40, 0 },       /* then dot at the middle: LED 7 */
+            { GSX_FB_VALUE, 5, GSX_KIND_ENCODER, 2, 0, 0, 10 },   /* encoder 2 = 10 << 7 */
+            { GSX_FB_LED, 3, MOM, 0, 127 },
+        };
+        n = 0;
+        for (unsigned k = 0; k < sizeof burst / sizeof burst[0]; k++) {
+            gsx_tx_begin(&t, buf + n, burst[k][0], 0);
+            for (int i = 0; i < burst[k][1]; i++)
+                gsx_put(&t, burst[k][2 + i]);
+            n += gsx_tx_end(&t);
+        }
+        CHECK(n == 17 + 17 + 16 + 14, "FB_RING 17, FB_VALUE 16, FB_LED 14 bytes");
+        out_n = 0;
+        usb_sysex(0, buf, n);
+        CHECK(out_n == 0, "notifications: nothing sent back");
+        run_ms(20);
+        CHECK(!ring_led(6) && ring_led(7) && !ring_led(8) && led(MOM) == 1, "the burst's last states shown");
+        turn(2, 1);
+        CHECK(find(0, 0xB0, 31) >= 0 && out[find(0, 0xB0, 31) + 2] == 11, "encoder continues at 11");
+        uint8_t rel[1] = { 0 };
+        gsx_request(GSX_FB_RELEASE, rel, 1, 0, 0);
+        run_ms(20);
     }
 
     printf("%d checks, %d failures\n", checks, fails);

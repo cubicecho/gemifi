@@ -91,6 +91,15 @@ export interface DisplayComponent extends ComponentBase {
   type: number;
 }
 
+/** A pad, or a pad twin (a mode's layer): its LED, if it has one. */
+export interface PadComponent extends ComponentBase {
+  kind: typeof ComponentKind.Pad;
+  /** Its LED's index, or null for none. */
+  led: number | null;
+  /** 0 a pad; n a twin, live while mode n - 1 is on; null from firmware that doesn't report it. */
+  layer: number | null;
+}
+
 /** One component as GET_COMPONENT describes it, by kind. */
 export type Component =
   | ButtonComponent
@@ -98,7 +107,8 @@ export type Component =
   | AnalogComponent
   | EncoderComponent
   | LedComponent
-  | DisplayComponent;
+  | DisplayComponent
+  | PadComponent;
 
 /** Every kind, in the order the spec numbers them. */
 export const COMPONENT_KINDS: readonly ComponentKind[] = Object.values(ComponentKind);
@@ -111,6 +121,7 @@ export const COMPONENT_KIND_NAMES: Readonly<Record<ComponentKind, string>> = Obj
   [ComponentKind.Encoder]: 'Encoders',
   [ComponentKind.Led]: 'LEDs',
   [ComponentKind.Display]: 'Displays',
+  [ComponentKind.Pad]: 'Pads',
 });
 
 /** A reader's name for each LED `colours`. */
@@ -214,7 +225,7 @@ function checkRange(what: string, value: number, min: number, max: number): void
 /**
  * The GET_COMPONENT request payload: `kind` (1 byte), `index` u14.
  *
- * @param kind - 1 button, 2 key matrix, 3 analog, 4 encoder, 5 LED, 6 display.
+ * @param kind - 1 button, 2 key matrix, 3 analog, 4 encoder, 5 LED, 6 display, 7 pad.
  * @param index - Which one of that kind.
  * @returns The payload.
  */
@@ -236,7 +247,7 @@ function optionalByte(reader: PayloadReader): number | null {
 /**
  * Parses GET_COMPONENT's reply fields (§4.6.1): `kind`, `index` u14, `count` u14, `id`, `name`
  * and `role` lstrings, then the kind's extra fields. The added fields (`takeover`, `mode`,
- * `owner`) are null when older firmware leaves them out. Bytes after those are later fields, ignored.
+ * `owner`, a pad's `layer`) are null when older firmware leaves them out. Bytes after those are later fields, ignored.
  *
  * @param body - The reply payload without its status byte.
  * @returns The component.
@@ -269,6 +280,10 @@ export function parseComponent(body: ArrayLike<number>): Component {
     }
     case ComponentKind.Display:
       return { kind, ...base, cols: reader.byte(), rows: reader.byte(), type: reader.byte() };
+    case ComponentKind.Pad: {
+      const led = noneToNull(reader.u14());
+      return { kind, ...base, led, layer: optionalByte(reader) };
+    }
     default:
       throw new DecodeError(`unknown component kind ${kind}`);
   }

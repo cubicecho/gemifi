@@ -28,6 +28,7 @@ typedef struct {
     uint32_t written;     /* what the chip has                            */
     uint32_t dir_out;     /* MCP/PCF: pins used as outputs                */
     uint32_t pullup;      /* MCP: pins with the internal pull-up          */
+    uint32_t in_used;     /* MCP/PCF: pins something reads (vpin_input)   */
     uint8_t cfg_dirty;    /* MCP: IODIR/GPPU need writing                 */
     uint8_t never;        /* outputs never written yet                    */
     int8_t channel;       /* MUX: selected channel, -1 = none             */
@@ -249,6 +250,7 @@ void vpin_init(void)
         s->written = 0;
         s->dir_out = 0;
         s->pullup = 0;
+        s->in_used = 0;
         s->cfg_dirty = 1;
         s->never = 1;
         s->channel = -1;
@@ -341,6 +343,7 @@ void vpin_input(gm_pin_t p)
         return;
     hub_state_t *s = &hs[p.hub - 1];
     s->dir_out &= ~(1u << p.num);
+    s->in_used |= 1u << p.num;
     if (p.flags & GM_PIN_PULLUP)
         s->pullup |= 1u << p.num;
     if (h->type == GM_HUB_PCF8574)
@@ -1386,11 +1389,15 @@ static void mcp_write16(uint8_t addr, uint8_t reg, uint32_t v)
     hal_i2c_write(addr, b, 3);
 }
 
+/* Every I2C_MS from the main loop. A chip nothing reads (only LEDs on it)
+ * isn't read: an MCP23017 read is two transactions, ~120 us at 400 kHz. */
 void vpin_refresh_i2c(void)
 {
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         uint8_t b[2];
+        if (!hs[i].in_used)
+            continue;
         if (h->type == GM_HUB_MCP23017) {
             uint8_t reg = MCP_GPIOA;
             if (hal_i2c_write(h->i2c_addr, &reg, 1) == 0 && hal_i2c_read(h->i2c_addr, b, 2) == 0)

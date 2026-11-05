@@ -395,6 +395,8 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **Buffer:** a device with caps bit 6 accepts notification payloads of at least 72 bytes (FB_LEDS with 64 LEDs, FB_TEXT with 64 characters). A longer one is dropped, silently like any other bad notification, so hosts keep within these limits.
 
+**Rates.** Over USB a device takes one 64-byte packet per pass of its main loop and USB flow control holds the rest back, so a burst of notifications is applied over a few passes and nothing is lost. Serial and BLE links have no flow control; the ESP builds buffer 512 received bytes. LEDs and displays are redrawn every 10 ms. Message costs, a bank change's cost and the rates and batching scripts should use: `daw-scripts.md` §5.12.
+
 #### 4.6.3 BOOTED (0x64, device → host)
 
 A device that reboots or is replugged loses every FB_* state and turns `debug.events` off, without the script hearing about it. So an app with caps bit 6 sends one BOOTED message (unsolicited, §4) about 1.5 s after it starts. Its payload is the HELLO reply's, without the status byte, so a host decodes it with the same code and learns the new `fw_version`, `caps` and `node` (an upload may have changed them).

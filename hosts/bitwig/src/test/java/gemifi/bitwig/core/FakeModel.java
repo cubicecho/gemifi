@@ -286,4 +286,74 @@ final class FakeModel implements Model {
     public void launchScene() {
         calls.add("launch " + scene);
     }
+
+    // ---- clip grid: slots by absolute track and scene, a window at (gridTrack, gridScene) ----
+
+    static final class FSlot {
+        int state;                  // Model.SLOT_* bits
+        int colour = -1;
+    }
+
+    final Map<String, FSlot> slots = new java.util.HashMap<>();
+    int gridTrack;
+    int gridScene;
+    int gridWidth;
+    int gridHeight;
+
+    /** The slot at absolute track t, scene s (created empty). */
+    FSlot slot(int t, int s) {
+        return slots.computeIfAbsent(t + "/" + s, k -> new FSlot());
+    }
+
+    @Override
+    public int gridTrackCount() {
+        return tracks.size();
+    }
+
+    @Override
+    public int gridSceneCount() {
+        return sceneCount;
+    }
+
+    @Override
+    public void setGridSize(int tracks, int scenes) {
+        gridWidth = tracks;
+        gridHeight = scenes;
+    }
+
+    @Override
+    public void setGridOffset(int track, int scene) {
+        gridTrack = track;
+        gridScene = scene;
+    }
+
+    @Override
+    public int slotState(int t, int s) {
+        int at = gridTrack + t;
+        int as = gridScene + s;
+        if (at >= tracks.size() || as >= sceneCount) return 0;
+        FSlot f = slots.get(at + "/" + as);
+        return f == null ? 0 : f.state;
+    }
+
+    @Override
+    public int slotColour(int t, int s) {
+        FSlot f = slots.get((gridTrack + t) + "/" + (gridScene + s));
+        return f == null ? -1 : f.colour;
+    }
+
+    @Override
+    public void launchSlot(int t, int s) {
+        calls.add("launch clip " + (gridTrack + t) + " " + (gridScene + s));
+    }
+
+    @Override
+    public void stopSlot(int t, int s) {
+        calls.add("stop track " + (gridTrack + t));
+    }
+
+    @Override
+    public void launchGridScene(int s) {
+        calls.add("launch grid scene " + (gridScene + s));
+    }
 }

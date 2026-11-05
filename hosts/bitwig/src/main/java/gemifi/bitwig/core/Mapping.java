@@ -10,6 +10,7 @@ import gemifi.bitwig.core.Model.TransportFlag;
 import gemifi.bitwig.core.Protocol.Component;
 import gemifi.bitwig.core.Protocol.Event;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -26,10 +27,10 @@ import java.util.function.Supplier;
  * follows {@code hosts/ableton-live/gemifi/mapping.py}.
  *
  * <p>Inputs: EVENTs from the device, by component index. Outputs: FB_* notifications through
- * {@link Notifier}. State is compared, not pushed: {@link #refresh()} (called from the
- * extension's {@code flush()} and its tick) reads every bound state, compares it with what was last
- * sent and sends only the differences. A lost notification is fixed by the next change (§4.6.2
- * says feedback is idempotent).
+ * {@link Notifier}. State is compared, not pushed: {@link #refresh()} (called from the extension's
+ * tick) and {@link #flush()} (from Bitwig's {@code flush()}) read every bound state, compare it with
+ * what was last sent and send only the differences. A lost notification is fixed by the next change
+ * (§4.6.2 says feedback is idempotent).
  */
 public final class Mapping {
     public static final int STRIPS = 8;
@@ -53,10 +54,33 @@ public final class Mapping {
     public static final int SETTLE_TICKS = 3;
     /** Host value vs what the knob set: closer than this is rounding, not a change from elsewhere. */
     public static final int SAME_TOLERANCE = 8;
+    /** The clip grid is at most GRID tracks x GRID scenes (clip_T_S, T and S 1..8). */
+    public static final int GRID = 8;
+    /**
+     * Clip LED colours, packed as r << 14 | g << 7 | b (7 bits each), RGB_BLINK for flags bit 0.
+     * A stopped clip shows its own colour (RGB_NO_COLOUR if it has none), a playing one green and
+     * a recording one red; any of them blinks while a launch, stop or record is queued.
+     */
+    public static final int RGB_OFF = 0;
+    public static final int RGB_PLAYING = rgb(0, 127, 0);
+    public static final int RGB_RECORDING = rgb(127, 0, 0);
+    public static final int RGB_NO_COLOUR = rgb(0, 127, 127);
+    public static final int RGB_BLINK = 1 << 21;
 
     /** Puts one FB_* notification on the wire. */
     public interface Notifier {
         void notify(int cmd, byte[] payload);
+    }
+
+    public static int rgb(int r, int g, int b) {
+        return r << 14 | g << 7 | b;
+    }
+
+    /** 0xRRGGBB (8 bits each, -1 = none) to a packed 7-bit colour; none or black: RGB_NO_COLOUR. */
+    static int rgb7(int rgb8) {
+        if (rgb8 < 0) return RGB_NO_COLOUR;
+        int c = rgb((rgb8 >> 17) & 0x7F, (rgb8 >> 9) & 0x7F, (rgb8 >> 1) & 0x7F);
+        return c == 0 ? RGB_NO_COLOUR : c;
     }
 
     public static int to14(double norm) {
@@ -71,6 +95,7 @@ public final class Mapping {
         Runnable press;
         Runnable repeat;
         IntSupplier state;          // LED level; null with momentary
+        IntSupplier rgb;            // instead of state: a packed colour for FB_LED_RGB (clip roles)
         boolean momentary;          // LED lit while held
 
         static ButtonRole of(Runnable press, IntSupplier state) {
@@ -111,60 +136,51 @@ public final class Mapping {
         boolean picked;
         Integer lastRaw;
         int holdTicks;              // > 0: the knob just wrote; the host's value may still be the old one
+        // The value last sent (for an analog input: or what the knob set). hasValue false: nothing
+        // yet, or no target.
+        boolean hasValue;
+        Object valueKey;
+        int value;
+        int valueTick = -1;         // the tick of the last FB_VALUE
+        // The ring last sent (ringMode -1: nothing yet).
+        int ringMode = -1;
+        int ringValue;
+        boolean ringCentre;
+        boolean ringOff;
 
         ContBinding(Component c, Supplier<Param> t) {
             component = c;
             target = t;
         }
-    }
 
-    /** What an encoder's ring shows. */
-    private static final class Ring {
-        final int mode;
-        final int value;
-        final boolean centre;
-        final boolean off;
-
-        Ring(int mode, int value, boolean centre, boolean off) {
-            this.mode = mode;
-            this.value = value;
-            this.centre = centre;
-            this.off = off;
+        void sent(Object key, int v) {
+            hasValue = true;
+            valueKey = key;
+            value = v;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof Ring)) return false;
-            Ring r = (Ring) o;
-            return mode == r.mode && value == r.value && centre == r.centre && off == r.off;
+        void noTarget() {
+            hasValue = false;
+            valueKey = null;
         }
 
-        @Override
-        public int hashCode() {
-            return Objects.hash(mode, value, centre, off);
-        }
-    }
-
-    /** (target key, 14-bit value) last sent as FB_VALUE. */
-    private static final class Sent {
-        final Object key;
-        final int value;
-
-        Sent(Object key, int value) {
-            this.key = key;
-            this.value = value;
+        void forget() {
+            picked = false;
+            lastRaw = null;
+            holdTicks = 0;
+            noTarget();
+            valueTick = -1;
+            ringMode = -1;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof Sent)) return false;
-            Sent s = (Sent) o;
-            return value == s.value && Objects.equals(key, s.key);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(key, value);
+        /** Whether the ring differs from the last one sent; if so it becomes the last one sent. */
+        boolean ringChanged(int mode, int v, boolean centre, boolean off) {
+            if (ringMode == mode && ringValue == v && ringCentre == centre && ringOff == off) return false;
+            ringMode = mode;
+            ringValue = v;
+            ringCentre = centre;
+            ringOff = off;
+            return true;
         }
     }
 
@@ -173,13 +189,31 @@ public final class Mapping {
     private final Consumer<String> log;
 
     private final Map<Integer, ButtonBinding> buttons = new HashMap<>();
+    private final Map<Integer, ButtonBinding> pads = new HashMap<>();
     private final Map<Integer, IntSupplier> leds = new TreeMap<>();
+    private final Map<Integer, IntSupplier> rgbLeds = new TreeMap<>();
     private final Map<Integer, ContBinding> analogs = new HashMap<>();
     private final Map<Integer, ContBinding> encoders = new HashMap<>();
-    private final Map<Integer, Integer> ledCache = new HashMap<>();
-    private final Map<Integer, Sent> analogCache = new HashMap<>();
-    private final Map<Integer, Sent> encoderCache = new HashMap<>();
-    private final Map<Integer, Ring> ringCache = new HashMap<>();
+    // The same bindings as arrays (built by bind()), so a refresh allocates nothing. LEDs are in
+    // ascending index order; ledSent is the level last sent (-1: none yet).
+    private int[] ledIndex = new int[0];
+    private IntSupplier[] ledLevel = new IntSupplier[0];
+    private int[] ledSent = new int[0];
+    private int[] ledChanged = new int[0];        // scratch for refreshLeds(): the new level, or -1
+    private ContBinding[] analogList = new ContBinding[0];
+    private ContBinding[] encoderList = new ContBinding[0];
+    private ButtonBinding[] pressList = new ButtonBinding[0];   // buttons and pads, for tick()
+    // FB_LED_RGB LEDs (clip roles), ascending; rgbSent is the colour last sent (-1: none yet).
+    private int[] rgbIndex = new int[0];
+    private IntSupplier[] rgbColour = new IntSupplier[0];
+    private int[] rgbSent = new int[0];
+    // The clip grid: its scroll position (kept across reconnects) and the size the roles need.
+    private int gridTrack;
+    private int gridScene;
+    private int gridTracks;
+    private int gridScenes;
+    private int tickCount;
+    private boolean limitValues;                  // inside flush(): one FB_VALUE per control per tick
     private final List<String> unknownRoles = new ArrayList<>();
     private final List<String> unsupportedRoles = new ArrayList<>();
 
@@ -207,27 +241,40 @@ public final class Mapping {
      */
     public void bind(List<Component> components) {
         buttons.clear();
+        pads.clear();
         leds.clear();
+        rgbLeds.clear();
         analogs.clear();
         encoders.clear();
         unknownRoles.clear();
         unsupportedRoles.clear();
         forget();
+        gridTracks = 0;
+        gridScenes = 0;
         Set<Integer> local = new HashSet<>();
         for (Component c : components) {
             if (c.kind == Protocol.KIND_LED && c.localOnly()) local.add(c.index);
         }
-        // Buttons first, so a button's own LED binding (which knows "held") wins over a kind-5 LED role.
+        // Buttons and pads first, so their own LED binding (which knows "held") wins over a kind-5
+        // LED role. Pads work as buttons (daw-scripts.md §5.9); only twins send EVENTs.
         for (Component c : components) {
-            if (c.kind != Protocol.KIND_BUTTON || c.role.isEmpty() || !usable(c)) continue;
+            if (c.kind != Protocol.KIND_BUTTON && c.kind != Protocol.KIND_PAD) continue;
+            if (c.role.isEmpty() || !usable(c)) continue;
             ButtonRole br = buttonRole(c.role);
             if (br == null) {
                 unknown(c);
                 continue;
             }
             ButtonBinding b = new ButtonBinding(c, br);
-            buttons.put(c.index, b);
-            if (c.hasLed() && !local.contains(c.led)) leds.put(c.led, b::level);
+            (c.kind == Protocol.KIND_PAD ? pads : buttons).put(c.index, b);
+            if (!c.hasLed() || local.contains(c.led)) continue;
+            if (br.rgb != null) {
+                rgbLeds.put(c.led, br.rgb);
+                leds.remove(c.led);
+            } else {
+                leds.put(c.led, b::level);
+                rgbLeds.remove(c.led);
+            }
         }
         for (Component c : components) {
             if (c.role.isEmpty()) continue;
@@ -238,9 +285,9 @@ public final class Mapping {
                     unknown(c);
                     continue;
                 }
-                if (!leds.containsKey(c.index)) {
-                    leds.put(c.index, () -> br.momentary || br.state == null ? OFF : br.state.getAsInt());
-                }
+                if (leds.containsKey(c.index) || rgbLeds.containsKey(c.index)) continue;
+                if (br.rgb != null) rgbLeds.put(c.index, br.rgb);
+                else leds.put(c.index, () -> br.momentary || br.state == null ? OFF : br.state.getAsInt());
             } else if (c.kind == Protocol.KIND_ANALOG || c.kind == Protocol.KIND_ENCODER) {
                 if (!usable(c)) continue;
                 Supplier<Param> target = contRole(c.role);
@@ -252,6 +299,38 @@ public final class Mapping {
             }
             // keys (2) and displays (6): no roles in hosts/README.md yet
         }
+        if (gridTracks > 0 || gridScenes > 0) {
+            model.setGridSize(Math.max(1, gridTracks), Math.max(1, gridScenes));
+            model.setGridOffset(gridTrack, gridScene);
+        }
+        int n = leds.size();
+        ledIndex = new int[n];
+        ledLevel = new IntSupplier[n];
+        ledSent = new int[n];
+        ledChanged = new int[n];
+        int k = 0;
+        for (Map.Entry<Integer, IntSupplier> e : leds.entrySet()) {
+            ledIndex[k] = e.getKey();
+            ledLevel[k] = e.getValue();
+            k++;
+        }
+        Arrays.fill(ledSent, -1);
+        n = rgbLeds.size();
+        rgbIndex = new int[n];
+        rgbColour = new IntSupplier[n];
+        rgbSent = new int[n];
+        k = 0;
+        for (Map.Entry<Integer, IntSupplier> e : rgbLeds.entrySet()) {
+            rgbIndex[k] = e.getKey();
+            rgbColour[k] = e.getValue();
+            k++;
+        }
+        Arrays.fill(rgbSent, -1);
+        analogList = analogs.values().toArray(new ContBinding[0]);
+        encoderList = encoders.values().toArray(new ContBinding[0]);
+        List<ButtonBinding> press = new ArrayList<>(buttons.values());
+        press.addAll(pads.values());
+        pressList = press.toArray(new ButtonBinding[0]);
         for (String s : unknownRoles) log.accept("unknown role, ignored: " + s);
         for (String s : unsupportedRoles) log.accept("role not supported in this host, ignored: " + s);
     }
@@ -275,21 +354,16 @@ public final class Mapping {
 
     /** Drops what was sent: the next refresh() sends everything (after ready / a release). */
     public void forget() {
-        ledCache.clear();
-        analogCache.clear();
-        encoderCache.clear();
-        ringCache.clear();
-        for (ContBinding b : analogs.values()) {
-            b.picked = false;
-            b.lastRaw = null;
-            b.holdTicks = 0;
-        }
+        Arrays.fill(ledSent, -1);
+        Arrays.fill(rgbSent, -1);
+        for (ContBinding b : analogList) b.forget();
+        for (ContBinding b : encoderList) b.forget();
     }
 
     /** The device is being handed back (FB_RELEASE goes out from Device.release()). */
     public void release() {
         forget();
-        for (ButtonBinding b : buttons.values()) b.held = false;
+        for (ButtonBinding b : pressList) b.held = false;
     }
 
     // ---- role tables ----
@@ -366,8 +440,28 @@ public final class Mapping {
                 return ButtonRole.of(() -> m.stepScene(d), () -> lit(m.canStepScene(d)));
             }
             case "stop_all_clips": return ButtonRole.momentary(m::stopAllClips);
+            case "grid_left": return gridScroll(-1, 0);
+            case "grid_right": return gridScroll(1, 0);
+            case "grid_up": return gridScroll(0, -1);
+            case "grid_down": return gridScroll(0, 1);
             default:
                 break;
+        }
+        int cell = clipCell(role);
+        if (cell >= 0) {
+            int t = cell / GRID;
+            int s = cell % GRID;
+            noteGrid(t + 1, s + 1);
+            ButtonRole r = new ButtonRole();
+            r.press = () -> clipPress(t, s);
+            r.rgb = () -> clipColour(t, s);
+            return r;
+        }
+        int sc = stripNumber(role, "scene_");
+        if (sc > 0) {
+            int s = sc - 1;
+            noteGrid(0, sc);
+            return ButtonRole.momentary(() -> m.launchGridScene(s));
         }
         int n = stripNumber(role, "mute_");
         if (n > 0) return trackFlagRole(TrackFlag.MUTE, stripFn(n - 1));
@@ -383,6 +477,74 @@ public final class Mapping {
             }, () -> lit(m.strip(i) != null && m.isStripSelected(i)));
         }
         return null;
+    }
+
+    // ---- clip grid (daw-scripts.md §5.9) ----
+
+    /** "clip_3_2" → (3 − 1) × GRID + (2 − 1); -1 if it isn't a clip role with T and S in 1..8. */
+    static int clipCell(String role) {
+        if (!role.startsWith("clip_")) return -1;
+        String rest = role.substring(5);
+        int u = rest.indexOf('_');
+        if (u < 0) return -1;
+        int t = stripNumber(rest.substring(0, u), "");
+        int s = stripNumber(rest.substring(u + 1), "");
+        return t > 0 && s > 0 ? (t - 1) * GRID + (s - 1) : -1;
+    }
+
+    /** Called while binding: the grid must reach track t and scene s (1-based; 0 = no need). */
+    private void noteGrid(int t, int s) {
+        gridTracks = Math.max(gridTracks, t);
+        gridScenes = Math.max(gridScenes, s);
+    }
+
+    /** The scroll limits: the last track / scene the grid's first column / row can show. */
+    private int maxGridTrack() {
+        return Math.max(0, model.gridTrackCount() - Math.max(1, gridTracks));
+    }
+
+    private int maxGridScene() {
+        return Math.max(0, model.gridSceneCount() - Math.max(1, gridScenes));
+    }
+
+    private boolean canScrollGrid(int dt, int ds) {
+        if (dt != 0) return dt < 0 ? gridTrack > 0 : gridTrack < maxGridTrack();
+        return ds < 0 ? gridScene > 0 : gridScene < maxGridScene();
+    }
+
+    private ButtonRole gridScroll(int dt, int ds) {
+        return ButtonRole.of(() -> {
+            int t = dt == 0 ? gridTrack : Math.max(0, Math.min(maxGridTrack(), gridTrack + dt));
+            int s = ds == 0 ? gridScene : Math.max(0, Math.min(maxGridScene(), gridScene + ds));
+            if (t == gridTrack && s == gridScene) return;
+            gridTrack = t;
+            gridScene = s;
+            model.setGridOffset(t, s);                      // the clip LEDs follow on the next refresh
+        }, () -> lit(canScrollGrid(dt, ds)));
+    }
+
+    /** The grid's scroll position: {track, scene}. */
+    public int[] gridOffset() {
+        return new int[] {gridTrack, gridScene};
+    }
+
+    /** A press toggles the clip: stop it while it plays (or records), else launch it. Empty: nothing. */
+    private void clipPress(int t, int s) {
+        int st = model.slotState(t, s);
+        if ((st & Model.SLOT_CONTENT) == 0) return;
+        if ((st & (Model.SLOT_PLAYING | Model.SLOT_RECORDING)) != 0) model.stopSlot(t, s);
+        else model.launchSlot(t, s);
+    }
+
+    private int clipColour(int t, int s) {
+        int st = model.slotState(t, s);
+        int c;
+        if ((st & (Model.SLOT_RECORDING | Model.SLOT_RECORD_QUEUED)) != 0) c = RGB_RECORDING;
+        else if ((st & Model.SLOT_CONTENT) == 0) return RGB_OFF;
+        else if ((st & Model.SLOT_PLAYING) != 0) c = RGB_PLAYING;
+        else c = rgb7(model.slotColour(t, s));
+        boolean queued = (st & (Model.SLOT_PLAY_QUEUED | Model.SLOT_STOP_QUEUED | Model.SLOT_RECORD_QUEUED)) != 0;
+        return queued ? c | RGB_BLINK : c;
     }
 
     private Supplier<Strip> stripFn(int i) {
@@ -458,19 +620,12 @@ public final class Mapping {
 
     public void handleEvent(Event ev) {
         switch (ev.type) {
-            case Protocol.KIND_BUTTON: {
-                ButtonBinding b = buttons.get(ev.index);
-                if (b == null) return;
-                if (ev.value != 0) {
-                    b.held = true;
-                    b.heldTicks = 0;
-                    if (b.role.press != null) b.role.press.run();
-                } else {
-                    b.held = false;
-                }
-                refresh();
+            case Protocol.KIND_BUTTON:
+                press(buttons.get(ev.index), ev.value);
                 break;
-            }
+            case Protocol.KIND_PAD:                     // a pad twin: value > 0 press, 0 release
+                press(pads.get(ev.index), ev.value);
+                break;
             case Protocol.KIND_ANALOG: {
                 ContBinding b = analogs.get(ev.index);
                 if (b != null) analog(b, Math.min(V14, ev.value));
@@ -493,8 +648,20 @@ public final class Mapping {
                 // live ones. Device pages stay Bitwig's remote-control pages of 8.
                 break;
             default:
-                break;                  // keys (type 2), pads, touch and reserved types: not mapped
+                break;                  // keys (type 2), touch and reserved types: not mapped
         }
+    }
+
+    private void press(ButtonBinding b, int value) {
+        if (b == null) return;
+        if (value != 0) {
+            b.held = true;
+            b.heldTicks = 0;
+            if (b.role.press != null) b.role.press.run();
+        } else {
+            b.held = false;
+        }
+        refresh();
     }
 
     private void analog(ContBinding b, int raw) {
@@ -510,7 +677,7 @@ public final class Mapping {
         p.set(raw / (double) V14);
         // What the knob set is not news to the knob: no FB_VALUE echo. The host may apply the value
         // later (Bitwig does), so remember what the knob asked for, not what get() says right now.
-        analogCache.put(b.component.index, new Sent(p.key(), raw));
+        b.sent(p.key(), raw);
         b.holdTicks = SETTLE_TICKS;
     }
 
@@ -518,10 +685,11 @@ public final class Mapping {
 
     /** Call about every 100 ms: held-button repeats, then refresh(). */
     public void tick() {
-        for (ContBinding b : analogs.values()) {
+        tickCount++;
+        for (ContBinding b : analogList) {
             if (b.holdTicks > 0) b.holdTicks--;
         }
-        for (ButtonBinding b : buttons.values()) {
+        for (ButtonBinding b : pressList) {
             if (b.held && b.role.repeat != null) {
                 b.heldTicks++;
                 if (b.heldTicks >= REPEAT_DELAY_TICKS) b.role.repeat.run();
@@ -532,87 +700,127 @@ public final class Mapping {
 
     // ---- feedback ----
 
+    /** Sends every difference now. */
     public void refresh() {
         refreshLeds();
-        for (ContBinding b : analogs.values()) refreshAnalog(b);
-        for (ContBinding b : encoders.values()) refreshEncoder(b);
+        refreshRgb();
+        for (ContBinding b : analogList) refreshAnalog(b);
+        for (ContBinding b : encoderList) refreshEncoder(b);
+    }
+
+    /**
+     * For Bitwig's {@code flush()}, which can come many times a tick while values move (automation,
+     * a mouse drag): LEDs and rings now, but at most one FB_VALUE per control per tick. A value held
+     * back goes out on the next tick, so the device always ends on the latest one.
+     */
+    public void flush() {
+        limitValues = true;
+        try {
+            refresh();
+        } finally {
+            limitValues = false;
+        }
+    }
+
+    /** Whether an FB_VALUE for {@code b} has to wait for the next tick. */
+    private boolean holdValue(ContBinding b) {
+        return limitValues && b.valueTick == tickCount;
+    }
+
+    private void sendValue(ContBinding b, int kind, int v) {
+        b.valueTick = tickCount;
+        notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(kind, b.component.index, v));
     }
 
     private void refreshLeds() {
-        TreeMap<Integer, Integer> changed = new TreeMap<>();
-        for (Map.Entry<Integer, IntSupplier> e : leds.entrySet()) {
-            int level = e.getValue().getAsInt();
-            Integer old = ledCache.get(e.getKey());
-            if (old == null || old != level) {
-                changed.put(e.getKey(), level);
-                ledCache.put(e.getKey(), level);
+        int changed = 0;
+        for (int i = 0; i < ledIndex.length; i++) {
+            int level = ledLevel[i].getAsInt();
+            if (ledSent[i] != level) {
+                ledSent[i] = level;
+                ledChanged[i] = level;
+                changed++;
+            } else {
+                ledChanged[i] = -1;
             }
         }
+        if (changed == 0) return;
         // Runs of neighbouring LEDs go out as one FB_LEDS (up to 64), single ones as FB_LED.
-        List<Integer> run = new ArrayList<>();
-        for (int led : changed.keySet()) {
-            if (!run.isEmpty() && (led != run.get(run.size() - 1) + 1 || run.size() == 64)) {
-                sendRun(run, changed);
-                run.clear();
+        int i = 0;
+        while (i < ledIndex.length) {
+            if (ledChanged[i] < 0) {
+                i++;
+                continue;
             }
-            run.add(led);
+            int j = i + 1;
+            while (j < ledIndex.length && j - i < 64 && ledChanged[j] >= 0 && ledIndex[j] == ledIndex[j - 1] + 1) j++;
+            if (j - i == 1) {
+                notifier.notify(Protocol.FB_LED, Protocol.fbLed(ledIndex[i], ledChanged[i]));
+            } else {
+                notifier.notify(Protocol.FB_LEDS, Protocol.fbLeds(ledIndex[i], Arrays.copyOfRange(ledChanged, i, j)));
+            }
+            i = j;
         }
-        if (!run.isEmpty()) sendRun(run, changed);
     }
 
-    private void sendRun(List<Integer> run, Map<Integer, Integer> levels) {
-        if (run.size() == 1) {
-            notifier.notify(Protocol.FB_LED, Protocol.fbLed(run.get(0), levels.get(run.get(0))));
-            return;
+    /** Clip LEDs: one FB_LED_RGB per changed LED (there is no batched RGB message). */
+    private void refreshRgb() {
+        for (int i = 0; i < rgbIndex.length; i++) {
+            int c = rgbColour[i].getAsInt();
+            if (rgbSent[i] == c) continue;
+            rgbSent[i] = c;
+            notifier.notify(Protocol.FB_LED_RGB, Protocol.fbLedRgb(rgbIndex[i], (c >> 14) & 0x7F, (c >> 7) & 0x7F,
+                    c & 0x7F, (c & RGB_BLINK) != 0));
         }
-        int[] lv = new int[run.size()];
-        for (int i = 0; i < lv.length; i++) lv[i] = levels.get(run.get(i));
-        notifier.notify(Protocol.FB_LEDS, Protocol.fbLeds(run.get(0), lv));
     }
 
     private void refreshAnalog(ContBinding b) {
         Param p = b.target.get();
-        int idx = b.component.index;
         if (p == null) {
-            analogCache.put(idx, null);
+            b.noTarget();
             return;
         }
-        Sent now = new Sent(p.key(), to14(p.get()));
-        Sent old = analogCache.get(idx);
-        boolean sameTarget = old != null && Objects.equals(old.key, now.key);
+        Object key = p.key();
+        int v = to14(p.get());
+        boolean sameTarget = b.hasValue && Objects.equals(b.valueKey, key);
         if (sameTarget && b.holdTicks > 0) return;            // the host hasn't caught up with the knob yet
-        if (!sameTarget || Math.abs(old.value - now.value) > SAME_TOLERANCE) {
-            analogCache.put(idx, now);
+        if (!sameTarget || Math.abs(b.value - v) > SAME_TOLERANCE) {
             b.picked = false;                 // the target moved away from the knob
             b.lastRaw = null;
-            if (b.component.takesValue()) {         // takeover: none ignores FB_VALUE (sysex.md §4.6.2)
-                notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ANALOG, idx, now.value));
-            }
+            boolean takes = b.component.takesValue();       // takeover: none ignores FB_VALUE (sysex.md §4.6.2)
+            if (takes && holdValue(b)) return;              // one went out this tick: the tick sends this one
+            b.sent(key, v);
+            if (takes) sendValue(b, Protocol.KIND_ANALOG, v);
         }
     }
 
     private void refreshEncoder(ContBinding b) {
         Component c = b.component;
         Param p = b.target.get();
-        Ring ring;
+        int mode = Protocol.RING_WRAP;
+        int v = 0;
+        boolean centre = false;
+        boolean off = false;
         if (p == null) {
-            ring = new Ring(Protocol.RING_WRAP, 0, false, true);     // nothing mapped: ring off (flags bit 1)
-            encoderCache.put(c.index, null);
+            off = true;                                   // nothing mapped: ring off (flags bit 1)
+            b.noTarget();
         } else {
-            int v = to14(p.get());
-            Sent now = new Sent(p.key(), v);
-            if (!now.equals(encoderCache.get(c.index))) {
-                encoderCache.put(c.index, now);
-                if (c.takesValue()) {                // a relative encoder ignores FB_VALUE (sysex.md §4.6.2)
-                    notifier.notify(Protocol.FB_VALUE, Protocol.fbValue(Protocol.KIND_ENCODER, c.index, v));
+            v = to14(p.get());
+            Object key = p.key();
+            if (!b.hasValue || b.value != v || !Objects.equals(b.valueKey, key)) {
+                boolean takes = c.takesValue();           // a relative encoder ignores FB_VALUE (sysex.md §4.6.2)
+                if (!takes || !holdValue(b)) {            // else one went out this tick: the tick sends this one
+                    b.sent(key, v);
+                    if (takes) sendValue(b, Protocol.KIND_ENCODER, v);
                 }
             }
-            ring = p.bipolar() ? new Ring(Protocol.RING_BOOST_CUT, v, true, false)
-                    : new Ring(Protocol.RING_WRAP, v, false, false);
+            if (p.bipolar()) {
+                mode = Protocol.RING_BOOST_CUT;
+                centre = true;
+            }
         }
-        if (c.ring > 0 && !ring.equals(ringCache.get(c.index))) {
-            ringCache.put(c.index, ring);
-            notifier.notify(Protocol.FB_RING, Protocol.fbRing(c.index, ring.mode, ring.value, ring.centre, ring.off));
+        if (c.ring > 0 && b.ringChanged(mode, v, centre, off)) {
+            notifier.notify(Protocol.FB_RING, Protocol.fbRing(c.index, mode, v, centre, off));
         }
     }
 }

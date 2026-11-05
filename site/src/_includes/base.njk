@@ -24,6 +24,8 @@
       <nav>
         <a href="{{ '/' | url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>Home</a>
         <a href="{{ '/devices/' | url }}"{% if page.url.startsWith('/devices/') %} aria-current="page"{% endif %}>Devices</a>
+        <a href="{{ '/components/' | url }}"{% if page.url == '/components/' %} aria-current="page"{% endif %}>Components</a>
+        <a href="{{ '/platforms/' | url }}"{% if page.url == '/platforms/' %} aria-current="page"{% endif %}>Platforms</a>
         <a href="{{ '/get-started/' | url }}"{% if page.url == '/get-started/' %} aria-current="page"{% endif %}>Get started</a>
         <a href="{{ '/daw-setup/' | url }}"{% if page.url == '/daw-setup/' %} aria-current="page"{% endif %}>DAW setup</a>
         <a href="{{ '/changelog/' | url }}"{% if page.url == '/changelog/' %} aria-current="page"{% endif %}>Changelog</a>

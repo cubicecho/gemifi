@@ -24,7 +24,7 @@ layout: base.njk
     <li>
       <article class="card">
         <h3>Describe it in YAML</h3>
-        <p>Keys, buttons, LEDs, knobs, faders, encoders and expander chips, each with a pin and a default MIDI message.</p>
+        <p>Keys, buttons, pads, faders, knobs, encoders, LEDs, displays and expander chips, each with a pin and a default MIDI message. <a href="{{ '/components/' | url }}">What it can describe</a>.</p>
       </article>
     </li>
     <li>
@@ -73,6 +73,65 @@ layout: base.njk
 </section>
 
 <section class="section">
+  <h2>The pieces</h2>
+  <p class="section-intro">
+    Everything is in one repository, and every part speaks the same SysEx
+    protocol.
+  </p>
+  <ul class="card-grid">
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ site.blob }}tools/builder/README.md" rel="noopener">Builder</a></h3>
+        <p>Checks a device YAML, turns it into C tables and builds the firmware. Comes with the dashboard, in one Docker image.</p>
+        <div class="card-foot"><span><code>tools/builder</code></span><span>Used for every build</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ '/components/' | url }}">Core firmware</a></h3>
+        <p>The controller itself, the same on every chip: scanning, velocity, LEDs, presets, settings, DIN MIDI and DAW feedback.</p>
+        <div class="card-foot"><span><code>core/</code></span><span>Runs on two keyboards</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ '/platforms/' | url }}">Platforms</a></h3>
+        <p>The chip-specific layer for STM32F1, Nuvoton NUC1xx, and ESP32 / ESP8266: start-up, USB or serial MIDI, flash and updates.</p>
+        <div class="card-foot"><span><code>platform/</code></span><span>ESP not yet on hardware</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ site.blob }}bootloader/README.md" rel="noopener">Bootloaders</a></h3>
+        <p>Small USB-MIDI bootloaders for the NUC1xx (in its 4 KB boot flash) and the STM32F1 (the first 9 KB). They take new apps from the browser and never write themselves.</p>
+        <div class="card-foot"><span><code>bootloader/</code></span><span>Both run on hardware</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ site.blob }}protocol/sysex.md" rel="noopener">SysEx protocol</a></h3>
+        <p>One protocol over USB, serial or BLE MIDI for device info, logs, settings, presets, firmware uploads and DAW scripts.</p>
+        <div class="card-foot"><span><code>protocol/</code></span><span>Version 1</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ site.blob }}web/updater/README.md" rel="noopener">Web updater</a></h3>
+        <p>The browser page: flash firmware, read the device's log, edit its settings and presets, try host feedback. Chrome or Edge.</p>
+        <div class="card-foot"><span><code>web/updater</code></span><span>In use on both keyboards</span></div>
+      </article>
+    </li>
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ '/daw-setup/' | url }}">DAW scripts</a></h3>
+        <p>Ableton Live and Bitwig scripts, and a Zynthian driver, that learn a device's controls and drive its LEDs, rings and display.</p>
+        <div class="card-foot"><span><code>hosts/</code></span><span>Not yet tried in the DAWs</span></div>
+      </article>
+    </li>
+  </ul>
+</section>
+
+<section class="section">
   <h2>A device in YAML</h2>
   <p class="section-intro">
     Part of the description of the M-Audio Keystation Mini 32 MK3. The format
@@ -83,7 +142,7 @@ layout: base.njk
 name: keystation-mini32
 friendly_name: Keystation Mini 32
 project:
-  version: 0.1.5
+  version: 0.1.9
 platform: nuvoton-nuc1xx
 chip: NUC120LC1BN
 usb: { vid: 0x1209, pid: 0x0002 }
@@ -111,6 +170,7 @@ key_matrix:
   </div>
   <p class="more">
     <a href="{{ site.blob }}devices/keystation-mini32-mk3.yaml" rel="noopener">The full file</a> ·
+    <a href="{{ '/components/' | url }}">What a YAML can describe</a> ·
     <a href="{{ site.blob }}core/README.md#device-yaml" rel="noopener">The YAML format</a>
   </p>
 </section>
@@ -134,9 +194,12 @@ key_matrix:
   <h2>Links</h2>
   <ul class="link-list">
     <li><a href="{{ site.repo }}" rel="noopener">Source on GitHub</a> — MIT license</li>
+    <li><a href="{{ site.blob }}core/README.md" rel="noopener">The device YAML reference</a> and <a href="{{ site.blob }}core/performance.md" rel="noopener">what each part costs</a></li>
     <li><a href="{{ site.blob }}tools/builder/README.md" rel="noopener">Builder and dashboard docs</a>, including Docker</li>
     <li><a href="{{ site.blob }}web/updater/README.md" rel="noopener">Web updater docs</a>, including browser support</li>
-    <li><a href="{{ site.blob }}protocol/sysex.md" rel="noopener">The SysEx protocol</a></li>
+    <li><a href="{{ site.blob }}tools/README.md" rel="noopener">SWD and host tools</a>: backups, bootloader installs, <code>gemifi.py</code></li>
+    <li><a href="{{ site.blob }}protocol/sysex.md" rel="noopener">The SysEx protocol</a>, <a href="{{ site.blob }}protocol/host-feedback.md" rel="noopener">host feedback</a> and <a href="{{ site.blob }}protocol/daw-scripts.md" rel="noopener">writing a DAW script</a></li>
+    <li><a href="{{ site.blob }}hosts/README.md" rel="noopener">DAW scripts</a> and their roles</li>
     <li><a href="{{ site.docker }}" rel="noopener">Docker image</a> <code>{{ site.image }}</code></li>
   </ul>
 </section>

@@ -2,13 +2,13 @@
 """The abstract song of mapping.py on top of Live's Live Object Model.
 
 Written against the public LOM (as documented for Max for Live): Song, Song.View, Track,
-Track.View, MixerDevice, Device, DeviceParameter, Scene. Only property reads/writes and
-documented methods are used; no listeners (mapping.py polls). Every call is guarded so a
+Track.View, MixerDevice, Device, DeviceParameter, Scene, ClipSlot, Clip. Only property
+reads/writes and documented methods are used; no listeners (mapping.py polls). Every call is guarded so a
 property missing in some Live version, or a track kind without it (the master has no
 mute/solo/arm), degrades to "nothing happens" instead of an exception inside Live.
 """
 
-from .mapping import Param, Track, Song
+from .mapping import Param, Track, Song, ClipSlot, ClipState, Scene
 
 TEMPO_MIN, TEMPO_MAX = 20.0, 999.0      # Live's tempo range
 TEMPO_STEP = 1.0                        # BPM per encoder unit
@@ -130,9 +130,90 @@ def _wrap(p):
     return LiveParam(p) if p is not None else None
 
 
+class _LazyList(object):
+    """A read-only view of a LOM list (from index `start`) that wraps an item only when it is
+    used. The mapping reads 8 strips or 8 device parameters out of lists that can be far longer,
+    and every wrapper costs LOM reads. The length is taken once, like list() did."""
+
+    __slots__ = ("_raw", "_wrap", "_start", "_n", "_items")
+
+    def __init__(self, raw, wrap, start=0):
+        try:
+            n = len(raw)
+        except Exception:
+            raw = tuple(raw or ())
+            n = len(raw)
+        self._raw, self._wrap, self._start = raw, wrap, start
+        self._n = max(0, n - start)
+        self._items = {}
+
+    def __len__(self):
+        return self._n
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return [self[j] for j in range(*i.indices(self._n))]
+        if i < 0:
+            i += self._n
+        if not 0 <= i < self._n:
+            raise IndexError(i)
+        try:
+            return self._items[i]
+        except KeyError:
+            item = self._items[i] = self._wrap(self._raw[self._start + i])
+            return item
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield self[i]
+
+
+class LiveClipSlot(ClipSlot):
+    """A ClipSlot and its clip (if any)."""
+
+    def __init__(self, slot):
+        self.slot = slot
+
+    def _clip(self):
+        if not _get(self.slot, "has_clip", False):
+            return None
+        return _get(self.slot, "clip")
+
+    def state(self):
+        clip = self._clip()
+        if clip is None:
+            return None
+        # A queued launch sets the clip's is_triggered; the slot's covers a queued stop pressed on it.
+        triggered = bool(_get(clip, "is_triggered", False)) or bool(_get(self.slot, "is_triggered", False))
+        return ClipState(_get(clip, "color"), bool(_get(clip, "is_playing", False)),
+                         bool(_get(clip, "is_recording", False)), triggered)
+
+    def fire(self):
+        clip = self._clip()
+        if clip is not None:
+            _call(clip, "fire")
+
+    def stop(self):
+        clip = self._clip()
+        if clip is not None:
+            _call(clip, "stop")
+
+
+class LiveScene(Scene):
+    def __init__(self, scene):
+        self.scene = scene
+
+    def fire(self):
+        _call(self.scene, "fire")
+
+    def is_triggered(self):
+        return bool(_get(self.scene, "is_triggered", False))
+
+
 class LiveTrack(Track):
     def __init__(self, t):
         self.t = t
+        self._slots = None          # clip_slots, read once per wrapper (a wrapper lasts one refresh)
 
     @property
     def key(self):
@@ -165,6 +246,16 @@ class LiveTrack(Track):
             i = 0 if name == "send_a" else 1
             return _wrap(sends[i]) if i < len(sends) else None
         return None
+
+    def clip_slot(self, scene):
+        slots = self._slots
+        if slots is None:
+            slots = self._slots = _get(self.t, "clip_slots", ()) or ()
+        try:
+            n = len(slots)
+        except Exception:
+            return None
+        return LiveClipSlot(slots[scene]) if 0 <= scene < n else None
 
 
 class LiveSong(Song):
@@ -218,7 +309,7 @@ class LiveSong(Song):
     # ---- tracks ----
 
     def bank_tracks(self):
-        return [self._track(t) for t in (_get(self.song, "tracks", ()) or ())]
+        return _LazyList(_get(self.song, "tracks", ()) or (), self._track)
 
     def nav_tracks(self):
         visible = _get(self.song, "visible_tracks", None)
@@ -260,15 +351,15 @@ class LiveSong(Song):
         return lom_key(d)
 
     def _params(self, device):
-        return list(_get(device, "parameters", ()) or ()) if device is not None else []
+        return (_get(device, "parameters", ()) or ()) if device is not None else ()
 
     def device_params(self):
         # parameters[0] is the device's on/off switch ("Device On") in the LOM.
-        return [LiveParam(p) for p in self._params(self._selected_device())[1:]]
+        return _LazyList(self._params(self._selected_device()), LiveParam, 1)
 
     def device_on_param(self):
-        ps = self._params(self._selected_device())
-        return LiveParam(ps[0]) if ps else None
+        ps = _LazyList(self._params(self._selected_device()), LiveParam)
+        return ps[0] if len(ps) else None
 
     def _device_list(self):
         view = _get(self.song, "view")
@@ -322,3 +413,16 @@ class LiveSong(Song):
         scene = _get(view, "selected_scene") if view is not None else None
         if scene is not None:
             _call(scene, "fire")
+
+    # ---- clip grid ----
+
+    def grid_tracks(self):
+        # The session view's columns: visible_tracks (folded group members left out), as the
+        # session highlight counts them.
+        visible = _get(self.song, "visible_tracks", None)
+        if visible is None:
+            visible = _get(self.song, "tracks", ()) or ()
+        return _LazyList(visible, self._track)
+
+    def grid_scenes(self):
+        return _LazyList(_get(self.song, "scenes", ()) or (), LiveScene)

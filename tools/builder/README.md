@@ -50,7 +50,7 @@ It checks: the format version (`gemifi: 2`; a format 1 file gets one error per o
 
 | Platform | Store | Budget |
 |---|---|---|
-| nuvoton-nuc1xx | data-flash journal | 6 usable 512 B pages (7, one kept spare); a record ≤ 512 B and never spans a page |
+| nuvoton-nuc1xx | data-flash journal | 5 usable 512 B pages (7, two kept free: an erase spare and room for a slot's old and new copy while it is rewritten); a record ≤ 512 B and never spans a page |
 | esp32 / esp32s2 / esp32s3 | NVS, a blob per slot | 12 KB in all, a blob ≤ 1984 B |
 | esp8266 | EEPROM sector | 4096 B for every slot together |
 | stm32f1 | a log over 3 config pages of 1 KB, one kept spare for compaction | every slot's record together (L) and the largest one (M): L ≤ 2 × 1024 − M B (`pages - 1` pages, less one record per page beyond two). Records are packed (v3, one group per param: int8 or int16 values with a bitmap of the stored indices, `packed_record_bytes()`; `WIDE_PARAMS` lists the int16 ones). Code 61: a preset ≤ 304 B, the globals ≤ 108 B (counted with a name), so 3 slots use 1020 of 1744 B (58%), up to 5 fit (4 under 85%) |
@@ -58,7 +58,7 @@ It checks: the format version (`gemifi: 2`; a format 1 file gets one error per o
 Not fitting is an error that says the largest `slots` that fits; using more than 85% is a warning (a fuller store means more erase cycles) that also says how many slots stay under 85%. Without `presets:`, a record that doesn't fit is only a warning (it was so with the old record format). The summary line shows the numbers:
 
 ```
-devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1836 B in 5 of 6 pages (3072 B)
+devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1908 B in 5 of 5 pages (2560 B)
 ```
 
 **DMA channels and timers (stm32f1).** `allocate_dma()` in `gemifi_device.py` gives the DMA users their DMA1 channels (core/README.md "DMA channels"). `rgb_serial` and `din_midi` with `dma: true` have fixed channels. Each hardware scan takes a timer whose requests land on free channels: its `hardware_scan.*.timer`, or with `auto` (the default) the first fitting one, in the order of `HW_SCAN_TIMERS`, trying the steps' requests in the order of `HW_SCAN_ROLES` / `HW_ADC_MUX`. The core's scan tick gets the first of TIM2..4 the scans leave. If no choice fits, the error names the clash and what would fit: `auto`, or precharge off. The summary shows the result, which also goes at the top of `gm_device_config.h` (the `GM_HW_SCAN_*`, `GM_HW_ADC_*` and `GM_SCAN_TICK_TIM` defines are for `platform/stm32f1/include/dma_map.h`):

@@ -27,6 +27,8 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 
 Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 has 4 KB of RAM and 32 KB of flash). Headers are C++-safe (the ESP platform is Arduino C++).
 
+What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the YAML knobs that trade them: [performance.md](performance.md).
+
 ## Virtual pins and hubs
 
 Every pin in a device is a `gm_pin_t { hub, flags, num }`:
@@ -348,7 +350,7 @@ displays:
 - **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, and a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again. `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
 - **From a host.** GET_COMPONENT lists each display (kind 6: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to it from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own (MIDI values, messages), which carries on underneath. FB_RELEASE 0 or 3 hands the display back, showing the device's text again.
 - **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
-- **Timing.** MIDI messages are only recorded where they're sent (the scan interrupt, for keys). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
+- **Timing.** MIDI messages are only recorded where they're sent (the main loop, keys too). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
@@ -392,6 +394,8 @@ din_midi:
 ## Device YAML
 
 Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: the pin schema, ids, `name`/`friendly_name`, hub components and time periods.
+
+For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
 ```yaml
 gemifi: 2                      # format version
@@ -555,7 +559,7 @@ presets:
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (one preset: they do nothing). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
 - **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `cc`, `note`, `preset`, `mcu`), `analog.cc`/`analog.mode`, `encoder.cc`/`encoder.mode`, `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
 - **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
-- **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its one 1 KB page: there the Code 61 takes up to 3 slots.
+- **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its 3 config pages of 1 KB: there the Code 61 fits up to 5 slots.
 
 **Generated code** (`gm_device.h` `gm_preset_def_t`): `GM_N_PRESETS` (slots; 1 without `presets:`) and `GM_PRESETS_REVISION` in `gm_device_config.h`, and in `gm_device_config.c` `gm_presets[GM_N_PRESETS]` (slot n = `gm_presets[n - 1]`) with one sorted `{ param id, index, value }` array per preset that has overrides:
 

@@ -1,0 +1,133 @@
+---
+layout: base.njk
+title: Platforms
+description: The chip families gemifi runs on (STM32F1, Nuvoton NUC1xx, ESP32 and ESP8266) with their clocks, memory, MIDI transports, bootloaders and update paths, and what's been checked on hardware.
+permalink: /platforms/
+---
+<section class="hero">
+  <h1>Platforms</h1>
+  <p>The chip families gemifi builds for, and what each one can do.</p>
+</section>
+
+<section class="section">
+  <p class="section-intro">
+    A platform is the chip-specific part of the firmware: start-up, clocks,
+    USB or serial MIDI, flash, settings storage and updates. The same core
+    runs on all of them, and a device YAML picks one with
+    <code>platform:</code>. The devices are where each platform has been
+    tried.
+  </p>
+  <ul class="card-grid">
+    {% for p in platforms %}
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="#{{ p.id }}">{{ p.name }}</a></h3>
+        <p>{{ p.summary }}</p>
+        <div class="card-foot">
+          <span>{% for k in p.keys %}<code>{{ k }}</code>{% if not loop.last %} {% endif %}{% endfor %}</span>
+          <span class="status status-{{ p.status }}">{{ statuses[p.status].label }}</span>
+        </div>
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section">
+  <h2>At a glance</h2>
+  <div class="prose wide">
+    <table>
+      <thead>
+        <tr><th></th><th>STM32F1</th><th>NUC1xx</th><th>ESP32 / S2 / S3</th><th>ESP8266</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>CPU</th><td>Cortex-M3, 72 MHz</td><td>Cortex-M0, 48 MHz</td><td>Xtensa, 240 MHz (ESP32, S3)</td><td>80 / 160 MHz</td></tr>
+        <tr><th>RAM</th><td>20 KB</td><td>4 KB</td><td>not measured</td><td>not measured</td></tr>
+        <tr><th>App flash</th><td>99 KB</td><td>32 KB</td><td>1.9 MB slot</td><td>about 1 MB</td></tr>
+        <tr><th>USB-MIDI</th><td>yes</td><td>yes</td><td>S2, S3</td><td>no</td></tr>
+        <tr><th>Serial MIDI</th><td>no</td><td>no</td><td>yes</td><td>yes</td></tr>
+        <tr><th>BLE MIDI</th><td>no</td><td>no</td><td>ESP32, S3 (untested)</td><td>no</td></tr>
+        <tr><th>DIN MIDI</th><td>yes</td><td>no</td><td>no</td><td>no</td></tr>
+        <tr><th>First install</th><td>gemifi bootloader, over SWD</td><td>gemifi bootloader, over SWD</td><td>ROM bootloader, Web Serial</td><td>ROM bootloader, Web Serial</td></tr>
+        <tr><th>Updates</th><td>USB, through the bootloader</td><td>USB, through the bootloader</td><td>MIDI, A/B slots</td><td>MIDI, A/B slots</td></tr>
+        <tr><th>Hardware scan (DMA)</th><td>yes</td><td>no</td><td>no</td><td>no</td></tr>
+        <tr><th>On hardware</th><td>works</td><td>works</td><td>not yet</td><td>not yet</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% for p in platforms %}
+<section class="section" id="{{ p.id }}">
+  <h2>{{ p.name }} <span class="status status-{{ p.status }}">{{ statuses[p.status].label }}</span></h2>
+  <p class="section-intro">{{ p.summary }}</p>
+  <dl class="facts">
+    <div><dt>YAML</dt><dd>{% for k in p.keys %}<code>platform: {{ k }}</code>{% if not loop.last %}<br />{% endif %}{% endfor %}</dd></div>
+    {% for row in p.facts %}
+    <div><dt>{{ row[0] }}</dt><dd>{{ row[1] | safe }}</dd></div>
+    {% endfor %}
+    <div>
+      <dt>Devices</dt>
+      <dd>
+        {% for d in collections.devices %}{% if p.devices.includes(d.page.fileSlug) %}<a href="{{ d.url | url }}">{{ d.data.maker }} {{ d.data.model }}</a> <span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span><br />{% endif %}{% endfor %}
+      </dd>
+    </div>
+    <div>
+      <dt>More</dt>
+      <dd>
+        {% for doc in p.docs %}<a href="{{ site.blob }}{{ doc[0] }}" rel="noopener">{{ doc[1] }}</a> · {% endfor %}<a href="{{ site.repo }}/issues/{{ p.issue }}" rel="noopener">hardware tests (#{{ p.issue }})</a>
+      </dd>
+    </div>
+  </dl>
+</section>
+{% endfor %}
+
+<section class="section">
+  <h2>How an update reaches the chip</h2>
+  <div class="prose">
+    <p>
+      Every platform takes firmware over the same
+      <a href="{{ site.blob }}protocol/sysex.md" rel="noopener">SysEx protocol</a>,
+      so the web updater and <code>tools/host/gemifi.py</code> work the same
+      way on all of them. The difference is who writes the flash.
+    </p>
+    <ul>
+      <li>
+        <strong>A gemifi bootloader</strong> (STM32F1, NUC1xx). A small
+        program at the start of flash, put on once with a debug probe. The app
+        reboots into it, it takes the new app over USB-MIDI, checks it, and
+        starts it. An upload that stops half-way leaves the board in the
+        bootloader, never with a half-written app, so you can try again.
+      </li>
+      <li>
+        <strong>A/B slots</strong> (ESP). The app writes the new firmware into
+        its spare slot and switches to it only once it has been checked. If the
+        new one is broken, a first install over USB puts things right.
+      </li>
+    </ul>
+    <p>
+      Either way, the settings live outside the app, so an update keeps them.
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Adding a platform</h2>
+  <div class="prose">
+    <p>
+      A platform implements the HAL in
+      <a href="{{ site.blob }}core/include/gm_hal.h" rel="noopener"><code>core/include/gm_hal.h</code></a>:
+      pins, ADC, a scan timer, MIDI in and out, settings storage, reboot and,
+      without a bootloader, the firmware upload. The core uses no heap, no
+      floating point and no C library beyond <code>&lt;stdint.h&gt;</code>,
+      so that it fits the NUC120's 4 KB of RAM and 32 KB of flash. The builder needs to know the platform's pin names,
+      which pins have an ADC, and its settings budget.
+    </p>
+  </div>
+</section>
+
+<p class="readme-link">
+  What each component costs on each platform:
+  <a href="{{ site.blob }}core/performance.md" rel="noopener"><code>core/performance.md</code></a>.
+  The bootloaders' rules: <a href="{{ site.blob }}bootloader/README.md" rel="noopener"><code>bootloader/README.md</code></a>.
+</p>

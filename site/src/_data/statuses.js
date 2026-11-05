@@ -12,7 +12,7 @@ export default {
   },
   researched: {
     label: "Researched",
-    description: "We've studied the hardware and stock firmware. No gemifi build yet.",
+    description: "We've studied the hardware. No gemifi build yet.",
   },
   planned: {
     label: "Planned",

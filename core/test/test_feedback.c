@@ -156,7 +156,7 @@ static int count_status(uint8_t status_hi)
 static void button(int i, int down)
 {
     level[16 + i] = down ? 0 : 1;
-    run_ms(15);
+    run_ms(25);                     /* past the release debounce (BTN_STABLE) */
 }
 
 /* LEDs: PC0..PC8 = pins 32..40, ring PD0..PD4 = pins 48..52 (active-high) */

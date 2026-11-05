@@ -425,7 +425,7 @@ int main(void)
     closed[16][0] = 1;
     run_ms(20);
     closed[16][2] = 0;
-    run_ms(20);
+    run_ms(30);                     /* release debounce + an LED update */
     CHECK(level[32] == 0, "chan released: LED off");
     closed[16][0] = 0;
     run_ms(20);

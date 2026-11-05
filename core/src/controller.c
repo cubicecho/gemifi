@@ -33,9 +33,10 @@
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
  * release counts once the button has read released for BTN_STABLE samples in
- * a row (10 ms), which rides out contact bounce (4 ms was too short on the
- * Code 61: taps sometimes counted twice). */
-#define BTN_STABLE      10u
+ * a row (16 ms), which rides out contact bounce and a light press losing
+ * contact for a moment (on the Code 61, 4 ms and sometimes 10 ms counted a
+ * press twice). */
+#define BTN_STABLE      16u
 #define ANALOG_MS       2u          /* one analog input per period */
 #define LED_MS          10u
 #define I2C_MS          1u

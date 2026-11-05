@@ -208,3 +208,26 @@
   max-width: 48rem;
   margin: 0;
 }
+
+/* On a phone, a wide table scrolls inside the column, and long inline code
+   (file paths, commands) wraps, instead of widening the whole page. */
+.prose code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 40rem) {
+  .prose table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* "On this page": the section links at the top of a long page */
+.toc {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  font-size: 0.95rem;
+}

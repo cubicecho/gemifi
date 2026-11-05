@@ -18,8 +18,8 @@ Every SWD script takes `--probe buspirate` (the default) or `--probe cmsis-dap` 
 
 ## 0. Words used here
 
-- **APROM** (32 KB at 0x0): the main firmware. Stock: the M-Audio app. Later: the gemifi app.
-- **LDROM** (4 KB at 0x00100000): a small boot area. Stock: M-Audio's updater. Later: the gemifi bootloader.
+- **APROM** (32 KB at 0x0): the main firmware. Stock: the M-Audio app. With gemifi: the gemifi app.
+- **LDROM** (4 KB at 0x00100000): a small boot area. Stock: M-Audio's updater. With gemifi: the gemifi bootloader.
 - **Data flash** (4 KB at 0x1F000): settings storage.
 - **CONFIG0/1** (0x00300000): chip settings. Stock CONFIG0 = `0xFF4FFF7F`: **boot from LDROM** (CBS=0), **unlocked**, internal RC clock, brown-out reset at 3.8 V. We never need to change it.
 - Plain memory reads (`mdw`) work for APROM only. LDROM, data flash and CONFIG need **ISP reads** through the flash controller with the CPU halted. The scripts handle this.
@@ -323,29 +323,27 @@ gemifi.py flash firmware.bin --board 0x3F00 --version 1.2.3 --dry-run --max-chun
 
 ### M-Audio Code 61 (STM32F1, board 0x0002)
 
-The Code 61 keeps M-Audio's bootloader (0x08000000–0x080023FF). gemifi replaces only the app, through M-Audio's own SysEx update protocol, so the case stays closed. It has run on hardware: on 2026-11-03 it put stock v1.2.2 back from the web updater. The test unit has since moved to the gemifi bootloader (`bootloader/stm32f1`), which takes gemifi apps over the gemifi protocol, like the Keystation's. Background: `research/devices/m-audio-code61/analysis/update-protocol.md` and `custom-firmware-path.md`.
+The Code 61 runs the gemifi bootloader ([`bootloader/stm32f1`](../bootloader/stm32f1/)) in its first 9 KB. It goes on once, over SWD on header JMP1 (`tools/swd/stm32f1/code61.sh`). From then on the app is updated over USB like the Keystation's, with the web updater or `gemifi.py flash`: the app reboots into the bootloader (REBOOT(1)) and the upload follows `protocol/sysex.md` §4.2.
 
 ```sh
-python3 tools/host/mkimage.py app.bin app.gfw --board 0x0002 --version 0.1.0 \
-    --hdr-offset 0x130 --base 0x08002400 --max-size 102398        # what the platform Makefile runs
-python3 tools/host/gemifi.py flash app.gfw [--dry-run]
-python3 tools/host/gemifi.py restore-stock FirmwareFile_v1.2.1.hex.txt [--dry-run]
-python3 tools/host/maudio_update.py info|build|syx|send|request ...   # the vendor protocol on its own
+tools/swd/stm32f1/code61.sh backup code61-backup.bin       # all 128 KB first (private: never commit it)
+tools/swd/stm32f1/code61.sh write-boot bootloader.bin      # the gemifi bootloader at 0x08000000, once
+python3 tools/host/gemifi.py flash midi-controller.gfw     # the app, over USB, every time after
 ```
 
-How `gemifi.py flash` does it:
-1. Checks the `.gfw` (header at 0x130, linked at 0x08002400, at most 102,398 bytes). A raw `.bin` works too, with `--board 0x0002`.
-2. Builds the update stream the way the stock file is laid out: one record per 1 KB page that holds the image (erase, load, program), an erase-only record for each page after it up to 0x0801AFFF, then page 0x0801B000 with the image checksum at 0x0801B3FE, written last. Built from the stock app, this gives the stock file byte for byte.
-3. Asks the running app for update mode. A gemifi app gets HELLO, then REBOOT(1). The stock app gets the vendor start message and answers `F0 15 F7`.
-4. Tells you to **power-cycle the keyboard**, and waits for the port to go away and come back (`--wait`, 120 s).
-5. Probes the bootloader with the start message until it answers `F0 45 F7` (or `1A`). Then sends the start message again, and every record as ASCII-hex SysEx chunks, 3 ms apart, waiting up to 10 s for the ack after each record.
-6. Waits for HELLO from the new gemifi app (`--after-wait`, 20 s) and checks the version.
+To force update mode, hold **Up + Down** while the keyboard powers on. With no valid app, the bootloader stays in update mode by itself.
 
-If anything fails, the update request stays set. Power-cycle and run the same command again, or go back to stock with `restore-stock` and M-Audio's update file (never commit that file).
+**Units still on M-Audio's bootloader.** `gemifi.py flash` asks the device which bootloader it has, the same way the web updater does:
+- a gemifi bootloader port, or an app reporting HELLO caps bit 7, means the gemifi upload;
+- anything else (the stock app, or a gemifi app installed under M-Audio's bootloader) means M-Audio's SysEx update protocol (`maudio_update.py`).
 
-Options for the vendor protocol: `--boot-port NAME` (the bootloader's port name isn't known yet; the default looks for "Code" or "M-Audio"), `--ack-timeout`, `--probe-timeout`, `--gap` (ms), `--record-retries N` (default 0: the stock updater doesn't resend), `--no-restart` (no second start message after the probe).
+`--via gemifi` or `--via vendor` skips the question. A dry run shows the gemifi plan unless `--via vendor` is given. The vendor route builds the update stream from the `.gfw`, asks for update mode (REBOOT(1) from a gemifi app, the vendor start message from the stock app), needs a **power cycle**, then sends the records. Its options are `--boot-port`, `--ack-timeout`, `--probe-timeout`, `--gap` (ms), `--record-retries N` and `--no-restart`. `restore-stock FILE` sends one of M-Audio's own update files back as it is (never commit that file).
 
-Unknowns that a first hardware run has to settle: whether the bootloader takes a stream from our tool at all, what `45` and `1A` each mean, whether `0D`/`0E` reboot the keyboard by themselves, and whether a soft reset with the request flag set is enough (otherwise it's always a power cycle). Do the safe steps in `custom-firmware-path.md` §8 first: send the stock stream with `restore-stock` before any gemifi image.
+```sh
+python3 tools/host/gemifi.py flash app.gfw --via vendor [--dry-run]
+python3 tools/host/gemifi.py restore-stock FirmwareFile.hex.txt [--dry-run]
+python3 tools/host/maudio_update.py info|build|syx|send|request ...   # the vendor protocol on its own
+```
 
 ### Config from the command line (`gemifi.py`, app firmware)
 

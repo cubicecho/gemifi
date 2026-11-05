@@ -79,7 +79,7 @@ Two hubs can share a control line (e.g. an sn74hc595 and an sn74hc165 on one clo
 | `<image>.gfw`, `<image>.bin` | the image(s), copied here at the end. `<image>` is the node name and version, as ESPHome names its builds: `keystation-mini32-0.1.5` (just the node name without `project: { version }`). The previous build's images are removed first. |
 
 - NUC1xx: `make -C firmware/nuvoton-nuc1xx/midi-controller DEVICE_DIR=<config> BUILD=<out>/fw`, image `midi-controller.gfw`.
-- STM32F1: `make -C firmware/stm32f1/midi-controller DEVICE_DIR=<config> BUILD=<out>/fw`, image `midi-controller.gfw` (installed through the keyboard's own bootloader; `tools/README.md`).
+- STM32F1: `make -C firmware/stm32f1/midi-controller DEVICE_DIR=<config> BUILD=<out>/fw`, image `midi-controller.gfw` (installed through the gemifi bootloader, `bootloader/stm32f1`; `tools/README.md`).
 - ESP: `GM_DEVICE_DIR=<config> GM_PIO_EXTRA=<out>/board.ini PLATFORMIO_BUILD_DIR=<out>/pio pio run -d firmware/esp/midi-controller -e <platform>`. `board.ini` sets `board = <chip>` for that env (pio has no command-line board override). Outputs copied to `<out>/`: `<image>.bin` (the app, for OTA over SysEx), `<image>-factory.bin` (merged, flash at 0x0 for a first install), `<image>-bootloader.bin`, `<image>-partitions.bin`, and `webflash/` (ESP Web Tools `manifest.json` + parts).
 
 Flash the image with the **web updater** (`cd web/updater && npm run dev`) or `tools/host/gemifi.py`. The builder doesn't flash.

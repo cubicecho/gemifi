@@ -130,6 +130,44 @@ def _wrap(p):
     return LiveParam(p) if p is not None else None
 
 
+class _LazyList(object):
+    """A read-only view of a LOM list (from index `start`) that wraps an item only when it is
+    used. The mapping reads 8 strips or 8 device parameters out of lists that can be far longer,
+    and every wrapper costs LOM reads. The length is taken once, like list() did."""
+
+    __slots__ = ("_raw", "_wrap", "_start", "_n", "_items")
+
+    def __init__(self, raw, wrap, start=0):
+        try:
+            n = len(raw)
+        except Exception:
+            raw = tuple(raw or ())
+            n = len(raw)
+        self._raw, self._wrap, self._start = raw, wrap, start
+        self._n = max(0, n - start)
+        self._items = {}
+
+    def __len__(self):
+        return self._n
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return [self[j] for j in range(*i.indices(self._n))]
+        if i < 0:
+            i += self._n
+        if not 0 <= i < self._n:
+            raise IndexError(i)
+        try:
+            return self._items[i]
+        except KeyError:
+            item = self._items[i] = self._wrap(self._raw[self._start + i])
+            return item
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield self[i]
+
+
 class LiveTrack(Track):
     def __init__(self, t):
         self.t = t
@@ -218,7 +256,7 @@ class LiveSong(Song):
     # ---- tracks ----
 
     def bank_tracks(self):
-        return [self._track(t) for t in (_get(self.song, "tracks", ()) or ())]
+        return _LazyList(_get(self.song, "tracks", ()) or (), self._track)
 
     def nav_tracks(self):
         visible = _get(self.song, "visible_tracks", None)
@@ -260,15 +298,15 @@ class LiveSong(Song):
         return lom_key(d)
 
     def _params(self, device):
-        return list(_get(device, "parameters", ()) or ()) if device is not None else []
+        return (_get(device, "parameters", ()) or ()) if device is not None else ()
 
     def device_params(self):
         # parameters[0] is the device's on/off switch ("Device On") in the LOM.
-        return [LiveParam(p) for p in self._params(self._selected_device())[1:]]
+        return _LazyList(self._params(self._selected_device()), LiveParam, 1)
 
     def device_on_param(self):
-        ps = self._params(self._selected_device())
-        return LiveParam(ps[0]) if ps else None
+        ps = _LazyList(self._params(self._selected_device()), LiveParam)
+        return ps[0] if len(ps) else None
 
     def _device_list(self):
         view = _get(self.song, "view")

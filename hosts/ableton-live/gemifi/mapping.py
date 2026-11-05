@@ -165,6 +165,48 @@ class Song(object):
         pass
 
 
+class _Reads(object):
+    """The song as the bindings see it. Inside refresh() each read below is done once and kept
+    until the refresh ends: many bindings ask for the same tracks or device parameters, and in
+    Live each of those is a walk over the LOM. Everything else, and every read outside
+    refresh(), goes straight to the song."""
+
+    CACHED = ("bank_tracks", "nav_tracks", "selected_track", "device_key", "device_params",
+              "device_on_param", "can_device_step", "can_scene_step")
+
+    def __init__(self, song):
+        self._song = song
+        self._memo = None
+
+    def begin(self):
+        self._memo = {}
+
+    def end(self):
+        self._memo = None
+
+    def __getattr__(self, name):
+        return getattr(self._song, name)
+
+
+def _cached_read(name):
+    def read(self, *args):
+        memo = self._memo
+        if memo is None:
+            return getattr(self._song, name)(*args)
+        key = (name,) + args
+        try:
+            return memo[key]
+        except KeyError:
+            value = memo[key] = getattr(self._song, name)(*args)
+            return value
+    read.__name__ = name
+    return read
+
+
+for _name in _Reads.CACHED:
+    setattr(_Reads, _name, _cached_read(_name))
+
+
 # ---------------------------------------------------------------------------
 # Bindings
 # ---------------------------------------------------------------------------
@@ -221,6 +263,7 @@ def _strip_role(role, prefixes):
 class Mapping(object):
     def __init__(self, song, notify, log=None):
         self.song = song
+        self._reads = _Reads(song)    # what bindings read through (cached inside refresh())
         self.notify = notify
         self.log = log
         self.bank_offset = 0
@@ -232,6 +275,7 @@ class Mapping(object):
         self._leds = {}
         self._analogs = {}
         self._encoders = {}
+        self._device_slots = []       # (N, component) of each device_param_N binding
         self._led_cache = {}
         self._value_cache = {}
         self._ring_cache = {}
@@ -244,6 +288,7 @@ class Mapping(object):
         LEDs with owner: local ignore FB_LED, so they get no binding (sysex.md 4.6.1 `owner`).
         `layers_on`: the mode indexes whose layers are on (Device.layers_on)."""
         self._buttons, self._leds, self._analogs, self._encoders = {}, {}, {}, {}
+        self._device_slots = []
         self.layers_on = set(layers_on)
         self.reports_layers = any(c.layer is not None for c in components)
         self.unknown_roles = []
@@ -279,6 +324,9 @@ class Mapping(object):
                     continue
                 table = self._analogs if c.kind == P.KIND_ANALOG else self._encoders
                 table[c.index] = _ContBinding(c, target)
+                base, n = _strip_role(role, ("device_param",))
+                if base is not None:
+                    self._device_slots.append((n, c))
             # keys and displays: no roles in hosts/README.md yet
 
     def _unknown(self, c):
@@ -302,7 +350,7 @@ class Mapping(object):
     # ---- role tables ----
 
     def _button_role(self, role):
-        s = self.song
+        s = self._reads
         flag_roles = {"record": "record", "loop": "loop", "metronome": "metronome", "overdub": "overdub",
                       "session_record": "session_record", "automation_arm": "automation_arm"}
         if role == "play":
@@ -405,7 +453,7 @@ class Mapping(object):
 
     def _cont_role(self, role):
         """role -> () -> Param or None."""
-        s = self.song
+        s = self._reads
         sel = {"track_volume": "volume", "track_pan": "pan", "send_a": "send_a", "send_b": "send_b"}
         if role in sel:
             name = sel[role]
@@ -437,12 +485,12 @@ class Mapping(object):
     # ---- navigation ----
 
     def strip_track(self, i):
-        tracks = self.song.bank_tracks()
+        tracks = self._reads.bank_tracks()
         k = self.bank_offset + i
         return tracks[k] if 0 <= k < len(tracks) else None
 
     def _can_bank_step(self, d):
-        n = len(self.song.bank_tracks())
+        n = len(self._reads.bank_tracks())
         return self.bank_offset > 0 if d < 0 else self.bank_offset + STRIPS < n
 
     def bank_step(self, d, by=STRIPS):
@@ -457,10 +505,9 @@ class Mapping(object):
         if not self.reports_layers:
             return STRIPS
         top = 0
-        for b in list(self._analogs.values()) + list(self._encoders.values()):
-            base, n = _strip_role(b.component.role, ("device_param",))
-            if base is not None and b.component.live(self.layers_on):
-                top = max(top, n)
+        for n, c in self._device_slots:
+            if n > top and c.live(self.layers_on):
+                top = n
         return (top + 3) // 4 * 4 if top else STRIPS
 
     @property
@@ -471,17 +518,17 @@ class Mapping(object):
     def _can_device_bank_step(self, d):
         if d < 0:
             return self.device_offset > 0
-        return self.device_offset + self.device_page() < len(self.song.device_params())
+        return self.device_offset + self.device_page() < len(self._reads.device_params())
 
     def device_bank_step(self, d):
         if self._can_device_bank_step(d):
             self.device_offset = max(0, self.device_offset + d * self.device_page())
 
     def _track_index(self):
-        cur = self.song.selected_track()
+        cur = self._reads.selected_track()
         if cur is None:
             return None, []
-        tracks = self.song.nav_tracks()
+        tracks = self._reads.nav_tracks()
         for i, t in enumerate(tracks):
             if t.same(cur):
                 return i, tracks
@@ -522,7 +569,9 @@ class Mapping(object):
                 p = b.target()
                 if p is not None and ev.delta:
                     p.nudge(ev.delta)
-                    self._refresh_encoder(b)
+                    # The ring follows at once; FB_VALUE waits for the next refresh (the tick),
+                    # so a fast turn isn't echoed back one FB_VALUE per EVENT.
+                    self._refresh_encoder(b, value=False)
         elif ev.type == P.EVENT_LAYER:
             if ev.value:
                 self.layers_on.add(ev.index)
@@ -560,15 +609,23 @@ class Mapping(object):
     # ---- feedback ----
 
     def refresh(self):
-        dk = self.song.device_key()
+        self._reads.begin()
+        try:
+            self._refresh()
+        finally:
+            self._reads.end()
+
+    def _refresh(self):
+        s = self._reads
+        dk = s.device_key()
         if dk != self._device_key:
             self._device_key = dk
             self.device_offset = 0
-        n = len(self.song.device_params())
+        n = len(s.device_params())
         if self.device_offset and self.device_offset >= n:
             page = self.device_page()
             self.device_offset = max(0, ((n - 1) // page) * page)
-        n = len(self.song.bank_tracks())
+        n = len(s.bank_tracks())
         if self.bank_offset and self.bank_offset >= n:
             self.bank_offset = max(0, ((n - 1) // STRIPS) * STRIPS)
         self._refresh_leds()
@@ -613,17 +670,21 @@ class Mapping(object):
             if b.component.takes_value:         # takeover: none ignores FB_VALUE (sysex.md 4.6.2)
                 self.notify(P.FB_VALUE, P.fb_value(P.KIND_ANALOG, b.component.index, now[1]))
 
-    def _refresh_encoder(self, b):
+    def _refresh_encoder(self, b, value=True):
+        """value=False: the ring only (FB_VALUE and its cache are left for the next refresh)."""
         c = b.component
+        if not value and not c.ring:
+            return
         p = b.target()
         k = (P.KIND_ENCODER, c.index)
         if p is None:
             ring = (P.RING_WRAP, 0, False, True)    # nothing mapped: ring off (flags bit 1)
-            self._value_cache[k] = None
+            if value:
+                self._value_cache[k] = None
         else:
             v = to14(p.get_norm())
             now = (p.key, v)
-            if self._value_cache.get(k) != now:
+            if value and self._value_cache.get(k) != now:
                 self._value_cache[k] = now
                 if c.takes_value:               # a relative encoder ignores FB_VALUE (sysex.md 4.6.2)
                     self.notify(P.FB_VALUE, P.fb_value(P.KIND_ENCODER, c.index, v))

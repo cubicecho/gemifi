@@ -10,7 +10,7 @@ facts:
   - [MCU, "Stock: an 8051-family P80C32 with an external EPROM. Planned: ESP32-S3"]
   - [Controls, "10 numbered footswitches plus UP and DOWN, 2 expression pedals, a 3-digit display, switch and status LEDs, 2 amp-switching relays"]
   - ["USB (gemifi)", "Not assigned yet"]
-  - [gemifi platform, "<code>esp32s3</code> (planned)"]
+  - [gemifi platform, "<a href=\"../../platforms/#esp\"><code>esp32s3</code></a> (planned)"]
 yaml: []
 photos: We haven't documented our own unit yet.
 ---

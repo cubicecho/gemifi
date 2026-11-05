@@ -19,7 +19,7 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 
 | | Code 61 (STM32F103RB) | Keystation Mini 32 (NUC120LC1BN) | ESP32 / S3 | ESP8266 |
 |---|---|---|---|---|
-| CPU | Cortex-M3, 72 MHz | Cortex-M0, 50 MHz, no divide instruction | Xtensa 240 MHz | 80/160 MHz |
+| CPU | Cortex-M3, 72 MHz | Cortex-M0 at 48 MHz (rated 50 MHz), no divide instruction | Xtensa 240 MHz | 80/160 MHz |
 | RAM used / total (measured) | 12.8 KB / 20 KB | 1.8 KB / 4 KB (512 B kept for the stack) | n/a | n/a |
 | Flash used (measured) | 61 KB of the 100 KB app slot | 25.7 KB of 32 KB | n/a | n/a |
 | One ADC conversion (derived) | 4.5 us (ADC2, 41.5-cycle sample) | ~5 us (6 MHz ADC clock) | tens of us (`analogRead`) | ~100 us (`analogRead`, blocks; #71) |

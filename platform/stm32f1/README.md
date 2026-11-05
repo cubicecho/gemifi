@@ -1,6 +1,6 @@
 # platform/stm32f1
 
-Bare-metal gemifi platform for STM32F103-class chips (Cortex-M3, 72 MHz) that run **behind a vendor bootloader**. The first board is the M-Audio Code 61 (`boards/m-audio-code61.h`, board id `0x0002`). Its chip is most likely a medium-density STM32F103RB or GD32F103RB (128 KB flash, 1 KB pages, 20 KB RAM, 8 MHz HSE). The 60-slot vector table is kept anyway, so the header stays at 0x130 for the tools.
+Bare-metal gemifi platform for STM32F103-class chips (Cortex-M3, 72 MHz) that run **behind a bootloader in the first 9 KB** of flash. The first board is the M-Audio Code 61 (`boards/m-audio-code61.h`, board id `0x0002`). Its chip is a genuine STM32F103RBT6 (128 KB flash, 1 KB pages, 20 KB RAM, 8 MHz HSE; confirmed on hardware 2026-11-03, #24). The test unit runs the gemifi bootloader ([`bootloader/stm32f1`](../../bootloader/stm32f1/)), which replaced the vendor's and keeps the same app address, so the app layout below didn't change. Parts of this file still describe the vendor bootloader the platform was first brought up behind. The 60-slot vector table is kept anyway, so the header stays at 0x130 for the tools.
 
 Background: [research/devices/m-audio-code61/analysis/custom-firmware-path.md](../../research/devices/m-audio-code61/analysis/custom-firmware-path.md).
 
@@ -10,7 +10,7 @@ Apps: `firmware/stm32f1/probe` (the first hardware test) and `firmware/stm32f1/m
 
 | Range | Use |
 |---|---|
-| 0x08000000–0x080023FF | vendor bootloader. Never written |
+| 0x08000000–0x080023FF | the bootloader: now the gemifi bootloader (`bootloader/stm32f1`, written once over SWD), first the vendor's. The app never writes it |
 | 0x08002400–0x0801AFFF | gemifi image (`ld/app.ld`): vectors 0x000–0x12F (16 core + 60 IRQ), `.gfw` header at +0x130 (0x08002530), then code |
 | 0x0801B000–0x0801B3FF | vendor "app valid" page. The host packer writes the whole-image checksum at 0x0801B3FE (the negated 16-bit byte sum of 0x08002400–0x0801B3FD). The app never writes it |
 | 0x0801B400–0x0801FBFF | vendor settings "EEPROM". The gemifi profile uses `BOARD_CONFIG_BASE`/`BOARD_CONFIG_PAGES` in here (Code 61: 0x0801EC00, 0x0801F000 and 0x0801F400, the pages the stock app never uses; never 0x0801F800, the vendor's preset names) |
@@ -45,7 +45,6 @@ The linker checks that the image starts at 0x08002400, that the header sits at 0
 
 ## Unverified (needs hardware)
 
-- The chip vendor (ST or GD32), the RAM size and the 1 KB page size. The probe app reports all of these.
 - Whether the vendor bootloader accepts our image, and whether it checks the flag after a soft reset or only at power-on. If only at power-on, REBOOT(1) needs a power cycle.
 - The recovery combo (row 16 PB8/PB9; which buttons those are), and the config pages (0x0801EC00/0x0801F000 come from static analysis only).
 - `DBGMCU_IDCODE` reads 0 without a debugger on genuine ST F103s (errata). The probe also reports SCB CPUID: r1p1 on ST, r2p1 on GD32.

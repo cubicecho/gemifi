@@ -15,7 +15,7 @@ facts:
   - ["USB (stock)", "<code>0763:3111</code>, class-compliant USB MIDI"]
   - ["USB (gemifi app)", "<code>1209:0002</code> “gemifi (Keystation Mini 32)”"]
   - ["USB (gemifi bootloader)", "<code>1209:0001</code> “gemifi boot (Keystation Mini 32)”"]
-  - [gemifi platform, "<code>nuvoton-nuc1xx</code>, board id <code>0x0001</code>"]
+  - [gemifi platform, "<a href=\"../../platforms/#nuvoton-nuc1xx\"><code>nuvoton-nuc1xx</code></a>, board id <code>0x0001</code>"]
 yaml:
   - devices/keystation-mini32-mk3.yaml
 photos: Our test unit was photographed during bring-up, but those photos aren't on this site yet.
@@ -45,9 +45,12 @@ Default mapping (every button's action and number can be changed from the web pa
 | Mod | CC 1, ramps up to 127 over 300 ms while held |
 | Volume knob | CC 7 |
 
-Not done yet: the bootloader doesn't guard against an app that crashes and
-restarts in a loop. Holding Pitch ▼ + Pitch ▲ at power-up still gets you into
-the bootloader.
+**Merged but not yet checked on hardware** ([#7]({{ site.repo }}/issues/7)):
+the bootloader's boot-loop guard and stored serial number, presets and the
+Edit mode below, DAW feedback and the optional DAW port, and the USB name
+“gemifi (Keystation Mini 32)”. The boot-loop guard only sees restarts the app
+makes itself; an app that hangs isn't caught. Holding Pitch ▼ + Pitch ▲ at
+power-up always gets you into the bootloader.
 
 ## The board
 
@@ -79,7 +82,7 @@ The full pin map is the device YAML. In short:
 - **Key matrix:** 8 drive rows (PA8, PA9, PC0–PC3, PC6, PC7, driven high one at
   a time) by 8 sense columns (PB0–PB5, PB8, PB12, with external pull-downs).
   Each key has two contacts, so 64 contacts make 32 keys. gemifi scans it every
-  125 µs, the same rate as the stock firmware.
+  125 µs, which takes about 21 µs of each tick.
 - **Buttons:** PA1–PA7, active-low, not part of the matrix: Sustain, Edit,
   Oct −, Oct +, Pitch ▼, Pitch ▲, Mod.
 - **LEDs:** active-low. Sustain on PA12, Edit on PA13, Oct − on PA10 and PA14,
@@ -124,9 +127,7 @@ settings too: the first time gemifi saves settings, it replaces the stock ones
 in data flash.
 
 This needs **your own backup**. gemifi doesn't ship or host stock firmware.
-
-The stock boot flash has an update mode of its own, but we haven't tested it,
-so we don't rely on it. SWD is the way back.
+SWD is the way back.
 
 ## Risks
 

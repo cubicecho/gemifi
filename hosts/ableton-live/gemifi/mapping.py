@@ -40,7 +40,7 @@ GRID_MOVES = {"grid_left": (-1, 0), "grid_right": (1, 0), "grid_up": (0, -1), "g
 RGB_OFF = (0, 0, 0)
 RGB_PLAYING = (0, 127, 0)       # green, like Live's play triangle
 RGB_RECORDING = (127, 0, 0)
-RGB_NO_COLOUR = (127, 127, 127)  # a clip without a (visible) colour
+RGB_NO_COLOUR = (0, 127, 127)    # a clip without a (visible) colour: teal, as in Bitwig
 
 
 def colour_rgb(colour):

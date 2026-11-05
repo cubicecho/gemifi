@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.33.0](https://github.com/cubicecho/gemifi/compare/v0.32.1...v0.33.0) (2026-11-05)
+
+
+### Bug Fixes
+
+* **live:** teal for a clip without a colour, as in Bitwig ([541233d](https://github.com/cubicecho/gemifi/commit/541233d350adf6937e4a488ca43fea2b9b812c17))
+
+
+### Features
+
+* **bitwig:** clip grid (pads, clip_T_S, scene_N, grid_*) ([b5bf778](https://github.com/cubicecho/gemifi/commit/b5bf77849669355fb5cf4a5b4969207be53f8a58))
+* **live:** clip grid (pads, clip_T_S, scene_N, grid_*) ([37d274e](https://github.com/cubicecho/gemifi/commit/37d274eda8d7ab2d6085d4ac38059542392a3d88))
+
 ## [0.32.1](https://github.com/cubicecho/gemifi/compare/v0.32.0...v0.32.1) (2026-11-05)
 
 

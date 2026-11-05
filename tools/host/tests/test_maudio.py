@@ -14,8 +14,10 @@ sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gemifi  # noqa: E402
 import gemifi_image as gi  # noqa: E402
+import gemifi_proto as gp  # noqa: E402
 import maudio_update as mu  # noqa: E402
 import mkimage  # noqa: E402
+from sim_device import SimDevice  # noqa: E402
 from sim_maudio import Code61Backend, SimCode61, _Port  # noqa: E402
 
 FIRMWARE = os.path.join(HERE, "..", "..", "..", "research", "devices", "m-audio-code61", "firmware")
@@ -311,6 +313,32 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(rc, 1)
 
 
+class Code61GemifiBoot:
+    """A Code 61 with the gemifi bootloader: the app (HELLO caps bit 7) on 'gemifi (Code 61)'; REBOOT(1) brings
+    up 'gemifi boot (Code 61)', which takes the gemifi upload (sysex.md 4.2) into the Code 61's app area;
+    REBOOT(0) starts the image in it."""
+    label = "sim-code61-gemifi-boot"
+    APP, BOOT = "gemifi (Code 61) 1", "gemifi boot (Code 61) 1"
+
+    def __init__(self, state="app"):
+        self.state = state
+        self.app = SimDevice(role=gp.ROLE_APP, board_id=2, fw_version=0x00010000, extra_caps=gp.CAP_GEMIFI_BOOT)
+        self.boot = SimDevice(role=gp.ROLE_BOOT, board_id=2, flash_size=gi.CODE61_MAX & ~3)
+
+    def ports(self):
+        if self.state == "app" and gp.REBOOT_BOOT in self.app.reboots:
+            self.state, self.boot.reboots = "boot", []
+        elif self.state == "boot" and gp.REBOOT_APP in self.boot.reboots:
+            ver = gi.parse_header(bytes(self.boot.flash[:0x200]), 0x130).fw_version
+            self.app = SimDevice(role=gp.ROLE_APP, board_id=2, fw_version=ver, extra_caps=gp.CAP_GEMIFI_BOOT)
+            self.state = "app"
+        return [self.APP if self.state == "app" else self.BOOT]
+
+    def open(self, name):
+        dev = self.app if name == self.APP else self.boot
+        return _Port(lambda m: [r] if (r := dev.handle(m)) is not None else [], name)
+
+
 class TestGemifiFlow(unittest.TestCase):
     def run_cli(self, backend, *args):
         a = gemifi.build_parser().parse_args(list(args) + ["--ack-timeout", "0.2", "--probe-timeout", "0.2",
@@ -367,12 +395,50 @@ class TestGemifiFlow(unittest.TestCase):
         self.assertEqual(be.events, ["REBOOT(1)", "bootloader", "finished"])
         self.assertEqual(be.state, "stock")
 
+    def write_gfw(self, d, img):
+        p = os.path.join(d, "app.gfw")
+        with open(p, "wb") as f:
+            f.write(img)
+        return p
+
+    def test_flash_through_gemifi_bootloader(self):
+        """An app with caps bit 7: REBOOT(1), then the gemifi upload, even past the NUC's 32 KB."""
+        be = Code61GemifiBoot()
+        img = gfw(61000, "0.2.89", seed=6)
+        with tempfile.TemporaryDirectory() as d:
+            rc, out = self.run_cli(be, "flash", self.write_gfw(d, img), "--wait", "2", "--no-backup")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("power-cycle", out)
+        self.assertEqual(bytes(be.boot.flash[:len(img)]), img)
+        self.assertEqual(be.state, "app")
+        self.assertIn("0.2.89", out)
+
+    def test_flash_from_gemifi_bootloader(self):
+        be = Code61GemifiBoot(state="boot")
+        img = gfw(40000, "0.2.90", seed=7)
+        with tempfile.TemporaryDirectory() as d:
+            rc, out = self.run_cli(be, "flash", self.write_gfw(d, img), "--wait", "2")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(bytes(be.boot.flash[:len(img)]), img)
+
+    def test_via_vendor_overrides(self):
+        be = Code61Backend("gemifi")
+        img = gfw(9000, "0.3.2", seed=8)
+        with tempfile.TemporaryDirectory() as d:
+            rc, out = self.run_cli(be, "flash", self.write_gfw(d, img), "--via", "vendor", "--wait", "10",
+                                   "--after-wait", "5")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(be.events, ["REBOOT(1)", "bootloader", "finished"])
+
     def test_dry_run_and_wrong_board(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "app.gfw")
             with open(p, "wb") as f:
                 f.write(gfw())
             rc, out = self.run_cli(None, "flash", p, "--dry-run")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("FW_DATA chunks", out)                 # the gemifi bootloader's plan
+            rc, out = self.run_cli(None, "flash", p, "--dry-run", "--via", "vendor")
             self.assertEqual(rc, 0, out)
             self.assertIn("Code 61", out)
             be = Code61Backend("gemifi")

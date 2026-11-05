@@ -244,8 +244,8 @@ def do_build(path, out_dir=None, out=None):
         print("Flash the .gfw with the web updater (web/updater, `npm run dev`) or "
               "tools/host/gemifi.py flash.", file=out)
     elif dev.platform.name == "stm32f1":
-        print("Flash the .gfw with the web updater or tools/host/gemifi.py flash: it goes through "
-              "the keyboard's own (M-Audio) bootloader and needs a power cycle on the way.", file=out)
+        print("Flash the .gfw with the web updater or tools/host/gemifi.py flash, through the gemifi "
+              "bootloader (bootloader/stm32f1, put on once over SWD).", file=out)
     return 0
 
 

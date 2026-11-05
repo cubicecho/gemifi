@@ -9,7 +9,8 @@
   gemifi.py flash FILE.bin --board 0x3F00 --version 1.2.3
                                       upload to an A/B device (ESP32/ESP8266): the app takes it itself
   gemifi.py flash FILE --dry-run      check the image and print the upload plan; no MIDI
-  gemifi.py flash FILE.gfw            Code 61 (board 0x0002): through M-Audio's own bootloader (maudio_update.py)
+  gemifi.py flash FILE.gfw            Code 61 (board 0x0002): through its gemifi bootloader, or through M-Audio's
+                                      own (maudio_update.py) on a unit that still has it (--via picks)
   gemifi.py restore-stock FirmwareFile.hex.txt
                                       Code 61: send a vendor update file as it is (back to stock firmware)
 
@@ -406,13 +407,19 @@ def _upload(sess, img, size, crc32, board_id, fw_version, make_plan, progress=No
     return max_chunk, len(plan)
 
 
+def board_max_size(board_id):
+    """The largest image a gemifi bootloader takes on this board (NUC1xx: its 32 KB APROM)."""
+    b = gi.BOARDS.get(board_id)
+    return b.max_size if b else gp.APROM_SIZE
+
+
 def upload(sess, img, hdr, progress=None):
     """Run FW_BEGIN / FW_DATA... / FW_END on a session connected to the bootloader (sysex.md 4.2):
     0x200 upward, page 0 last, no chunk across a 512-byte page."""
     def plan(max_chunk):
         if not gp.valid_max_chunk(max_chunk):
             raise GemifiError(f"device max_chunk {max_chunk} is not a multiple of 4 that divides 512")
-        return gp.chunk_plan(hdr.image_size, max_chunk)
+        return gp.chunk_plan(hdr.image_size, max_chunk, board_max_size(hdr.board_id))
     return _upload(sess, img, hdr.image_size, hdr.crc32, hdr.board_id, hdr.fw_version, plan, progress)
 
 
@@ -1320,7 +1327,10 @@ def cmd_flash(a, backend_factory):
     gfw = is_gfw(img)
     if (gfw and gi.parse_header(img, gi.find_hdr_offset(img)).board_id == mu.BOARD_ID) or \
             (not gfw and a.board == mu.BOARD_ID):
-        return flash_vendor(a, backend_factory, img)
+        if code61_route(a, backend_factory) == "vendor":
+            return flash_vendor(a, backend_factory, img)
+        if not gfw:
+            raise GemifiError(f"{a.file}: the gemifi bootloader needs a .gfw image (mkimage.py), not a raw .bin")
     if gfw:
         try:
             hdr = gi.check_image(img, a.board)
@@ -1341,7 +1351,7 @@ def cmd_flash(a, backend_factory):
                   "(a merged factory image is for the first flash with esptool, not for OTA)", file=sys.stderr)
     if a.dry_run:
         if gfw:
-            plan = gp.chunk_plan(hdr.image_size, a.max_chunk)
+            plan = gp.chunk_plan(hdr.image_size, a.max_chunk, board_max_size(hdr.board_id))
         else:
             plan = gp.linear_chunk_plan(len(padded), a.max_chunk)
         print(f"dry run: {len(plan)} FW_DATA chunks with max_chunk {a.max_chunk}"
@@ -1437,6 +1447,34 @@ def flash_ab(a, backend, name, s, h, img, board, version, t0, backup=None):
                                             verbose=a.verbose), h2, backup)
     print(f"done in {time.monotonic() - t0:.1f} s")
     return 0
+
+
+def code61_route(a, backend_factory):
+    """How a Code 61 image goes on: "gemifi" (its gemifi bootloader, FW_* as on the NUC) or "vendor"
+    (M-Audio's bootloader, maudio_update.py). --via picks; auto asks the device, as the web updater does:
+    a gemifi bootloader port, or an app with HELLO caps bit 7, means gemifi; anything else (the stock app,
+    a gemifi app on M-Audio's bootloader, or the vendor bootloader itself) means vendor."""
+    via = getattr(a, "via", "auto") or "auto"
+    if via != "auto":
+        return via
+    if a.dry_run:
+        return "gemifi"
+    backend = backend_factory()
+    if getattr(backend, "fixed", False):
+        return "gemifi"
+    if find_port(backend, "boot"):
+        return "gemifi"
+    app = find_port(backend, "app", a.port)
+    if not app:
+        return "vendor"
+    with backend.open(app) as port:
+        try:
+            h = Session(port, retries=1, verbose=a.verbose).hello()
+        except GemifiError:
+            return "vendor"
+    if h.role == gp.ROLE_BOOT or h.caps & gp.CAP_GEMIFI_BOOT:
+        return "gemifi"
+    return "vendor"
 
 
 # ---------------- Code 61: M-Audio's bootloader (maudio_update.py) ----------------
@@ -1703,12 +1741,15 @@ def build_parser():
     f.add_argument("--board", type=lambda s: int(s, 0),
                    help=".gfw: refuse images for another board_id; .bin (A/B device): the board_id to send (required)")
     f.add_argument("--version", help=".bin (A/B device): the image's fw_version as X.Y.Z (required)")
-    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot'; Code 61: "
-                   "'Code' or 'M-Audio')")
+    f.add_argument("--boot-port", help="substring for the bootloader port (default 'gemifi boot'; the Code 61 vendor "
+                   "route: 'Code' or 'M-Audio')")
     f.add_argument("--wait", type=float, default=None,
                    help="seconds to wait for the device after a reboot (default 6; 15 for A/B devices, since an "
-                        "ESP8266 copies the new image into place before it starts; Code 61: 120 for the power "
-                        "cycle)")
+                        "ESP8266 copies the new image into place before it starts; Code 61 vendor route: 120 for "
+                        "the power cycle)")
+    f.add_argument("--via", choices=("auto", "gemifi", "vendor"), default="auto",
+                   help="Code 61: the gemifi bootloader or M-Audio's (default auto: ask the device; a dry run "
+                        "shows the gemifi plan)")
     f.add_argument("--dry-run", action="store_true", help="validate and print the chunk plan; no MIDI")
     f.add_argument("--max-chunk", type=int, default=256, help="max_chunk for --dry-run")
     f.add_argument("-q", "--quiet", action="store_true")

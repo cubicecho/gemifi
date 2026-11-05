@@ -48,8 +48,9 @@ FEEDBACK_COMPONENTS = [
 class SimDevice:
     def __init__(self, role=gp.ROLE_BOOT, board_id=1, max_chunk=256, drop_replies=(), drop_requests=(),
                  busy_on=(), schema=None, bulk=True, ab=False, fw_version=0x00010000, presets=None, slots=None,
-                 revision=0, next_revision=None, components=None):
+                 revision=0, next_revision=None, components=None, flash_size=gp.APROM_SIZE, extra_caps=0):
         self.ab = ab
+        self.flash_size, self.extra_caps = flash_size, extra_caps   # a Code 61: its app area, caps bit 7
         if ab:
             role = gp.ROLE_APP
         self.role, self.board_id, self.max_chunk = role, board_id, max_chunk
@@ -63,8 +64,8 @@ class SimDevice:
         self.values = self.defaults()
         self.stored = None        # committed profile
         self.commits = 0
-        self.flash = bytearray(b"\xff" * gp.APROM_SIZE)
-        self.program_count = [0] * (gp.APROM_SIZE // 4)
+        self.flash = bytearray(b"\xff" * flash_size)
+        self.program_count = [0] * (flash_size // 4)
         self.state = "idle"
         self.last = None          # (frame bytes, reply bytes) of the last completed request
         self.n_req = 0
@@ -121,7 +122,7 @@ class SimDevice:
     def hello(self):
         app_caps = (gp.CAP_LOG | gp.CAP_EVENT | (gp.CAP_CONFIG if self.schema else 0) | (gp.CAP_FW if self.ab else 0)
                     | (gp.CAP_PRESETS if self.presets is not None else 0)
-                    | (gp.CAP_FEEDBACK if self.components is not None else 0))
+                    | (gp.CAP_FEEDBACK if self.components is not None else 0) | self.extra_caps)
         return gp.Hello(self.role, self.board_id, self.fw_version, 1,
                         self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
                         gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
@@ -186,7 +187,7 @@ class SimDevice:
             size, crc, board, ver = gp.dec_u32(p[0:5]), gp.dec_u32(p[5:10]), gp.dec_u14(p[10:12]), gp.dec_u32(p[12:17])
             if board != self.board_id:
                 return bytes([gp.BAD_BOARD])
-            if size == 0 or size % 4 or size > gp.APROM_SIZE:
+            if size == 0 or size % 4 or size > self.flash_size:
                 return bytes([gp.BAD_ADDR])
             self.size, self.crc, self.ver = size, crc, ver
             self.erase(0)
@@ -226,7 +227,7 @@ class SimDevice:
                 h = gi.check_image(img, self.board_id)
             except gi.ImageError:
                 return bytes([gp.BAD_IMAGE])
-            if h.crc32 != self.crc or gi.image_crc(img) != self.crc:
+            if h.crc32 != self.crc or gi.image_crc(img, gi.find_hdr_offset(img, self.board_id)) != self.crc:
                 return bytes([gp.BAD_IMAGE])
             return bytes([gp.OK])
         if f.cmd == gp.FW_ABORT:

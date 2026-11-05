@@ -492,10 +492,10 @@ class MappingTest {
     }
 
     @Test
-    void touchAndPadEventsAreIgnored() {
+    void touchAndUnboundPadEventsAreIgnored() {
         fake.take(-1);
         fake.event(5, 0, 1);                                        // touch (daw-scripts.md §4.5)
-        fake.event(7, 0, 9000);                                     // a pad twin's hit
+        fake.event(7, 0, 9000);                                     // a pad hit, no pads bound
         fake.event(7, 0, 0);
         assertTrue(fake.take(-1).isEmpty());
     }

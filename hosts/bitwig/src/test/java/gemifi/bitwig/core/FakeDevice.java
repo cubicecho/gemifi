@@ -27,6 +27,12 @@ final class FakeDevice {
         return c;
     }
 
+    static Component pad(String role, int led) {
+        Component c = c(Protocol.KIND_PAD, role);
+        c.led = led;
+        return c;
+    }
+
     static Component encoder(String role, int ring) {
         Component c = c(Protocol.KIND_ENCODER, role);
         c.ring = ring;

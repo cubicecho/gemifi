@@ -211,3 +211,110 @@ def test_continuous_nudge_uses_encoder_steps():
     p = DeviceParameter(0.0)
     LiveParam(p).nudge(ENCODER_STEPS // 2)
     assert p.value == pytest.approx(0.5)
+
+
+# ---- clip grid ----
+
+class Clip(object):
+    def __init__(self, color=0xFF0000):
+        self.color = color
+        self.is_playing = self.is_recording = self.is_triggered = False
+        self.calls = []
+
+    def fire(self):
+        self.calls.append("fire")
+        self.is_triggered = True
+
+    def stop(self):
+        self.calls.append("stop")
+
+
+class ClipSlot(object):
+    def __init__(self, clip=None):
+        self.clip = clip
+        self.is_triggered = False
+
+    @property
+    def has_clip(self):
+        return self.clip is not None
+
+
+class CountedTrack(object):
+    """A track whose clip_slots reads are counted (each one builds a tuple in Live)."""
+
+    def __init__(self, n_scenes):
+        self._slots = [ClipSlot() for _ in range(n_scenes)]
+        self.reads = 0
+
+    @property
+    def clip_slots(self):
+        self.reads += 1
+        return tuple(self._slots)
+
+
+def grid_song(n_tracks=3, n_scenes=3):
+    s = Song()
+    s.tracks = [CountedTrack(n_scenes) for _ in range(n_tracks)]
+    s.visible_tracks = s.tracks[1:]                  # the first one folded away in a group
+    s.scenes = [NS(is_triggered=False, fired=0) for _ in range(n_scenes)]
+    for sc in s.scenes:
+        sc.fire = (lambda x: lambda: setattr(x, "fired", x.fired + 1))(sc)
+    return s
+
+
+def test_grid_tracks_are_the_visible_ones():
+    s = grid_song()
+    ls = LiveSong(s)
+    tracks = ls.grid_tracks()
+    assert [t.t for t in tracks] == s.tracks[1:]
+    del s.visible_tracks
+    assert len(ls.grid_tracks()) == 3                # no visible_tracks: all tracks
+
+
+def test_clip_slot_state_fire_and_stop():
+    s = grid_song()
+    ls = LiveSong(s)
+    t = ls.grid_tracks()[0]
+    assert t.clip_slot(0).state() is None            # empty
+    assert t.clip_slot(3) is None and t.clip_slot(-1) is None
+    clip = s.tracks[1]._slots[1].clip = Clip(0x123456)
+    slot = t.clip_slot(1)
+    st = slot.state()
+    assert (st.colour, st.playing, st.recording, st.triggered) == (0x123456, False, False, False)
+    slot.fire()
+    assert clip.calls == ["fire"] and slot.state().triggered
+    clip.is_triggered, clip.is_playing = False, True
+    s.tracks[1]._slots[1].is_triggered = True        # a stop queued on the slot
+    st = slot.state()
+    assert st.playing and st.triggered
+    slot.stop()
+    assert clip.calls == ["fire", "stop"]
+    s.tracks[1]._slots[1].clip = None
+    slot.fire()                                      # gone meanwhile: nothing, no exception
+    assert slot.state() is None
+
+
+def test_grid_scenes():
+    s = grid_song()
+    ls = LiveSong(s)
+    scenes = ls.grid_scenes()
+    assert len(scenes) == 3 and not scenes[0].is_triggered()
+    s.scenes[2].is_triggered = True
+    scenes[2].fire()
+    assert scenes[2].is_triggered() and s.scenes[2].fired == 1
+
+
+def test_mapping_reads_only_the_grid_from_the_lom():
+    from gemifi import protocol as P
+    from gemifi.mapping import Mapping
+    from fakes import C
+    s = grid_song(n_tracks=40, n_scenes=50)
+    comps = [C(P.KIND_BUTTON, i, "clip_%d_%d" % (i % 4 + 1, i // 4 + 1), led=i) for i in range(16)]
+    sent = []
+    m = Mapping(LiveSong(s), lambda cmd, payload: sent.append(cmd))
+    m.bind(comps)
+    m.refresh()
+    assert sent.count(P.FB_LED_RGB) == 16
+    # The grid starts at visible track 0 (= tracks[1]): 4 tracks, clip_slots read once each.
+    assert [t.reads for t in s.tracks[:6]] == [0, 1, 1, 1, 1, 0]
+    assert sum(t.reads for t in s.tracks) == 4

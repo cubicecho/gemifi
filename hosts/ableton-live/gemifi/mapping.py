@@ -11,7 +11,11 @@ Layers (daw-scripts.md 5.11): a twin (`layer` > 0) is live only while its mode i
 Each component gets its own binding, so two components with one role (device_param_1 in two
 modes) both drive it, and feedback goes to both. The device only sends EVENTs from live ones;
 the mapping uses liveness only to page device parameters by the live device_param_N, and only
-when the firmware reports layers (else pages of 8, as before).
+when the firmware reports layers (else pages of 8, as before), and to show the clip grid's box
+only while a clip_T_S is live.
+
+Clip grid (daw-scripts.md 5.9): pads (kind 7) bind like buttons; only pad twins send EVENTs
+(type 7). clip_T_S LEDs get FB_LED_RGB. Only the grid's own slots are read, once per refresh.
 
 State is polled, not listened to: refresh() (called every tick, ~100 ms) reads every bound
 state, compares it with what was last sent, and sends only the differences. That keeps the
@@ -29,6 +33,22 @@ PICKUP_WINDOW = V14 * 3 // 100  # an analog within 3 % of the target picks it up
 JUMP_BEATS = 4.0              # rewind / fast_forward step
 REPEAT_DELAY_TICKS = 3        # held rewind / fast_forward repeats after ~300 ms, then every tick
 HOST_NAMESPACE = "live."       # this script's <host>.<command> roles (none yet); other hosts' are ignored
+GRID_MAX = 8                  # clip_T_S: T, S = 1..8 (daw-scripts.md 5.9)
+GRID_MOVES = {"grid_left": (-1, 0), "grid_right": (1, 0), "grid_up": (0, -1), "grid_down": (0, 1)}
+
+# Clip LEDs (FB_LED_RGB r, g, b, 0..127). A stopped clip shows its own colour.
+RGB_OFF = (0, 0, 0)
+RGB_PLAYING = (0, 127, 0)       # green, like Live's play triangle
+RGB_RECORDING = (127, 0, 0)
+RGB_NO_COLOUR = (0, 127, 127)    # a clip without a (visible) colour: teal, as in Bitwig
+
+
+def colour_rgb(colour):
+    """0xRRGGBB (Live's clip colour) -> (r, g, b) 0..127; RGB_NO_COLOUR if none or black."""
+    if not colour:
+        return RGB_NO_COLOUR
+    c = int(colour)
+    return ((c >> 17) & 0x7F, (c >> 9) & 0x7F, (c >> 1) & 0x7F)
 
 
 def to14(norm):
@@ -86,6 +106,39 @@ class Track(object):
     def param(self, name):
         """name: 'volume', 'pan', 'send_a', 'send_b'. Returns a Param or None."""
         return None
+
+    def clip_slot(self, scene):
+        """The ClipSlot in scene row `scene` (0-based), or None."""
+        return None
+
+
+class ClipState(object):
+    """What a clip slot's LED needs. colour: 0xRRGGBB or None. triggered: a launch or stop is queued."""
+
+    __slots__ = ("colour", "playing", "recording", "triggered")
+
+    def __init__(self, colour=None, playing=False, recording=False, triggered=False):
+        self.colour, self.playing, self.recording, self.triggered = colour, playing, recording, triggered
+
+
+class ClipSlot(object):
+    def state(self):
+        """A ClipState, or None for an empty slot."""
+        return None
+
+    def fire(self):
+        pass
+
+    def stop(self):
+        pass
+
+
+class Scene(object):
+    def fire(self):
+        pass
+
+    def is_triggered(self):
+        return False
 
 
 class Song(object):
@@ -164,6 +217,15 @@ class Song(object):
     def fire_selected_scene(self):
         pass
 
+    # clip grid (daw-scripts.md 5.9)
+    def grid_tracks(self):
+        """The tracks the grid's columns page through (in Live: the session view's visible tracks)."""
+        return []
+
+    def grid_scenes(self):
+        """The scenes the grid's rows page through."""
+        return []
+
 
 class _Reads(object):
     """The song as the bindings see it. Inside refresh() each read below is done once and kept
@@ -172,7 +234,7 @@ class _Reads(object):
     refresh(), goes straight to the song."""
 
     CACHED = ("bank_tracks", "nav_tracks", "selected_track", "device_key", "device_params",
-              "device_on_param", "can_device_step", "can_scene_step")
+              "device_on_param", "can_device_step", "can_scene_step", "grid_tracks", "grid_scenes")
 
     def __init__(self, song):
         self._song = song
@@ -183,6 +245,17 @@ class _Reads(object):
 
     def end(self):
         self._memo = None
+
+    def memo(self, key, fn):
+        """fn(), kept under `key` until the refresh ends (not kept outside refresh())."""
+        memo = self._memo
+        if memo is None:
+            return fn()
+        try:
+            return memo[key]
+        except KeyError:
+            value = memo[key] = fn()
+            return value
 
     def __getattr__(self, name):
         return getattr(self._song, name)
@@ -214,12 +287,13 @@ for _name in _Reads.CACHED:
 class _ButtonRole(object):
     """press() / release() actions and state() -> LED level."""
 
-    def __init__(self, press=None, release=None, state=None, momentary=False, repeat=None):
+    def __init__(self, press=None, release=None, state=None, momentary=False, repeat=None, rgb=None):
         self.press = press
         self.release = release
         self.state = state
         self.momentary = momentary      # LED lit while held
         self.repeat = repeat            # called every tick while held, after a delay
+        self.rgb = rgb                  # () -> (r, g, b, blink): the LED gets FB_LED_RGB instead
 
 
 class _ButtonBinding(object):
@@ -249,6 +323,20 @@ class _ContBinding(object):
         self.last_raw = None
 
 
+def _clip_role(role):
+    """'clip_2_3' -> (2, 3): column T, row S, both 1..8. Else None."""
+    parts = role.split("_")
+    if len(parts) != 3 or parts[0] != "clip" or not parts[1].isdigit() or not parts[2].isdigit():
+        return None
+    t, s = int(parts[1]), int(parts[2])
+    return (t, s) if 1 <= t <= GRID_MAX and 1 <= s <= GRID_MAX else None
+
+
+def _is_grid_role(role):
+    return (_clip_role(role) is not None or role in GRID_MOVES or
+            _strip_role(role, ("scene",))[0] is not None)
+
+
 def _strip_role(role, prefixes):
     """'volume_3' -> ('volume', 3) if the prefix is in `prefixes` and 1 <= N <= 8."""
     base, sep, num = role.rpartition("_")
@@ -261,24 +349,35 @@ def _strip_role(role, prefixes):
 
 
 class Mapping(object):
-    def __init__(self, song, notify, log=None):
+    def __init__(self, song, notify, log=None, highlight=None):
         self.song = song
         self._reads = _Reads(song)    # what bindings read through (cached inside refresh())
         self.notify = notify
         self.log = log
+        self.highlight = highlight    # (col, row, width, height) or None: show / hide the grid in the DAW
         self.bank_offset = 0
         self.device_offset = 0        # the first device parameter device_param_1 controls
+        self.grid_col = 0             # the grid's scroll position: track and scene of clip_1_1
+        self.grid_row = 0
+        self.grid_width = 1           # the largest T and S of the bound clip_T_S / scene_N
+        self.grid_height = 1
         self.layers_on = set()        # mode indexes whose layers are on (EVENT 8)
         self.reports_layers = False   # some component came with a `layer` byte (newer firmware)
         self._device_key = None
         self._buttons = {}
+        self._pads = {}
         self._leds = {}
+        self._rgb_leds = {}           # led -> () -> (r, g, b, blink): clip LEDs
         self._analogs = {}
         self._encoders = {}
         self._device_slots = []       # (N, component) of each device_param_N binding
+        self._clip_comps = []         # components with a clip_T_S role
+        self._has_grid = False        # some grid role is bound
         self._led_cache = {}
+        self._rgb_cache = {}
         self._value_cache = {}
         self._ring_cache = {}
+        self._box = None              # what highlight() was last given
         self.unknown_roles = []
 
     # ---- setup ----
@@ -287,26 +386,50 @@ class Mapping(object):
         """Build the bindings from the device's component list (roles already normalised).
         LEDs with owner: local ignore FB_LED, so they get no binding (sysex.md 4.6.1 `owner`).
         `layers_on`: the mode indexes whose layers are on (Device.layers_on)."""
-        self._buttons, self._leds, self._analogs, self._encoders = {}, {}, {}, {}
+        self._buttons, self._pads, self._leds, self._rgb_leds = {}, {}, {}, {}
+        self._analogs, self._encoders = {}, {}
         self._device_slots = []
+        self._clip_comps = []
         self.layers_on = set(layers_on)
         self.reports_layers = any(c.layer is not None for c in components)
         self.unknown_roles = []
         self.forget()
         local = set(c.index for c in components if c.kind == P.KIND_LED and c.local_only)
+        grid = [c for c in components if c.role and c.kind in (P.KIND_BUTTON, P.KIND_PAD, P.KIND_LED) and
+                not c.local_only and _is_grid_role(c.role)]
+        self._has_grid = bool(grid)
+        cols, rows = [1], [1]
+        for c in grid:
+            cs = _clip_role(c.role)
+            if cs is not None:
+                self._clip_comps.append(c)
+                cols.append(cs[0])
+                rows.append(cs[1])
+            else:
+                n = _strip_role(c.role, ("scene",))[1]
+                if n is not None:
+                    rows.append(n)
+        self.grid_width, self.grid_height = max(cols), max(rows)
         for c in components:
             role = c.role
             if not role:
                 continue
-            if c.kind == P.KIND_BUTTON:
+            if c.kind in (P.KIND_BUTTON, P.KIND_PAD):
+                # Pads: only twins send EVENTs (daw-scripts.md 5.9), but a base pad's LED still shows its role.
                 br = self._button_role(role)
                 if br is None:
                     self._unknown(c)
                     continue
                 b = _ButtonBinding(c, br)
-                self._buttons[c.index] = b
+                (self._buttons if c.kind == P.KIND_BUTTON else self._pads)[c.index] = b
                 if c.has_led and c.led not in local:
-                    self._leds[c.led] = _LedBinding(c.led, b.level)
+                    # A button's or pad's own binding wins over an LED's (it knows "held").
+                    self._leds.pop(c.led, None)
+                    self._rgb_leds.pop(c.led, None)
+                    if br.rgb is not None:
+                        self._rgb_leds[c.led] = br.rgb
+                    else:
+                        self._leds[c.led] = _LedBinding(c.led, b.level)
             elif c.kind == P.KIND_LED:
                 if c.local_only:
                     continue
@@ -314,9 +437,13 @@ class Mapping(object):
                 if br is None:
                     self._unknown(c)
                     continue
-                if c.index not in self._leds:      # a button's own binding wins (it knows "held")
+                if c.index in self._leds or c.index in self._rgb_leds:
+                    continue
+                if br.rgb is not None:
+                    self._rgb_leds[c.index] = br.rgb
+                else:
                     self._leds[c.index] = _LedBinding(c.index, (lambda r: (lambda: OFF if r.momentary or
-                                                       r.state is None else r.state()))(br))
+                                                      r.state is None else r.state()))(br))
             elif c.kind in (P.KIND_ANALOG, P.KIND_ENCODER):
                 target = self._cont_role(role)
                 if target is None:
@@ -327,7 +454,7 @@ class Mapping(object):
                 base, n = _strip_role(role, ("device_param",))
                 if base is not None:
                     self._device_slots.append((n, c))
-            # keys and displays: no roles in hosts/README.md yet
+            # keys and displays: not mapped
 
     def _unknown(self, c):
         # x_ roles and another host's commands (<host>.<command>, daw-scripts.md 6): ignored quietly.
@@ -337,15 +464,16 @@ class Mapping(object):
 
     def forget(self):
         """Drop what was sent: the next refresh() sends everything (after ready / a release)."""
-        self._led_cache, self._value_cache, self._ring_cache = {}, {}, {}
+        self._led_cache, self._rgb_cache, self._value_cache, self._ring_cache = {}, {}, {}, {}
         for b in list(self._analogs.values()):
             b.picked, b.last_raw = False, None
 
     def release(self):
         """The device is being handed back (FB_RELEASE goes out from device.release())."""
         self.forget()
-        for b in self._buttons.values():
+        for b in list(self._buttons.values()) + list(self._pads.values()):
             b.held = False
+        self._show_box(None)
 
     # ---- role tables ----
 
@@ -437,6 +565,29 @@ class Mapping(object):
             return _ButtonRole(press=lambda: s.scene_step(d), state=lambda: ON if s.can_scene_step(d) else OFF)
         if role == "stop_all_clips":
             return _ButtonRole(press=s.stop_all_clips, momentary=True)
+
+        # clip grid (daw-scripts.md 5.9)
+        cs = _clip_role(role)
+        if cs is not None:
+            t, row = cs[0] - 1, cs[1] - 1
+            return _ButtonRole(press=lambda: self._clip_press(t, row), rgb=lambda: self._clip_rgb(t, row))
+        base, n = _strip_role(role, ("scene",))
+        if base is not None:
+            def scene_press(i=n - 1):
+                sc = self._grid_scene(i)
+                if sc is not None:
+                    sc.fire()
+
+            def scene_state(i=n - 1):
+                sc = self._grid_scene(i)
+                if sc is None:
+                    return OFF
+                return BLINK if sc.is_triggered() else ON
+            return _ButtonRole(press=scene_press, state=scene_state)
+        if role in GRID_MOVES:
+            dx, dy = GRID_MOVES[role]
+            return _ButtonRole(press=lambda: self.grid_step(dx, dy),
+                               state=lambda: ON if self._can_grid_step(dx, dy) else OFF)
         return None
 
     def _track_flag_role(self, name, track_fn):
@@ -543,11 +694,81 @@ class Mapping(object):
         if i is not None and 0 <= i + d < len(tracks):
             self.song.select_track(tracks[i + d])
 
+    # ---- clip grid ----
+
+    def _can_grid_step(self, dx, dy):
+        """Back while the offset is > 0; on while the grid still ends before the last track / scene
+        (so it stays full)."""
+        if dx:
+            off, size, n, d = self.grid_col, self.grid_width, len(self._reads.grid_tracks()), dx
+        else:
+            off, size, n, d = self.grid_row, self.grid_height, len(self._reads.grid_scenes()), dy
+        return off > 0 if d < 0 else off + size < n
+
+    def grid_step(self, dx, dy):
+        if self._can_grid_step(dx, dy):
+            self.grid_col += dx
+            self.grid_row += dy
+
+    def _clip(self, t, row):
+        """(ClipSlot or None, ClipState or None) at the grid's column t, row `row` (0-based)."""
+        k, r = self.grid_col + t, self.grid_row + row
+
+        def read():
+            tracks = self._reads.grid_tracks()
+            if not 0 <= k < len(tracks):
+                return None, None
+            slot = tracks[k].clip_slot(r)
+            return slot, (slot.state() if slot is not None else None)
+        return self._reads.memo(("clip", k, r), read)
+
+    def _clip_press(self, t, row):
+        slot, st = self._clip(t, row)
+        if st is None:
+            return                      # an empty slot (or none there): nothing
+        if st.playing or st.recording:
+            slot.stop()
+        else:
+            slot.fire()
+
+    def _clip_rgb(self, t, row):
+        st = self._clip(t, row)[1]
+        if st is None:
+            return RGB_OFF + (False,)
+        if st.recording:
+            rgb = RGB_RECORDING
+        elif st.playing:
+            rgb = RGB_PLAYING
+        else:
+            rgb = colour_rgb(st.colour)
+        return rgb + (bool(st.triggered),)
+
+    def _grid_scene(self, i):
+        scenes = self._reads.grid_scenes()
+        k = self.grid_row + i
+        return scenes[k] if 0 <= k < len(scenes) else None
+
+    def grid_box(self):
+        """(col, row, width, height) of the grid for the DAW to show, or None: no clip_T_S, or (on
+        firmware that reports layers) none of them is live."""
+        if not self._clip_comps:
+            return None
+        if self.reports_layers and not any(c.live(self.layers_on) for c in self._clip_comps):
+            return None
+        return (self.grid_col, self.grid_row, self.grid_width, self.grid_height)
+
+    def _show_box(self, box):
+        if box == self._box or self.highlight is None:
+            return
+        self._box = box
+        self.highlight(box)
+
     # ---- events ----
 
     def handle_event(self, ev):
-        if ev.type == P.KIND_BUTTON:
-            b = self._buttons.get(ev.index)
+        if ev.type in (P.KIND_BUTTON, P.EVENT_PAD):
+            # A pad twin's EVENT 7 works as a button: value > 0 the press, 0 the release.
+            b = (self._buttons if ev.type == P.KIND_BUTTON else self._pads).get(ev.index)
             if b is None:
                 return
             if ev.value:
@@ -577,8 +798,8 @@ class Mapping(object):
                 self.layers_on.add(ev.index)
             else:
                 self.layers_on.discard(ev.index)
-            self.refresh()                      # device_bank_* LEDs follow the live page size
-        # keys (type 2), pads, touch and reserved types: not mapped
+            self.refresh()                      # device_bank_* LEDs follow the live page size; grid box
+        # keys (type 2), touch and reserved types: not mapped
 
     def _analog(self, b, raw):
         p = b.target()
@@ -599,7 +820,7 @@ class Mapping(object):
     # ---- clock ----
 
     def tick(self):
-        for b in self._buttons.values():
+        for b in list(self._buttons.values()) + list(self._pads.values()):
             if b.held and b.role.repeat is not None:
                 b.held_ticks += 1
                 if b.held_ticks >= REPEAT_DELAY_TICKS:
@@ -628,7 +849,13 @@ class Mapping(object):
         n = len(s.bank_tracks())
         if self.bank_offset and self.bank_offset >= n:
             self.bank_offset = max(0, ((n - 1) // STRIPS) * STRIPS)
+        if self._has_grid and (self.grid_col or self.grid_row):
+            # Tracks or scenes deleted: pull the grid back so it ends at the last one.
+            self.grid_col = min(self.grid_col, max(0, len(s.grid_tracks()) - self.grid_width))
+            self.grid_row = min(self.grid_row, max(0, len(s.grid_scenes()) - self.grid_height))
         self._refresh_leds()
+        self._refresh_rgb()
+        self._show_box(self.grid_box())
         for b in self._analogs.values():
             self._refresh_analog(b)
         for b in self._encoders.values():
@@ -655,6 +882,13 @@ class Mapping(object):
                 self.notify(P.FB_LEDS, P.fb_leds(run[0], [changed[k] for k in run]))
             if i is not None:
                 run = [i]
+
+    def _refresh_rgb(self):
+        for led, fn in self._rgb_leds.items():
+            v = fn()
+            if self._rgb_cache.get(led) != v:
+                self._rgb_cache[led] = v
+                self.notify(P.FB_LED_RGB, P.fb_led_rgb(led, v[0], v[1], v[2], v[3]))
 
     def _refresh_analog(self, b):
         p = b.target()

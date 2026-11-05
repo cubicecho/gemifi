@@ -3,6 +3,9 @@ package gemifi.bitwig;
 
 import com.bitwig.extension.controller.api.Application;
 import com.bitwig.extension.controller.api.BooleanValue;
+import com.bitwig.extension.controller.api.ClipLauncherSlot;
+import com.bitwig.extension.controller.api.ClipLauncherSlotBank;
+import com.bitwig.extension.controller.api.ColorValue;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.CursorTrack;
@@ -48,7 +51,17 @@ final class BitwigModel implements Model {
     private final BwParam masterVolume;
     private final BwParam crossfader;
 
+    private final ControllerHost host;
+    private final TrackBank gridBank;
+    private final SceneBank gridScenes;
+    private final Track[] gridTracks = new Track[Mapping.GRID];
+    private final ClipLauncherSlotBank[] gridSlotBanks = new ClipLauncherSlotBank[Mapping.GRID];
+    private final ClipLauncherSlot[][] slots = new ClipLauncherSlot[Mapping.GRID][Mapping.GRID];
+    private int gridWidth = -1;
+    private int gridHeight = -1;
+
     BitwigModel(ControllerHost host) {
+        this.host = host;
         hasOrigin = host.getHostApiVersion() >= API_ORIGIN;
         transport = host.createTransport();
         application = host.createApplication();
@@ -110,6 +123,30 @@ final class BitwigModel implements Model {
         sceneBank.canScrollForwards().markInterested();
         sceneBank.getScene(0).exists().markInterested();
         sceneBank.setIndication(true);
+
+        // The clip grid: its own 8 x 8 track bank (the API is fixed after init(), so the maximum),
+        // scrolled apart from the mixer bank. setGridSize() narrows it to what the roles use.
+        gridBank = host.createMainTrackBank(Mapping.GRID, 0, Mapping.GRID);
+        gridBank.itemCount().markInterested();
+        gridScenes = gridBank.sceneBank();
+        gridScenes.itemCount().markInterested();
+        for (int t = 0; t < Mapping.GRID; t++) {
+            gridTracks[t] = gridBank.getItemAt(t);
+            gridSlotBanks[t] = gridTracks[t].clipLauncherSlotBank();
+            for (int s = 0; s < Mapping.GRID; s++) {
+                ClipLauncherSlot slot = gridSlotBanks[t].getItemAt(s);
+                slot.exists().markInterested();
+                slot.hasContent().markInterested();
+                slot.isPlaying().markInterested();
+                slot.isRecording().markInterested();
+                slot.isPlaybackQueued().markInterested();
+                slot.isStopQueued().markInterested();
+                slot.isRecordingQueued().markInterested();
+                slot.color().markInterested();
+                slots[t][s] = slot;
+            }
+        }
+        for (int s = 0; s < Mapping.GRID; s++) gridScenes.getScene(s).exists().markInterested();
     }
 
     // The keys are read on every refresh, for every control: build a string only when its parts change.
@@ -475,5 +512,77 @@ final class BitwigModel implements Model {
     @Override
     public void launchScene() {
         if (sceneBank.getScene(0).exists().get()) sceneBank.launchScene(0);
+    }
+
+    // ---- clip grid ----
+
+    @Override
+    public int gridTrackCount() {
+        return gridBank.itemCount().get();
+    }
+
+    @Override
+    public int gridSceneCount() {
+        return gridScenes.itemCount().get();
+    }
+
+    @Override
+    public void setGridSize(int tracks, int scenes) {
+        if (tracks == gridWidth && scenes == gridHeight) return;
+        gridWidth = tracks;
+        gridHeight = scenes;
+        try {
+            // So Bitwig scrolls (and indicates) the window the device shows, not the whole 8 x 8.
+            gridBank.setSizeOfBank(tracks);
+            gridScenes.setSizeOfBank(scenes);
+        } catch (RuntimeException e) {
+            host.errorln("gemifi: grid size " + tracks + "x" + scenes + ": " + e);
+        }
+        for (int t = 0; t < Mapping.GRID; t++) gridSlotBanks[t].setIndication(t < tracks);
+    }
+
+    @Override
+    public void setGridOffset(int track, int scene) {
+        gridBank.scrollPosition().set(track);
+        gridScenes.scrollPosition().set(scene);
+    }
+
+    @Override
+    public int slotState(int t, int s) {
+        ClipLauncherSlot slot = slots[t][s];
+        if (!slot.exists().get()) return 0;
+        int st = 0;
+        if (slot.hasContent().get()) st |= SLOT_CONTENT;
+        if (slot.isPlaying().get()) st |= SLOT_PLAYING;
+        if (slot.isRecording().get()) st |= SLOT_RECORDING;
+        if (slot.isPlaybackQueued().get()) st |= SLOT_PLAY_QUEUED;
+        if (slot.isStopQueued().get()) st |= SLOT_STOP_QUEUED;
+        if (slot.isRecordingQueued().get()) st |= SLOT_RECORD_QUEUED;
+        return st;
+    }
+
+    private static int byte8(float v) {
+        return Math.max(0, Math.min(255, Math.round(v * 255f)));
+    }
+
+    @Override
+    public int slotColour(int t, int s) {
+        ColorValue c = slots[t][s].color();
+        return byte8(c.red()) << 16 | byte8(c.green()) << 8 | byte8(c.blue());
+    }
+
+    @Override
+    public void launchSlot(int t, int s) {
+        slots[t][s].launch();
+    }
+
+    @Override
+    public void stopSlot(int t, int s) {
+        gridTracks[t].stop();
+    }
+
+    @Override
+    public void launchGridScene(int s) {
+        if (gridScenes.getScene(s).exists().get()) gridScenes.getScene(s).launch();
     }
 }

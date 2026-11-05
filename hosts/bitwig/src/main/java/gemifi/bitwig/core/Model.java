@@ -168,4 +168,45 @@ public interface Model {
 
     /** Launches the current (selected) scene. */
     default void launchScene() {}
+
+    // ---- clip grid (daw-scripts.md §5.9) ----
+    // A window of up to 8 tracks x 8 scenes with its own scroll position, apart from the mixer
+    // bank. t and s count from the window's first track and scene (0..7).
+
+    /** slotState() bits. */
+    int SLOT_CONTENT = 1, SLOT_PLAYING = 2, SLOT_RECORDING = 4, SLOT_PLAY_QUEUED = 8,
+            SLOT_STOP_QUEUED = 16, SLOT_RECORD_QUEUED = 32;
+
+    /** Tracks and scenes in the project the grid can show, for clamping the scroll. */
+    default int gridTrackCount() {
+        return 0;
+    }
+
+    default int gridSceneCount() {
+        return 0;
+    }
+
+    /** The window's size, from the roles the device has (1..8 each). Called on bind. */
+    default void setGridSize(int tracks, int scenes) {}
+
+    /** Moves the window so its first track and scene are these (already clamped). */
+    default void setGridOffset(int track, int scene) {}
+
+    /** SLOT_* bits for slot (t, s) of the window; 0 = no slot there or empty. */
+    default int slotState(int t, int s) {
+        return 0;
+    }
+
+    /** The clip's colour as 0xRRGGBB (8 bits each), or -1 if it has none. */
+    default int slotColour(int t, int s) {
+        return -1;
+    }
+
+    default void launchSlot(int t, int s) {}
+
+    /** Stops what plays in the window's track t (only one clip per track plays). */
+    default void stopSlot(int t, int s) {}
+
+    /** Launches the scene in the window's row s, if there is one. */
+    default void launchGridScene(int s) {}
 }

@@ -67,7 +67,7 @@ class Device(object):
     Callbacks (assign after construction):
       on_ready(device)  - components are known and EVENTs are on; drive feedback now
       on_lost(device)   - the device stopped answering (or rebooted); feedback state is gone
-      on_event(event)   - a protocol.Event (button / key / analog / encoder / layer)
+      on_event(event)   - a protocol.Event (button / key / analog / encoder / pad / layer)
       on_log(text)      - diagnostics for the script's log
     """
 

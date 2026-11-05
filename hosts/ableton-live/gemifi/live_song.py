@@ -2,13 +2,13 @@
 """The abstract song of mapping.py on top of Live's Live Object Model.
 
 Written against the public LOM (as documented for Max for Live): Song, Song.View, Track,
-Track.View, MixerDevice, Device, DeviceParameter, Scene. Only property reads/writes and
-documented methods are used; no listeners (mapping.py polls). Every call is guarded so a
+Track.View, MixerDevice, Device, DeviceParameter, Scene, ClipSlot, Clip. Only property
+reads/writes and documented methods are used; no listeners (mapping.py polls). Every call is guarded so a
 property missing in some Live version, or a track kind without it (the master has no
 mute/solo/arm), degrades to "nothing happens" instead of an exception inside Live.
 """
 
-from .mapping import Param, Track, Song
+from .mapping import Param, Track, Song, ClipSlot, ClipState, Scene
 
 TEMPO_MIN, TEMPO_MAX = 20.0, 999.0      # Live's tempo range
 TEMPO_STEP = 1.0                        # BPM per encoder unit
@@ -168,9 +168,52 @@ class _LazyList(object):
             yield self[i]
 
 
+class LiveClipSlot(ClipSlot):
+    """A ClipSlot and its clip (if any)."""
+
+    def __init__(self, slot):
+        self.slot = slot
+
+    def _clip(self):
+        if not _get(self.slot, "has_clip", False):
+            return None
+        return _get(self.slot, "clip")
+
+    def state(self):
+        clip = self._clip()
+        if clip is None:
+            return None
+        # A queued launch sets the clip's is_triggered; the slot's covers a queued stop pressed on it.
+        triggered = bool(_get(clip, "is_triggered", False)) or bool(_get(self.slot, "is_triggered", False))
+        return ClipState(_get(clip, "color"), bool(_get(clip, "is_playing", False)),
+                         bool(_get(clip, "is_recording", False)), triggered)
+
+    def fire(self):
+        clip = self._clip()
+        if clip is not None:
+            _call(clip, "fire")
+
+    def stop(self):
+        clip = self._clip()
+        if clip is not None:
+            _call(clip, "stop")
+
+
+class LiveScene(Scene):
+    def __init__(self, scene):
+        self.scene = scene
+
+    def fire(self):
+        _call(self.scene, "fire")
+
+    def is_triggered(self):
+        return bool(_get(self.scene, "is_triggered", False))
+
+
 class LiveTrack(Track):
     def __init__(self, t):
         self.t = t
+        self._slots = None          # clip_slots, read once per wrapper (a wrapper lasts one refresh)
 
     @property
     def key(self):
@@ -203,6 +246,16 @@ class LiveTrack(Track):
             i = 0 if name == "send_a" else 1
             return _wrap(sends[i]) if i < len(sends) else None
         return None
+
+    def clip_slot(self, scene):
+        slots = self._slots
+        if slots is None:
+            slots = self._slots = _get(self.t, "clip_slots", ()) or ()
+        try:
+            n = len(slots)
+        except Exception:
+            return None
+        return LiveClipSlot(slots[scene]) if 0 <= scene < n else None
 
 
 class LiveSong(Song):
@@ -360,3 +413,16 @@ class LiveSong(Song):
         scene = _get(view, "selected_scene") if view is not None else None
         if scene is not None:
             _call(scene, "fire")
+
+    # ---- clip grid ----
+
+    def grid_tracks(self):
+        # The session view's columns: visible_tracks (folded group members left out), as the
+        # session highlight counts them.
+        visible = _get(self.song, "visible_tracks", None)
+        if visible is None:
+            visible = _get(self.song, "tracks", ()) or ()
+        return _LazyList(visible, self._track)
+
+    def grid_scenes(self):
+        return _LazyList(_get(self.song, "scenes", ()) or (), LiveScene)

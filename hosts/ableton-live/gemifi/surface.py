@@ -2,7 +2,8 @@
 """The Remote Script object Live talks to.
 
 A plain class (no Ableton framework base class). It uses only the long-standing `c_instance`
-calls: song(), send_midi(), show_message(), log_message(), request_rebuild_midi_map().
+calls: song(), send_midi(), show_message(), log_message(), request_rebuild_midi_map(), and
+set_session_highlight() for the clip grid's box.
 Callbacks Live makes on the script are the methods below; ones this script has no use for are
 harmless no-ops.
 
@@ -40,7 +41,7 @@ class GemifiSurface(object):
             song = LiveSong(c_instance.song())
         self.song = song
         self.device = Device(self._send)
-        self.mapping = Mapping(song, self.device.notify, log=self._log)
+        self.mapping = Mapping(song, self.device.notify, log=self._log, highlight=self._highlight)
         self.device.on_ready = self._on_ready
         self.device.on_lost = self._on_lost
         self.device.on_event = self._on_event
@@ -56,6 +57,21 @@ class GemifiSurface(object):
     def _log(self, text):
         try:
             self._c.log_message("%s: %s" % (SCRIPT_NAME, text))
+        except Exception:
+            pass
+
+    def _highlight(self, box):
+        """The clip grid's box in the session view (the "red box"); None hides it.
+
+        UNCERTAIN (needs real Live): c_instance.set_session_highlight(track_offset, scene_offset,
+        width, height, include_return_tracks), with the track offset counted in visible_tracks,
+        and all -1 to hide it.
+        """
+        try:
+            if box is None:
+                self._c.set_session_highlight(-1, -1, -1, -1, False)
+            else:
+                self._c.set_session_highlight(box[0], box[1], box[2], box[3], False)
         except Exception:
             pass
 

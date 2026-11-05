@@ -49,10 +49,11 @@ CAP_FEEDBACK = 1 << 6           # sysex.md 4.1 bit 6
 
 PARAM_DEBUG_EVENTS = 13         # sysex.md 4.3 / 4.6 step 3
 
-# Component kinds (sysex.md 4.6.1); 1..4 are also the EVENT types.
+# Component kinds (sysex.md 4.6.1); 1..4 and 7 are also the EVENT types.
 KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY = 1, 2, 3, 4, 5, 6
-ALL_KINDS = (KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY)
-KIND_NAMES = {1: "button", 2: "keys", 3: "analog", 4: "encoder", 5: "led", 6: "display"}
+KIND_PAD = 7                    # newer: firmware from before pads answers BAD_PARAM (= none)
+ALL_KINDS = (KIND_BUTTON, KIND_KEYS, KIND_ANALOG, KIND_ENCODER, KIND_LED, KIND_DISPLAY, KIND_PAD)
+KIND_NAMES = {1: "button", 2: "keys", 3: "analog", 4: "encoder", 5: "led", 6: "display", 7: "pad"}
 NONE_INDEX = 0x3FFF             # "no LED" in GET_COMPONENT replies
 
 # Fields added to GET_COMPONENT after the first F3 firmware (sysex.md 4.6.1 "Added fields").
@@ -64,6 +65,8 @@ OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
 # EVENT types beyond the component kinds (sysex.md 4.6.1 `layer`): type 8 = a mode's layer turned
 # on (value 1) or off (value 0); index = the mode index. A twin with `layer` n is live while mode n-1 is on.
 EVENT_LAYER = 8
+# EVENT type 7 = a pad twin hit (value > 0, the peak reading x 4) or released (0). Base pads send none.
+EVENT_PAD = KIND_PAD
 
 U14_MAX = 0x3FFF
 
@@ -383,12 +386,12 @@ class Component(object):
         self.takeover = takeover        # analog: 0 none, 1 pick-up; None = not reported (older firmware)
         self.mode = mode                # encoder: 0 absolute, 1/2 relative, 3 Mackie V-Pot; None = not reported
         self.owner = owner              # LED: 0 host_then_local, 1 host, 2 local; None = not reported
-        self.layer = layer              # button / encoder / LED: 0 always there, n = a twin in mode n-1;
+        self.layer = layer              # button / encoder / LED / pad: 0 always there, n = a twin in mode n-1;
                                         # None = not reported (older firmware: treat as 0)
 
     @property
     def has_led(self):
-        return self.kind == KIND_BUTTON and self.led != NONE_INDEX
+        return self.kind in (KIND_BUTTON, KIND_PAD) and self.led != NONE_INDEX
 
     @property
     def takes_value(self):
@@ -464,6 +467,10 @@ def parse_component_reply(payload):
     elif kind == KIND_DISPLAY:
         need(3)
         c.cols, c.rows, c.display_type = rest[0], rest[1], rest[2]
+    elif kind == KIND_PAD:
+        need(2)
+        c.led = dec_u14(rest[0:2])
+        c.layer = rest[2] if len(rest) > 2 else None
     # takeover / mode / owner / layer are absent in older firmware; unknown kinds: ignore whatever follows.
     return c
 
@@ -485,6 +492,8 @@ def build_component_reply(c):
         out += bytes([c.colours]) + (b"" if c.owner is None else bytes([c.owner]) + layer)
     elif c.kind == KIND_DISPLAY:
         out += bytes([c.cols, c.rows, c.display_type])
+    elif c.kind == KIND_PAD:
+        out += u14(c.led) + layer
     return out
 
 

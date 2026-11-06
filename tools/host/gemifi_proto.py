@@ -39,6 +39,8 @@ PRESET_DELETE = 0x12
 PRESET_MOVE = 0x13
 # Host feedback (app only, sysex.md 4.6)
 GET_COMPONENT = 0x11
+# Physical unlock (app only, sysex.md 4.7; HELLO caps bit 10)
+UNLOCK = 0x16
 NOTIFY_FIRST, NOTIFY_LAST = 0x20, 0x3F
 FB_LED = 0x20
 FB_LED_RGB = 0x21
@@ -55,6 +57,7 @@ EVENT = 0x61
 PARAM_CHANGED = 0x62
 PRESET_CHANGED = 0x63
 BOOTED = 0x64                  # sysex.md 4.6.3: HELLO's fields, sent once after boot (caps bit 6)
+UNLOCKED = 0x66                # sysex.md 4.7: `state` (1 unlocked, 0 locked again / window closed); caps bit 10
 
 CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "FW_DATA",
              FW_END: "FW_END", FW_ABORT: "FW_ABORT", GET_SCHEMA: "GET_SCHEMA", GET_PARAM: "GET_PARAM",
@@ -65,12 +68,14 @@ CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "F
              PRESET_DELETE: "PRESET_DELETE", PRESET_MOVE: "PRESET_MOVE",
              PRESET_CHANGED: "PRESET_CHANGED", BOOTED: "BOOTED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
              FB_LED_RGB: "FB_LED_RGB", FB_LEDS: "FB_LEDS", FB_VALUE: "FB_VALUE", FB_RING: "FB_RING",
-             FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE"}
+             FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE", UNLOCK: "UNLOCK", UNLOCKED: "UNLOCKED"}
 
 STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE", 5: "BAD_ADDR",
-          6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE"}
+          6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE",
+          12: "LOCKED"}
 (OK, BAD_CHECKSUM, BAD_CMD, BAD_LEN, BAD_STATE, BAD_ADDR, FLASH_ERR, BAD_IMAGE, BAD_BOARD, BUSY,
- BAD_PARAM, BAD_VALUE) = range(12)
+ BAD_PARAM, BAD_VALUE, LOCKED) = range(13)
+# LOCKED (sysex.md 1, 4.7) is not resent like BUSY: the host waits for UNLOCKED, then sends the request again.
 
 ROLE_APP, ROLE_BOOT = 0, 1
 REBOOT_APP, REBOOT_BOOT = 0, 1
@@ -78,6 +83,10 @@ CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
 CAP_FEEDBACK = 1 << 6          # sysex.md 4.1 bit 6: host feedback (GET_COMPONENT, FB_*)
 CAP_GEMIFI_BOOT = 1 << 7       # sysex.md 4.1 bit 7: REBOOT(1) leads to a gemifi bootloader (Code 61)
+CAP_UNLOCK = 1 << 10           # sysex.md 4.1 bit 10: physical unlock (LOCKED, UNLOCK, UNLOCKED; 4.7)
+CAP_NAMES = ((CAP_FW, "fw-upload"), (CAP_CONFIG, "config"), (CAP_LOG, "log"), (CAP_EVENT, "event"),
+             (CAP_PRESETS, "presets"), (CAP_FEEDBACK, "feedback"), (CAP_GEMIFI_BOOT, "gemifi-boot"),
+             (CAP_UNLOCK, "unlock"))
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
 EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder", 7: "pad"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
@@ -247,7 +256,7 @@ REPLY_OK_LEN = {HELLO: None, REBOOT: 1, FW_BEGIN: 3, FW_DATA: 5, FW_END: 1, FW_A
                 GET_SCHEMA: None, GET_PARAM: 10, SET_PARAM: 10, GET_PARAMS: None, SET_PARAMS: 7,
                 COMMIT: 1, FACTORY_RESET: 1, PRESET_INFO: None, PRESET_SAVE: 1, PRESET_RESET: 1, PRESET_NAME: 1,
                 PRESET_DELETE: 1, PRESET_MOVE: 1,
-                GET_COMPONENT: None}
+                GET_COMPONENT: None, UNLOCK: None}
 
 
 def is_notification(cmd):
@@ -1086,6 +1095,119 @@ def parse_notification(cmd, payload):
     else:
         raise ProtocolError(f"unknown notification 0x{cmd:02x}")
     return Notification(cmd, f)
+
+
+# ---- physical unlock (sysex.md 4.7; HELLO caps bit 10) ----
+
+# The requests that may reply LOCKED: FW_BEGIN (A/B app), REBOOT with mode 1, FACTORY_RESET.
+UNLOCK_STATE_LOCKED, UNLOCK_STATE_UNLOCKED = 0, 1
+UNLOCK_WINDOW_S = 30           # the window a LOCKED reply opens (the UNLOCK reply tells the time left)
+UNLOCK_GRACE_S = 5             # a host waits `window` + 5 s for UNLOCKED, then gives up
+UNLOCK_COMBO_MAX = 8
+
+
+def needs_unlock(cmd, payload=b""):
+    """True for a request a device with caps bit 10 may answer LOCKED (sysex.md 4.7)."""
+    return cmd in (FW_BEGIN, FACTORY_RESET) or (cmd == REBOOT and bytes(payload[:1]) == bytes([REBOOT_BOOT]))
+
+
+def req_unlock(open_window):
+    """UNLOCK request: `open` 1 also opens (or restarts) the unlock window when the device is locked."""
+    return bytes([1 if open_window else 0])
+
+
+@dataclass
+class UnlockInfo:
+    """An UNLOCK reply (sysex.md 4.7): state 0 locked / 1 unlocked, window = seconds left (0 = closed),
+    hold = ms the combo must be held (0 = a press), names = the combo buttons' display names."""
+    state: int
+    window: int
+    hold: int
+    names: list = field(default_factory=list)
+
+    @property
+    def unlocked(self):
+        return self.state == UNLOCK_STATE_UNLOCKED
+
+    @property
+    def prompt(self):
+        return unlock_prompt(self.names, self.hold)
+
+
+def unlock_prompt(names, hold_ms):
+    """What to ask the user: "Hold Pitch down + Pitch up on the device for 2 s"; with hold 0, "Press ..."."""
+    combo = " + ".join(names) or "the unlock combo"
+    if not hold_ms:
+        return f"Press {combo} on the device"
+    return f"Hold {combo} on the device for {hold_ms / 1000:g} s"
+
+
+def parse_unlock_reply(payload):
+    """UNLOCK reply payload (status first) -> UnlockInfo. Raises ProtocolError."""
+    p = bytes(payload)
+    if len(p) < 6 or p[0] != OK:
+        raise ProtocolError(f"UNLOCK reply too short or not OK ({len(p)} bytes)")
+    state, window, hold, n = p[1], p[2], dec_u14(p[3:5]), p[5]
+    if state > 1:
+        raise ProtocolError(f"UNLOCK state {state}")
+    if n > UNLOCK_COMBO_MAX:
+        raise ProtocolError(f"UNLOCK n {n} > {UNLOCK_COMBO_MAX}")
+    names, i = [], 6
+    for k in range(n):
+        s, used = dec_lstring(p[i:], f"UNLOCK name {k}")
+        names.append(s)
+        i += used
+    if i != len(p):
+        raise ProtocolError(f"UNLOCK reply: {len(p) - i} bytes after the names")
+    return UnlockInfo(state, window, hold, names)
+
+
+def build_unlock_reply(info, status=OK):
+    """Device side; used by tests and the simulator."""
+    if status != OK:
+        return bytes([status])
+    if len(info.names) > UNLOCK_COMBO_MAX:
+        raise ValueError(f"UNLOCK takes at most {UNLOCK_COMBO_MAX} names")
+    return (bytes([OK, info.state, info.window]) + u14(info.hold) + bytes([len(info.names)]) +
+            b"".join(enc_lstring(s, "UNLOCK name") for s in info.names))
+
+
+def parse_unlocked(payload):
+    """UNLOCKED (0x66) payload -> state (1 unlocked; 0 locked again, or the window closed). Raises ProtocolError."""
+    if len(payload) != 1 or payload[0] > 1:
+        raise ProtocolError(f"UNLOCKED payload must be 1 byte 0 or 1, got {bytes(payload).hex()}")
+    return payload[0]
+
+
+def build_unlocked(state):
+    return bytes([1 if state else 0])
+
+
+# ---- diagnostics (sysex.md 4.8): read-only VOLATILE params in the group "Debug" ----
+
+P_DIAG_RESET_REASON, P_DIAG_BOOT_LOOP, P_DIAG_SETTINGS, P_DIAG_SCAN_MAX, P_DIAG_LOOP_MAX, P_DIAG_SCAN_PERIOD, \
+    P_DIAG_UPTIME = range(65, 72)
+DIAG_PARAMS = {P_DIAG_RESET_REASON: "diag.reset_reason", P_DIAG_BOOT_LOOP: "diag.boot_loop",
+               P_DIAG_SETTINGS: "diag.settings", P_DIAG_SCAN_MAX: "diag.scan_max", P_DIAG_LOOP_MAX: "diag.loop_max",
+               P_DIAG_SCAN_PERIOD: "diag.scan_period", P_DIAG_UPTIME: "diag.uptime"}
+DIAG_UNITS = {P_DIAG_SCAN_MAX: "us", P_DIAG_LOOP_MAX: "us", P_DIAG_SCAN_PERIOD: "us", P_DIAG_UPTIME: "s"}
+# Fallback labels for when the schema isn't read (the device's schema has the real enum options).
+DIAG_LABELS = {
+    P_DIAG_RESET_REASON: {0: "unknown", 1: "power-on", 2: "reset pin", 3: "software", 4: "watchdog",
+                          5: "brown-out", 6: "crash", 7: "low-power"},
+    P_DIAG_BOOT_LOOP: {0: "no", 1: "yes (the boot-loop guard had stopped the app)"},
+    P_DIAG_SETTINGS: {0: "loaded", 1: "none stored (defaults)", 2: "some values refused (reset to defaults)",
+                      3: "ignored (safe mode)", 4: "wiped by the factory-reset combo"},
+}
+
+
+def format_diag(pid, value):
+    """A diagnostic value as text, with the fallback labels above."""
+    lab = DIAG_LABELS.get(pid)
+    if lab is not None:
+        return f"{value} ({lab[value]})" if value in lab else str(value)
+    unit = DIAG_UNITS.get(pid)
+    return f"{value} {unit}" if unit else str(value)
 
 
 # ---- schema (sysex.md 4.4) ----

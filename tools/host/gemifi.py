@@ -2,7 +2,9 @@
 """gemifi host tool: talk to a gemifi device over USB MIDI SysEx (protocol/sysex.md).
 
   gemifi.py ports                     list MIDI ports (gemifi ones are marked)
-  gemifi.py hello                     print HELLO from the device (app or bootloader)
+  gemifi.py hello [--diag]            print HELLO from the device (app or bootloader); --diag: also the
+                                      diagnostic params (reset reason, boot-loop guard, settings, timings)
+  gemifi.py unlock                    open the unlock window and wait while you hold the combo on the device
   gemifi.py log [--names]             print LOG / EVENT / PARAM_CHANGED messages live (Ctrl-C to stop)
   gemifi.py reboot app|boot           ask the device to reboot into the app or the bootloader
   gemifi.py flash FILE.gfw            upload firmware through the bootloader (NUC1xx)
@@ -46,6 +48,10 @@ Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY 
   gemifi.py fb release [all|leds|values|text]        hand the states back to the device
   fb commands are notifications: sent once, never answered, so they return at once.
 
+Physical unlock (sysex.md 4.7; HELLO caps bit 10): flash, `reboot boot` and factory-reset on such a device
+reply LOCKED first. The tool then prints what to hold on the device (e.g. "Hold Pitch down + Pitch up on the
+device for 2 s") and waits up to 35 s; once the device sends UNLOCKED it sends the request again.
+
 Backends: python-rtmidi, then mido, then raw ALSA /dev/snd/midiC*D* (Linux, no dependencies).
 Choose one with --backend. --port picks a port by substring instead of the "gemifi" name match.
 --serial /dev/ttyUSB0 [--baud 115200] talks raw MIDI bytes over a serial port instead (classic ESP32 and
@@ -79,16 +85,30 @@ class StatusError(GemifiError):
         self.status = status
 
 
+class NotUnlocked(StatusError):
+    """The device replied LOCKED (sysex.md 4.7) and the user didn't unlock it: the window closed (UNLOCKED
+    state 0), no UNLOCKED came in time, or UNLOCK itself failed."""
+
+    def __init__(self, msg):
+        super().__init__(msg, gp.LOCKED)
+
+
+def print_prompt(text):
+    print(text, file=sys.stderr, flush=True)
+
+
 # ---------------- request / reply session ----------------
 
 class Session:
     """Stop-and-wait requests (sysex.md 1): send, wait for cmd|0x40 with the same seq (200 ms, or
     2000 ms for FW_BEGIN/FW_END/COMMIT/FACTORY_RESET); on a timeout, BAD_CHECKSUM or BUSY resend the identical frame (same
     seq), up to `retries` resends (default 5, so 6 sends). LOG/EVENT seen meanwhile go to on_unsolicited.
-    `timeout`/`long_timeout` override the spec values (tests use tiny ones)."""
+    `timeout`/`long_timeout` override the spec values (tests use tiny ones).
+    LOCKED (sysex.md 4.7) is never resent here: request_unlocked() shows `on_prompt` the unlock prompt, waits
+    for UNLOCKED (`unlock_wait` s, default the window + 5 s) and sends the request again."""
 
     def __init__(self, port, timeout=gp.REPLY_TIMEOUT_S, retries=gp.MAX_RESENDS, on_unsolicited=None,
-                 verbose=False, long_timeout=None):
+                 verbose=False, long_timeout=None, on_prompt=print_prompt, unlock_wait=None):
         self.port, self.timeout, self.retries = port, timeout, retries
         if long_timeout is None:
             long_timeout = gp.LONG_REPLY_TIMEOUT_S if timeout == gp.REPLY_TIMEOUT_S else timeout
@@ -98,6 +118,9 @@ class Session:
         self.seq = int(time.monotonic() * 1000) & 0x7F
         self.resends = 0
         self.bulk = True        # GET_PARAMS / SET_PARAMS until the device replies BAD_CMD
+        self.on_prompt = on_prompt
+        self.unlock_wait = unlock_wait
+        self.unlocked_state = None  # the last UNLOCKED `state` seen (sysex.md 4.7); None = none since the reset
 
     def next_seq(self):
         self.seq = (self.seq + 1) & 0x7F
@@ -133,6 +156,7 @@ class Session:
                             print(f"  ignoring bad frame: {e}", file=sys.stderr)
                         continue
                     if f.is_unsolicited:
+                        self._note_unlocked(f)
                         if self.on_unsolicited:
                             self.on_unsolicited(f)
                         continue
@@ -152,6 +176,76 @@ class Session:
                     break
         raise NoReply(f"no reply to {gp.CMD_NAMES.get(cmd, hex(cmd))} after {tries} tries")
 
+    # -- physical unlock (sysex.md 4.7) --
+
+    def _note_unlocked(self, f):
+        if f.cmd == gp.UNLOCKED:
+            try:
+                self.unlocked_state = gp.parse_unlocked(f.payload)
+            except gp.ProtocolError as e:
+                if self.verbose:
+                    print(f"  ignoring bad UNLOCKED: {e}", file=sys.stderr)
+
+    def request_unlocked(self, cmd, payload=b"", retries=None):
+        """request() for FW_BEGIN, REBOOT(1) or FACTORY_RESET. On a LOCKED reply: show the unlock prompt, wait
+        for UNLOCKED (wait_unlock), then send the request once more and return that reply (which the caller
+        checks as usual). Raises NotUnlocked when the user doesn't unlock the device."""
+        self.unlocked_state = None
+        f = self.request(cmd, payload, retries)
+        if f.status != gp.LOCKED:
+            return f
+        what = gp.CMD_NAMES.get(cmd, hex(cmd))
+        self.wait_unlock(what)
+        self.on_prompt(f"unlocked; sending {what} again")
+        return self.request(cmd, payload, retries)
+
+    def unlock_info(self, open_window=False):
+        """UNLOCK (open 0: only report; 1: also open the window) -> gp.UnlockInfo."""
+        f = expect_ok(self.request(gp.UNLOCK, gp.req_unlock(open_window)), "UNLOCK")
+        return gp.parse_unlock_reply(f.payload)
+
+    def wait_unlock(self, what=None, open_window=False):
+        """Ask the device for its prompt (UNLOCK), show it with on_prompt and wait for UNLOCKED. Returns the
+        UnlockInfo (its `unlocked` is True if the device already was). Raises NotUnlocked on UNLOCKED state 0,
+        no UNLOCKED within the window + 5 s, or an UNLOCK that fails (an old firmware without it)."""
+        head = f"{what}: " if what else ""
+        try:
+            info = self.unlock_info(open_window)
+        except (GemifiError, gp.ProtocolError) as e:
+            raise NotUnlocked(f"{head}the device is locked, and UNLOCK failed ({e})") from None
+        if self.unlocked_state != gp.UNLOCK_STATE_UNLOCKED:
+            self.unlocked_state = None      # a state 0 from before the window opened is stale
+        if info.unlocked or self.unlocked_state == gp.UNLOCK_STATE_UNLOCKED:
+            return info
+        wait = self.unlock_wait if self.unlock_wait is not None else info.window + gp.UNLOCK_GRACE_S
+        self.on_prompt(f"{head}the device is locked. {info.prompt} (waiting up to {wait:.0f} s)")
+        deadline = time.monotonic() + wait
+        while self.unlocked_state is None:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            for msg in self.port.recv(min(left, 0.5)):
+                if not gp.is_gemifi(msg):
+                    continue
+                try:
+                    f = gp.parse_frame(msg)
+                except gp.ProtocolError as e:
+                    if self.verbose:
+                        print(f"  ignoring bad frame: {e}", file=sys.stderr)
+                    continue
+                if f.cmd == gp.UNLOCKED:
+                    self._note_unlocked(f)
+                elif f.is_unsolicited:
+                    if self.on_unsolicited:
+                        self.on_unsolicited(f)
+                elif self.verbose:
+                    print(f"  ignoring frame cmd 0x{f.cmd:02x} seq {f.seq}", file=sys.stderr)
+        if self.unlocked_state == gp.UNLOCK_STATE_UNLOCKED:
+            return info
+        if self.unlocked_state == gp.UNLOCK_STATE_LOCKED:
+            raise NotUnlocked(f"{head}device not unlocked: the unlock window closed")
+        raise NotUnlocked(f"{head}device not unlocked: no UNLOCKED within {wait:.0f} s")
+
     def notify(self, cmd, payload=b""):
         """Send a host -> device notification (0x20-0x3F, sysex.md 4.6.2) once, without waiting: the device
         never replies, `seq` is ignored (0 is sent), and there are no retries. Only for a device with HELLO
@@ -162,9 +256,10 @@ class Session:
 
     def reboot(self, mode):
         """REBOOT(mode). The reply may be lost as the device resets, so a timeout counts as success
-        (sysex.md 1). Returns True if a reply was seen."""
+        (sysex.md 1). Returns True if a reply was seen. REBOOT(1) on a locked device waits for the unlock
+        (sysex.md 4.7; NotUnlocked if it doesn't come)."""
         try:
-            expect_ok(self.request(gp.REBOOT, gp.req_reboot(mode)), "REBOOT")
+            expect_ok(self.request_unlocked(gp.REBOOT, gp.req_reboot(mode)), "REBOOT")
             return True
         except NoReply:
             return False
@@ -250,7 +345,7 @@ class Session:
         expect_ok(self.request(gp.COMMIT), "COMMIT")
 
     def factory_reset(self):
-        expect_ok(self.request(gp.FACTORY_RESET), "FACTORY_RESET")
+        expect_ok(self.request_unlocked(gp.FACTORY_RESET), "FACTORY_RESET")
 
     # -- presets (sysex.md 4.5) --
 
@@ -386,7 +481,7 @@ def wait_port(backend, kind, timeout, match=None, gone=None):
 
 def _upload(sess, img, size, crc32, board_id, fw_version, make_plan, progress=None):
     """FW_BEGIN, FW_DATA for each (offset, length) of make_plan(max_chunk), FW_END; FW_ABORT on any failure."""
-    f = expect_ok(sess.request(gp.FW_BEGIN, gp.req_fw_begin(size, crc32, board_id, fw_version)), "FW_BEGIN")
+    f = expect_ok(sess.request_unlocked(gp.FW_BEGIN, gp.req_fw_begin(size, crc32, board_id, fw_version)), "FW_BEGIN")
     max_chunk = gp.dec_u14(f.payload[1:3])
     try:
         plan = make_plan(max_chunk)
@@ -487,9 +582,7 @@ def print_hello(name, h):
     print(f"  board_id    0x{h.board_id:04x} ({gi.BOARDS.get(h.board_id, ('unknown',))[0]})")
     print(f"  fw_version  {gp.fmt_version(h.fw_version)}")
     print(f"  protocol    {h.proto_version}")
-    caps = [n for b, n in ((gp.CAP_FW, "fw-upload"), (gp.CAP_CONFIG, "config"), (gp.CAP_LOG, "log"),
-                           (gp.CAP_EVENT, "event"), (gp.CAP_PRESETS, "presets"),
-                           (gp.CAP_FEEDBACK, "feedback")) if h.caps & b]
+    caps = [n for b, n in gp.CAP_NAMES if h.caps & b]
     print(f"  caps        0x{h.caps:04x} {' '.join(caps)}")
     print(f"  max_chunk   {h.max_chunk}")
     print(f"  uid         {h.uid_hex}")
@@ -518,6 +611,8 @@ def print_unsolicited(f, schema=None):
             h = gp.parse_booted(f.payload)
             print(f"BOOTED {h.node or 'device'}, fw {gp.fmt_version(h.fw_version)}, caps 0x{h.caps:04x} "
                   "(it restarted: its feedback state is gone)", flush=True)
+        elif f.cmd == gp.UNLOCKED:
+            print("UNLOCKED " + ("unlocked" if gp.parse_unlocked(f.payload) else "locked (again)"), flush=True)
         else:
             print(f"[unsolicited 0x{f.cmd:02x}] {f.payload.hex()}", flush=True)
     except gp.ProtocolError as e:
@@ -545,10 +640,49 @@ def open_session(a, backend, kind="any"):
     return name, port, Session(port, retries=a.retries, on_unsolicited=print_unsolicited, verbose=a.verbose)
 
 
+def read_diag(s):
+    """The diagnostic params (sysex.md 4.8) as [(id, name, value)]; one that replies BAD_PARAM is not reported."""
+    out = []
+    for pid, pname in gp.DIAG_PARAMS.items():
+        f = s.request(gp.GET_PARAM, gp.req_get_param(pid, 0))
+        if f.status == gp.BAD_PARAM:
+            continue
+        r = gp.parse_param_reply(expect_ok(f, f"GET_PARAM {pname}").payload)
+        out.append((pid, pname, r.value))
+    return out
+
+
+def print_diag(diag):
+    print("  diagnostics" + ("" if diag else " (not reported: firmware from before 2026-11-05)"))
+    for pid, pname, v in diag:
+        print(f"    {pname:18s} {gp.format_diag(pid, v)}")
+
+
 def cmd_hello(a, backend):
     name, port, s = open_session(a, backend)
     with port:
-        print_hello(name, s.hello())
+        h = s.hello()
+        print_hello(name, h)
+        if getattr(a, "diag", False):
+            if h.role == gp.ROLE_APP and h.caps & gp.CAP_CONFIG:
+                print_diag(read_diag(s))
+            else:
+                print("  diagnostics (none: not an app with config)")
+    return 0
+
+
+def cmd_unlock(a, backend):
+    """Unlock a device with physical unlock (sysex.md 4.7) before a flash or a factory reset: UNLOCK with
+    `open` 1, show the prompt, wait for UNLOCKED."""
+    name, port, s = open_session(a, backend, "app")
+    with port:
+        h = s.hello()
+        if not h.caps & gp.CAP_UNLOCK:
+            print(f"{name}: no physical unlock on this device (HELLO caps bit 10 clear); nothing to do")
+            return 0
+        info = s.wait_unlock(open_window=True)
+    print(f"{name}: " + ("already unlocked" if info.unlocked else "unlocked")
+          + " (it locks again after 5 minutes without a request, or on a reboot)")
     return 0
 
 
@@ -832,9 +966,15 @@ def preset_params(schema):
     return [p for p in schema.params if p.per_preset]
 
 
+def backup_params(params):
+    """The params a backup keeps: not the read-only, volatile ones (state: preset.dirty, the diag.* of
+    sysex.md 4.8)."""
+    return [p for p in params if not (p.read_only and p.volatile)]
+
+
 def global_params(schema):
-    """Everything else, without preset.active (a backup keeps that as "active") and preset.dirty (state)."""
-    return [p for p in schema.params if not p.per_preset and p.id not in (gp.P_PRESET_ACTIVE, gp.P_PRESET_DIRTY)]
+    """Everything else, without preset.active (a backup keeps that as "active") and the state params."""
+    return [p for p in backup_params(schema.params) if not p.per_preset and p.id != gp.P_PRESET_ACTIVE]
 
 
 def sub_schema(schema, params):
@@ -858,7 +998,7 @@ def backup_doc(s, h, schema, progress=None):
     started (dirty flag included)."""
     doc = {"gemifi_backup": BACKUP_FORMAT, "board_id": h.board_id, "fw_version": gp.fmt_version(h.fw_version)}
     if not has_presets(h) or schema.by_id(gp.P_PRESET_ACTIVE) is None:
-        doc["values"] = read_values(s, schema.params)
+        doc["values"] = read_values(s, backup_params(schema.params))
         return doc
     quiet_presets(s)
     infos = s.preset_infos()
@@ -1730,7 +1870,9 @@ def build_parser():
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("ports")
-    sub.add_parser("hello")
+    c = sub.add_parser("hello")
+    c.add_argument("--diag", action="store_true", help="also read the diagnostic params (sysex.md 4.8)")
+    sub.add_parser("unlock", help="open the unlock window and wait for the combo on the device (caps bit 10)")
     lg = sub.add_parser("log")
     lg.add_argument("--names", action="store_true", help="read the schema first so PARAM_CHANGED shows names")
     r = sub.add_parser("reboot")
@@ -1844,7 +1986,7 @@ def build_parser():
     return ap
 
 
-COMMANDS = {"ports": cmd_ports, "hello": cmd_hello, "log": cmd_log, "reboot": cmd_reboot, "schema": cmd_schema,
+COMMANDS = {"ports": cmd_ports, "hello": cmd_hello, "unlock": cmd_unlock, "log": cmd_log, "reboot": cmd_reboot, "schema": cmd_schema,
             "get": cmd_get, "set": cmd_set, "commit": cmd_commit, "factory-reset": cmd_factory_reset,
             "backup": cmd_backup, "restore": cmd_restore, "presets": cmd_presets, "preset": cmd_preset,
             "components": cmd_components, "fb": cmd_fb}

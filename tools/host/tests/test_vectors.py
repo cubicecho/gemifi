@@ -149,6 +149,39 @@ class TestVectors(unittest.TestCase):
         self.assertTrue({0x11, 0x51, 0x64, *range(0x20, 0x27)} <= seen)
         self.assertTrue({("kind", k) for k in range(1, 7)} <= seen)
 
+    def test_unlock(self):
+        """The unlock section (sysex.md 4.7), decoded by hand, then with the codec."""
+        u = self.v["unlock"]
+        self.assertEqual((u["status_locked"], u["cap_unlock"]), (12, 1024))
+        seen = set()
+        for t in u["frames"]:
+            f = gp.parse_frame(b(t["frame"]))
+            p = b(t["payload"])
+            self.assertEqual((f.cmd, f.seq, f.payload), (t["cmd"], t["seq"], p), t["desc"])
+            want = t["fields"]
+            if t["cmd"] == 0x16:
+                self.assertEqual({"open": p[0]}, want)
+            elif t["cmd"] == 0x66:
+                self.assertEqual({"state": p[0]}, want)
+                self.assertEqual(gp.parse_unlocked(p), p[0])
+            elif t["cmd"] == 0x56 and p[0] == 0:
+                names, i = [], 6
+                for _ in range(p[5]):
+                    names.append(p[i + 1:i + 1 + p[i]].decode("ascii"))
+                    i += 1 + p[i]
+                self.assertEqual(i, len(p))
+                self.assertEqual({k: want[k] for k in ("status", "state", "window", "hold", "n", "names")},
+                                 {"status": 0, "state": p[1], "window": p[2], "hold": p[3] | p[4] << 7, "n": p[5],
+                                  "names": names})
+                info = gp.parse_unlock_reply(p)
+                self.assertEqual(info.prompt, want["prompt"])
+                self.assertEqual(gp.build_unlock_reply(info), p)
+                self.assertTrue(gp.reply_matches(f, gp.UNLOCK, t["seq"]))
+            else:
+                self.assertEqual((len(p), {"status": p[0]}), (1, want), t["desc"])
+            seen.add((t["cmd"], p[0]))
+        self.assertTrue({(0x48, 12), (0x50, 12), (0x16, 0), (0x16, 1), (0x56, 0), (0x66, 0), (0x66, 1)} <= seen)
+
     def test_image(self):
         t = self.v["image"]
         img = gi.make_image(b(t["raw"]), t["fields"]["board_id"], t["fields"]["fw_version"])

@@ -1884,5 +1884,125 @@
     }
    }
   ]
+ },
+ "unlock": {
+  "_comment": [
+   "Physical unlock (sysex.md 4.7; HELLO caps bit 10 = 1024): status 12 LOCKED, UNLOCK 0x16, UNLOCKED 0x66.",
+   "FW_BEGIN (A/B app), REBOOT(1) and FACTORY_RESET may reply LOCKED; the host sends UNLOCK (open 0), shows",
+   "the prompt, waits for UNLOCKED state 1 (or gives up on state 0, or after window + 5 s), then resends.",
+   "UNLOCK reply: status, state (0 locked, 1 unlocked), window (s left, 0 closed), hold u14 (ms, 0 = a press),",
+   "n, then n lstrings (the combo's button names). fields.prompt is what the host tool shows (not on the wire)."
+  ],
+  "status_locked": 12,
+  "cap_unlock": 1024,
+  "frames": [
+   {
+    "desc": "FACTORY_RESET reply LOCKED (the device opened its unlock window)",
+    "cmd": 72,
+    "seq": 31,
+    "payload": "0C",
+    "frame": "F0 7D 67 6D 01 48 1F 01 00 0C 75 F7",
+    "fields": {
+     "status": 12
+    }
+   },
+   {
+    "desc": "REBOOT(bootloader) reply LOCKED",
+    "cmd": 80,
+    "seq": 5,
+    "payload": "0C",
+    "frame": "F0 7D 67 6D 01 50 05 01 00 0C 63 F7",
+    "fields": {
+     "status": 12
+    }
+   },
+   {
+    "desc": "UNLOCK request open 0 (only report)",
+    "cmd": 22,
+    "seq": 32,
+    "payload": "00",
+    "frame": "F0 7D 67 6D 01 16 20 01 00 00 38 F7",
+    "fields": {
+     "open": 0
+    }
+   },
+   {
+    "desc": "UNLOCK request open 1 (also open the window)",
+    "cmd": 22,
+    "seq": 33,
+    "payload": "01",
+    "frame": "F0 7D 67 6D 01 16 21 01 00 01 3A F7",
+    "fields": {
+     "open": 1
+    }
+   },
+   {
+    "desc": "UNLOCK reply: locked, window 30 s, hold 2000 ms, 'Pitch down' + 'Pitch up'",
+    "cmd": 86,
+    "seq": 32,
+    "payload": "00 00 1E 50 0F 02 0A 50 69 74 63 68 20 64 6F 77 6E 08 50 69 74 63 68 20 75 70",
+    "frame": "F0 7D 67 6D 01 56 20 1A 00 00 00 1E 50 0F 02 0A 50 69 74 63 68 20 64 6F 77 6E 08 50 69 74 63 68 20 75 70 6F F7",
+    "fields": {
+     "status": 0,
+     "state": 0,
+     "window": 30,
+     "hold": 2000,
+     "n": 2,
+     "names": [
+      "Pitch down",
+      "Pitch up"
+     ],
+     "prompt": "Hold Pitch down + Pitch up on the device for 2 s"
+    }
+   },
+   {
+    "desc": "UNLOCK reply: unlocked, window closed, hold 0 (a press), 'Shift'",
+    "cmd": 86,
+    "seq": 33,
+    "payload": "00 01 00 00 00 01 05 53 68 69 66 74",
+    "frame": "F0 7D 67 6D 01 56 21 0C 00 00 01 00 00 00 01 05 53 68 69 66 74 09 F7",
+    "fields": {
+     "status": 0,
+     "state": 1,
+     "window": 0,
+     "hold": 0,
+     "n": 1,
+     "names": [
+      "Shift"
+     ],
+     "prompt": "Press Shift on the device"
+    }
+   },
+   {
+    "desc": "UNLOCK reply BAD_CMD (an app without physical unlock)",
+    "cmd": 86,
+    "seq": 34,
+    "payload": "02",
+    "frame": "F0 7D 67 6D 01 56 22 01 00 02 7C F7",
+    "fields": {
+     "status": 2
+    }
+   },
+   {
+    "desc": "UNLOCKED (unsolicited) state 1: unlocked",
+    "cmd": 102,
+    "seq": 12,
+    "payload": "01",
+    "frame": "F0 7D 67 6D 01 66 0C 01 00 01 75 F7",
+    "fields": {
+     "state": 1
+    }
+   },
+   {
+    "desc": "UNLOCKED (unsolicited) state 0: locked again, or the window closed",
+    "cmd": 102,
+    "seq": 13,
+    "payload": "00",
+    "frame": "F0 7D 67 6D 01 66 0D 01 00 00 75 F7",
+    "fields": {
+     "state": 0
+    }
+   }
+  ]
  }
 }

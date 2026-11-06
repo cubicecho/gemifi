@@ -61,6 +61,10 @@ export const Command = {
   GetComponent: 0x11,
   PresetDelete: 0x12,
   PresetMove: 0x13,
+  /** The physical layout (§4.7), on a device with caps bit 8. */
+  GetLayout: 0x14,
+  /** Start, renew or stop the raw readings (§4.8), on a device with caps bit 9. */
+  Monitor: 0x15,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,
@@ -89,6 +93,8 @@ export const Unsolicited = {
   PresetChanged: 0x63,
   /** HELLO's fields without the status, sent once after boot by a device with caps bit 6 (§4.6.3). */
   Booted: 0x64,
+  /** Raw readings of one kind, while MONITOR runs (§4.8). */
+  Raw: 0x65,
 } as const;
 export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
 
@@ -168,6 +174,10 @@ export const Capability = {
   Feedback: 1 << 6,
   /** REBOOT(1) leads to a gemifi bootloader, on a board that may also have a vendor one (Code 61). */
   GemifiBoot: 1 << 7,
+  /** GET_LAYOUT: the device can describe where its controls are (§4.7). */
+  Layout: 1 << 8,
+  /** MONITOR and RAW: the device can stream its raw readings (§4.8). */
+  Monitor: 1 << 9,
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
 
@@ -219,6 +229,41 @@ export type ReleaseWhat = (typeof ReleaseWhat)[keyof typeof ReleaseWhat];
 export const FB_LEDS_MAX = 64;
 /** The most text bytes one FB_TEXT carries (§4.6.2). */
 export const FB_TEXT_MAX = 64;
+
+/** GET_LAYOUT's `shape` (§4.7). Unknown shapes are drawn as buttons. */
+export const LayoutShape = {
+  Button: 0,
+  RoundButton: 1,
+  Knob: 2,
+  Encoder: 3,
+  Fader: 4,
+  Wheel: 5,
+  Pad: 6,
+  Display: 7,
+  Keys: 8,
+  Xy: 9,
+} as const;
+export type LayoutShape = (typeof LayoutShape)[keyof typeof LayoutShape];
+
+/** The layout blob this module parses (§4.7). */
+export const LAYOUT_VERSION = 1;
+
+/** MONITOR's `kinds` bits (§4.8): which raw readings to stream. 0 stops. */
+export const MonitorKind = {
+  Buttons: 1 << 0,
+  KeyMatrix: 1 << 1,
+  Analog: 1 << 2,
+  Encoders: 1 << 3,
+  Pads: 1 << 4,
+} as const;
+export type MonitorKind = (typeof MonitorKind)[keyof typeof MonitorKind];
+
+/** RAW's `kind` (§4.8): EVENT's type numbers. */
+export const RawKind = { Buttons: 1, KeyMatrix: 2, Analog: 3, Encoders: 4, Pads: 7 } as const;
+export type RawKind = (typeof RawKind)[keyof typeof RawKind];
+
+/** A RAW analog value that means "no reading" (an XY pad not touched, §4.8). */
+export const RAW_NO_READING = 0x3fff;
 
 /** Flash page size the upload rules are written against (§4.2). */
 export const PAGE_BYTES = 512;

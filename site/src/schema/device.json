@@ -3292,6 +3292,235 @@
           "description": "!include file.yaml"
         }
       ]
+    },
+    "layout": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "size": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 255
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[w, h]: the drawing's size in units"
+            },
+            "keys": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    },
+                    "y": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    },
+                    "w": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    },
+                    "h": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    },
+                    "shape": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "keys"
+                          ]
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ]
+                }
+              ]
+            },
+            "controls": {
+              "type": "object",
+              "description": "control id -> [x, y], [x, y, w, h] or { x, y, w, h, shape }",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "minItems": 4,
+                    "maxItems": 4
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "y": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "w": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "h": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "shape": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "button",
+                              "round_button",
+                              "knob",
+                              "encoder",
+                              "fader",
+                              "wheel",
+                              "pad",
+                              "display",
+                              "xy"
+                            ]
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "description": "where the controls are, in units of about 5 mm from the top left, for drawing the device (core/README.md \"Layout\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
     }
   },
   "additionalProperties": false,

@@ -106,3 +106,16 @@ modes:
     parent: edit
     led: { edit_led: blink }
     keys: { from: C4, action: channel }                  # C4..D#5 = channels 1..16
+
+# Where the controls are, for the web page's drawing (core/README.md "Layout"): units of about
+# 5 mm from the top left. The keys go under the controls by themselves. Approximate.
+layout:
+  controls:
+    volume:     { x: 1, y: 1, w: 4, h: 4 }
+    oct_down:   [7, 2]
+    oct_up:     [11, 2]
+    pitch_down: [16, 2]
+    pitch_up:   [20, 2]
+    mod:        [25, 2]
+    sustain:    [30, 2]
+    edit:       [35, 2]

@@ -649,9 +649,10 @@ int main(void)
         CHECK(get_component(GSX_KIND_PAD, 19, &r, &rn) == GSX_BAD_PARAM, "pad 19: BAD_PARAM");
         CHECK(get_component(GSX_KIND_METER, 0, &r, &rn) == GSX_BAD_PARAM, "no meters: BAD_PARAM");
         get_component(GSX_KIND_ANALOG, 0, &r, &rn);
-        CHECK(r[rn - 2] == 0 && r[rn - 1] == 2, "fader: takeover none, touch 2 (movement)");
+        CHECK(r[rn - 6] == 0 && r[rn - 5] == 2, "fader: takeover none, touch 2 (movement)");
         get_component(GSX_KIND_ANALOG, 1, &r, &rn);
-        CHECK(r[rn - 1] == 0, "XY X: touch none");
+        CHECK(r[rn - 5] == 0, "XY X: touch none");
+        CHECK(gsx_get_u(r + rn - 4, 2) == 592 && gsx_get_u(r + rn - 2, 2) == 3408, "XY X: adc_min 592, adc_max 3408");
     }
 
     /* the schema has the Pads group and its params */
@@ -667,6 +668,43 @@ int main(void)
         CHECK(p && p->count == 1 && !(p->flags & PF_PRESET) && p->defs[0] == 1 && !strcmp(p->index_labels[0], "grid"),
               "layer.enabled: one per mode, global, labelled by id");
         CHECK(!params_find(P_LAYER_BTN_ACTION) && !params_find(P_LAYER_ENC_CC), "no button or encoder twins: none");
+    }
+
+    /* raw readings (sysex.md 4.8): the pads' and analog inputs' readings, an XY pad untouched = none */
+    {
+        uint8_t k = GSX_MON_PADS | GSX_MON_ANALOG | GSX_MON_ENCODERS;
+        out_n = 0;
+        host_sysex(GSX_CMD_MONITOR, &k, 1);
+        int st = -1, kinds = -1;
+        for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++)
+            if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == (GSX_CMD_MONITOR | GSX_REPLY)) {
+                st = out[i + 1 + GSX_OFF_PAYLOAD];
+                kinds = out[i + 2 + GSX_OFF_PAYLOAD];
+            }
+        CHECK(st == GSX_OK && kinds == (GSX_MON_PADS | GSX_MON_ANALOG), "MONITOR: pads and analog (no encoders)");
+        xy_touch = 0;
+        mux_a[2] = 1234;
+        fader_mux[3] = 2000;
+        run_ms(60);
+        int pads = 0, analog = 0;
+        for (int i = 0; i + 1 + GSX_OFF_PAYLOAD < out_n; i++) {
+            if (out[i] != 0xF0 || out[i + 1 + GSX_OFF_CMD] != GSX_MSG_RAW)
+                continue;
+            const uint8_t *p = out + i + 1 + GSX_OFF_PAYLOAD;
+            if (p[0] == EV_PAD && gsx_get_u(p + 1, 2) == 0 && p[3] == 17) {
+                CHECK(gsx_get_u(p + 4 + 2 * 2, 2) == 1234 && gsx_get_u(p + 4, 2) == 0, "RAW pads: pad 3 reads 1234");
+                pads = 1;
+            } else if (p[0] == EV_ANALOG && p[3] == 3) {
+                CHECK(gsx_get_u(p + 4, 2) > 1500 && gsx_get_u(p + 6, 2) == 0x3FFF && gsx_get_u(p + 8, 2) == 0x3FFF,
+                      "RAW analog: the fader's reading (%u); XY not touched: no reading",
+                      (unsigned)gsx_get_u(p + 4, 2));
+                analog = 1;
+            }
+        }
+        CHECK(pads && analog, "RAW: pads and analog");
+        mux_a[2] = 0;
+        k = 0;
+        host_sysex(GSX_CMD_MONITOR, &k, 1);
     }
 
     printf("%d checks, %d failures\n", checks, fails);

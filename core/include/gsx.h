@@ -51,6 +51,8 @@ extern "C" {
 #define GSX_CMD_GET_COMPONENT 0x11
 #define GSX_CMD_PRESET_DELETE 0x12
 #define GSX_CMD_PRESET_MOVE   0x13
+#define GSX_CMD_GET_LAYOUT    0x14   /* section 4.7 */
+#define GSX_CMD_MONITOR       0x15   /* section 4.8 */
 
 /* Host -> device notifications (section 4.6.2): never answered */
 #define GSX_NOTIFY_FIRST 0x20
@@ -91,6 +93,7 @@ extern "C" {
 #define GSX_MSG_PARAM_CHANGED 0x62
 #define GSX_MSG_PRESET_CHANGED 0x63
 #define GSX_MSG_BOOTED     0x64   /* section 4.6.3 */
+#define GSX_MSG_RAW        0x65   /* section 4.8 */
 
 /* status codes (section 3) */
 #define GSX_OK           0
@@ -114,6 +117,15 @@ extern "C" {
 #define GSX_CAP_PRESETS   (1u << 5)
 #define GSX_CAP_FEEDBACK  (1u << 6)
 #define GSX_CAP_GEMIFI_BOOT (1u << 7) /* REBOOT(1) leads to a gemifi bootloader */
+#define GSX_CAP_LAYOUT    (1u << 8)   /* GET_LAYOUT (section 4.7) */
+#define GSX_CAP_MONITOR   (1u << 9)   /* MONITOR and RAW (section 4.8) */
+
+/* MONITOR kinds bits (section 4.8) */
+#define GSX_MON_BUTTONS  (1u << 0)
+#define GSX_MON_MATRIX   (1u << 1)
+#define GSX_MON_ANALOG   (1u << 2)
+#define GSX_MON_ENCODERS (1u << 3)
+#define GSX_MON_PADS     (1u << 4)
 
 /* HELLO `node`: longest node name (section 4.1.1) */
 #define GSX_NODE_NAME_MAX 31u

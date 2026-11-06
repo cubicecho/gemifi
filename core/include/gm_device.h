@@ -464,6 +464,10 @@ typedef struct {
 
 extern const gm_pad_twin_t gm_pad_twins[];
 
+/* The physical layout (YAML layout:, sysex.md 4.7): the GET_LAYOUT blob,
+ * GM_LAYOUT_BYTES long. Generated only when the YAML has layout:. */
+extern const uint8_t gm_layout[];
+
 #ifdef __cplusplus
 }
 #endif

@@ -364,7 +364,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash", "midi_messages"]
+            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
@@ -902,6 +902,7 @@ class Device:
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
+        self.layout = None           # (width, height, [Hub item]) from layout: (validate_layout)
         self.budget = None           # storage_budget(self), after validation
         self.hw_scan = None          # (row_ns, settle_ns, precharge) from hardware_scan.matrix
         self.hw_adc = False          # hardware_scan.analog
@@ -1609,6 +1610,7 @@ def validate(data, file=None):
 
     validate_modes(v, dev, data)
     validate_presets(v, dev, data)
+    validate_layout(v, dev, data)
     validate_write_to_flash(v, dev, data)
     msg_features(v, dev, data)
     check_budget(v, dev, data)
@@ -3114,6 +3116,231 @@ def display_tables(dev):
           for i, x in enumerate(dev.displays)]
     c += ["};", ""]
     return c
+
+# ---------------------------------------------------------------------------------------------
+# layout: where the controls are, for drawing the device (sysex.md 4.7, core/README.md "Layout")
+
+LAYOUT_VERSION = 1
+LAYOUT_KEYS = ["size", "keys", "controls"]
+LAYOUT_ITEM_KEYS = ["x", "y", "w", "h", "shape"]
+LAYOUT_MAX = 255                     # units: the blob's u8 fields
+LAYOUT_SHAPES = {"button": 0, "round_button": 1, "knob": 2, "encoder": 3, "fader": 4, "wheel": 5, "pad": 6,
+                 "display": 7, "keys": 8, "xy": 9}
+LAYOUT_SIZES = {"button": (3, 2), "round_button": (2, 2), "knob": (3, 3), "encoder": (3, 3), "fader": (2, 8),
+                "wheel": (2, 7), "pad": (4, 4), "display": (10, 3), "xy": (8, 8)}
+LAYOUT_KINDS = {"button": 1, "keys": 2, "analog input": 3, "encoder": 4, "display": 6, "pad": 7}   # GET_COMPONENT
+LAYOUT_KIND_SHAPES = {          # kind -> (default shape, allowed shapes)
+    "button": ("button", ["button", "round_button", "pad"]),
+    "analog input": ("knob", ["knob", "fader", "wheel", "xy"]),
+    "encoder": ("encoder", ["encoder", "knob"]),
+    "pad": ("pad", ["pad", "button", "round_button"]),
+    "display": ("display", ["display"]),
+}
+WHITE_KEY_UNITS = 4                  # the generated keyboard: a white key is 4 units wide
+KEYS_HEIGHT = 14
+
+
+def white_keys(first_note, n):
+    return sum(1 for k in range(n) if (first_note + k) % 12 in WHITE)
+
+
+def layout_rect(v, x, p, line, default_wh):
+    """A position: { x, y, w?, h?, shape? } or [x, y] / [x, y, w, h]. -> (x, y, w, h, shape or None) or None."""
+    shape = None
+    if isinstance(x, list):
+        if len(x) not in (2, 4) or any(isinstance(n, bool) or not isinstance(n, int) for n in x):
+            v.err(p, line, "must be [x, y] or [x, y, w, h] in whole units, or { x, y, w, h, shape }")
+            return None
+        vals = list(x) + (list(default_wh) if len(x) == 2 else [])
+    else:
+        d = v.mapping(x, p, line, LAYOUT_ITEM_KEYS)
+        if d is None:
+            return None
+        got = [v.integer(d, k, p, 0, LAYOUT_MAX, required=True) for k in "xy"]
+        got += [v.integer(d, k, p, 1, LAYOUT_MAX, default=dflt) for k, dflt in zip("wh", default_wh)]
+        if None in got:
+            return None
+        vals = got
+        if "shape" in d:
+            shape = d["shape"]
+            if shape not in LAYOUT_SHAPES:
+                close = difflib.get_close_matches(str(shape), list(LAYOUT_SHAPES), 1)
+                hint = f"; did you mean '{close[0]}'?" if close else ""
+                v.err(f"{p}.shape", d.line_of("shape"), f"unknown shape '{shape}' "
+                                                        f"({', '.join(LAYOUT_SHAPES)}{hint})")
+                return None
+    x0, y0, w, h = vals
+    if not (0 <= x0 <= LAYOUT_MAX and 0 <= y0 <= LAYOUT_MAX and w >= 1 and h >= 1):
+        v.err(p, line, f"out of range: x and y 0..{LAYOUT_MAX}, w and h at least 1")
+        return None
+    if x0 + w > LAYOUT_MAX or y0 + h > LAYOUT_MAX:
+        v.err(p, line, f"reaches past {LAYOUT_MAX} units ({x0}+{w}, {y0}+{h}): the drawing is at most "
+                       f"{LAYOUT_MAX} x {LAYOUT_MAX}")
+        return None
+    return x0, y0, w, h, shape
+
+
+def layout_control(v, dev, ctl, cid, seen):
+    """One layout.controls entry -> a layout item (Hub), or None after reporting why not."""
+    p, line = f"layout.controls.{cid}", ctl.line_of(cid)
+    target = v.ids.get(cid) if isinstance(cid, str) else None
+    if target is not None and target[0] == "pad twin":
+        v.err(p, line, f"'{cid}' is a layer twin: it is drawn where its base control is")
+        return None
+    if target is None or target[0] not in LAYOUT_KIND_SHAPES:
+        known = [i for i, t in v.ids.items() if t[0] in LAYOUT_KIND_SHAPES]
+        close = difflib.get_close_matches(str(cid), known, 1)
+        hint = f"; did you mean '{close[0]}'?" if close else ""
+        if target is None:
+            # A warning: a device built on a package may !remove a control the package's layout places.
+            v.warn(p, line, f"no control with id '{cid}': not drawn{hint}")
+        else:
+            v.err(p, line, f"'{cid}' is {a_(target[0])}: layout: places buttons, analog inputs, encoders, pads "
+                           f"and displays{hint}")
+        return None
+    kind, index = target[0], target[3]
+    comp = {"button": dev.buttons, "analog input": dev.analogs, "encoder": dev.encoders,
+            "pad": dev.pads, "display": dev.displays}[kind][index]
+    if getattr(comp, "layer", 0):
+        v.err(p, line, f"'{cid}' is a layer twin: it is drawn where its base control is")
+        return None
+    dshape, allowed = LAYOUT_KIND_SHAPES[kind]
+    raw = ctl[cid]
+    want = raw.get("shape", dshape) if isinstance(raw, dict) else dshape
+    r = layout_rect(v, raw, p, line, LAYOUT_SIZES.get(want, LAYOUT_SIZES[dshape]))
+    if r is None:
+        return None
+    x0, y0, w, h, given = r
+    shape = given or dshape
+    if shape not in allowed:
+        v.err(f"{p}.shape", line, f"{a_(kind)} can't be drawn as '{shape}' (use {' | '.join(allowed)})")
+        return None
+    extra = []
+    if shape == "xy":
+        pin = comp.pin
+        hub = dev.hubs[pin.hub - 1] if 0 < pin.hub <= len(dev.hubs) else None
+        if hub is None or hub.type not in XY_HUBS:
+            v.err(f"{p}.shape", line, f"'{cid}' isn't on an xy_pad hub: shape xy draws the two axes of one")
+            return None
+        other = next((j for j, a in enumerate(dev.analogs) if a.pin.hub == pin.hub and a.pin.num != pin.num), None)
+        if other is None:
+            v.err(f"{p}.shape", line, f"the other axis of xy_pad '{hub.id}' isn't an analog input")
+            return None
+        xi, yi = (index, other) if pin.num == 0 else (other, index)
+        for k in (xi, yi):
+            if ("analog input", k) in seen:
+                v.err(p, line, f"xy_pad '{hub.id}' is already placed (line {seen[('analog input', k)]}): one entry "
+                               "with shape: xy draws both axes")
+                return None
+        seen[("analog input", xi)] = seen[("analog input", yi)] = line
+        index, extra = xi, [yi]
+    else:
+        if (kind, index) in seen:
+            v.err(p, line, f"'{cid}' is already placed (line {seen[(kind, index)]})")
+            return None
+        seen[(kind, index)] = line
+    return Hub(kind=LAYOUT_KINDS[kind], index=index, shape=LAYOUT_SHAPES[shape], x=x0, y=y0, w=w, h=h,
+               extra=extra, id=cid)
+
+
+def layout_keys(v, dev, lay, items):
+    """The key matrix's item: layout.keys, or under the controls, a white key WHITE_KEY_UNITS wide."""
+    m = dev.matrix
+    if m is None:
+        if "keys" in lay:
+            v.err("layout.keys", lay.line_of("keys"), "the device has no key_matrix")
+        return None
+    whites = white_keys(m.first_note, m.keys)
+    default = (max(1, whites * WHITE_KEY_UNITS), KEYS_HEIGHT)
+    if lay.get("keys") is not None:
+        r = layout_rect(v, lay["keys"], "layout.keys", lay.line_of("keys"), default)
+        if r is not None and r[4] not in (None, "keys"):
+            v.err("layout.keys.shape", lay.line_of("keys"), "the keys are always drawn as keys")
+            return None
+    else:
+        below = max([it.y + it.h for it in items], default=-1) + 1
+        r = (0, below, *default, None)
+        if r[2] > LAYOUT_MAX or r[1] + r[3] > LAYOUT_MAX:
+            v.err("layout", lay.line, f"the keys don't fit under the controls ({r[2]} x {r[3]} units from y "
+                                      f"{r[1]}): place them with keys: {{ x, y, w, h }}")
+            return None
+    if r is None:
+        return None
+    return Hub(kind=LAYOUT_KINDS["keys"], index=0, shape=LAYOUT_SHAPES["keys"], x=r[0], y=r[1], w=r[2], h=r[3],
+               extra=[m.keys, m.first_note], id="keys")
+
+
+def validate_layout(v, dev, data):
+    """layout: each control's place, in units (about 5 mm). The key matrix goes under the controls unless
+    keys: places it. Sets dev.layout = (width, height, [items]); None without layout:."""
+    if data.get("layout") is None:
+        return
+    lay = v.mapping(data["layout"], "layout", data.line_of("layout"), LAYOUT_KEYS)
+    if lay is None:
+        return
+    items, seen = [], {}
+    ctl = lay.get("controls")
+    if ctl is not None and not isinstance(ctl, dict):
+        v.err("layout.controls", lay.line_of("controls"), "must be a mapping: control id -> { x, y, w, h, shape }")
+        ctl = None
+    for cid in ctl or []:
+        it = layout_control(v, dev, ctl, cid, seen)
+        if it is not None:
+            items.append(it)
+    keys = layout_keys(v, dev, lay, items)
+    if keys is not None:
+        items.append(keys)
+    if not items:
+        v.warn("layout", lay.line, "places nothing: no layout is built in")
+        return
+    width = max(it.x + it.w for it in items)
+    height = max(it.y + it.h for it in items)
+    if lay.get("size") is not None:
+        sz, line = lay["size"], lay.line_of("size")
+        if (not isinstance(sz, list) or len(sz) != 2
+                or any(isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= LAYOUT_MAX for n in sz)):
+            v.err("layout.size", line, f"must be [w, h] in whole units, 1..{LAYOUT_MAX}")
+        elif sz[0] < width or sz[1] < height:
+            v.err("layout.size", line, f"{sz[0]} x {sz[1]} is smaller than what is placed ({width} x {height})")
+        else:
+            width, height = sz
+    dev.layout = (width, height, items)
+
+
+def layout_item_bytes(it):
+    body = [it.kind, it.index, it.shape, it.x, it.y, it.w, it.h, *it.extra]
+    return [len(body), *body]
+
+
+def layout_blob(dev):
+    """The GET_LAYOUT blob (sysex.md 4.7 "Layout format (v1)")."""
+    width, height, items = dev.layout
+    out = bytearray([LAYOUT_VERSION, width, height, len(items) & 0xFF, len(items) >> 8])
+    for it in items:
+        out += bytes(layout_item_bytes(it))
+    return bytes(out)
+
+
+def layout_defines(dev):
+    if not dev.layout:
+        return []
+    return [f"#define GM_LAYOUT_BYTES {len(layout_blob(dev))} /* layout: (GET_LAYOUT, sysex.md 4.7) */"]
+
+
+def layout_tables(dev):
+    """gm_layout[]: the blob, one item per line."""
+    if not dev.layout:
+        return []
+    width, height, items = dev.layout
+    names = {n: k for k, n in LAYOUT_SHAPES.items()}
+    c = [f"/* layout: {width} x {height} units, {len(items)} items (sysex.md 4.7); each item: len, kind, index, "
+         "shape, x, y, w, h, extras */",
+         "const uint8_t gm_layout[GM_LAYOUT_BYTES] = {",
+         f"    {LAYOUT_VERSION}, {width}, {height}, {len(items) & 0xFF}, {len(items) >> 8},"]
+    c += [f"    {', '.join(map(str, layout_item_bytes(it)))}, /* {_comment(it.id)}: {names[it.shape]} */"
+          for it in items]
+    return c + ["};", ""]
+
 
 # ---------------------------------------------------------------------------------------------
 # presets (research/core/presets-design.md §2, §10.2)
@@ -4690,6 +4917,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pad_defines(dev)
     h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
+    h += layout_defines(dev)
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -4826,6 +5054,7 @@ def generate(dev, source="device.yaml"):
     c += mode_tables(dev)
     c += pad_tables(dev)
     c += display_tables(dev)
+    c += layout_tables(dev)
     c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 

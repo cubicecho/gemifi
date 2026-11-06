@@ -59,6 +59,22 @@ void app_param_changed(uint16_t id, uint16_t index);
 /* Unsolicited PRESET_CHANGED (slot u14, dirty byte). */
 void app_preset_changed(uint32_t slot, uint32_t dirty);
 
+/* An unsolicited message (cmd 0x60-0x7F) with a payload of 7-bit bytes,
+ * framed with the running device seq. */
+void app_send_unsolicited(uint8_t cmd, const uint8_t *payload, uint32_t n);
+
+/* Raw readings (sysex.md 4.8): MONITOR and RAW. On by default; a build can
+ * set GM_MONITOR 0 to leave them out. The controller (controller.c) streams
+ * them from gm_poll. */
+#ifndef GM_MONITOR
+#define GM_MONITOR 1
+#endif
+#define GM_MONITOR_INTERVAL_MS 20u      /* one RAW message per 20 ms at most */
+#define GM_MONITOR_TIMEOUT_MS  5000u    /* stops this long after the last MONITOR */
+/* MONITOR: start, renew or (kinds 0) stop the stream. Returns the kinds
+ * (GSX_MON_*) the device has of those asked for, which it now sends. */
+uint32_t gm_monitor(uint32_t kinds);
+
 /* Optional hook (weak, default does nothing): a param changed through
  * SET_PARAM(S) or FACTORY_RESET. id 0 = everything changed. */
 void app_on_param_set(uint16_t id, uint16_t index);

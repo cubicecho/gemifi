@@ -34,8 +34,27 @@ alone. `npm run dev` proxies `/api` and `/download` to `GEMIFI_BUILDER_URL`
 
 **Views.** **Update**: the connection, the device, firmware upload and the log; with the Serial
 (ESP) transport chosen, also the ESP first install. **Presets** (**Settings** on a device without
-presets): the device's presets and a card per settings group, with a save bar pinned under them.
-**Host feedback**: driving the device's LEDs and displays as a DAW script does.
+presets): the device's presets, MIDI learn and a card per settings group, with a save bar pinned
+under them. **Tester**: the input tester. **Host feedback**: driving the device's LEDs and
+displays as a DAW script does.
+
+**Tester.** The device drawn from its layout (GET_LAYOUT, HELLO caps bit 8; `protocol/sysex.md`
+§4.7), with the control you move lit. Without a layout, the controls are listed instead. With
+raw readings (caps bit 9, §4.8) it also shows what the scan reads: the key matrix as a grid of
+contacts (as Vial's matrix tester), the buttons before debounce, each analog input's ADC reading
+(0..4095) against its `adc_min`/`adc_max` (from GET_COMPONENT, caps bit 6; without it, the range
+moved through since the view opened), the encoders' detent counts and the pads' pressure.
+**Calibrate**, then move every analog control end to end and press **Done**: the page writes the
+`adc_min`/`adc_max` lines for the device YAML, by YAML id (or display name without caps bit 6).
+While the view is shown the page keeps MONITOR running (sent again every 2 s; the device stops
+5 s after the last) and turns EVENTs on (`debug.events`, put back when you leave).
+
+**MIDI learn** (on the Presets tab). **Find a control**: move a control on the device and its
+row in the settings tables is highlighted and scrolled to (from its EVENT), and lit in the
+drawing. **Learn a number**: choose another MIDI input under **Learn from** (a synth, a
+controller, a DAW), click a CC or note field in a table (`analog.cc`, `encoder.cc`,
+`button.number`, `pad.note` and their layer twins), press **Learn** and play: the next CC or
+Note On sets it, as if typed, so Save to device stores it. Esc or **Stop** cancels.
 
 **Presets.** On a device with presets (HELLO caps bit 5) the Presets card lists every slot: choose
 one to make it active (the page asks before dropping unsaved edits), **New preset** (a name, a slot,
@@ -50,7 +69,10 @@ active preset with the shared settings.
 
 **Demo device.** `npm run dev` with `?demo` in the URL (`http://localhost:3000/?demo&view=presets`)
 connects a pretend Code 61 (`src/dev/demo-device.ts`): HELLO, the config and the presets in
-memory, for working on those views without a keyboard. It is not part of a production build.
+memory, for working on those views without a keyboard. It also has a layout, streams pretend raw
+readings and EVENTs while a pretend player moves a control every second or so
+(`src/dev/demo-tools.ts`), and offers a pretend synth to learn from. It is not part of a
+production build.
 
 Web MIDI only works in a **secure context**: HTTPS, or `localhost`. Opening `dist/index.html` from
 `file://` does not work; use `npm run preview` to serve a build.
@@ -127,6 +149,20 @@ the GitHub Pages address) gets its own add-on.
    shown in the card. A stock M-Audio update file (`FirmwareFile…hex.txt`) is sent as it is, which
    restores the stock firmware; to use it from a stock keyboard, select its port first. Untested
    on hardware so far.
+
+   **Backup before flashing.** With a gemifi app that has settings connected, **Flash** first
+   reads every setting and every preset in use into a backup and saves it to your downloads, as
+   `gemifi.py flash` does (`gemifi-backup-<board>-<version>-<date>-<time>.json`). It is the host
+   tool's backup format: `gemifi_backup` 2 with `values` (the shared settings), `active`,
+   `presets_revision` and `presets` (slot, name, `stored`, `stored_revision`, `values`, and
+   `unsaved` on a preset with unsaved edits); 1 with `values` only on a device without presets.
+   To read the presets the page selects each one in turn, then selects the one that was active
+   and puts its unsaved edits back. Switch off **Back up settings and presets first** to skip it.
+   If the backup fails, nothing is flashed. Stored settings survive an upload. After it, if a
+   preset's stored edits were made on another presets revision, the page asks: **Keep my
+   presets** (the default) or **Use the firmware's presets** (PRESET_RESET 0). **Restore backup**
+   writes the backup back, as `gemifi.py restore` does, and stores it: useful when the new
+   firmware lost the settings. **Import JSON** on the Presets tab takes the same file.
 4. **Install firmware (first flash)**, shown with the Serial (ESP) transport, for an ESP chip
    with no gemifi firmware yet, or to recover one: choose a merged factory image (one `.bin`, written at 0x0, from
    `esptool.py merge_bin` or PlatformIO), or a `manifest.json` in the
@@ -140,6 +176,13 @@ the GitHub Pages address) gets its own add-on.
    RESET is pressed.
 5. **Log** shows LOG (`[time ms] LEVEL text`) and EVENT messages. **Raw SysEx** switches to every
    message both ways as hex (`→` sent, `←` received), for debugging the protocol.
+6. **MIDI monitor** decodes the notes and other channel messages the device sends: note names
+   (60 = C4) and velocity, CC number and value, pitch bend (−8192..8191), channel and poly
+   pressure, program change and the channel, plus system messages. It listens on the port the page
+   talks to and on the device's other ports (a DAW or DIN port, found by the device's name), and
+   tags each line with its port. The filter picks the kinds and a channel; clock is hidden at
+   first. **Pause** freezes the list while messages keep coming in; **Resume** shows them. The
+   newest 500 are kept. The `?demo` device plays a few notes and sweeps now and then.
 
 ## Deploying
 
@@ -185,6 +228,9 @@ src/
     client.ts          SysexClient: stop-and-wait requests over any Transport
     config.ts          GET_SCHEMA, GET/SET_PARAM(S), COMMIT, FACTORY_RESET
     presets.ts         PRESET_INFO / SAVE / RESET / NAME and selecting a preset (§4.5)
+    layout.ts          GET_LAYOUT, the layout blob and the keys' drawing rule (§4.7)
+    monitor.ts         MONITOR and RAW: the raw readings (§4.8)
+    backup.ts          backups in gemifi.py's format: read every preset, restore, stale presets
     flash.ts           hello(), reboot(), flashFirmware(), flashAbFirmware(): the upload sequences over a DeviceLink
     ports.ts           tells app / bootloader / other ports apart by name
     defaults.ts        tunable timings (reply timeout, retries, reboot wait)
@@ -193,6 +239,9 @@ src/
     maudio.ts          M-Audio's update protocol (Code 61): record stream, checksums, ASCII-hex SysEx, probe and upload
   midi/
     device-manager.ts  Web MIDI: access, port pairing, hot-plug, the DeviceLink the page uses
+    midi-message.ts    decodes channel and system messages for the MIDI monitor
+    midi-log.ts        the monitor's bounded list, filter and line format
+    device-ports.ts    finds the device's other ports (DAW, DIN) by its name
   serial/
     serial-link.ts     Web Serial: the same DeviceLink over a serial port, framed by stream.ts
     esp-manifest.ts    first install: merged image or ESP Web Tools manifest, build and part matching

@@ -58,6 +58,14 @@ export interface AnalogComponent extends ComponentBase {
   kind: typeof ComponentKind.Analog;
   /** 0 none, 1 pick-up; null from firmware that doesn't report it. */
   takeover: number | null;
+  /** 0 none, 1 sensor, 2 from movement; left out by firmware that doesn't report it. */
+  touch?: number;
+  /**
+   * The YAML calibration, 0..4095: the readings mapped to the bottom and the top (`adcMin` above
+   * `adcMax` = reversed). Left out by firmware that doesn't report them.
+   */
+  adcMin?: number;
+  adcMax?: number;
 }
 
 /** An encoder: its LED ring, if it has one. */
@@ -248,7 +256,8 @@ function optionalByte(reader: PayloadReader): number | null {
 /**
  * Parses GET_COMPONENT's reply fields (§4.6.1): `kind`, `index` u14, `count` u14, `id`, `name`
  * and `role` lstrings, then the kind's extra fields. The added fields (`takeover`, `mode`,
- * `owner`, a pad's `layer`) are null when older firmware leaves them out. Bytes after those are later fields, ignored.
+ * `owner`, a pad's `layer`) are null when older firmware leaves them out; an analog's `touch`,
+ * `adcMin` and `adcMax` are then left out. Bytes after those are later fields, ignored.
  *
  * @param body - The reply payload without its status byte.
  * @returns The component.
@@ -268,8 +277,19 @@ export function parseComponent(body: ArrayLike<number>): Component {
       return { kind, ...base, led: noneToNull(reader.u14()) };
     case ComponentKind.KeyMatrix:
       return { kind, ...base, keys: reader.u14(), firstNote: reader.byte() };
-    case ComponentKind.Analog:
-      return { kind, ...base, takeover: optionalByte(reader) };
+    case ComponentKind.Analog: {
+      const analog: AnalogComponent = { kind, ...base, takeover: optionalByte(reader) };
+      const touch = optionalByte(reader);
+      if (touch !== null) {
+        analog.touch = touch;
+      }
+      const ADC_RANGE_BYTES = 4;
+      if (reader.remaining >= ADC_RANGE_BYTES) {
+        analog.adcMin = reader.u14();
+        analog.adcMax = reader.u14();
+      }
+      return analog;
+    }
     case ComponentKind.Encoder: {
       const ring = reader.byte();
       const center = noneToNull(reader.u14());

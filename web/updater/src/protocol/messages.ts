@@ -5,6 +5,7 @@
 
 import { encodeS32, encodeU14, encodeU28, encodeU32, PayloadReader, pack } from './encoding.ts';
 import type { Frame } from './frame.ts';
+import { parseRaw, type RawReading } from './monitor.ts';
 import { Capability, type RebootMode, Role, UID_BYTES, Unsolicited } from './wire.ts';
 
 /** What HELLO tells about a device. */
@@ -78,8 +79,20 @@ export interface PresetChangedMessage {
   dirty: boolean;
 }
 
+/** A RAW message (0x65, §4.8): one kind's raw readings, while MONITOR runs. */
+export interface RawMessage {
+  kind: 'raw';
+  reading: RawReading;
+}
+
 /** Any unsolicited message this module understands. */
-export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage | BootedMessage | PresetChangedMessage;
+export type DeviceMessage =
+  | LogMessage
+  | EventMessage
+  | ParamChangedMessage
+  | BootedMessage
+  | PresetChangedMessage
+  | RawMessage;
 
 /**
  * The REBOOT request payload.
@@ -346,6 +359,9 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
     const reader = new PayloadReader(frame.payload);
     return { kind: 'preset', slot: reader.u14(), dirty: reader.byte() !== 0 };
   }
+  if (frame.cmd === Unsolicited.Raw) {
+    return { kind: 'raw', reading: parseRaw(frame.payload) };
+  }
   return null;
 }
 
@@ -370,6 +386,8 @@ const CAPABILITY_NAMES: ReadonlyArray<readonly [number, string]> = [
   [Capability.Log, 'log'],
   [Capability.Event, 'events'],
   [Capability.Feedback, 'feedback'],
+  [Capability.Layout, 'layout'],
+  [Capability.Monitor, 'raw readings'],
 ];
 
 /**

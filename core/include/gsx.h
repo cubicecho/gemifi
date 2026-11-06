@@ -51,6 +51,7 @@ extern "C" {
 #define GSX_CMD_GET_COMPONENT 0x11
 #define GSX_CMD_PRESET_DELETE 0x12
 #define GSX_CMD_PRESET_MOVE   0x13
+#define GSX_CMD_UNLOCK        0x16   /* section 4.7 */
 
 /* Host -> device notifications (section 4.6.2): never answered */
 #define GSX_NOTIFY_FIRST 0x20
@@ -88,6 +89,7 @@ extern "C" {
 #define GSX_MSG_PARAM_CHANGED 0x62
 #define GSX_MSG_PRESET_CHANGED 0x63
 #define GSX_MSG_BOOTED     0x64   /* section 4.6.3 */
+#define GSX_MSG_UNLOCKED   0x66   /* section 4.7 */
 
 /* status codes (section 3) */
 #define GSX_OK           0
@@ -102,6 +104,7 @@ extern "C" {
 #define GSX_BUSY         9
 #define GSX_BAD_PARAM    10
 #define GSX_BAD_VALUE    11
+#define GSX_LOCKED       12   /* section 4.7: unlock on the device first */
 
 /* HELLO capability bits (section 4.1) */
 #define GSX_CAP_FW_UPLOAD (1u << 0)
@@ -111,6 +114,7 @@ extern "C" {
 #define GSX_CAP_PRESETS   (1u << 5)
 #define GSX_CAP_FEEDBACK  (1u << 6)
 #define GSX_CAP_GEMIFI_BOOT (1u << 7) /* REBOOT(1) leads to a gemifi bootloader */
+#define GSX_CAP_UNLOCK    (1u << 10)  /* physical unlock (section 4.7) */
 
 /* HELLO `node`: longest node name (section 4.1.1) */
 #define GSX_NODE_NAME_MAX 31u

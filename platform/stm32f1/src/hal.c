@@ -13,6 +13,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "gm_hal.h"
+#include "gm_safety.h"
 #include "gsx.h"
 #include "stm32f1.h"
 #include "sys.h"
@@ -343,8 +344,11 @@ void hal_reboot(int to_bootloader)
     sys_iwdg_kick();
     /* Update mode = the vendor bootloader's request flag (recovery.h).
      * If the flash write fails we still reset: the app just comes back. */
-    if (to_bootloader)
+    if (to_bootloader) {
         recovery_request_update();
+        if (hal_boot_mailbox())
+            MAILBOX->reason = MAILBOX_REASON_REBOOT;
+    }
     usbd_disconnect();
     sys_delay_ms(10);
     sys_reset();
@@ -625,4 +629,43 @@ uint16_t hal_extra_caps(void)
 {
     const volatile uint32_t *m = (const volatile uint32_t *)GEMIFI_BOOT_MARK_ADDR;
     return *m == GEMIFI_BOOT_MAGIC ? GSX_CAP_GEMIFI_BOOT : 0;
+}
+
+/* The gemifi bootloader writes the SRAM mailbox (sys.h) from version 0.1.2
+ * on; under M-Audio's, or an older gemifi one, it is random. */
+int hal_boot_mailbox(void)
+{
+    const volatile struct gemifi_boot_mark *m = (const volatile struct gemifi_boot_mark *)GEMIFI_BOOT_MARK_ADDR;
+    return m->magic == GEMIFI_BOOT_MAGIC && m->boot_version >= GEMIFI_VERSION(0, 1, 2);
+}
+
+/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.8) ----
+ * Under the gemifi bootloader RCC_CSR is already cleared: the flags are in
+ * the mailbox (sysex.md 6). Otherwise RCC_CSR as the app found it
+ * (sys_reset_cause). The F1 reports a brown-out as a power-on reset. */
+static uint8_t rst_reason, boot_loop;
+
+void hal_boot_capture(void)
+{
+    uint32_t f = sys_reset_cause();
+    if (hal_boot_mailbox()) {
+        f = MAILBOX->rst_flags;
+        boot_loop = MAILBOX->reason == MAILBOX_REASON_BOOT_LOOP;
+        MAILBOX->reason = 0;
+    }
+    rst_reason = (uint8_t)(f & RCC_CSR_PORRSTF ? GM_RESET_POWER_ON :
+                           f & RCC_CSR_LPWRRSTF ? GM_RESET_LOW_POWER :
+                           f & (RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF) ? GM_RESET_WATCHDOG :
+                           f & RCC_CSR_SFTRSTF ? GM_RESET_SOFTWARE :
+                           f & RCC_CSR_PINRSTF ? GM_RESET_PIN : GM_RESET_UNKNOWN);
+}
+
+uint32_t hal_reset_reason(void)
+{
+    return rst_reason;
+}
+
+int hal_boot_loop(void)
+{
+    return boot_loop;
 }

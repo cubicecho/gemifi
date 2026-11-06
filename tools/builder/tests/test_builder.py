@@ -1107,6 +1107,47 @@ class TestValidation(unittest.TestCase):
         self.assertError(MINIMAL_NUC + "boot_combo: [a, no]\n", r"YAML reads `no` as the boolean False")
         self.assertClean(MINIMAL_NUC + "boot_combo: [a]\n")
 
+    def test_safety_keys(self):
+        """factory_reset_combo:, unlock:, status_led: (core/README.md "Factory-reset combo", "Physical unlock",
+        "Status LED")."""
+        two = MINIMAL_NUC + "  - { id: b, pin: PA2 }\n  - { id: c, pin: PA3 }\n"
+        hdr = lambda text: gd.generate(load(text)[0])["gm_device_config.h"]   # noqa: E731
+        # unlock: on by default with a boot_combo, off without one
+        h = hdr(two + "boot_combo: [a, b]\n")
+        self.assertIn("#define GM_UNLOCK 1", h)
+        self.assertIn("#define GM_UNLOCK_COMBO 0x3u /* a + b */", h)
+        self.assertIn("#define GM_UNLOCK_HOLD_MS 2000", h)
+        self.assertIn("#define GM_UNLOCK_REPLY 9 ", h)            # 5 + (1 + 1) x 2
+        self.assertIn("#define GM_RESET_COMBO 0", h)
+        self.assertIn("#define GM_STATUS_LED (-1)", h)
+        self.assertIn("#define GM_UNLOCK 0", hdr(two))
+        self.assertIn("#define GM_UNLOCK 0", hdr(two + "boot_combo: [a, b]\nunlock: false\n"))
+        h = hdr(two + "unlock: { combo: [c], hold: 0s }\n")
+        self.assertIn("#define GM_UNLOCK_COMBO 0x4u /* c */", h)
+        self.assertIn("#define GM_UNLOCK_HOLD_MS 0", h)
+        self.assertIn("#define GM_UNLOCK_COMBO 0x3u", hdr(two + "boot_combo: [b, a]\nunlock: { hold: 3s }\n"))
+        self.assertError(two + "unlock: true\n", r"unlock: true needs a combo")
+        self.assertError(two + "unlock: { hold: 1s }\n", r"needs `combo:`")
+        self.assertError(two + "unlock: { combo: [a], hold: 11s }\n", r"out of range")
+        self.assertError(two + "unlock: { combo: [a], wait: 1s }\n", r"unknown key")
+        self.assertError(two + "unlock: { combo: [] }\n", r"at least one button")
+        self.assertError(two + "unlock: { combo: [a, zz] }\n", r"no button with id 'zz'", path="unlock.combo[1]")
+        # the factory-reset combo, and its overlap with boot_combo
+        h = hdr(two + "factory_reset_combo: [b, c]\n")
+        self.assertIn("#define GM_RESET_COMBO 0x6u /* b + c */", h)
+        self.assertIn("#define GM_RESET_HOLD_MS 5000", h)
+        self.assertIn("#define GM_RESET_HOLD_MS 8000", hdr(two + "factory_reset_combo: { combo: [c], hold: 8s }\n"))
+        self.assertClean(two + "boot_combo: [a, b]\nfactory_reset_combo: [b, c]\n")
+        for combo, how in (("[a, b]", "the same buttons as"), ("[a]", "inside"), ("[a, b, c]", "a superset of")):
+            self.assertError(two + f"boot_combo: [a, b]\nfactory_reset_combo: {combo}\n", how,
+                             path="factory_reset_combo")
+        self.assertError(two + "factory_reset_combo: { combo: [a], hold: 0s }\n", r"out of range")
+        self.assertError(two + "factory_reset_combo: { hold: 5s }\n", r"needs `combo:`")
+        # status_led: an LED id
+        led = two + "leds: [{ id: st, pin: PA4 }]\n"
+        self.assertIn("#define GM_STATUS_LED 0 /* st */", hdr(led + "status_led: st\n"))
+        self.assertError(led + "status_led: a\n", r"'a' is the id of buttons\[0\] \(a button\), not of an LED")
+
     def test_id_required_and_unique(self):
         self.assertError(MINIMAL_NUC.replace("id: a, ", ""), r"needs id: or name:", path="buttons[0]")
         e = self.assertError(MINIMAL_NUC + "  - { id: a, pin: PA2 }\n",

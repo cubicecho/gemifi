@@ -42,6 +42,14 @@ board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
+# Recovery (core/README.md "Factory-reset combo", "Physical unlock", "Status LED"):
+# Octave - + Octave + held at power-up for 5 s wipe the settings (not the firmware;
+# Up + Down at power-up is the bootloader's). Uploads, reboot to the bootloader and
+# factory reset over SysEx wait until Up + Down are held for 2 s; the display says
+# HOLD UP+DOWN and the Edit LED blinks fast meanwhile.
+factory_reset_combo: [octave_down, octave_up]
+unlock: { combo: [up, down] }
+status_led: edit_led
 # write_to_flash: (core/README.md "Writes the device makes on its own"): what
 # the device stores without a host asking. Left out = off: a preset picked on
 # the device isn't remembered, and power-up is preset 1. A flash page erase

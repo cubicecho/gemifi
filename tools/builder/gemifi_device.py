@@ -102,6 +102,10 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("layer.button.number", 36, GLOBAL, lambda d: _twins(d.buttons)),
     ("layer.encoder.cc", 37, GLOBAL, lambda d: _twins(d.encoders)),
     ("layer.encoder.mode", 38, GLOBAL, lambda d: _twins(d.encoders)),
+    # diagnostics (protocol/sysex.md 4.8): READ_ONLY, never stored; 72-74 kept for more
+    *((n, i, VOLATILE, (lambda d: 1)) for n, i in (
+        ("diag.reset_reason", 65), ("diag.boot_loop", 66), ("diag.settings", 67), ("diag.scan_max", 68),
+        ("diag.loop_max", 69), ("diag.scan_period", 70), ("diag.uptime", 71))),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
@@ -326,7 +330,8 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
-            "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
+            "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
+            "status_led", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
             "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
@@ -766,6 +771,10 @@ class Device:
         self.matrix = None
         self.version = None
         self.boot_combo = []
+        # safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED")
+        self.reset_combo, self.reset_hold_ms = [], RESET_HOLD_DEFAULT_MS
+        self.unlock, self.unlock_hold_ms = [], UNLOCK_HOLD_DEFAULT_MS   # [] = unlock off
+        self.status_led = None   # LED index
         self.i2c = None
         self.feedback = True
         self.led_owner, self.led_timeout = 0, DEFAULT_LED_TIMEOUT_MS // 10
@@ -1486,6 +1495,7 @@ def validate(data, file=None):
             else:
                 dev.boot_combo.append(idx)
 
+    validate_safety(v, dev, data)
     validate_modes(v, dev, data)
     validate_presets(v, dev, data)
     validate_write_to_flash(v, dev, data)
@@ -3375,6 +3385,97 @@ def mode_led_ref(v, d, path):
     return None if idx is None else (idx, False)
 
 
+# ---- safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED") ----
+RESET_HOLD_DEFAULT_MS = 5000
+UNLOCK_HOLD_DEFAULT_MS = 2000
+COMBO_MAX = 8            # buttons in a combo (sysex.md 4.7 UNLOCK `n`)
+
+
+def combo_buttons(v, dev, seq, path, line):
+    """A combo's button ids -> sorted button indices (the YAML's own buttons, not layer twins)."""
+    out = []
+    items = v.seq(seq, path, line)
+    if not items:
+        v.err(path, line, "needs at least one button id (e.g. `[pitch_down, pitch_up]`)")
+    for i in range(len(items)):
+        p, ln = f"{path}[{i}]", items.line_of(i)
+        idx = v.ref(items, i, p, ln, "button", "buttons")
+        if idx is None:
+            continue
+        if idx in out:
+            v.warn(p, ln, f"'{items[i]}' is listed twice")
+        else:
+            out.append(idx)
+    if len(out) > COMBO_MAX:
+        v.err(path, line, f"{len(out)} buttons: a combo has at most {COMBO_MAX}")
+    return sorted(out)
+
+
+def combo_and_hold(v, dev, data, key, lo_ms, hi_ms, default_ms, example):
+    """`key: [ids]` or `key: { combo: [ids], hold: 2s }` -> (indices or None if not given, hold ms,
+    combo given). combo may be left out of the mapping (None then)."""
+    x, line = data[key], data.line_of(key)
+    if isinstance(x, list):
+        return combo_buttons(v, dev, x, key, line), default_ms, True
+    d = v.mapping(x, key, line, ["combo", "hold"])
+    if d is None:
+        return [], default_ms, True
+    hold = v.period(d, "hold", key, lo_ms * 1000, hi_ms * 1000, step_us=1000, example=example)
+    hold = default_ms if hold is None else hold
+    if d.get("combo") is None:
+        return None, hold, False
+    return combo_buttons(v, dev, d["combo"], f"{key}.combo", d.line_of("combo")), hold, True
+
+
+def validate_safety(v, dev, data):
+    """factory_reset_combo:, unlock: and status_led: (sysex.md 4.7; core/README.md)."""
+    boot = set(dev.boot_combo)
+    if data.get("factory_reset_combo") is not None:
+        line = data.line_of("factory_reset_combo")
+        combo, dev.reset_hold_ms, given = combo_and_hold(v, dev, data, "factory_reset_combo", 1000, 30000,
+                                                          RESET_HOLD_DEFAULT_MS, "5s")
+        if not given:
+            v.err("factory_reset_combo", line, "needs `combo:` (the button ids, e.g. `[oct_down, oct_up]`)")
+        combo = combo or []
+        if combo and boot and (set(combo) <= boot or boot <= set(combo)):
+            names = lambda ix: " + ".join(dev.buttons[i].id for i in sorted(ix))   # noqa: E731
+            how = "the same buttons as" if set(combo) == boot else (
+                "inside" if set(combo) < boot else "a superset of")
+            v.err("factory_reset_combo", line,
+                  f"{names(combo)} is {how} boot_combo ({names(boot)}): held at power-up, one would "
+                  "always set off the other. Pick buttons so that neither combo contains the other")
+        dev.reset_combo = combo
+    if "unlock" in data:
+        x, line = data["unlock"], data.line_of("unlock")
+        if x is False:
+            dev.unlock = []
+        elif x is True or x is None:
+            dev.unlock = sorted(boot)
+            if not boot:
+                v.err("unlock", line, "unlock: true needs a combo: set `unlock: { combo: [...] }` or "
+                                      "boot_combo (or `unlock: false`)")
+        else:
+            combo, dev.unlock_hold_ms, given = combo_and_hold(v, dev, data, "unlock", 0, 10000,
+                                                             UNLOCK_HOLD_DEFAULT_MS, "2s")
+            if not given:
+                combo = sorted(boot)
+                if not boot:
+                    v.err("unlock", line, "needs `combo:` (there is no boot_combo to default to)")
+            dev.unlock = combo or []
+    else:
+        dev.unlock = sorted(boot)            # on by default when the device has a boot_combo
+    if data.get("status_led") is not None:
+        idx = v.ref(data, "status_led", "status_led", data.line_of("status_led"), "LED", "LEDs")
+        if idx is not None:
+            dev.status_led = idx
+
+
+def combo_mask(ix):
+    """Button indices -> a C mask constant, 32-bit when it fits."""
+    m = sum(1 << i for i in ix)
+    return f"0x{m:X}u" if m < (1 << 32) else f"0x{m:X}ull"
+
+
 def validate_modes(v, dev, data):
     """modes: -> dev.modes, one Hub per mode: toggle (button index) or parent (mode index), root, led,
     blink, show (preset_blink LEDs) and keys = sorted [(key index, op, arg, comment)]."""
@@ -4178,6 +4279,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pad_defines(dev)
     h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
+    h += safety_defines(dev)
     if dev.platform.is_esp:
         h += ["", "#ifndef GM_MIDI_USB", "#define GM_MIDI_USB 1", "#define GM_MIDI_SERIAL 2",
               "#define GM_MIDI_BLE 3", "#endif",
@@ -4316,6 +4418,30 @@ def generate(dev, source="device.yaml"):
     c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
 
+
+
+def safety_defines(dev):
+    """factory_reset_combo:, unlock: and status_led: (core/src/safety.c, app_proto.c)."""
+    names = lambda ix: " + ".join(dev.buttons[i].id for i in ix)   # noqa: E731
+    h = ["", "/* safety (core/README.md \"Factory-reset combo\", \"Physical unlock\", \"Status LED\") */"]
+    if dev.unlock:
+        reply = 5 + sum(1 + min(31, len(dev.buttons[i].name)) for i in dev.unlock)
+        h += ["#define GM_UNLOCK 1",
+              f"#define GM_UNLOCK_COMBO {combo_mask(dev.unlock)} /* {names(dev.unlock)} */",
+              f"#define GM_UNLOCK_N {len(dev.unlock)}",
+              f"#define GM_UNLOCK_HOLD_MS {dev.unlock_hold_ms}",
+              f"#define GM_UNLOCK_REPLY {reply} /* UNLOCK reply payload bytes */"]
+    else:
+        h.append("#define GM_UNLOCK 0")
+    if dev.reset_combo:
+        h += [f"#define GM_RESET_COMBO {combo_mask(dev.reset_combo)} /* {names(dev.reset_combo)} */",
+              f"#define GM_RESET_HOLD_MS {dev.reset_hold_ms}"]
+    else:
+        h.append("#define GM_RESET_COMBO 0")
+    led = dev.status_led
+    h.append(f"#define GM_STATUS_LED {led if led is not None else '(-1)'}"
+             + (f" /* {dev.leds[led].id} */" if led is not None else ""))
+    return h
 
 MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
 MATRIX_MAX_ROWS = 32    # controller.c: rows scanned

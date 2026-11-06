@@ -58,6 +58,14 @@ enum {
     P_LAYER_BTN_NUMBER = 36,
     P_LAYER_ENC_CC = 37,             /* per encoder twin (GM_ENC_TWINS); -1 = none */
     P_LAYER_ENC_MODE = 38,
+    /* diagnostics (sysex.md 4.8): READ_ONLY, VOLATILE; 72-74 kept for more */
+    P_DIAG_RESET = 65,
+    P_DIAG_BOOT_LOOP = 66,
+    P_DIAG_SETTINGS = 67,
+    P_DIAG_SCAN_MAX = 68,
+    P_DIAG_LOOP_MAX = 69,
+    P_DIAG_SCAN_PERIOD = 70,
+    P_DIAG_UPTIME = 71,
 };
 
 #ifndef GM_N_PADS

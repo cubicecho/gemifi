@@ -12,6 +12,12 @@ chip: NUC120LC1BN
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 125us       # stock rate; the scan takes ~20 us of it
 boot_combo: [pitch_down, pitch_up]
+# Recovery (core/README.md "Factory-reset combo", "Physical unlock", "Status LED"):
+# Oct - + Oct + held at power-up for 5 s wipe the settings (not the firmware). Uploads,
+# reboot to the bootloader and factory reset over SysEx wait until Pitch down + Pitch up
+# (the boot_combo, the default) are held for 2 s; the Edit LED blinks fast meanwhile.
+factory_reset_combo: [oct_down, oct_up]
+status_led: edit_led
 
 # Buttons: PA1..PA7, active-low, external pull-ups (NUC120 has no internal pulls).
 # The names show in the web config page and are the CLI's index keys (button.action:Oct -);

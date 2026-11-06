@@ -62,4 +62,9 @@ __attribute__((noreturn)) void sys_reset_to(int to_ldrom);
  * after sys_tick_init(), before interrupts that use it are enabled. */
 void hal_delay_calibrate(void);
 
+/* Apps (src/hal.c): note why the app started (hal_reset_reason,
+ * hal_boot_loop) from GCR_RSTSRC and the mailbox. Call first in main(),
+ * before anything changes the mailbox's reason. */
+void hal_boot_capture(void);
+
 #endif

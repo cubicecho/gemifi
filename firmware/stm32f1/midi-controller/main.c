@@ -31,6 +31,7 @@
 #include "dma_map.h"
 #include "board.h"
 #include "gm_presets.h"
+#include "gm_safety.h"
 
 #ifdef BOARD_POWER_LATCH_PIN
 /* Soft power (board header): the power button held 2 s switches off, as the
@@ -125,6 +126,7 @@ void TIM_IRQ_HANDLER(GM_SCAN_TICK_TIM)(void)
         used = TIM_ARR(SCAN_TIM) + 1u;  /* no cycle counter (a clone?): an overrun is a full period */
     if (used > scan_max)
         scan_max = used;
+    gm_diag_scan_us(used);              /* since power-up (diag.scan_max) */
     scan_sum += used;
     scan_n++;
     uint32_t p = TIM_ARR(SCAN_TIM) + 1u;
@@ -253,7 +255,7 @@ int main(void)
     sys_clock_init();
     sys_tick_init();
     hal_delay_calibrate();
-    (void)sys_reset_cause();               /* snapshot + clear the flags */
+    hal_boot_capture();                    /* RCC_CSR (snapshot + clear) or the mailbox: diag.* */
 
     /* Boot combo held at power-up: ignore the stored profile. (The
      * recovery combo, src/recovery.c, already ran in Reset_Handler.) */
@@ -294,9 +296,11 @@ int main(void)
     usbd_irq_enable(0x40);
     sys_tick_irq_enable();
 
-    /* No boot-loop guard here (the NUC's SRAM mailbox): on this board the
-     * way back is the recovery combo at reset (vendor update-request flag)
-     * and the IWDG, which turns a hang into a reset. */
+    /* The way back on this board: the recovery combo at reset (the update
+     * request flag), the IWDG, which turns a hang into a reset, and under
+     * the gemifi bootloader its boot-loop guard (sysex.md 6): boot_count
+     * is cleared once the app has run MAILBOX_RUN_MS. */
+    int cleared = !hal_boot_mailbox();
     /* Scan timing at 2.5 s (boot) and 10 s (steady state). */
     int reported = 0;
     uint32_t mhz = sys_hclk_hz / 1000000u, c_last = DWT_CYCCNT;
@@ -309,10 +313,15 @@ int main(void)
         c_last = c_now;
         if (us > loop_max)
             loop_max = us;
+        gm_diag_loop_us(us);               /* since power-up (diag.loop_max) */
         loop_over1 += us > 1000u;
         loop_over2 += us > 2000u;
         uint32_t now = sys_tick_ms();
         power_poll(now);
+        if (!cleared && now >= MAILBOX_RUN_MS) {
+            cleared = 1;
+            MAILBOX->boot_count = 0;
+        }
         if ((reported == 0 && now >= 2500u) || (reported == 1 && now >= 10000u)) {
             reported++;
             report_scan();

@@ -74,7 +74,7 @@ YAML    := $(ROOT)/devices/keystation-mini32-mk3.yaml
 DEVICE  := $(BUILD)/keystation-write-to-flash.yaml
 DEV_DIR := $(BUILD)/device
 CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
-            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c din.c midi_in.c mcu.c presets.c) \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
             $(DEV_DIR)/gm_device_config.c
 
 $(DEVICE): $(YAML) | $(BUILD)

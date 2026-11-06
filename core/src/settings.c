@@ -11,8 +11,10 @@
 #include "gm_settings.h"
 #include "gm_device.h"
 #include "params.h"
+#include "gm_safety.h"
 
 gm_settings_t gm_cfg;
+int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c fills them in */
 
 /* Key-time defaults, in 0.1 ms. A device sets its own in its YAML
  * (key_matrix.velocity), since they depend on the keybed. */
@@ -73,6 +75,13 @@ static const char *const groups[] = {
 static const char *const curve_opts[] = { "Normal", "Soft", "Hard", "Fixed" };
 #endif
 static const char *const log_opts[] = { "Off", "Errors", "Warnings", "Info", "Debug" };
+/* diag.reset_reason (GM_RESET_*), diag.settings (GM_SETTINGS_*): sysex.md 4.8 */
+static const char *const reset_opts[] = {
+    "Unknown", "Power-on", "Reset pin", "Software", "Watchdog", "Brown-out", "Crash", "Low-power",
+};
+static const char *const stored_opts[] = {
+    "Loaded", "None stored", "Some refused", "Ignored (safe mode)", "Wiped by the reset combo",
+};
 #if GM_N_BUTTONS > 0
 #ifndef GM_MCU
 #define GM_MCU 0
@@ -193,6 +202,28 @@ static const param_def_t params[] = {
     { .id = P_LOG_LEVEL, .type = PT_ENUM, .group = G_DEBUG, .count = 1,
       .min = 0, .max = 4, .def = 3, .options = log_opts, .option_count = 5,
       .name = "debug.log_level", .label = "Log level", .values = &gm_cfg.log_level },
+    /* diagnostics: what the core and the platform found (gm_safety.h) */
+    { .id = P_DIAG_RESET, .type = PT_ENUM, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 7, .def = 0, .options = reset_opts, .option_count = 8,
+      .name = "diag.reset_reason", .label = "Last reset", .values = &gm_diag_param[0] },
+    { .id = P_DIAG_BOOT_LOOP, .type = PT_BOOL, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 1, .def = 0,
+      .name = "diag.boot_loop", .label = "Started after the boot-loop fallback", .values = &gm_diag_param[1] },
+    { .id = P_DIAG_SETTINGS, .type = PT_ENUM, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 4, .def = 0, .options = stored_opts, .option_count = 5,
+      .name = "diag.settings", .label = "Stored settings at power-up", .values = &gm_diag_param[2] },
+    { .id = P_DIAG_SCAN_MAX, .type = PT_INT, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 0x7FFFFFFF, .def = 0, .unit = "us",
+      .name = "diag.scan_max", .label = "Longest scan", .values = &gm_diag_param[3] },
+    { .id = P_DIAG_LOOP_MAX, .type = PT_INT, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 0x7FFFFFFF, .def = 0, .unit = "us",
+      .name = "diag.loop_max", .label = "Longest main loop pass", .values = &gm_diag_param[4] },
+    { .id = P_DIAG_SCAN_PERIOD, .type = PT_INT, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 0x7FFFFFFF, .def = 0, .unit = "us",
+      .name = "diag.scan_period", .label = "Scan period", .values = &gm_diag_param[5] },
+    { .id = P_DIAG_UPTIME, .type = PT_INT, .group = G_DEBUG, .count = 1, .flags = PF_READ_ONLY | PF_VOLATILE,
+      .min = 0, .max = 0x7FFFFFFF, .def = 0, .unit = "s",
+      .name = "diag.uptime", .label = "Uptime", .values = &gm_diag_param[6] },
 
     { .id = P_PRESET_ACTIVE, .type = PT_INT, .group = G_PRESETS, .count = 1,
       .min = 1, .max = GM_N_PRESETS, .def = 1,

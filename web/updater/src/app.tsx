@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { PageLayout } from '@/components/page-layout';
@@ -16,21 +16,30 @@ import { ConnectionCard, type TransportMode } from './device/connection-card.tsx
 import { DeviceCard, type DeviceFiles } from './device/device-card.tsx';
 import { FeedbackView } from './device/feedback-view.tsx';
 import { FlashCard, type ResumeOffer } from './device/flash-card.tsx';
+import { useLearnSources } from './device/learn-sources.ts';
 import { LogCard } from './device/log-card.tsx';
+import { MidiMonitorCard } from './device/midi-monitor-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
 import { isWindows } from './device/platform.ts';
 import { hasUnsavedSettings, SettingsSaveBar, SettingsView } from './device/settings-view.tsx';
+import { TesterView } from './device/tester-view.tsx';
 import { offersConfig, useConfig } from './device/use-config.ts';
 import { useConnection } from './device/use-connection.ts';
 import { useDeviceLog } from './device/use-device-log.ts';
+import { useDeviceMap } from './device/use-device-map.ts';
 import { offersFeedback } from './device/use-feedback.ts';
 import { useHello } from './device/use-hello.ts';
+import { useMidiLearn } from './device/use-midi-learn.ts';
+import { MAIN_PORT_TAG, useMidiMonitor } from './device/use-midi-monitor.ts';
 import { usePendingUpload } from './device/use-pending-upload.ts';
 import { usePresets } from './device/use-presets.ts';
 import { useSerial } from './device/use-serial.ts';
+import { otherDevicePorts, portTag } from './midi/device-ports.ts';
+import { useMidiInputs } from './midi/use-midi-inputs.ts';
 import { useSearchParam } from './navigation/use-search-param.ts';
 import type { DeviceLink } from './protocol/flash.ts';
 import { offersPresets } from './protocol/presets.ts';
+import { Capability, Role } from './protocol/wire.ts';
 import type { PickedBytes } from './serial/esp-manifest.ts';
 import { isMaudioBootloaderName } from './vendor/maudio.ts';
 
@@ -56,7 +65,13 @@ const disclaimer = (
 );
 
 /** The page's views: Devices only when a builder serves it; the rest always. */
-const AppView = { Devices: 'devices', Update: 'update', Presets: 'presets', Feedback: 'feedback' } as const;
+const AppView = {
+  Devices: 'devices',
+  Update: 'update',
+  Presets: 'presets',
+  Tester: 'tester',
+  Feedback: 'feedback',
+} as const;
 type AppView = (typeof AppView)[keyof typeof AppView];
 
 /**
@@ -65,7 +80,7 @@ type AppView = (typeof AppView)[keyof typeof AppView];
  * @returns The view it names; with no param, Devices under a builder and Update otherwise.
  */
 function viewOf(param: string | null, hasBuilder: boolean): AppView {
-  if (param === AppView.Update || param === AppView.Presets || param === AppView.Feedback) {
+  if (param === AppView.Update || param === AppView.Presets || param === AppView.Feedback || param === AppView.Tester) {
     return param;
   }
   if (param === 'config') {
@@ -131,6 +146,15 @@ export function App() {
   const [isInstalling, setIsInstalling] = useState(false);
   const manager = midi.access.kind === 'ready' ? midi.access.manager : null;
   const link: DeviceLink | null = isMidi ? manager : serial.snapshot.port === null ? null : serial.link;
+  // The MIDI monitor: the port the page talks to, and the device's other ports (DAW, DIN).
+  const midiInputs = useMidiInputs(demo === null && isMidi ? manager : null);
+  const selectedName = midi.snapshot.selected?.name ?? null;
+  const otherInputs = useMemo(() => otherDevicePorts(selectedName, midiInputs), [selectedName, midiInputs]);
+  const midiMonitor = useMidiMonitor(client, otherInputs);
+  const monitorPorts = [
+    ...(client === null ? [] : [`${selectedName ?? 'its port'} (${MAIN_PORT_TAG})`]),
+    ...otherInputs.map((input) => `${input.name ?? 'MIDI'} (${portTag(input.name ?? 'MIDI')})`),
+  ];
   const isConnected = demo !== null || (isMidi ? midi.snapshot.selected !== null : serial.snapshot.port !== null);
   const info = hello.kind === 'ok' ? hello.info : null;
   const isBusy = isFlashing || isInstalling;
@@ -147,6 +171,13 @@ export function App() {
   const config = useConfig(settingsClient, settingsClient === null ? null : info);
   const presets = usePresets(settingsClient, info !== null && offersPresets(info), config.refreshValues);
   const hasUnsaved = settingsClient !== null && hasUnsavedSettings(config, presets);
+  // The layout and the components, for the input tester and MIDI learn: read once per device session.
+  const toolsClient = isBusy ? null : client;
+  const deviceMap = useDeviceMap(toolsClient, info);
+  const learnSources = useLearnSources(useMidiInputs(isMidi ? manager : null));
+  const schema = config.state.kind === 'ready' ? config.state.schema : null;
+  const learn = useMidiLearn(settingsClient, schema, learnSources, config.setValue, view === AppView.Presets);
+  const hasEvents = info !== null && info.role === Role.App && (info.caps & Capability.Event) !== 0;
   // An upload stored before the Code 61 went into update mode: offered once its bootloader is here.
   const bootloaderPair = midi.snapshot.pairs.find((pair) => isMaudioBootloaderName(pair.name)) ?? null;
   const resume: ResumeOffer | null =
@@ -234,6 +265,7 @@ export function App() {
         />
       </div>
       <LogCard lines={log.lines} rawLines={log.rawLines} onClear={log.clear} />
+      <MidiMonitorCard monitor={midiMonitor} portNames={monitorPorts} />
     </>
   );
 
@@ -279,7 +311,22 @@ export function App() {
     settingsEmpty !== null || info === null ? (
       emptyCard(settingsEmpty ?? NO_DEVICE)
     ) : (
-      <SettingsView config={config} presets={presets} device={info} />
+      <SettingsView
+        config={config}
+        presets={presets}
+        device={info}
+        learning={{ learn, map: deviceMap, sources: learnSources, hasEvents }}
+      />
+    );
+  const testerEmpty = emptyNote(hasEvents, 'controls', {
+    title: 'Nothing to test',
+    description: 'This firmware sends no EVENTs or raw readings (a bootloader or a test app).',
+  });
+  const testerCards =
+    testerEmpty !== null || client === null || info === null ? (
+      emptyCard(testerEmpty ?? NO_DEVICE)
+    ) : (
+      <TesterView client={client} info={info} schema={schema} map={deviceMap} isShown={view === AppView.Tester} />
     );
   const feedbackCards =
     feedbackEmpty !== null || client === null ? (
@@ -305,6 +352,7 @@ export function App() {
       {hasBuilder ? <SegmentedButton value={AppView.Devices}>Devices</SegmentedButton> : null}
       <SegmentedButton value={AppView.Update}>Update</SegmentedButton>
       <SegmentedButton value={AppView.Presets}>{settingsLabel}</SegmentedButton>
+      <SegmentedButton value={AppView.Tester}>Tester</SegmentedButton>
       <SegmentedButton value={AppView.Feedback}>Host feedback</SegmentedButton>
     </SegmentedGroup>
   );
@@ -316,6 +364,9 @@ export function App() {
       </div>
       <div hidden={view !== AppView.Presets} className="flex min-w-0 flex-col gap-4">
         {settingsCards}
+      </div>
+      <div hidden={view !== AppView.Tester} className="flex min-w-0 flex-col gap-4">
+        {testerCards}
       </div>
       <div hidden={view !== AppView.Feedback} className="flex min-w-0 flex-col gap-4">
         {feedbackCards}

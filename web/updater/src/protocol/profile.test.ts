@@ -14,7 +14,8 @@ describe('exportProfile', () => {
     const values = await readAllValues(new SysexClient(device.transport(), FAST), EXAMPLE_SCHEMA);
     const profile = exportProfile(EXAMPLE_SCHEMA, values, DEVICE);
     expect(profile.board_id).toBe(1);
-    expect(profile.fw_version).toBe(0x0001_0000);
+    expect(profile.fw_version).toBe('0.1.0');
+    expect(profile.gemifi_backup).toBe(1);
     expect(profile.values['midi.channel']).toBe(1);
     expect(profile.values['button.action']).toEqual([1, 0, 5, 6, 9, 10, 1]);
     expect(Object.keys(profile.values)).toHaveLength(EXAMPLE_SCHEMA.params.length);

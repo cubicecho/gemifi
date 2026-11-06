@@ -1,19 +1,22 @@
 /**
- * A profile as JSON, the same shape the host tool uses:
- * `{ board_id, fw_version, values: { "<name>": value | [values...] } }`. Export reads it off the
- * loaded values; import checks a file against the schema and writes what passes.
+ * A profile as JSON, the host tool's backup format 1 (`gemifi.py backup`, `./backup.ts`):
+ * `{ gemifi_backup: 1, board_id, fw_version, values: { "<name>": value | [values...] } }`. Export
+ * reads it off the loaded values; import checks a file against the schema and writes what passes.
  */
 
 import { describeStatus, RequestError, RequestFailure, type RequestOptions, type SysexClient } from './client.ts';
 import { type ParamValues, valueKey, writeParamValues } from './config.ts';
-import type { ParamValue } from './messages.ts';
+import { formatVersion, type ParamValue } from './messages.ts';
 import { isReadOnly, type ParamSpec, type Schema } from './schema.ts';
 import { S32_MAX, S32_MIN } from './wire.ts';
 
 /** A profile file. */
 export interface ProfileJson {
+  /** The host tool's backup format: 1, values only. */
+  gemifi_backup: 1;
   board_id: number;
-  fw_version: number;
+  /** As text, e.g. `0.2.62` (files from older pages have the number). */
+  fw_version: string;
   /** Plain params as a number, array params as a list of `count` numbers. */
   values: Record<string, number | number[]>;
 }
@@ -39,7 +42,7 @@ export function exportProfile(
     );
     out[param.name] = param.count === 1 ? (read[0] ?? 0) : read;
   }
-  return { board_id: device.boardId, fw_version: device.fwVersion, values: out };
+  return { gemifi_backup: 1, board_id: device.boardId, fw_version: formatVersion(device.fwVersion), values: out };
 }
 
 /** Consecutive values of one param to write. */

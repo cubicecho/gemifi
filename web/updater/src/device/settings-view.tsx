@@ -26,8 +26,12 @@ import {
   type SchemaSection,
 } from '../protocol/schema.ts';
 import { ParamType, PresetParam } from '../protocol/wire.ts';
+import { LearnCard } from './learn-card.tsx';
+import type { LearnSource } from './learn-sources.ts';
 import { PresetsCard } from './presets-card.tsx';
 import type { ConfigController, ImportReport } from './use-config.ts';
+import type { DeviceMap } from './use-device-map.ts';
+import { LearnRowsContext, type MidiLearn, useLearnRows } from './use-midi-learn.ts';
 import type { PresetsController } from './use-presets.ts';
 
 /** What every control is handed. */
@@ -196,10 +200,15 @@ function ParamTable({
   values: ParamValues;
   config: ConfigController;
 }) {
+  const learn = useLearnRows();
   const rows = Array.from({ length: table.count }, (_, index) => ({
     index,
     rowLabel: table.indexLabels?.[index] ?? String(index + 1),
     rowKey: `row-${index}`,
+    // "Find a control" finds the row by any of its params (use-midi-learn.ts).
+    refs: table.params.map((param) => valueKey(param.id, index)).join(' '),
+    isFound:
+      learn.found !== null && learn.found.index === index && table.params.some((param) => param.id === learn.found?.id),
   }));
   return (
     <div className="max-h-[32rem] overflow-y-auto">
@@ -214,14 +223,23 @@ function ParamTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map(({ index, rowLabel, rowKey }) => (
-            <TableRow key={rowKey}>
+          {rows.map(({ index, rowLabel, rowKey, refs, isFound }) => (
+            <TableRow
+              key={rowKey}
+              data-param-row={refs}
+              className={isFound ? 'bg-selection/60 transition-colors' : 'transition-colors'}
+            >
               <TableHead className="whitespace-nowrap">{rowLabel}</TableHead>
               {table.params.map((param) => {
                 const key = valueKey(param.id, index);
                 const value = values.get(key) ?? param.defaults[index] ?? 0;
+                const isTarget = learn.target?.id === param.id && learn.target.index === index;
                 return (
-                  <TableCell key={param.id} className="min-w-32 align-top">
+                  <TableCell
+                    key={param.id}
+                    className={isTarget ? 'min-w-32 rounded-md align-top ring-2 ring-primary' : 'min-w-32 align-top'}
+                    onFocusCapture={() => learn.onFocusField(param, index)}
+                  >
                     <FormField
                       error={config.fieldErrors.get(key)}
                       controlSlot={(wired) => (
@@ -391,7 +409,11 @@ function ImportSummary({ report }: { report: ImportReport }) {
       title={`Imported ${report.applied} value${report.applied === 1 ? '' : 's'}${isClean ? '' : ', with problems'}`}
       description={
         lines.length === 0 ? (
-          'Save to device to keep them after a power cycle.'
+          report.isStored === true ? (
+            'Every preset from the backup is stored on the device.'
+          ) : (
+            'Save to device to keep them after a power cycle.'
+          )
         ) : (
           <ul className="list-disc pl-4">
             {lines.map((line) => (
@@ -403,6 +425,18 @@ function ImportSummary({ report }: { report: ImportReport }) {
     />
   );
 }
+
+/** MIDI learn for {@link SettingsView}: the controller, the layout to draw and the inputs. */
+export interface SettingsLearning {
+  learn: MidiLearn;
+  map: DeviceMap;
+  sources: readonly LearnSource[];
+  /** The device sends EVENTs (caps bit 3). */
+  hasEvents: boolean;
+}
+
+/** Rows with nothing found or targeted: no MIDI learn. */
+const NO_LEARN_ROWS = { found: null, target: null, onFocusField: () => undefined };
 
 /** Props of {@link SettingsView} and {@link SettingsSaveBar}. */
 export interface SettingsProps {
@@ -428,7 +462,7 @@ function BackupCard({ config, presets, device }: SettingsProps) {
       title="Backup and reset"
       description={
         hasPresets
-          ? 'Export saves the settings as they are now (the active preset and the shared ones) to a JSON file; Import sets them from one.'
+          ? 'Export saves the settings as they are now (the active preset and the shared ones) to a JSON file; Import sets them from one. Import also takes a backup of every preset (the one saved before a firmware upload, or gemifi.py backup) and puts every preset back.'
           : 'Export saves the settings as they are now to a JSON file; Import sets them from one.'
       }
       contentSlot={config.importReport === null ? null : <ImportSummary report={config.importReport} />}
@@ -482,7 +516,7 @@ function BackupCard({ config, presets, device }: SettingsProps) {
  * @param props - The controllers and the device.
  * @returns The view's blocks.
  */
-export function SettingsView({ config, presets, device }: SettingsProps) {
+export function SettingsView({ config, presets, device, learning }: SettingsProps & { learning?: SettingsLearning }) {
   const { state } = config;
   const hasPresets = presets.state.kind !== 'off';
   const isBusy = config.action !== null || presets.action !== null;
@@ -546,11 +580,20 @@ export function SettingsView({ config, presets, device }: SettingsProps) {
     }
   }
   return (
-    <>
+    <LearnRowsContext.Provider value={learning?.learn.rows ?? NO_LEARN_ROWS}>
       <PresetsCard controller={presets} disabled={config.action !== null} />
+      {learning === undefined || state.kind !== 'ready' ? null : (
+        <LearnCard
+          learn={learning.learn}
+          schema={state.schema}
+          map={learning.map}
+          sources={learning.sources}
+          hasEvents={learning.hasEvents}
+        />
+      )}
       {groups}
       <BackupCard config={config} presets={presets} device={device} />
-    </>
+    </LearnRowsContext.Provider>
   );
 }
 

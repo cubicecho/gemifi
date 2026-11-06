@@ -70,6 +70,7 @@ SECTIONS
     ASSERT(_boot_mark_end == 0x08000140, "boot marker missing or not 16 bytes")
     ASSERT(_image_end <= 0x08002400, "bootloader runs into the app at 0x08002400")
     ASSERT(_enoinit + 1024 <= _estack, "less than 1 KB of RAM left for the stack")
+    ASSERT(_estack <= 0x20004FF0, "the stack top runs into the SRAM mailbox (sys.h)")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

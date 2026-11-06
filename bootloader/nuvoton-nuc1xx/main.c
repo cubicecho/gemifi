@@ -33,7 +33,7 @@
 #include "gemifi_image.h"
 #include "board.h"
 
-#define BOOT_VERSION GEMIFI_VERSION(0, 1, 0)
+#define BOOT_VERSION GEMIFI_VERSION(0, 1, 1)
 #define MAX_CHUNK    256u                /* bytes of data per FW_DATA      */
 #define PACKED_MAX   (MAX_CHUNK + (MAX_CHUNK + 6u) / 7u)  /* 293 */
 #define REBOOT_DELAY_MS 50u
@@ -381,8 +381,11 @@ int main(void)
     /* sysex.md 6: stay in update mode if the app asked for it ... */
     int stay = MAILBOX->magic == MAILBOX_MAGIC_BOOT &&
                MAILBOX->magic_inv == ~MAILBOX_MAGIC_BOOT;
+    /* magic_inv then carries the reset flags, for the app's
+     * diag.reset_reason (sysex.md 6): the app only sees the hand-off. */
+    uint32_t rst = sys_reset_cause();
     MAILBOX->magic = 0;
-    MAILBOX->magic_inv = 0;
+    MAILBOX->magic_inv = rst;
 
     /* ... or the entry combo is held (3 samples over ~20 ms) ... */
     uint32_t held = BOARD_BOOT_COMBO;
@@ -398,7 +401,7 @@ int main(void)
     /* ... or the boot-loop guard trips (bootloader-design.md 3.6): the app
      * was started MAILBOX_BOOT_TRIES times without clearing boot_count. SRAM
      * is random after a cold start, so the count only counts from then. */
-    if (sys_reset_cause() & RSTSRC_COLD) {
+    if (rst & RSTSRC_COLD) {
         MAILBOX->boot_count = 0;
         MAILBOX->reason = 0;
     }

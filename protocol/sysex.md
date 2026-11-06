@@ -425,7 +425,7 @@ Every other request works as before, REBOOT(0) included.
 **Flow.**
 1. While the device is locked, those requests reply LOCKED (12) and do nothing else. The LOCKED reply opens the device's **unlock window** for 30 s (or restarts it, if it is already open).
 2. The device shows the window: its status LED blinks fast (`core/README.md` "Status LED"), and a display shows `HOLD` and the combo's buttons.
-3. The user holds the **unlock combo** (YAML `unlock: { combo }`, by default the `boot_combo` buttons) for its `hold` time (default 2 s) while the window is open. While the window is open, those buttons do nothing else: no MIDI, no action.
+3. The user holds the **unlock combo** (YAML `unlock: { combo }`; `unlock: true` takes the `boot_combo` buttons) for its `hold` time (default 2 s) while the window is open. While the window is open, those buttons do nothing else: no MIDI, no action.
 4. The device sends UNLOCKED (0x66) with `state` 1. It stays unlocked until it reboots, or until no request has come for 5 minutes; then it sends UNLOCKED with `state` 0.
 5. The host sends the request again. A LOCKED reply doesn't complete a request (§1), so the same `seq` and a new one both work.
 
@@ -447,7 +447,7 @@ A request that isn't 1 byte → BAD_LEN; an `open` other than 0 or 1 → BAD_CMD
 
 **The bootloader has no lock.** Getting into it already takes the boot combo at power-up, an unlocked REBOOT(1), or the boot-loop guard (§6). The guard needs no host: it trips only when the app keeps failing, so it can't be used to flash a working device.
 
-**Off.** `unlock: false` in the YAML (for headless builds) leaves the feature out: caps bit 10 is clear, nothing replies LOCKED and UNLOCK → BAD_CMD. A device with neither `unlock: { combo }` nor a `boot_combo` has it off too.
+**Opt-in.** The lock is off unless the device's YAML sets `unlock:` (`true`, or `{ combo, hold }`). Off, the feature is left out: caps bit 10 is clear, nothing replies LOCKED and UNLOCK → BAD_CMD. A host checks caps bit 10 (or just handles LOCKED when it comes) rather than assuming either.
 
 ### 4.8 Diagnostics (app)
 

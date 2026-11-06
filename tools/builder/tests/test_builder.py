@@ -1112,8 +1112,11 @@ class TestValidation(unittest.TestCase):
         "Status LED")."""
         two = MINIMAL_NUC + "  - { id: b, pin: PA2 }\n  - { id: c, pin: PA3 }\n"
         hdr = lambda text: gd.generate(load(text)[0])["gm_device_config.h"]   # noqa: E731
-        # unlock: on by default with a boot_combo, off without one
+        # unlock: opt-in. Left out = off, even with a boot_combo; `true` takes the boot_combo
         h = hdr(two + "boot_combo: [a, b]\n")
+        self.assertIn("#define GM_UNLOCK 0", h)
+        self.assertNotIn("GM_UNLOCK_COMBO", h)
+        h = hdr(two + "boot_combo: [a, b]\nunlock: true\n")
         self.assertIn("#define GM_UNLOCK 1", h)
         self.assertIn("#define GM_UNLOCK_COMBO 0x3u /* a + b */", h)
         self.assertIn("#define GM_UNLOCK_HOLD_MS 2000", h)

@@ -413,7 +413,7 @@ hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer +
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
 boot_combo: [pitch_down, pitch_up]  # button ids
 factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
-unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # uploads etc. need the user's OK ("Physical unlock")
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")
 status_led: edit_led           # blink codes ("Status LED")
 write_to_flash: false          # what the device stores on its own (below); host saves always work
 
@@ -551,16 +551,16 @@ factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
 
 #### Physical unlock
 
-Firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx are refused with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.7). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
+Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.7). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
 
 ```yaml
 unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # hold: 0s (a press) .. 10s, default 2s
 unlock: { hold: 3s }       # the combo defaults to boot_combo
 unlock: true               # boot_combo, 2 s
-unlock: false              # off (headless builds)
+unlock: false              # off, the same as leaving it out
 ```
 
-- **On by default** when the device has a `boot_combo` (the combo is then the boot combo's buttons). A device with neither a `boot_combo` nor `unlock: { combo }` has it off.
+- **Off unless the YAML sets it**, even on a device with a `boot_combo`; it is then compiled out (`GM_UNLOCK 0`). `unlock: true` and `unlock: { hold }` take the `boot_combo` buttons, and are an error on a device without one. The shipped Keystation and Code 61 YAMLs leave it off, with a commented-out `# unlock: { combo: [...] }` line to turn it on.
 - While the window is open, the status LED blinks at 4 Hz and a display shows `HOLD` and the buttons (scrolling). The combo's buttons do nothing else then: no MIDI, no action, and their release is silent too. Outside the window they are ordinary buttons.
 - Once unlocked (the status LED lit for 1 s, `UNLOCKED` on a display), the device stays unlocked until it reboots or no request has come for 5 minutes.
 - The bootloader has no lock: entering it takes the boot combo, an unlocked REBOOT, or the boot-loop guard, which only trips when the app keeps failing.
@@ -582,7 +582,7 @@ unlock: false              # off (headless builds)
 
 The flash codes show for the first 10 s after power-up (200 ms on, 300 ms off per flash, then 1.2 s dark), the most serious one if there are several (3, then 4, then 2). The diagnostics params (`diag.*`, protocol/sysex.md §4.8) say the same, and more, to a host.
 
-Generated code: `GM_STATUS_LED` (the LED index, -1 = none). Tests: `core/test` `test_controller` (the Keystation: unlock, the window, the idle relock, the factory-reset combo, blink code 2, `diag.*`) and the NUC host-sim `run_presets.py` (FACTORY_RESET locked, then unlocked, also through `gemifi.py`).
+Generated code: `GM_STATUS_LED` (the LED index, -1 = none). Tests: `core/test` `test_controller` (the Keystation plus `unlock: true`: unlock, the window, the idle relock, the factory-reset combo, blink code 2, `diag.*`), `test_controller_wtf` (the Keystation as shipped: unlock compiled out, nothing replies LOCKED) and the NUC host-sim `run_presets.py` (its Makefile adds `unlock: true`; FACTORY_RESET locked, then unlocked, also through `gemifi.py`).
 
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
 
@@ -921,7 +921,7 @@ encoders:
 #define GM_WRITE_LAST_PRESET 0            /* 1: store preset.active on its own once quiet */
 #define GM_WRITE_DELAY_MS 10000u          /* write_to_flash.delay */
 #define GM_WRITE_IDLE_MS 3000u            /* write_to_flash.idle */
-#define GM_UNLOCK 1                       /* physical unlock (unlock:, default: the boot_combo) */
+#define GM_UNLOCK 1                       /* physical unlock (unlock:, opt-in; here unlock: true) */
 #define GM_UNLOCK_COMBO 0x30u             /* pitch_down + pitch_up (bit = button index) */
 #define GM_UNLOCK_N 2
 #define GM_UNLOCK_HOLD_MS 2000

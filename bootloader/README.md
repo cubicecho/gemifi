@@ -17,7 +17,7 @@ Every gemifi bootloader follows these rules:
   - the app image is invalid (header, vectors or CRC).
 - **Never writes itself or the chip configuration.** Writes are limited in software to the app region (on STM32F1, plus the update-flag page). On NUC1xx the hardware refuses the rest too: the code never sets LDUEN or CFGUEN.
 - **Reset flags for the app.** The bootloader clears the chip's reset flags and leaves a copy in the mailbox, so the app can report why it started (`diag.reset_reason`, `protocol/sysex.md` §4.8).
-- **No unlock here.** The app's physical unlock (`protocol/sysex.md` §4.7) guards the way in: REBOOT(1) needs it, and the boot combo and the boot-loop guard need someone at the device or an app that keeps failing.
+- **No unlock here.** On a device that opts in to the app's physical unlock (`protocol/sysex.md` §4.7), that guards the way in: REBOOT(1) needs it, and the boot combo and the boot-loop guard need someone at the device or an app that keeps failing.
 - **Power-loss safe.** Page 0 (vectors and header) is erased first and written last, and the CRC is checked before every handoff. An interrupted upload therefore always leaves the board in the bootloader.
 
 Shared chip code (startup, clocks, the USB device core, FMC, CRC, the SysEx codec, board files) is in [`../platform/`](../platform/).

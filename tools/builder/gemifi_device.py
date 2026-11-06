@@ -3462,8 +3462,7 @@ def validate_safety(v, dev, data):
                 if not boot:
                     v.err("unlock", line, "needs `combo:` (there is no boot_combo to default to)")
             dev.unlock = combo or []
-    else:
-        dev.unlock = sorted(boot)            # on by default when the device has a boot_combo
+    # no unlock: -> off (opt-in), even with a boot_combo
     if data.get("status_led") is not None:
         idx = v.ref(data, "status_led", "status_led", data.line_of("status_led"), "LED", "LEDs")
         if idx is not None:

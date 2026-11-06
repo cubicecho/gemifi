@@ -327,8 +327,11 @@ static void boot(void)
     out_n = 0;
 }
 
-/* Physical unlock (sysex.md 4.7): hold Pitch down + Pitch up (buttons 4
- * and 5, the boot_combo) for the hold time, then let go. */
+/* Physical unlock (sysex.md 4.7), opt-in: test_controller builds the
+ * Keystation with `unlock: true` (Pitch down + Pitch up, buttons 4 and 5,
+ * the boot_combo); test_controller_wtf builds it as shipped, unlock off. */
+#if GM_UNLOCK
+/* Hold the combo for the hold time, then let go. */
 static void unlock_combo(void)
 {
     button(4, 1);
@@ -338,15 +341,18 @@ static void unlock_combo(void)
     button(5, 0);
     run_ms(1000);                    /* the status LED's "unlocked" second */
 }
+#endif
 
 /* A request that may need the unlock: on LOCKED, unlock and send it again. */
 static int unlocked_request(uint8_t cmd, const uint8_t *payload, int n, int *pl)
 {
     int st = request(cmd, payload, n, pl);
+#if GM_UNLOCK
     if (st == GSX_LOCKED) {
         unlock_combo();
         st = request(cmd, payload, n, pl);
     }
+#endif
     return st;
 }
 
@@ -1085,6 +1091,7 @@ static void test_velocity_sweep(void)
 
 /* ---- safety: unlock, factory-reset combo, status LED, diag (gm_safety.h) ---- */
 
+#if GM_UNLOCK
 static int unlock_info(uint32_t *state, uint32_t *window, uint32_t *hold, char *names)
 {
     uint8_t open = 0;
@@ -1128,13 +1135,17 @@ static int led_changes(uint32_t ms)
     }
     return n;
 }
+#endif
 
 static void test_safety(void)
 {
+    int d1, d2;
+    int32_t v;
+
+#if GM_UNLOCK
     uint32_t state, window, hold;
     char names[80];
-    int d1, d2, us = -1;
-    int32_t v;
+    int us = -1;
 
     boot();
     /* FACTORY_RESET locked: nothing happens, the window opens */
@@ -1220,6 +1231,23 @@ static void test_safety(void)
     }
     unlock_combo();
     CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK, "unlocked before the request");
+#else
+    /* unlock off (no unlock: in the YAML): nothing waits for the device */
+    boot();
+    CHECK(set_param(P_CHANNEL, 0, 5) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store something");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.channel == 1 && fake_cs_count(1) == -1,
+          "unlock off: FACTORY_RESET goes through at once");
+    {
+        uint8_t open = 0;
+        CHECK(request(GSX_CMD_UNLOCK, &open, 1, 0) == GSX_BAD_CMD, "unlock off: UNLOCK -> BAD_CMD");
+    }
+    out_n = 0;
+    button(4, 1);
+    run_ms(100);
+    CHECK(find_msg(0xE0, &d1, &d2), "unlock off: Pitch down bends");
+    button(4, 0);
+    run_ms(100);
+#endif
 
     /* diag.* (sysex.md 4.8) */
     boot();
@@ -1662,7 +1690,7 @@ int main(int argc, char **argv)
         CHECK(out[pl] == 0 && gsx_get_u(out + pl + 1, 2) == 1, "role app, board 1");
         uint32_t caps = gsx_get_u(out + pl + 1 + 2 + 5 + 1 + 2, 2);
         CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS | GSX_CAP_FEEDBACK |
-                       GSX_CAP_UNLOCK), "caps 0x%x", caps);
+                       (GM_UNLOCK ? GSX_CAP_UNLOCK : 0)), "caps 0x%x", caps);
         int node_at = pl + 1 + 2 + 5 + 1 + 2 + 2 + 14;
         size_t node_len = strlen(gm_device.node_name);
         CHECK(out[node_at] == node_len && memcmp(out + node_at + 1, gm_device.node_name, node_len) == 0,
@@ -1674,7 +1702,9 @@ int main(int argc, char **argv)
                   "FW_DATA longer than the receive buffer -> BAD_STATE all the same");
         }
         uint8_t m = 1;
+#if GM_UNLOCK
         CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_LOCKED, "REBOOT(1) locked");
+#endif
         CHECK(unlocked_request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1) after the unlock");
         if (!setjmp(reboot_jb)) {
             run_ms(100);

@@ -416,7 +416,7 @@ layout:
 ```
 
 - **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
-- **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
+- **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. An id that names no control is a warning and isn't drawn, so a device built on a package can `!remove` a control the package's layout places. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
 - **Shapes.** Buttons: `button` (the default, 3 × 2), `round_button` (2 × 2), `pad`. Analog inputs: `knob` (the default, 3 × 3), `fader` (2 × 8), `wheel` (2 × 7), `xy` (8 × 8). Encoders: `encoder` (the default, 3 × 3), `knob`. Pads: `pad` (the default, 4 × 4), `button`, `round_button`. Displays: `display` (10 × 3). Without `w` and `h` a control takes its shape's size.
 - **Keys.** With a `key_matrix`, the builder adds the keys by itself: under the controls, from x 0, a white key 4 units wide and 14 high. `keys:` places them elsewhere. Which keys are black comes from `first_note`, so a keyboard needs nothing more.
 - **Cost.** 5 bytes, plus 8 a control (10 for the keys, 9 for an XY pad), and the GET_LAYOUT code (about 150 bytes on a NUC120). The Keystation's layout is 79 bytes, the Code 61's 616.

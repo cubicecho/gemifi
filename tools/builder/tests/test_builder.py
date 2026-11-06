@@ -3400,7 +3400,12 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(len(dev.layout[2]), 1)
 
     def test_errors(self):
-        self.assertError(layout("controls:\n  volume: [0, 0]\n"), r"no control with id 'volume'.*did you mean 'vol'")
+        # an unknown id only warns (a package's control may have been removed) and isn't drawn
+        text = layout("controls:\n  volume: [0, 0]\n  vol: [0, 4]\n")
+        self.assertEqual(self.errs(text), [])
+        self.assertTrue(any(re.search(r"no control with id 'volume': not drawn; did you mean 'vol'", d.msg)
+                            for d in self.errs(text, level="warning")))
+        self.assertEqual([it.id for it in self.gen(text)[0].layout[2]], ["vol", "keys"])
         self.assertError(layout("controls:\n  vol: [0]\n"), r"must be \[x, y\] or \[x, y, w, h\]")
         self.assertError(layout("controls:\n  vol: { x: 0 }\n"), r"is required", path="layout.controls.vol.y")
         self.assertError(layout("controls:\n  vol: { x: 0, y: 0, shape: slider }\n"), r"unknown shape 'slider'")

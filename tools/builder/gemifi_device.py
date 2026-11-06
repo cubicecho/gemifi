@@ -3191,8 +3191,12 @@ def layout_control(v, dev, ctl, cid, seen):
         known = [i for i, t in v.ids.items() if t[0] in LAYOUT_KIND_SHAPES]
         close = difflib.get_close_matches(str(cid), known, 1)
         hint = f"; did you mean '{close[0]}'?" if close else ""
-        what = f"'{cid}' is {a_(target[0])}" if target else f"no control with id '{cid}'"
-        v.err(p, line, f"{what}: layout: places buttons, analog inputs, encoders, pads and displays{hint}")
+        if target is None:
+            # A warning: a device built on a package may !remove a control the package's layout places.
+            v.warn(p, line, f"no control with id '{cid}': not drawn{hint}")
+        else:
+            v.err(p, line, f"'{cid}' is {a_(target[0])}: layout: places buttons, analog inputs, encoders, pads "
+                           f"and displays{hint}")
         return None
     kind, index = target[0], target[3]
     comp = {"button": dev.buttons, "analog input": dev.analogs, "encoder": dev.encoders,

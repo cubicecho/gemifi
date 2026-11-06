@@ -185,8 +185,10 @@ param_count × param:
                          gemifi firmware sends the components' display names, YAML name:)
   if type == enum:
     u8  option_count     option i has value min + i; max must equal min + option_count - 1
-    option_count × string
+    option_count × string an empty one: a value this firmware leaves out (below)
 ```
+
+**Options left out.** An enum option with an empty label (length 0) is a value the firmware doesn't have, such as a button action for a message kind the device was built without (`core/README.md` "MIDI messages"), so the numbering of the others stays the same everywhere. A SET of it → BAD_VALUE. Editors don't offer it; an older editor shows a blank option.
 
 **Rendering rule.** Array params in the same group with the same `count` and the same index labels form one table: one row per index (labelled by the index label, or by the index), one column per param. That is how a bank of physical controls is described, whatever the device: e.g. `pot.cc[8]`, `pot.channel[8]`, `pot.min[8]`, `pot.max[8]` become an 8-row "Pots" table; `key.note[88]` and `key.velocity_curve[88]` an 88-row one.
 
@@ -197,6 +199,8 @@ Other rules: GET_PARAMS / SET_PARAMS work on plain params too (`index` 0, `n` 1)
 Unknown `type` values must be shown as plain ints, and unknown `flags` bits ignored, so new firmware keeps working with an older editor. `schema_version` changes only for a layout change an old parser can't skip.
 
 The schema for each firmware is listed in its README (`firmware/<family>/<app>/README.md`).
+
+**Config hash.** Firmware made by the gemifi builder has the param `config.hash` (id 39, group "Debug"): int 0..0x7FFFFFFF, READ_ONLY and VOLATILE, whose value (and default) is the builder's hash of the device YAML it was built from (`core/README.md` "Config hash"). A host compares it with a file's hash to tell whether the device runs that file's config. Firmware built before it has no such param: that means "unknown", not "different". Profiles list it like any read-only param, and an import skips it.
 
 ### 4.5 Presets (app)
 
@@ -234,6 +238,7 @@ A **preset** is a named set of values for what the controls do: which CC or note
 | 18 | `preset.program` | per preset | int −1..127 | Program Change sent when the preset is selected; −1 = none. |
 | 19 | `preset.dirty` | VOLATILE, READ_ONLY | bool | 1 while the active preset has unsaved edits. |
 | 33 | `preset.count` | global, READ_ONLY | int 1..`count` | The presets in use (above). Changed by PRESET_SAVE, PRESET_NAME, PRESET_DELETE and PRESET_RESET 0, and stored with the globals by the device itself. |
+| 41 | `preset.bank` | per preset | int −1..16383 | Bank Select sent before the Program Change: CC 0 = bank >> 7, then CC 32 = bank & 127; −1 = none. Only on devices built with bank select (`core/README.md` "MIDI messages"). |
 
 They are in the group "Presets". When `count` is 1, only `preset.active` is there.
 
@@ -241,7 +246,7 @@ They are in the group "Presets". When `count` is 1, only `preset.active` is ther
 1. The device releases everything held: Note Off for held keys and note buttons, CC-momentary buttons, bend and ramps.
 2. It loads the slot: param defaults, then the slot's YAML values, then its stored edits. Globals don't change.
 3. Octave and transpose go back to the preset's values.
-4. It sends the preset's Program Change, if `preset.program` ≥ 0.
+4. It sends the preset's Program Change, if `preset.program` ≥ 0, after its Bank Select if `preset.bank` ≥ 0.
 5. It sends PRESET_CHANGED.
 
 Rules:
@@ -308,6 +313,8 @@ To restore, for each slot: if it is free, PRESET_NAME it (so it is in use); PRES
 
 **Button actions.** Presets add three `button.action` values: 13 `preset_next`, 14 `preset_prev`, 15 `preset_select` (`button.number` = the slot). Mackie Control (on devices with a DAW port) moves from 13 to **16**. A profile stored before this change with an MCU button needs that button set again. Editors take the values from the schema's option labels, so nothing else changes for them.
 
+**MIDI messages** (`core/README.md` "MIDI messages"). Values a device has only when built with the message kind: `button.action` 17 program (`button.number` = the program), 18 panic, 19 MMC (`button.number` = the MMC command), 20 SysEx (`button.number` = the string's index); `analog.mode` 3 cc14, 4 nrpn, 5 nrpn14, 6 rpn, 7 rpn14, 8 SysEx (`analog.cc` = the string's index); `encoder.mode` 3 relative sign-magnitude (every device with encoders), 4 cc14, 5 nrpn, 6 nrpn14, 7 rpn, 8 rpn14 (absolute). With NRPN / RPN, `analog.cc`, `encoder.cc` and `layer.encoder.cc` go up to 16383 (the NRPN or RPN number). The options a device doesn't have are empty (§4.4).
+
 ### 4.6 Host feedback (app)
 
 **Status: implemented 2026-11-03** (firmware, `tools/host`, `web/updater`, `hosts/ableton-live`, `hosts/bitwig`); not yet run on hardware or in a DAW. Pads, touch and display roles added 2026-11-04 (#21); the `layer` byte and EVENT 8 later that day (encoder modes); meters (kind 8, FB_METER) and motor faders are reserved. **Writing a DAW script?** [`daw-scripts.md`](daw-scripts.md) is the guide built on this section. Layer F3 of the DAW feedback plan (#6, `research/protocols/daw-feedback-plan.md`).
@@ -357,7 +364,7 @@ An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so
 
 **Meters (kind 8)** are reserved. No firmware has them; current firmware replies BAD_PARAM for kind 8.
 
-**`mode`** is how the encoder sends: 0 absolute (`encoder.mode` 0), 1 relative two's complement (`encoder.mode` 1), 2 relative offset 64 (`encoder.mode` 2), 3 Mackie Control V-Pot (an encoder with `mcu:`: relative, on the MCU port, whatever `encoder.mode` says). For an encoder twin it's the twin's `layer.encoder.mode`, a global setting. It's the value in effect when the host asks, so it follows SET_PARAM and preset changes; a host that cares re-reads it after a PRESET_CHANGED (a change made by another host, e.g. an editor's SET_PARAM, sends nothing). FB_VALUE only does something with 0, and hosts treat every other value, including ones added later, as relative.
+**`mode`** is how the encoder sends: 0 absolute (`encoder.mode` 0, and the absolute 14-bit and (N)RPN modes 4..8), 1 relative two's complement (`encoder.mode` 1), 2 relative offset 64 (`encoder.mode` 2), 4 relative sign-magnitude (`encoder.mode` 3), 3 Mackie Control V-Pot (an encoder with `mcu:`: relative, on the MCU port, whatever `encoder.mode` says). For an encoder twin it's the twin's `layer.encoder.mode`, a global setting. It's the value in effect when the host asks, so it follows SET_PARAM and preset changes; a host that cares re-reads it after a PRESET_CHANGED (a change made by another host, e.g. an editor's SET_PARAM, sends nothing). FB_VALUE only does something with 0, and hosts treat every other value, including ones added later, as relative.
 
 **`owner`** is who drives the LED (`owner:` in `core/README.md` "LED ownership"): the LED's own `owner:`, else `feedback.led_owner`, except that LEDs driven by Mackie Control (a `feedback: { mcu: … }` source, a V-Pot ring or centre) default to 1. FB_LED, FB_LED_RGB, FB_LEDS and FB_RING have no effect on an LED with 2. An LED with 0 that no button uses has no local state, so it behaves like 1.
 
@@ -384,7 +391,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **Ownership.** FB_* states are host states, like plain feedback (`owner:` in `core/README.md`), with one difference: they don't time out (`led_timeout` doesn't apply), because the script is the authority while it runs. An LED with `owner: local` ignores them. FB_RELEASE hands the chosen states back to local, as if the host had never set them.
 
-**FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`), or moves a motor fader (`takeover` 2, reserved); otherwise it's ignored. For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there; in a relative mode it's ignored. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them (a device that sends 7-bit CCs uses the top 7 bits).
+**FB_VALUE:** for an analog input, `value` becomes its pick-up target (when it has `takeover: pickup`), or moves a motor fader (`takeover` 2, reserved); otherwise it's ignored. For an encoder in absolute mode, it becomes the encoder's value, so the next turn continues from there; in a relative mode it's ignored. Both are in the 14-bit range, so a host with finer values than 7-bit CCs keeps them (a device that sends 7-bit CCs uses the top 7 bits; an encoder in a 14-bit mode all 14). The value is over the control's whole range: with `min:` / `max:`, 0 is `min` and 16383 is `max`.
 
 **FB_RING** spreads `value` over the encoder's ring LEDs in the given mode, the same way as Mackie Control's rings do (§1.2 of `research/protocols/host-feedback.md`), but with 14-bit resolution. 0 is the first LED and 16383 the last. Boost/cut fills from the ring's middle LED to the position, so 8192 is "centre". Spread fills both ways from the middle, `value` setting the width (16383 = every LED). `flags` bit 0 lights the centre LED; on an encoder without one it's ignored. Bit 1 turns every ring LED off (nothing mapped), whatever `mode` and `value` say; the centre LED still follows bit 0.
 

@@ -102,6 +102,19 @@ function NumberControl({ param, index, value, wired, ariaLabel, config }: Contro
 }
 
 /**
+ * An enum's choices. An empty label is an option the firmware left out (a button action or a mode
+ * the device doesn't have), so it isn't offered.
+ *
+ * @param param - An enum param.
+ * @returns Its options, as the select's values (the option's number) and labels.
+ */
+export function enumOptions(param: ParamSpec): { value: string; label: string }[] {
+  return (param.options ?? [])
+    .map((label, i) => ({ value: String(param.min + i), label }))
+    .filter((option) => option.label !== '');
+}
+
+/**
  * The control for one value, by the param's type.
  *
  * @param props - The param, its value and the wiring.
@@ -121,7 +134,7 @@ function ParamControl(props: ControlBase) {
     );
   }
   if (param.type === ParamType.Enum) {
-    const options = (param.options ?? []).map((label, i) => ({ value: String(param.min + i), label }));
+    const options = enumOptions(param);
     const isListed = options.some((option) => option.value === String(value));
     return (
       <Combobox

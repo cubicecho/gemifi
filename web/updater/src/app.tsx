@@ -9,7 +9,7 @@ import { Plug, Settings } from '@/components/ui/icons';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { type DeviceListing, fetchBuilderInfo, listDevices } from './builder/api.ts';
 import { BuilderView, type OpenRequest } from './builder/builder-view.tsx';
-import { devicesWithNodeName } from './builder/node-match.ts';
+import { devicesWithNodeName, runningConfigHash } from './builder/node-match.ts';
 import { useRequest } from './builder/use-request.ts';
 import { useDemoClient } from './dev/use-demo-client.ts';
 import { ConnectionCard, type TransportMode } from './device/connection-card.tsx';
@@ -171,6 +171,8 @@ export function App() {
   const config = useConfig(settingsClient, settingsClient === null ? null : info);
   const presets = usePresets(settingsClient, info !== null && offersPresets(info), config.refreshValues);
   const hasUnsaved = settingsClient !== null && hasUnsavedSettings(config, presets);
+  // Which YAML the firmware was built from (param config.hash), once the settings are read.
+  const configHash = config.state.kind === 'ready' ? runningConfigHash(config.state.schema, config.state.values) : null;
   // The layout and the components, for the input tester and MIDI learn: read once per device session.
   const toolsClient = isBusy ? null : client;
   const deviceMap = useDeviceMap(toolsClient, info);
@@ -248,7 +250,14 @@ export function App() {
         </Suspense>
       ) : null}
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <DeviceCard client={client} hello={hello} onRefresh={refresh} isBusy={isBusy} deviceFiles={deviceFiles} />
+        <DeviceCard
+          client={client}
+          hello={hello}
+          onRefresh={refresh}
+          isBusy={isBusy}
+          deviceFiles={deviceFiles}
+          configHash={configHash}
+        />
         <FlashCard
           link={link}
           image={flashImage}

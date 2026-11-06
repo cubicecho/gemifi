@@ -96,7 +96,7 @@ void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center);
  * Script states are host states that don't time out. */
 void gm_led_script(uint32_t led, uint32_t level);              /* 0 off, 1 blink, 2..127 on */
 void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int blink);
-void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..127, absolute mode */
+void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..16383, absolute modes */
 void gm_host_release(uint32_t what);                           /* FB_RELEASE: 0 all, 1 LEDs, 2 values */
 
 /* controller.c: the host set debug.events to 1: send EVENT 8 (layer) value

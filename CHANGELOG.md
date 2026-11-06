@@ -2,6 +2,29 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.35.0](https://github.com/cubicecho/gemifi/compare/v0.34.0...v0.35.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** MIDI message keys in the device YAML schema ([94f1da3](https://github.com/cubicecho/gemifi/commit/94f1da3b115911adaff3849a98b114a6ea589c30))
+* **core:** 14-bit CC, NRPN/RPN, bank select, panic, MMC and SysEx ([71d9d4a](https://github.com/cubicecho/gemifi/commit/71d9d4a30dc0814617f09ce12b70094ed002b9a3)), closes [#90](https://github.com/cubicecho/gemifi/issues/90)
+* **web:** leave out enum options the firmware doesn't have ([1a700f8](https://github.com/cubicecho/gemifi/commit/1a700f8c08da71511fc2c30c7d1ef20baa1eaa3f))
+
+# [0.34.0](https://github.com/cubicecho/gemifi/compare/v0.33.1...v0.34.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** device YAML packages, substitutions, config hash and JSON schema ([0641d1b](https://github.com/cubicecho/gemifi/commit/0641d1b7e7c673d9b0d8f5926ac9d51a157fe593))
+
+## [0.33.1](https://github.com/cubicecho/gemifi/compare/v0.33.0...v0.33.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **host:** flash a Code 61 through its gemifi bootloader ([b6b7664](https://github.com/cubicecho/gemifi/commit/b6b7664cd1d2ec15100387cf48031a25fd434615))
+
 # [0.33.0](https://github.com/cubicecho/gemifi/compare/v0.32.1...v0.33.0) (2026-11-05)
 
 

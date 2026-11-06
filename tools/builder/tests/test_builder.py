@@ -2651,6 +2651,185 @@ class TestEncoderAcceleration(unittest.TestCase):
         self.assertError(ENC_NUC + pre, r"acceleration: is the same in every preset")
 
 
+MSG_NUC = MINIMAL_NUC + """\
+analog:
+  - { id: fader, pin: PA2, cc: 7 }
+encoders:
+  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20 }
+"""
+MSG_SYSEX = """\
+midi_messages:
+  sysex:
+    - { id: vol, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }
+    - { id: wide, data: F0 43 ch msb lsb F7 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestMidiMessages(unittest.TestCase):
+    """core/README.md "MIDI messages": the kinds compile in only when used, numbers follow the mode, SysEx
+    strings, per-control channel / min / max, bank select."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return dev, files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def test_off_unless_used(self):
+        """A YAML that uses none of them: every switch 0 and no table, so the image stays as it was."""
+        _dev, h, c = self.gen(MSG_NUC)
+        for m in ("GM_MSG_CC14", "GM_MSG_NRPN", "GM_MSG_PROGRAM", "GM_MSG_PANIC", "GM_MSG_MMC", "GM_N_SYSEX",
+                  "GM_BTN_CTL", "GM_ANALOG_CTL", "GM_ENC_CTL", "GM_BTN_BANK", "GM_ENC_MODES"):
+            self.assertIn(f"#define {m} 0", h)
+        for t in ("gm_button_ctl", "gm_analog_ctl", "gm_encoder_ctl", "gm_button_bank", "gm_sysex",
+                  "gm_encoder_mode_defaults"):
+            self.assertNotIn(t, c)
+        self.assertNotIn("GM_NULL_RPN", h)
+
+    def test_used_turns_on(self):
+        text = MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7 }").replace(
+            "action: cc_momentary, cc: 1", "action: panic") + "midi_messages: { enable: [rpn, mmc] }\n"
+        dev, h, _c = self.gen(text)
+        self.assertEqual(dev.msg, {"cc14", "panic", "nrpn", "mmc"})
+        self.assertIn("#define GM_MSG_CC14 1", h)
+        self.assertIn("#define GM_MSG_NRPN 1", h)
+        self.assertIn("#define GM_MMC_DEVICE 0x7F", h)
+        self.assertIn("#define GM_MSG_PROGRAM 0", h)
+        self.assertError(MSG_NUC + "midi_messages: { enable: [nrpm] }\n", r"unknown message kind 'nrpm'.*did you mean 'nrpn'")
+
+    def test_mode_numbers(self):
+        enc = lambda x: MSG_NUC.replace("cc: 20 }", x)   # noqa: E731
+        self.assertClean(enc("mode: nrpn14, nrpn: 16383 }"))
+        self.assertClean(enc("mode: relative_sign, cc: 20 }"))
+        self.assertError(enc("mode: nrpn, nrpn: 16384 }"), r"16384 is out of range \(0..16383\)")
+        self.assertError(enc("mode: nrpn, cc: 20 }"), r"mode nrpn takes nrpn:, not cc:")
+        self.assertError(enc("mode: rpn }"), r"mode rpn needs rpn: \(0..16383\)")
+        self.assertError(enc("nrpn: 5 }"), r"nrpn: goes with mode: nrpn / nrpn14")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 40 }"), r"40 is out of range \(0..31\)")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "mode: sysex, sysex: vol }"),
+                         r"mode sysex sends one of the midi_messages.sysex strings, and there are none")
+        dev, _h, c = self.gen(MSG_SYSEX + MSG_NUC.replace("cc: 7 }", "mode: sysex, sysex: wide }"))
+        self.assertEqual(dev.analogs[0].cc, 1)
+        self.assertIn("gm_analog_mode_defaults[GM_N_ANALOGS] = { 8 }", c)
+        _dev, _h, c = self.gen(enc("mode: rpn14, rpn: 0 }"))
+        self.assertIn("gm_encoder_mode_defaults[GM_N_ENCODERS] = { 8 }; /* rpn14 */", c)
+
+    def test_sysex_strings(self):
+        dev, h, c = self.gen(MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1", "action: sysex, sysex: vol"))
+        self.assertEqual(dev.sysex[0].data, [0xF0, 0x41, 0x10, 0x42, 0x12, 0x84, 0x40, 0x00, 0x04, 0x80, 0x85, 0xF7])
+        self.assertEqual((dev.sysex[0].flags, dev.sysex[1].flags), (2, 3))
+        self.assertIn("#define GM_N_SYSEX 2", h)
+        self.assertIn("#define GM_SYSEX_MAX 11", h)
+        self.assertIn("{ sysex_1, 6, 3 },", c)
+        bad = lambda d: MINIMAL_NUC + f"midi_messages:\n  sysex:\n    - {{ id: s, data: \"{d}\" }}\n"   # noqa: E731
+        self.assertError(bad("41 10 F7"), r"starts with 41: a SysEx message starts with F0")
+        self.assertError(bad("F0 41 10"), r"ends with 10")
+        self.assertError(bad("F0 80 F7"), r"80 is over 7F")
+        self.assertError(bad("F0 [41 10 F7"), r"needs its cs")
+        self.assertError(bad("F0 [41] 10 cs F7"), r"cs .* goes right after the \]")
+        self.assertError(bad("F0 v msb F7"), r"use v .* or msb / lsb")
+        self.assertError(bad("F0 zz F7"), r"'zz' is not a hex byte")
+        self.assertError(bad("F0 " + "01 " * 70 + "F7"), r"72 bytes: at most 64")
+        self.assertError(MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1", "action: sysex, sysex: vlo"),
+                         r"no SysEx string with id 'vlo'.*did you mean 'vol'")
+        self.assertError(MSG_SYSEX + MSG_NUC.replace("id: fader", "id: vol"), r"id 'vol' .* is already the id")
+
+    def test_button_actions(self):
+        btn = lambda x: MSG_NUC.replace("action: cc_momentary, cc: 1", x)   # noqa: E731
+        dev, _h, c = self.gen(btn("action: mmc, mmc: fast_forward"))
+        self.assertEqual((dev.buttons[0].action, dev.buttons[0].number), (19, 4))
+        self.assertError(btn("action: mmc, mmc: ffwd"), r"unknown MMC command 'ffwd'")
+        self.assertError(btn("action: mmc"), r"action mmc needs mmc: \(an MMC command: stop, play")
+        self.assertError(btn("action: panic, mmc: play"), r"action panic takes no")
+        dev, h, c = self.gen(btn("action: program, program: 9, bank: { msb: 2, lsb: 1 }"))
+        self.assertEqual((dev.buttons[0].action, dev.buttons[0].number, dev.buttons[0].bank), (17, 9, 257))
+        self.assertIn("#define GM_BTN_BANK 1", h)
+        self.assertIn("    257, /* a */", c)
+        self.assertError(btn("action: note, note: 1, bank: 3"), r"bank: goes with the actions program, program_next")
+        self.assertError(btn("action: program, program: 128"), r"128 is out of range")
+
+    def test_channel_and_range(self):
+        dev, h, c = self.gen(MSG_NUC.replace("cc: 7 }", "cc: 7, min: 127, max: 0, channel: 16 }").replace(
+            "cc: 20 }", "cc: 20, max: 64 }"))
+        self.assertIn("#define GM_ANALOG_CTL 1", h)
+        self.assertIn("#define GM_ENC_CTL 1", h)
+        self.assertIn("#define GM_BTN_CTL 0", h)
+        self.assertIn("    { 127, 0, 16 }, /* fader */", c)
+        self.assertIn("    { 0, 64, 0 }, /* e1 */", c)
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, max: 200 }"), r"200 is out of range \(0..127\)")
+        self.assertClean(MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7, max: 16000 }"))
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, min: 5, max: 5 }"), r"min and max are both 5")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, channel: 17 }"), r"17 is out of range \(1..16\)")
+        pre = "presets:\n  list:\n    - name: A\n    - { name: B, analog: { fader: { channel: 3 } } }\n"
+        self.assertError(MSG_NUC + pre, r"channel: is the same in every preset")
+
+    def test_presets(self):
+        pre = ("presets:\n  list:\n    - { name: A, program: 1, bank: 5 }\n"
+               "    - { name: B, program: 2, analog: { fader: { mode: nrpn, nrpn: 300 } }, "
+               "encoders: { e1: { mode: relative_sign } } }\n")
+        dev, h, c = self.gen(MSG_NUC + pre)
+        self.assertEqual(dev.msg, {"program", "nrpn"})
+        self.assertIn("{ 41, 0, 5 }, /* preset.bank = 5 (MSB 0, LSB 5) */", c)
+        self.assertIn("{ 8, 0, 300 }, /* analog.cc[fader] = 300 */", c)
+        self.assertIn("{ 16, 0, 3 }, /* encoder.mode[e1] = relative_sign */", c)
+        self.assertError(MSG_NUC + "presets:\n  list:\n    - { name: A, bank: 5 }\n    - { name: B }\n",
+                         r"bank: is sent before the preset's Program Change: give program: too")
+        self.assertError(MSG_NUC + pre.replace("nrpn: 300", "cc: 300"), r"mode nrpn takes nrpn:, not cc:")
+
+    def test_budget_widens_with_nrpn(self):
+        """With NRPN on, analog.cc / encoder.cc are int16 in the packed stm32f1 record."""
+        stm = MSG_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        narrow, _ = load(stm)
+        wide, _ = load(stm + "midi_messages: { enable: [nrpn] }\n")
+        self.assertGreater(wide.budget["preset_record"], narrow.budget["preset_record"])
+        bank, _ = load(stm + "presets:\n  list:\n    - { name: A, program: 1, bank: 5 }\n    - { name: B }\n")
+        self.assertEqual(bank.budget["preset_values"], gd.stored_counts(bank)[0])
+        self.assertIn("preset.bank", {n for n, _i, _s, cnt in gd.PARAMS if cnt(bank)})
+
+    def test_twins_keep_the_base_channel(self):
+        text = MSG_NUC.replace("cc: 20 }", "cc: 20, channel: 2 }").replace("buttons:", "buttons:\n  - { id: t, pin: PA3 }") + """\
+key_matrix: { type: switch, rows: [PA4], columns: [PA5], keys: 1, first_note: 60 }
+modes:
+  - id: m
+    toggle: t
+    layer: { e1: { cc: 30 } }
+"""
+        dev, _h, c = self.gen(text)
+        self.assertEqual(dev.encoders[1].ctl, (0, gd.CTL_TOP, 2))
+        self.assertIn("{ 0, GM_CTL_TOP, 2 }, /* e1_m */", c)
+
+
+@unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
+class TestMidiMessagesCompile(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    compile_with_core = TestGenerateCompiles.compile_with_core
+    gcc = TestGenerateCompiles.gcc
+
+    def test_everything_compiles(self):
+        """Every message kind, and each alone, compiles warning-free with the core."""
+        full = MSG_SYSEX.replace("  sysex:", "  enable: [panic, mmc]\n  null_rpn: true\n  sysex:") + MSG_NUC.replace(
+            "cc: 7 }", "mode: nrpn14, nrpn: 9, min: 1, max: 9000, channel: 2 }").replace(
+            "action: cc_momentary, cc: 1", "action: program, program: 3, bank: 7, channel: 4").replace(
+            "cc: 20 }", "cc: 20, mode: cc14, max: 1000 }")
+        for tag, text in (("full", full), ("cc14", MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7 }")),
+                          ("sysex", MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1",
+                                                                "action: sysex, sysex: wide")),
+                          ("ctl", MSG_NUC.replace("cc: 7 }", "cc: 7, channel: 3 }"))):
+            with self.subTest(tag):
+                dev, diags = load(text)
+                self.assertIsNotNone(dev, [str(d) for d in diags])
+                self.compile_with_core(gen_dir(dev, self.tmp, tag))
+
+
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
 class TestYamlReference(unittest.TestCase):
     """web/updater/src/builder/yaml-reference.json: the examples the web editor shows must validate, and the

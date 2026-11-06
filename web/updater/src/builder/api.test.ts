@@ -87,7 +87,16 @@ describe('builder requests', () => {
     mockFetch(json({ devices: [DEVICE], user_dir: '/data' }));
     const listing = await listDevices();
     expect(listing.userDir).toBe('/data');
-    expect(listing.devices).toEqual([{ ...DEVICE, nodeName: '', isStale: false }]);
+    expect(listing.devices).toEqual([
+      { ...DEVICE, nodeName: '', isStale: false, configHash: null, builtConfigHash: null },
+    ]);
+  });
+
+  it('reads the config hashes of the file and of its last build', async () => {
+    mockFetch(json({ devices: [{ ...DEVICE, config_hash: 0x9754273, built_config_hash: 12 }] }));
+    const listing = await listDevices();
+    expect(listing.devices[0]?.configHash).toBe(0x9754273);
+    expect(listing.devices[0]?.builtConfigHash).toBe(12);
   });
 
   it('reads the node name a device reports in HELLO', async () => {
@@ -144,12 +153,15 @@ describe('builder requests', () => {
           { level: 'error', path: 'controls[0]', line: 7, msg: 'unknown pin' },
           { level: 'warning', path: '', line: 0, msg: 'no name' },
           { level: 'error', path: 'x', line: null, msg: 'bad' },
+          { level: 'error', path: 'buttons[3].cc', line: 2, file: 'presets/base.yaml', msg: 'out of range' },
         ],
       }),
     );
     const result = await validateDevice('text', 'mine/keys.yaml');
     expect(result.ok).toBe(false);
-    expect(result.diags.map((d) => d.line)).toEqual([7, null, null]);
+    expect(result.diags.map((d) => d.line)).toEqual([7, null, null, 2]);
+    expect(result.diags.map((d) => d.file)).toEqual([null, null, null, 'presets/base.yaml']);
+    expect(result.configHash).toBeNull();
     expect(result.diags[1]?.level).toBe('warning');
     expect(result.presets).toBeNull();
     expect(result.dma).toBeNull();

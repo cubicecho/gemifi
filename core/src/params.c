@@ -54,6 +54,10 @@ int params_set(uint16_t id, uint16_t index, int32_t value, int from_host)
         return GSX_BAD_PARAM;
     if (value < p->min || value > p->max)
         return GSX_BAD_VALUE;
+    /* An enum option without a label is one this firmware left out
+     * (settings.c: a button action or mode the device doesn't have). */
+    if (p->type == PT_ENUM && p->options && !p->options[value - p->min])
+        return GSX_BAD_VALUE;
     p->values[index] = value;
     params_gen++;
     return GSX_OK;

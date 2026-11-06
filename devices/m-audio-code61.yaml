@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
 # Runs under the gemifi bootloader (bootloader/stm32f1). Working on hardware
 # (2026-11-03): keys with velocity, panel buttons, encoders, faders, wheels,

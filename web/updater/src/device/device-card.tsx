@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FileText, Monitor, RefreshCw } from '@/components/ui/icons';
 import type { BuilderDevice } from '../builder/api.ts';
+import { ConfigMatch, configMatch, formatConfigHash } from '../builder/node-match.ts';
 import { deviceTitle } from '../builder/platforms.ts';
 import { boardLabel } from '../protocol/boards.ts';
 import type { SysexClient } from '../protocol/client.ts';
@@ -24,6 +25,8 @@ export interface DeviceCardProps {
   isBusy: boolean;
   /** With a builder: the device files with the connected device's node name, and how to open one. */
   deviceFiles: DeviceFiles | null;
+  /** The device's `config.hash` (the YAML it was built from), or null when it has none or it is not read yet. */
+  configHash: number | null;
 }
 
 /** The device files a connected device was built from. */
@@ -33,13 +36,29 @@ export interface DeviceFiles {
   onOpen: (device: BuilderDevice) => void;
 }
 
+/** What each {@link ConfigMatch} looks like next to a file. */
+const MATCH_LOOKS = {
+  [ConfigMatch.Same]: { variant: 'positive-soft', label: 'Runs this config' },
+  [ConfigMatch.LastBuild]: { variant: 'warning-soft', label: 'Runs its last build; the file has changed since' },
+  [ConfigMatch.Different]: { variant: 'warning-soft', label: 'Runs a different config than this file' },
+} as const;
+
 /**
- * The files whose `name:` is the device's node name, as buttons that open them in the Devices view.
+ * The files whose `name:` is the device's node name, as buttons that open them in the Devices view,
+ * each with whether the device runs that file's config (its `config.hash`) when both sides say.
  *
- * @param props - The node name and the files.
+ * @param props - The node name, the files and the device's config hash.
  * @returns The line, or the buttons.
  */
-function MatchingFiles({ nodeName, files }: { nodeName: string; files: DeviceFiles }) {
+function MatchingFiles({
+  nodeName,
+  files,
+  configHash,
+}: {
+  nodeName: string;
+  files: DeviceFiles;
+  configHash: number | null;
+}) {
   if (files.matches.length === 0) {
     return (
       <p className="text-foreground/60 text-sm">
@@ -48,18 +67,24 @@ function MatchingFiles({ nodeName, files }: { nodeName: string; files: DeviceFil
     );
   }
   return (
-    <div className="flex flex-wrap gap-2">
-      {files.matches.map((device) => (
-        <Button
-          key={device.id}
-          size="sm"
-          variant="outline"
-          iconSlot={<FileText />}
-          content={`Open ${deviceTitle(device)}`}
-          title={device.id}
-          onClick={() => files.onOpen(device)}
-        />
-      ))}
+    <div className="flex flex-col gap-2">
+      {files.matches.map((device) => {
+        const match = configMatch(device, configHash);
+        const look = match === ConfigMatch.Unknown ? null : MATCH_LOOKS[match];
+        return (
+          <div key={device.id} className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              iconSlot={<FileText />}
+              content={`Open ${deviceTitle(device)}`}
+              title={device.id}
+              onClick={() => files.onOpen(device)}
+            />
+            {look === null ? null : <Badge variant={look.variant}>{look.label}</Badge>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -70,7 +95,7 @@ function MatchingFiles({ nodeName, files }: { nodeName: string; files: DeviceFil
  * @param props - The device's answer.
  * @returns The list.
  */
-function HelloFacts({ info }: { info: HelloInfo }) {
+function HelloFacts({ info, configHash }: { info: HelloInfo; configHash: number | null }) {
   const caps = capabilityNames(info.caps);
   return (
     <DescriptionList
@@ -79,6 +104,16 @@ function HelloFacts({ info }: { info: HelloInfo }) {
         ...(info.nodeName === null
           ? []
           : [<PropertyRow key="node" label="Node name" value={info.nodeName} valueClassName="font-mono" />]),
+        ...(configHash === null
+          ? []
+          : [
+              <PropertyRow
+                key="config"
+                label="Config hash"
+                value={formatConfigHash(configHash)}
+                valueClassName="font-mono"
+              />,
+            ]),
         <PropertyRow key="board" label="Board" value={boardLabel(info.boardId)} />,
         <PropertyRow key="fw" label="Firmware" value={formatVersion(info.fwVersion)} valueClassName="font-mono" />,
         <PropertyRow key="proto" label="Protocol" value={`v${info.protoVersion}`} valueClassName="font-mono" />,
@@ -105,7 +140,7 @@ function HelloFacts({ info }: { info: HelloInfo }) {
  * @param props - The client, its HELLO answer and handlers.
  * @returns The card.
  */
-export function DeviceCard({ client, hello, onRefresh, isBusy, deviceFiles }: DeviceCardProps) {
+export function DeviceCard({ client, hello, onRefresh, isBusy, deviceFiles, configHash }: DeviceCardProps) {
   const [rebootError, setRebootError] = useState<string | null>(null);
   const [pending, setPending] = useState<RebootMode | null>(null);
   const role = hello.kind === 'ok' ? hello.info.role : null;
@@ -146,9 +181,9 @@ export function DeviceCard({ client, hello, onRefresh, isBusy, deviceFiles }: De
       loading={hello.kind === 'loading'}
       contentSlot={
         <>
-          {hello.kind === 'ok' ? <HelloFacts info={hello.info} /> : null}
+          {hello.kind === 'ok' ? <HelloFacts info={hello.info} configHash={configHash} /> : null}
           {hello.kind === 'ok' && hello.info.nodeName !== null && deviceFiles !== null ? (
-            <MatchingFiles nodeName={hello.info.nodeName} files={deviceFiles} />
+            <MatchingFiles nodeName={hello.info.nodeName} files={deviceFiles} configHash={configHash} />
           ) : null}
           {hello.kind === 'error' ? (
             <Alert variant="destructive" title="The device did not answer HELLO" description={hello.message} />

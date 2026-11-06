@@ -23,7 +23,7 @@
           "CHANGELOG.md",
           "package.json",
           "package-lock.json",
-          "tools/builder/dashboard.py",
+          "tools/builder/gemifi_device.py",
           "web/updater/package.json",
           "web/updater/package-lock.json"
         ],
@@ -33,6 +33,13 @@
     [
       "@semantic-release/github",
       {
+        "assets": [
+          {
+            "path": "site/src/schema/device.json",
+            "name": "gemifi-device.schema.json",
+            "label": "Device YAML JSON schema"
+          }
+        ],
         "successComment": false,
         "failComment": false,
         "releasedLabels": false

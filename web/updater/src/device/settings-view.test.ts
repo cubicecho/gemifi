@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { layoutSchema } from '../protocol/schema.ts';
 import { makeParam } from '../protocol/test-support.ts';
-import { ParamFlag, PresetParam } from '../protocol/wire.ts';
-import { splitByScope } from './settings-view.tsx';
+import { ParamFlag, ParamType, PresetParam } from '../protocol/wire.ts';
+import { enumOptions, splitByScope } from './settings-view.tsx';
 
 const P = ParamFlag.Preset;
+
+describe('enumOptions', () => {
+  it('leaves out the options the firmware has no label for', () => {
+    const param = makeParam({ id: 9, name: 'button.action', label: 'Action', type: ParamType.Enum, min: 0, max: 3,
+                              options: ['None', '', 'Panic', 'MMC'] });
+    expect(enumOptions(param)).toEqual([
+      { value: '0', label: 'None' },
+      { value: '2', label: 'Panic' },
+      { value: '3', label: 'MMC' },
+    ]);
+  });
+});
 
 describe('splitByScope', () => {
   const schema = {

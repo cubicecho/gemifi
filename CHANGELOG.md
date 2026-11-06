@@ -2,6 +2,17 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.37.0](https://github.com/cubicecho/gemifi/compare/v0.36.0...v0.37.0) (2026-11-06)
+
+
+### Features
+
+* **bootloader:** STM32F1 boot-loop guard, reset flags for the app ([90b4d9c](https://github.com/cubicecho/gemifi/commit/90b4d9c6ab97f1eb03d2d2b7863cdfee5fc19856))
+* **core:** physical unlock is opt-in ([b76b013](https://github.com/cubicecho/gemifi/commit/b76b013c98e08a3e008b65b2189767c06ab7e9d2))
+* **core:** physical unlock, factory-reset combo, status LED, diagnostics ([5b9b16f](https://github.com/cubicecho/gemifi/commit/5b9b16f8449f8e9b0a6bcfecfa1ca96f6734deb8))
+* **host:** wait for the physical unlock, unlock and hello --diag commands ([d1ed4b4](https://github.com/cubicecho/gemifi/commit/d1ed4b4d7e0cc490c9a089406ec655913498dae2))
+* **web:** unlock dialog and Diagnostics in the updater ([3be3f46](https://github.com/cubicecho/gemifi/commit/3be3f4657f8a37f2370596c332ab1cd3afecc1ea))
+
 # [0.36.0](https://github.com/cubicecho/gemifi/compare/v0.35.0...v0.36.0) (2026-11-06)
 
 

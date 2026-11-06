@@ -598,6 +598,10 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put_u(t, GSX_NONE_INDEX, 2);
 #endif
         uint32_t mode = (uint32_t)gm_cfg.enc_mode[index];
+        if (mode == ENC_REL_SIGN)
+            mode = GSX_ENC_MODE_SIGN;
+        else if (mode > ENC_REL_SIGN)
+            mode = 0;                                   /* the 14-bit / (N)RPN modes: absolute */
 #if GM_MCU
         if (gm_encoder_mcu[index] != GM_MCU_NONE)
             mode = GSX_ENC_MODE_MCU;                    /* a V-Pot ignores encoder.mode */
@@ -667,9 +671,9 @@ static void notify(const gsx_frame_t *f)
         break;
     case GSX_FB_VALUE:
         if (n == 5) {
-            uint32_t i = gsx_get_u(p + 1, 2), v = gsx_get_u(p + 3, 2) >> 7;
+            uint32_t i = gsx_get_u(p + 1, 2), v = gsx_get_u(p + 3, 2);
             if (p[0] == GSX_KIND_ANALOG && i < gm_device.n_analogs)
-                gm_analog_host(i, v);
+                gm_analog_host(i, v >> 7);
             else if (p[0] == GSX_KIND_ENCODER)
                 gm_encoder_host(i, v);
         }

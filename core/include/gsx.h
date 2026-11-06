@@ -72,8 +72,11 @@ extern "C" {
 #define GSX_KIND_DISPLAY 6
 #define GSX_KIND_PAD     7
 #define GSX_KIND_METER   8    /* reserved: no firmware has meters yet */
-/* GET_COMPONENT encoder `mode`: encoder.mode 0..2, or 3 for a Mackie V-Pot */
+/* GET_COMPONENT encoder `mode`: 0 absolute (encoder.mode 0 and the 14-bit /
+ * (N)RPN modes), 1, 2 relative (encoder.mode 1, 2), 3 a Mackie V-Pot, 4
+ * relative sign-magnitude (encoder.mode 3) */
 #define GSX_ENC_MODE_MCU 3
+#define GSX_ENC_MODE_SIGN 4
 #define GSX_NONE_INDEX   0x3FFFu
 #define GSX_LSTRING_MAX  31u
 #define GSX_CMD_FACTORY_RESET 0x08

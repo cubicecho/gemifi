@@ -37,7 +37,8 @@
 #define PAD_ENTRIES (GM_N_PADS > 0 ? (uint32_t)GM_N_PADS + 8u : 0u)
 #define LAYER_ENTRIES (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u)
 #define MAX_ENTRIES (2u * GM_ARR(GM_N_BUTTONS) + GM_ARR(GM_N_ANALOGS) + \
-                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES)
+                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES + \
+                     (GM_PRESET_BANK ? 1u : 0u))
 
 /* The record a save builds: write_values(), write_globals(), write_state()
  * and presets_rename() build theirs here, check it with stored_same() and
@@ -243,6 +244,17 @@ static void do_select(uint32_t slot, int from_host)
     if (gm_cfg.preset_program >= 0) {
         uint8_t m[2] = { (uint8_t)(0xC0 | ((gm_cfg.channel - 1) & 0x0F)),
                          (uint8_t)(gm_cfg.preset_program & 0x7F) };
+#if GM_PRESET_BANK
+        if (gm_cfg.preset_bank >= 0) {      /* Bank Select MSB, LSB, then the Program Change */
+            uint8_t b[3] = { (uint8_t)(0xB0 | (m[0] & 0x0F)), 0, (uint8_t)((gm_cfg.preset_bank >> 7) & 0x7F) };
+            hal_midi_send(b, 3);
+            gm_din_local(b, 3);
+            b[1] = 32;
+            b[2] = (uint8_t)(gm_cfg.preset_bank & 0x7F);
+            hal_midi_send(b, 3);
+            gm_din_local(b, 3);
+        }
+#endif
         hal_midi_send(m, 2);
         gm_din_local(m, 2);
         gm_display_midi(m[0], m[1], 0);

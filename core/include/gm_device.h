@@ -271,6 +271,49 @@ typedef struct {
 
 extern const gm_device_t gm_device;
 
+/* ---- MIDI messages (core/README.md "MIDI messages") --------------------
+ * Build-time settings of what the controls send. Each table is generated
+ * only when the YAML uses it (GM_BTN_CTL, GM_ANALOG_CTL, GM_ENC_CTL,
+ * GM_BTN_BANK, GM_N_SYSEX, GM_ENC_MODES in gm_device_config.h). */
+
+/* A control's output range and channel (YAML min:, max:, channel:), one
+ * per button / analog input / encoder (twins included). The value range
+ * 0..top (127, or 16383 for a 14-bit mode) goes out as min..max; min > max
+ * inverts it. */
+#define GM_CTL_TOP 0xFFFFu           /* max: the top of the mode's range */
+typedef struct {
+    uint16_t min;
+    uint16_t max;                    /* or GM_CTL_TOP */
+    uint8_t channel;                 /* 1..16; 0 = midi.channel */
+} gm_ctl_t;
+
+extern const gm_ctl_t gm_button_ctl[];       /* GM_BTN_CTL */
+extern const gm_ctl_t gm_analog_ctl[];       /* GM_ANALOG_CTL */
+extern const gm_ctl_t gm_encoder_ctl[];      /* GM_ENC_CTL */
+
+/* Bank Select (CC 0 / 32) a program action sends before its Program
+ * Change (YAML bank:), per button; GM_BANK_NONE = none. */
+#define GM_BANK_NONE 0xFFFFu
+extern const uint16_t gm_button_bank[];      /* GM_BTN_BANK */
+
+/* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
+ * from F0 to F7, with these placeholders (all >= 0x80, so never a data
+ * byte): the value (7-bit), its top and bottom 7 bits (14-bit), the
+ * control's channel 0..15, the start of the checksummed bytes, and the
+ * Roland checksum of the bytes from that start to here: (128 - sum % 128)
+ * % 128. flags: GM_SX_WIDE, the string has GM_SX_MSB / GM_SX_LSB, so the
+ * value is 14-bit; GM_SX_HAS_VALUE, it has a value at all. */
+enum { GM_SX_VALUE = 0x80, GM_SX_MSB, GM_SX_LSB, GM_SX_CHANNEL, GM_SX_SUM_START, GM_SX_SUM };
+#define GM_SX_WIDE      (1u << 0)
+#define GM_SX_HAS_VALUE (1u << 1)
+typedef struct {
+    const uint8_t *data;
+    uint8_t len;
+    uint8_t flags;
+} gm_sysex_t;
+
+extern const gm_sysex_t gm_sysex[];          /* GM_N_SYSEX entries; GM_SYSEX_MAX bytes at most, sent */
+
 /* Per-component defaults for the params (generated alongside gm_device;
  * arrays sized by the GM_N_* counts in gm_device_config.h). */
 extern const int32_t gm_button_action_defaults[];
@@ -278,6 +321,7 @@ extern const int32_t gm_button_number_defaults[];
 extern const int32_t gm_analog_cc_defaults[];
 extern const int32_t gm_analog_mode_defaults[];   /* AN_MODE_* (gm_settings.h) */
 extern const int32_t gm_encoder_cc_defaults[];
+extern const int32_t gm_encoder_mode_defaults[];  /* GM_ENC_MODES: ENC_* (gm_settings.h) */
 
 /* The params' index labels (core/src/settings.c): each component's display
  * name, as in gm_device (gm_pad_names: with pads; gm_mode_names: with modes). */

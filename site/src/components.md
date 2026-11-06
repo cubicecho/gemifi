@@ -17,6 +17,7 @@ permalink: /components/
     <li><a href="#buttons">Buttons, modes and layers</a></li>
     <li><a href="#encoders">Encoders</a></li>
     <li><a href="#analog">Faders, knobs and wheels</a></li>
+    <li><a href="#messages">MIDI messages</a></li>
     <li><a href="#pads">Pads</a></li>
     <li><a href="#leds">LEDs</a></li>
     <li><a href="#displays">Displays</a></li>
@@ -126,7 +127,9 @@ optionally an `led:`. The actions: `cc_momentary`, `cc_toggle`, `cc_ramp`
 (glides to 127 while held), `note`, `octave_down` / `octave_up`,
 `transpose_down` / `transpose_up`, `bend_down` / `bend_up`, `program_next` /
 `program_prev`, `preset_next` / `preset_prev` / `preset_select`, `mcu`
-(Mackie Control), and `none`.
+(Mackie Control), and `none`. The [MIDI message](#messages) actions add
+`program` (with an optional bank), `panic`, `mmc` (play, stop, record, ...)
+and `sysex`.
 
 {% raw %}
 ```yaml
@@ -172,9 +175,11 @@ Twins' settings are global, not per preset. On the Code 61, 24 encoder twins,
 <h2 id="encoders">Encoders</h2>
 
 A quadrature encoder has `pin_a`, `pin_b`, `steps_per_detent` and a default
-`cc`. It sends in one of three modes, changeable from the web page:
-absolute (0–127), relative two's complement (1 = +1, 127 = −1) or relative
-offset (65 = +1, 63 = −1).
+`cc`. It sends in one of four modes, changeable from the web page:
+absolute (0–127), relative two's complement (1 = +1, 127 = −1), relative
+offset (65 = +1, 63 = −1) or relative sign-magnitude (1 = +1, 65 = −1).
+`mode:` sets the default. It can also be absolute 14-bit CC, NRPN or RPN
+([MIDI messages](#messages)).
 
 `acceleration:` (off by default) makes a quick turn move more than one step
 per detent, so a flick sweeps the range and a slow turn stays exact. The
@@ -216,7 +221,8 @@ analog:
 
 - **Modes.** `cc` (the default), `pitch_bend` (14-bit; the reading at
   power-up is the centre, so leave a sprung wheel alone while the device
-  starts) or `channel_pressure` (aftertouch).
+  starts) or `channel_pressure` (aftertouch). Also `cc14`, `nrpn`, `nrpn14`,
+  `rpn`, `rpn14` and `sysex` ([MIDI messages](#messages)).
 - **Pick-up.** `takeover: pickup` keeps a knob silent after the DAW sets its
   value, until the knob reaches it, so values don't jump.
 - **Touch.** `touch: movement` tells a DAW script when a fader starts and
@@ -231,6 +237,45 @@ analog:
   one multiplexer about 350 ms. Wheels and pressure are read every 2 ms each.
   With `hardware_scan.analog` (STM32F1) every input is read every
   millisecond: about 22 ms. These are worked out from the code.
+
+<h2 id="messages">MIDI messages</h2>
+
+Beyond notes and 7-bit CCs, a control can send:
+
+- **14-bit CC** (`mode: cc14`): the MSB on the CC, the LSB on CC + 32. A
+  fader then sends about 1300 steps over its travel instead of 128.
+- **NRPN and RPN**, 7- or 14-bit (`mode: nrpn14, nrpn: 1234`), optionally
+  followed by the null RPN.
+- **Bank select** before a program change, on a `program` button or in a
+  preset (`program: 5, bank: 300`).
+- **Panic**: Note Off for everything gemifi holds, then All Sound Off, All
+  Notes Off and Reset All Controllers on all 16 channels.
+- **MMC** transport commands: `action: mmc, mmc: play`.
+- **SysEx strings** written in the YAML, with the value, its two 7-bit
+  halves, the channel and a Roland checksum filled in. This is how older
+  hardware synths are controlled.
+
+{% raw %}
+```yaml
+midi_messages:
+  sysex:
+    - { id: gs_volume, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }
+buttons:
+  - { id: panic, pin: PB2, action: panic }
+  - { id: play, pin: PB1, action: mmc, mmc: play }
+analog:
+  - { id: fader_1, pin: PA0, mode: cc14, cc: 7 }
+  - { id: volume, pin: PA1, mode: sysex, sysex: gs_volume, min: 0, max: 100 }
+```
+{% endraw %}
+
+- **Channel and range.** `channel:`, `min:` and `max:` on a button, fader or
+  encoder send on its own channel and over its own range (swap min and max
+  to invert). They're set at build time, the same in every preset.
+- **Cost.** Each kind is compiled in only when the YAML uses it (or lists it
+  in `midi_messages.enable`, to pick it later from the web page). With all
+  of them on, the Keystation's firmware grows by about 1.1 KB and the Code
+  61's by 1.7 KB. A device that uses none gets the same firmware as before.
 
 <h2 id="pads">Pads</h2>
 

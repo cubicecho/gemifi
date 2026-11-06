@@ -52,6 +52,7 @@ Generated from `core/src/settings.c`; arrays are sized by the device. Scope P = 
 | 8 | `analog.cc[1]` | P | int | 0..127 | 7 |
 | 13 | `debug.events` | G | bool | | off (on: EVENT messages for keys, buttons, knob) |
 | 14 | `debug.log_level` | G | enum Off / Errors / Warnings / Info / Debug | | Info |
+| 39 | `config.hash` | – | int, read-only, volatile | 0..0x7FFFFFFF | the builder's hash of the YAML this firmware was built from (core/README.md "Config hash") |
 | 17 | `preset.active` | G | int | 1..8 | 1 (setting it switches preset) |
 | 18 | `preset.program` | P | int | −1..127 | −1 (Program Change sent on select; −1 = none) |
 | 19 | `preset.dirty` | – | bool, read-only, volatile | | unsaved host edits to the active preset |

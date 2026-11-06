@@ -9,9 +9,12 @@ s = gp.parse_schema(Path(sys.argv[1]).read_bytes())
 names = [p.name for p in s.params]
 expect = ["midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "velocity.fixed",
           "velocity.fast", "velocity.slow", "button.action", "button.number", "bend.glide",
-          "ramp.time", "analog.cc", "analog.mode", "debug.events", "debug.log_level",
+          "ramp.time", "analog.cc", "analog.mode", "debug.events", "debug.log_level", "config.hash",
           "preset.active", "preset.program", "preset.dirty", "preset.count"]
 assert names == expect, names
+# config.hash: the builder's hash of the YAML (core/README.md "Config hash"), read-only and not stored
+ch = next(p for p in s.params if p.name == "config.hash")
+assert ch.read_only and ch.volatile and (ch.min, ch.max) == (0, 0x7FFFFFFF) and 0 <= ch.defaults[0] <= ch.max, ch
 # schema flags bit 5 = PRESET (per-preset param, research/core/presets-design.md §1)
 F_PRESET = 0x20
 per_preset = {p.name for p in s.params if p.flags & F_PRESET}

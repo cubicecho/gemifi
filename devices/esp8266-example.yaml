@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # Example ESP8266 controller with serial MIDI over the USB-UART (Wemos D1 mini).
 # The default device of firmware/esp/midi-controller (esp8266).
 gemifi: 2

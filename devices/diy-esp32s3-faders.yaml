@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # DIY controller: ESP32-S3 dev board, 8 faders on a 74HC4051, 4 buttons with LEDs, one encoder.
 # Starting point for your own build: change the pins to match your wiring.
 gemifi: 2

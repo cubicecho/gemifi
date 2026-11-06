@@ -66,6 +66,13 @@ export interface BuilderDevice {
   /** Built, but the file has changed since: the images are not this file's any more. */
   isStale: boolean;
   writable: boolean;
+  /**
+   * The file's config hash as it is now (what param `config.hash` of firmware built from it reports),
+   * or null when it does not resolve, or the builder is older.
+   */
+  configHash: number | null;
+  /** The config hash of the last build's images, or null when there is none. */
+  builtConfigHash: number | null;
 }
 
 /** The device list. */
@@ -91,6 +98,8 @@ export interface Diagnostic {
   path: string;
   /** The 1-based line, or null when the validator could not place it. */
   line: number | null;
+  /** The file the line is in when it is another one (a package or `!include`), else null. */
+  file: string | null;
   msg: string;
 }
 
@@ -173,6 +182,8 @@ export interface ValidationResult {
   dinMidi: DinMidiSummary | null;
   /** The ports besides the device's own; empty when it has none. */
   midiPorts: MidiPort[];
+  /** The checked text's config hash (param `config.hash`); null when it is not valid, or from an older builder. */
+  configHash: number | null;
 }
 
 /** How a build ended. */
@@ -416,6 +427,9 @@ function parseDevice(value: unknown): BuilderDevice {
     // Optional: an older builder does not say, and its images are then taken as current.
     isStale: record.stale === true,
     writable: readBoolean(record, 'writable', what),
+    // Optional: an older builder does not send them, and nothing then compares configs.
+    configHash: isInteger(record.config_hash) ? record.config_hash : null,
+    builtConfigHash: isInteger(record.built_config_hash) ? record.built_config_hash : null,
   };
 }
 
@@ -464,6 +478,7 @@ function parseDiagnostic(value: unknown): Diagnostic {
     level: record.level === 'warning' ? 'warning' : 'error',
     path: typeof record.path === 'string' ? record.path : '',
     line: isPlaced ? line : null,
+    file: typeof record.file === 'string' && record.file !== '' ? record.file : null,
     msg: readString(record, 'msg', what),
   };
 }
@@ -590,6 +605,7 @@ export async function validateDevice(text: string, id?: string): Promise<Validat
     dma,
     dinMidi: parseDinMidi(json.din_midi),
     midiPorts: parseMidiPorts(json.midi_ports),
+    configHash: isInteger(json.config_hash) ? json.config_hash : null,
   };
 }
 

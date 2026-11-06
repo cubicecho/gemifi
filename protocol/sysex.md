@@ -94,9 +94,11 @@ Specific cases:
 | 0x12 | PRESET_DELETE | presets | – | `slot` u14 (1..in use) | – (OK, BAD_STATE for the last preset, or FLASH_ERR): delete a preset; the later ones move up (§4.5) |
 | 0x13 | PRESET_MOVE | presets | – | `from` u14, `to` u14 (both 1..in use) | – (OK, or FLASH_ERR): move a preset to another slot; the ones between shift by one (§4.5) |
 | 0x11 | GET_COMPONENT | feedback | – | `kind` (1 byte), `index` u14 | the component's description (§4.6.1) |
+| 0x14 | GET_LAYOUT | layout | – | `offset` u28, `max` u14 (unpacked bytes wanted, 1..64) | `total` u28 (layout size in bytes), `offset` u28 (echo), data (packed, 0..`max` bytes; fewer only at the end) (§4.7) |
+| 0x15 | MONITOR | monitor | – | `kinds` (1 byte, bit flags; 0 = stop) | `kinds` (1 byte: the ones it will send), `interval_ms` u14, `timeout_ms` u14 (§4.8) |
 | 0x05, 0x06, 0x0F | GET_BLOB, SET_BLOB, LOG_LEVEL | reserved | – | see `research/core/bootloader-design.md` §6 | |
 
-"presets" = only in an app with HELLO caps bit 5; "feedback" = only with caps bit 6. Any other device replies BAD_CMD.
+"presets" = only in an app with HELLO caps bit 5; "feedback" = only with caps bit 6; "layout" = only with caps bit 8; "monitor" = only with caps bit 9. Any other device replies BAD_CMD.
 
 Unsolicited device → host messages (no reply expected):
 
@@ -107,6 +109,7 @@ Unsolicited device → host messages (no reply expected):
 | 0x62 | PARAM_CHANGED | `id` u14, `index` u14, `value` s32. Sent when the device changes a param by itself (e.g. the octave buttons change `midi.octave`), so an open editor can follow. Not sent for changes the host made itself (SET_PARAM, SET_PARAMS, FACTORY_RESET); after FACTORY_RESET the host reloads. |
 | 0x63 | PRESET_CHANGED | `slot` u14 (the active preset), `dirty` (1 byte: 1 = unsaved edits, 0 = none). Sent each time the active preset or its dirty flag changes, whoever caused it (§4.5). |
 | 0x64 | BOOTED | The fields of a HELLO reply without its status byte: `role`, `board_id` u14, `fw_version` u32, `proto_version`, `max_chunk` u14, `caps` u14, `uid` (packed, 14 bytes), then `node` when the app has one (§4.1.1). Sent once, about 1.5 s after the app starts (once USB is normally up), and only by an app with caps bit 6 (§4.6.3). A host can treat it exactly like a HELLO reply. |
+| 0x65 | RAW | `kind`, then the raw readings of that kind (§4.8). Sent only while a host keeps MONITOR running. |
 
 The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a standard Identity Reply, so generic tools can find it.
 
@@ -118,6 +121,8 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
 - bit 6: host feedback (§4.6: GET_COMPONENT, the FB_* notifications and BOOTED)
 - bit 7: gemifi bootloader: REBOOT(1) leads to a gemifi bootloader (role 1). Only meaningful on boards that may instead carry a vendor bootloader (the Code 61: M-Audio's, with its own update protocol). An app sets it when it finds the gemifi bootloader's marker; without it, hosts use the board's vendor path.
+- bit 8: physical layout (§4.7: GET_LAYOUT). Only in an app built from a YAML with `layout:`.
+- bit 9: raw readings (§4.8: MONITOR and RAW).
 
 ### 4.1.1 HELLO `node` (node name)
 
@@ -185,7 +190,7 @@ param_count × param:
 
 **Rendering rule.** Array params in the same group with the same `count` and the same index labels form one table: one row per index (labelled by the index label, or by the index), one column per param. That is how a bank of physical controls is described, whatever the device: e.g. `pot.cc[8]`, `pot.channel[8]`, `pot.min[8]`, `pot.max[8]` become an 8-row "Pots" table; `key.note[88]` and `key.velocity_curve[88]` an 88-row one.
 
-**Scope.** The schema describes settings, not the device itself, so the same editor works for a Keystation, a Code 61, an ESP32 build with sliders, encoders and a key matrix, a DIY box or a reverse-engineered legacy unit. Things a future version may add: other string values through GET/SET_BLOB (preset names have their own command, §4.5), a physical layout description for drawing the device, and per-param visibility conditions. A new `type` or a flag bit that adds **no bytes** keeps `schema_version` 1 (old editors show the param as an int and ignore the flag); anything that adds bytes to a param record needs a `schema_version` bump.
+**Scope.** The schema describes settings, not the device itself, so the same editor works for a Keystation, a Code 61, an ESP32 build with sliders, encoders and a key matrix, a DIY box or a reverse-engineered legacy unit. Things a future version may add: other string values through GET/SET_BLOB (preset names have their own command, §4.5) and per-param visibility conditions. The physical layout has its own command (§4.7). A new `type` or a flag bit that adds **no bytes** keeps `schema_version` 1 (old editors show the param as an int and ignore the flag); anything that adds bytes to a param record needs a `schema_version` bump.
 
 Other rules: GET_PARAMS / SET_PARAMS work on plain params too (`index` 0, `n` 1); SET_PARAMS on a READ_ONLY param → BAD_PARAM. Devices never send strings longer than 63 bytes; parsers may accept them. `id`s and `name`s are unique within a schema; bool params have min 0, max 1; bytes after the last param are ignored (room for a future trailer). For GET_PARAMS / SET_PARAMS, an `n` of 0 or above 16 → BAD_LEN.
 
@@ -327,7 +332,7 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 |---|---|
 | 1 button | `led` u14 (its LED's index, or 0x3FFF for none), `layer` (1 byte) |
 | 2 key matrix | `keys` u14, `first_note` (1 byte) |
-| 3 analog | `takeover` (1 byte: 0 none, 1 pick-up, 2 motor (reserved)), `touch` (1 byte: 0 none, 1 sensor (reserved), 2 from movement) |
+| 3 analog | `takeover` (1 byte: 0 none, 1 pick-up, 2 motor (reserved)), `touch` (1 byte: 0 none, 1 sensor (reserved), 2 from movement), `adc_min` u14, `adc_max` u14 (the YAML's calibration, 0..4095; `adc_min` above `adc_max` = reversed) |
 | 4 encoder | `ring` (1 byte: LEDs in its ring, 0 = none), `center` u14 (centre LED index, or 0x3FFF), `mode` (1 byte, below), `layer` (1 byte) |
 | 5 LED | `colours` (1 byte: 1 single, 2 bicolour, 3 RGB), `owner` (1 byte: 0 host_then_local, 1 host, 2 local), `layer` (1 byte) |
 | 6 display | `cols` (1 byte), `rows` (1 byte), `type` (1 byte: 1 characters, 2 segments) |
@@ -336,7 +341,7 @@ Reply (after the OK status): `kind`, `index` u14, `count` u14 (how many componen
 
 An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so the host learns it from index 0). A device with none of a kind, or a `kind` it doesn't know (0, 9 and up; 7 and up in firmware from before pads), replies BAD_PARAM for index 0, so a host walking every kind treats both as "none". No component has index 0x3FFF, so it can mean "none" in the extra fields. A request that isn't 3 bytes replies BAD_LEN. The reply echoes the request's `kind` and `index`. A host ignores bytes after the fields it knows for a kind, so fields can be added later. The LEDs of an encoder's ring (and its centre LED) are ordinary LEDs: they're in the kind-5 list, and FB_LED can set them too.
 
-**Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind, `touch` after `takeover` later (2026-11-04), and `layer` after that (on buttons and pads after `led`, encoders after `mode`, LEDs after `owner`). Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything). A missing `layer` is 0.
+**Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind, `touch` after `takeover` later (2026-11-04), and `layer` after that (on buttons and pads after `led`, encoders after `mode`, LEDs after `owner`). An analog's `adc_min` and `adc_max` came after `touch` (2026-11-05, for the input tester, §4.8). Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything). A missing `layer` is 0.
 
 **`layer`** says whether the component is a layer twin (`core/README.md` "Button layers"): 0 = always there (not a twin); n = a twin in mode n − 1 (the firmware's mode index), live only while that mode is on. The device only sends EVENTs from live components, so a host may ignore layers. Firmware from before the byte has twins but doesn't mark them.
 
@@ -406,6 +411,63 @@ A script that sees BOOTED from its device (same `uid`, or the only device on the
 The message isn't guaranteed to arrive: the host may open the port after it was sent (a replug while the DAW is busy), and MIDI drivers drop SysEx on a closed port. A host that must not miss a reboot keeps a cheap fallback, e.g. reading `debug.events` every few seconds: it reads 0 after a reboot.
 
 **Who sends it.** Only an app with caps bit 6, so it reaches only hosts written for §4.6; the bootloader and apps without host feedback never send it. An older host that doesn't know 0x64 ignores it or shows it as an unknown message; it never answers it. A host never asks for BOOTED: to find a device, it still sends HELLO.
+
+### 4.7 Physical layout (app)
+
+A device built from a YAML with `layout:` (`core/README.md` "Layout") describes where its controls are, so a host can draw it and light up the control being moved (the web page's input tester and "find a control"). It sets HELLO caps bit 8. A device without a layout has no GET_LAYOUT and no layout in flash, and hosts show its controls as a plain list.
+
+**GET_LAYOUT (0x14)** reads the layout blob in windows, exactly as GET_SCHEMA reads the schema (§4.3): `offset` u28, `max` u14 (1..64); the reply is `total` u28, `offset` u28, then up to `max` bytes, packed. The host starts at 0 and reads until `offset + returned >= total`. An `offset` at or past `total` returns OK with no data. A `max` of 0 or above 64, or a request that isn't 6 bytes → BAD_LEN.
+
+**Layout format (v1).** Little-endian binary.
+
+```
+u8   layout_version      1
+u8   width               the drawing's size in units, 1..255
+u8   height
+u16  item_count
+item_count × item:
+  u8  len                bytes after this one: 7, plus the shape's extras
+  u8  kind               the control: 1 button, 2 key matrix, 3 analog, 4 encoder, 6 display, 7 pad
+                         (GET_COMPONENT's kinds, §4.6.1)
+  u8  index              its index in that kind (key matrix: the first key of the item)
+  u8  shape              0 button, 1 round button, 2 knob, 3 encoder, 4 fader, 5 wheel, 6 pad,
+                         7 display, 8 keys, 9 xy pad
+  u8  x, y               the top-left corner, in units from the drawing's top left
+  u8  w, h               the size, in units
+  extras, by shape:
+    8 keys: u8 n_keys    keys index .. index + n_keys - 1
+            u8 first_note  the note key `index` plays at octave 0, transpose 0
+    9 xy:   u8 y_index   the analog input for the Y axis (`index` is the X axis)
+```
+
+- Units are a grid of about 5 mm. Hosts scale the drawing to fit and keep its proportions.
+- Every index is the component's own (EVENT's and the schema's index labels'). Layer twins are not drawn: they are the same physical control as their base.
+- Only physical controls appear. A control the YAML leaves out of `layout:` has no item; hosts list those under the drawing.
+- **Keys.** The keys of a `keys` item are drawn by a fixed rule, so every host draws them alike. White keys (notes 0, 2, 4, 5, 7, 9, 11 mod 12) share the item's width equally, left to right, full height. A black key is 0.6 of a white key wide and 0.6 of the height tall, centred on the line between the white keys either side of it; one at either end of the range is centred on the item's edge.
+- An `xy` item is one area for two analog inputs: a reading of `index` is the X position, left to right, and of `y_index` the Y position, bottom to top.
+- A host ignores bytes after the fields it knows in an item (it moves on by `len`), so items can grow. It draws an unknown `shape` as a button and skips an item whose `kind` it doesn't know. A new `layout_version` is for a change an old parser can't skip.
+
+### 4.8 Raw readings (app)
+
+For calibrating and porting: the readings as the scan sees them, before debounce, `adc_min`/`adc_max` and velocity. A device with this feature sets HELLO caps bit 9. The web page's input tester shows them.
+
+**MONITOR (0x15).** Request: `kinds` (1 byte, bit flags): bit 0 buttons, bit 1 key matrix, bit 2 analog inputs, bit 3 encoders, bit 4 pads; 0 stops. Reply: `kinds` (the requested ones the device has, which it now sends), `interval_ms` u14 (the time between two RAW messages), `timeout_ms` u14. A request that isn't 1 byte → BAD_LEN. Unknown bits are ignored.
+
+- The device stops by itself `timeout_ms` (5000) after the last MONITOR, so a host that closes or crashes doesn't leave it streaming. A host that wants more sends MONITOR again about every 2 s; each one starts the time again and may change the kinds.
+- A reboot stops it (BOOTED, §4.6.3).
+- MONITOR changes no setting. EVENTs (`debug.events`) are separate, and work alongside.
+
+**RAW (0x65, device → host).** One message per `interval_ms` (20 ms), from the main loop, the chosen kinds in turn, so the stream is at most about 50 short messages a second and never delays the scan or a key's MIDI. A kind with more than 32 values is split over several messages by `first` (a key matrix by `row`). Payload: `kind` (1 byte, EVENT's numbers), then:
+
+| kind | Fields |
+|---|---|
+| 1 buttons | `first` u14, `n` (1 byte), then ⌈n / 7⌉ bytes: bit *i* of byte *j* = button `first` + 7*j* + *i*, 1 = pressed (the pin's reading, before debounce) |
+| 2 key matrix | `row` (1 byte: the first row in this message), `rows` (1 byte: rows in this message), `cols` (1 byte), then ⌈rows × cols / 7⌉ bytes: bit *b* (7 per byte, as for buttons) with *b* = (r − `row`) × cols + c for row *r*, column *c*; 1 = that contact is closed. A matrix with more than 512 contacts is split by rows. |
+| 3 analog | `first` u14, `n` (1 byte), then `n` × u14: the ADC reading, 0..4095, before `adc_min`/`adc_max`; 0x3FFF = no reading (an XY pad not touched) |
+| 4 encoders | `first` u14, `n` (1 byte), then `n` × u14: the detents counted since power-up, wrapping at 16384 (not accelerated) |
+| 7 pads | `first` u14, `n` (1 byte), then `n` × u14: the pressure reading, 0..4095 |
+
+Only the components with pins are sent: no layer twins. A key matrix's rows and columns are its YAML `rows:` and `columns:`, in order; a velocity keybed has two contacts per key (`key_matrix:` in `core/README.md` "Device YAML"). A contact reads 1 when closed, `inverted:` already applied. Hosts ignore a `kind` they don't know, and bytes after the fields they know.
 
 ## 5. Image format (`.gfw`)
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isPresetsBackup, restoreBackup } from '../protocol/backup.ts';
 import { RequestError, RequestFailure, type SysexClient } from '../protocol/client.ts';
 import {
   commit,
@@ -37,6 +38,8 @@ export interface ImportReport {
   problems: string[];
   /** Set when the file came from another board. */
   boardWarning: string | null;
+  /** A backup with presets was written back and stored: nothing is left to save. */
+  isStored?: boolean;
 }
 
 /** What {@link useConfig} hands the card. */
@@ -280,6 +283,22 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
         } catch (error) {
           throw new Error(`The file is not JSON: ${messageOf(error)}`);
         }
+        if (isPresetsBackup(json) && hasPresets) {
+          // A backup with every preset (`gemifi.py backup`, or the one taken before a firmware
+          // upload): written back preset by preset and stored, then everything is read again.
+          const report = await restoreBackup(client, device, current.schema, json);
+          setIsDirty(false);
+          setAttempt((n) => n + 1);
+          setImportReport({
+            applied: report.applied,
+            unknownNames: [],
+            readOnlyNames: [],
+            problems: report.problems,
+            boardWarning: null,
+            isStored: true,
+          });
+          return;
+        }
         const plan = planImport(current.schema, json, device.boardId);
         const result = await applyImport(client, plan);
         setState((prev) => {
@@ -309,7 +328,7 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
         });
       });
     },
-    [client, countsAsEdit, device, run, state],
+    [client, countsAsEdit, device, hasPresets, run, state],
   );
 
   const exportJson = useCallback(() => {

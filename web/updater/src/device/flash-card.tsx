@@ -6,13 +6,28 @@ import { FormField } from '@/components/form-field';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
+import { DownloadButton, downloadBlob } from '@/components/ui/download-button';
 import { FilePicker, FilePickerButton } from '@/components/ui/file-picker';
 import type { PickedFile } from '@/components/ui/file-picker-base';
 import { Upload } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
+import { SwitchField } from '@/components/ui/switch-field';
 import { type AbImageResult, isAbDevice, prepareAbImage } from '../protocol/ab-image.ts';
+import {
+  type BackupDoc,
+  type BackupProgress,
+  backupFileName,
+  backupSummary,
+  backupText,
+  type RestoreReport,
+  readBackup,
+  restoreBackup,
+  stalePresets,
+} from '../protocol/backup.ts';
 import { boardLabel, CODE61_BOARD_ID, usesVendorUpdate } from '../protocol/boards.ts';
+import type { SysexClient } from '../protocol/client.ts';
+import { getSchema } from '../protocol/config.ts';
 import {
   type DeviceLink,
   FLASH_PHASE_LABELS,
@@ -24,7 +39,8 @@ import {
 } from '../protocol/flash.ts';
 import { hex, type ImageResult, validateImage } from '../protocol/image.ts';
 import { formatVersion, type HelloInfo } from '../protocol/messages.ts';
-import { RebootMode, Role } from '../protocol/wire.ts';
+import { offersPresets, type PresetInfo, readPresets, resetPreset } from '../protocol/presets.ts';
+import { PRESET_ALL, RebootMode, Role } from '../protocol/wire.ts';
 import {
   buildUpdateStream,
   type ProbePort,
@@ -35,6 +51,7 @@ import {
   vendorUpdate,
 } from '../vendor/maudio.ts';
 import { type PickedImage, pickedImageOf } from './picked-image.ts';
+import { offersConfig } from './use-config.ts';
 
 /** Percent, for the progress bar's words. */
 const PERCENT = 100;
@@ -42,6 +59,8 @@ const PERCENT = 100;
 /** Where an upload is. */
 type RunState =
   | { kind: 'idle' }
+  /** Reading the settings and presets into a backup before the upload. */
+  | { kind: 'backup'; progress: BackupProgress }
   | { kind: 'running'; progress: FlashProgress }
   | { kind: 'vendor'; progress: VendorProgress }
   | { kind: 'done'; info: HelloInfo }
@@ -57,6 +76,176 @@ export interface ResumeOffer {
   isBootloaderPresent: boolean;
   /** Web MIDI access has been granted. */
   isMidiReady: boolean;
+}
+
+/** The backup taken before the last upload. */
+interface SavedBackup {
+  doc: BackupDoc;
+  fileName: string;
+}
+
+/** What happens to the settings once the new firmware is up. */
+type AfterState =
+  | { kind: 'none' }
+  /** Stored edits from another presets revision: keep them, or use the firmware's presets (§4.5). */
+  | { kind: 'stale'; slots: PresetInfo[] }
+  | { kind: 'kept' }
+  | { kind: 'reset' }
+  | { kind: 'working'; what: 'reset' | 'restore'; slots: PresetInfo[] }
+  | { kind: 'restored'; report: RestoreReport }
+  | { kind: 'failed'; message: string };
+
+/**
+ * @param error - Anything thrown.
+ * @returns Its message.
+ */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param isCancelled - The reader pressed Cancel.
+ * @param error - What reading the backup threw.
+ * @returns The run's outcome: nothing was flashed.
+ */
+function backupFailed(isCancelled: boolean, error: unknown): RunState {
+  return isCancelled
+    ? {
+        kind: 'failed',
+        title: 'Upload cancelled',
+        message: 'Cancelled while backing up the settings: nothing was flashed.',
+      }
+    : {
+        kind: 'failed',
+        title: 'The settings could not be backed up, so nothing was flashed',
+        message: `${messageOf(error)} Switch off "Back up settings and presets first" to flash without a backup.`,
+      };
+}
+
+/** Props of {@link AfterUpload}. */
+interface AfterUploadProps {
+  after: AfterState;
+  backup: SavedBackup | null;
+  /** A gemifi app with config is connected, so the backup can be written back. */
+  canRestore: boolean;
+  onKeep: () => void;
+  onUseFirmware: () => void;
+  onRestore: () => void;
+}
+
+/**
+ * What the settings are after the upload, and what can be done about them: keep or drop preset
+ * edits from another presets revision, download the backup again, or write it back.
+ *
+ * @param props - The state, the backup and the actions.
+ * @returns The alert, or nothing.
+ */
+function AfterUpload({ after, backup, canRestore, onKeep, onUseFirmware, onRestore }: AfterUploadProps) {
+  const isWorking = after.kind === 'working';
+  const restoreButton =
+    backup === null || canRestore === false ? null : (
+      <ConfirmButton
+        size="sm"
+        variant="outline"
+        content="Restore backup"
+        disabled={isWorking}
+        loading={isWorking && after.what === 'restore'}
+        loadingLabel="Restoring…"
+        title="Put the backup back?"
+        description={`Every setting and preset in ${backup.fileName} is written to the device and stored. Presets made since the backup are deleted.`}
+        confirmLabel="Restore"
+        onConfirm={onRestore}
+      />
+    );
+  const isAsking = after.kind === 'stale' || (after.kind === 'working' && after.what === 'reset');
+  if (isAsking) {
+    const { slots } = after;
+    const where = slots.map((slot) => `${slot.slot} ${slot.name}`).join(', ');
+    return (
+      <Alert
+        variant="warning"
+        title="The firmware's presets changed"
+        description={
+          <>
+            <p>{`Your stored edits were made on another version of the presets, in: ${where}.`}</p>
+            <p>
+              {`Keep them on top of the new presets, or use the firmware's presets (drops your edits and names).${backup === null ? '' : ' The backup can bring them back.'}`}
+            </p>
+          </>
+        }
+        actionSlot={
+          <>
+            <Button size="sm" variant="positive" content="Keep my presets" disabled={isWorking} onClick={onKeep} />
+            <ConfirmButton
+              size="sm"
+              variant="outline"
+              content="Use the firmware's presets"
+              disabled={isWorking}
+              loading={isWorking}
+              loadingLabel="Resetting…"
+              title="Use the firmware's presets?"
+              description="Every preset's stored edits and name are dropped. The shared settings stay."
+              confirmLabel="Use the firmware's presets"
+              onConfirm={onUseFirmware}
+            />
+          </>
+        }
+      />
+    );
+  }
+  if (after.kind === 'restored') {
+    const isClean = after.report.problems.length === 0;
+    return (
+      <Alert
+        variant={isClean ? 'info' : 'warning'}
+        title={`Backup restored: ${after.report.applied} values${isClean ? '' : ', with problems'}`}
+        description={
+          isClean ? (
+            'Everything is stored on the device.'
+          ) : (
+            <ul className="list-disc pl-4">
+              {after.report.problems.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          )
+        }
+      />
+    );
+  }
+  if (after.kind === 'failed') {
+    return (
+      <Alert variant="destructive" title="That did not work" description={after.message} actionSlot={restoreButton} />
+    );
+  }
+  if (backup === null) {
+    return null;
+  }
+  const outcome =
+    after.kind === 'kept'
+      ? ' Your preset edits were kept on top of the new presets.'
+      : after.kind === 'reset'
+        ? " Every preset is the firmware's again."
+        : '';
+  return (
+    <Alert
+      variant="info"
+      title="Settings backed up"
+      description={`${backup.fileName} (${backupSummary(backup.doc)}) went to your downloads before the upload.${outcome} If the new firmware lost your settings, restore it.`}
+      actionSlot={
+        <>
+          <DownloadButton
+            size="sm"
+            label="Download again"
+            filename={backup.fileName}
+            mimeType="application/json"
+            source={() => backupText(backup.doc)}
+          />
+          {restoreButton}
+        </>
+      }
+    />
+  );
 }
 
 /** What the reader is told on Windows, where Chrome can hang when a MIDI device is switched off. */
@@ -286,8 +475,90 @@ export function FlashCard({
     setVendorLog([]);
   }
   const controller = useRef<AbortController | null>(null);
-  const isRunning = run.kind === 'running' || run.kind === 'vendor';
+  const isRunning = run.kind === 'running' || run.kind === 'vendor' || run.kind === 'backup';
   const isAb = device !== null && isAbDevice(device);
+  // Backup before flashing (as `gemifi.py flash`): on by default, for an app with settings.
+  const [isBackupOn, setIsBackupOn] = useState(true);
+  const [backup, setBackup] = useState<SavedBackup | null>(null);
+  const [after, setAfter] = useState<AfterState>({ kind: 'none' });
+  const canBackUp = device !== null && offersConfig(device);
+
+  /**
+   * Reads the settings and presets into a backup and saves it to the downloads, before an upload.
+   * Does nothing when switched off or when the device has no settings (a bootloader).
+   *
+   * @param signal - Stops it.
+   */
+  const takeBackup = async (signal: AbortSignal): Promise<void> => {
+    const client = link?.current() ?? null;
+    if (isBackupOn === false || client === null || device === null || offersConfig(device) === false) {
+      return;
+    }
+    setRun({ kind: 'backup', progress: { done: 0, total: 0 } });
+    const schema = await getSchema(client, { signal });
+    const doc = await readBackup(client, device, schema, {
+      signal,
+      onProgress: (progress) => setRun({ kind: 'backup', progress }),
+    });
+    const fileName = backupFileName(device, new Date());
+    setBackup({ doc, fileName });
+    setAfter({ kind: 'none' });
+    await downloadBlob(backupText(doc), fileName, { mimeType: 'application/json' });
+  };
+
+  /**
+   * After an upload: if a preset's stored edits are from another presets revision, ask whether to
+   * keep them (§4.5 "After a firmware upload").
+   *
+   * @param info - HELLO from the new firmware.
+   */
+  const checkPresets = async (info: HelloInfo): Promise<void> => {
+    const client = link?.current() ?? null;
+    if (client === null || offersPresets(info) === false) {
+      return;
+    }
+    const stale = stalePresets(await readPresets(client));
+    if (stale.length > 0) {
+      setAfter({ kind: 'stale', slots: stale });
+    }
+  };
+
+  /**
+   * Runs a settings action after the upload, with the settings views held off meanwhile.
+   *
+   * @param what - Which one, for the button's spinner.
+   * @param work - The requests.
+   */
+  const afterAction = (what: 'reset' | 'restore', work: (client: SysexClient) => Promise<AfterState>) => {
+    const client = link?.current() ?? null;
+    if (client === null) {
+      return;
+    }
+    setAfter((prev) => ({ kind: 'working', what, slots: prev.kind === 'stale' ? prev.slots : [] }));
+    onRunningChange(true);
+    work(client)
+      .then(setAfter, (error: unknown) => setAfter({ kind: 'failed', message: messageOf(error) }))
+      .finally(() => {
+        onRunningChange(false);
+        onFinished();
+      });
+  };
+  const applyFirmwarePresets = () =>
+    afterAction('reset', async (client) => {
+      await resetPreset(client, PRESET_ALL);
+      return { kind: 'reset' };
+    });
+  const restore = () => {
+    const doc = backup?.doc;
+    const info = run.kind === 'done' ? run.info : device;
+    if (doc === undefined || info === null) {
+      return;
+    }
+    afterAction('restore', async (client) => {
+      const report = await restoreBackup(client, info, await getSchema(client), doc);
+      return { kind: 'restored', report };
+    });
+  };
 
   const gfwResult = picked?.isGfw === true ? validateImage(picked.bytes, device?.boardId) : null;
   // A stock M-Audio update file (hex text) goes to the Code 61's bootloader as it is.
@@ -341,22 +612,27 @@ export function FlashCard({
     // A gemifi app on the Code 61 sets M-Audio's update request on REBOOT(1).
     const isGemifiApp = client !== null && device?.role === Role.App && device.boardId === CODE61_BOARD_ID;
     onRunningChange(true);
-    vendorUpdate({
-      records,
-      ports,
-      signal: abort.signal,
-      onProgress: (progress) => setRun({ kind: 'vendor', progress }),
-      onLog: (line) => setVendorLog((lines) => [...lines, line]),
-      beforeVanish: () => onBeforeVanish(image),
-      stopForPowerCycle: isWindows,
-      ...(isGemifiApp
-        ? {
-            request: async () => {
-              await reboot(client, RebootMode.Boot, { signal: abort.signal });
-            },
-          }
-        : {}),
-    })
+    let isBackingUp = true;
+    takeBackup(abort.signal)
+      .then(() => {
+        isBackingUp = false;
+        return vendorUpdate({
+          records,
+          ports,
+          signal: abort.signal,
+          onProgress: (progress) => setRun({ kind: 'vendor', progress }),
+          onLog: (line) => setVendorLog((lines) => [...lines, line]),
+          beforeVanish: () => onBeforeVanish(image),
+          stopForPowerCycle: isWindows,
+          ...(isGemifiApp
+            ? {
+                request: async () => {
+                  await reboot(client, RebootMode.Boot, { signal: abort.signal });
+                },
+              }
+            : {}),
+        });
+      })
       .then(
         (outcome) => {
           if (outcome.kind === 'done') {
@@ -367,11 +643,15 @@ export function FlashCard({
           }
         },
         (error: unknown) => {
-          setRun({
-            kind: 'failed',
-            title: abort.signal.aborted ? 'Upload cancelled' : 'Upload through the M-Audio bootloader failed',
-            message: error instanceof Error ? error.message : String(error),
-          });
+          setRun(
+            isBackingUp
+              ? backupFailed(abort.signal.aborted, error)
+              : {
+                  kind: 'failed',
+                  title: abort.signal.aborted ? 'Upload cancelled' : 'Upload through the M-Audio bootloader failed',
+                  message: messageOf(error),
+                },
+          );
         },
       )
       .finally(() => {
@@ -404,15 +684,32 @@ export function FlashCard({
       return;
     }
     onRunningChange(true);
-    begin()
+    let isBackingUp = true;
+    takeBackup(abort.signal)
+      .then(() => {
+        isBackingUp = false;
+        return begin();
+      })
       .then(
-        (info) => setRun({ kind: 'done', info }),
+        async (info) => {
+          setRun({ kind: 'done', info });
+          await checkPresets(info).catch((error: unknown) =>
+            setAfter({
+              kind: 'failed',
+              message: `The presets could not be read after the upload: ${messageOf(error)}`,
+            }),
+          );
+        },
         (error: unknown) => {
+          if (isBackingUp) {
+            setRun(backupFailed(abort.signal.aborted, error));
+            return;
+          }
           const phase = error instanceof FlashError ? FLASH_PHASE_LABELS[error.phase].toLowerCase() : null;
           setRun({
             kind: 'failed',
             title: abort.signal.aborted ? 'Upload cancelled' : `Upload failed while ${phase ?? 'flashing'}`,
-            message: error instanceof Error ? error.message : String(error),
+            message: messageOf(error),
           });
         },
       )
@@ -521,6 +818,31 @@ export function FlashCard({
               isRunning={isRunning}
             />
           ) : null}
+          {canBackUp && picked !== null ? (
+            <SwitchField
+              id="backup-before-flash"
+              label="Back up settings and presets first"
+              description="Saves every preset and setting to a file in your downloads before the upload, as gemifi.py flash does. Import JSON on the Presets tab, or gemifi.py restore, puts it back."
+              checked={isBackupOn}
+              onCheckedChange={setIsBackupOn}
+              disabled={isRunning}
+            />
+          ) : null}
+          {run.kind === 'backup' ? (
+            <>
+              <p className="text-sm">Backing up the settings and presets…</p>
+              <Progress
+                value={run.progress.done}
+                max={Math.max(1, run.progress.total)}
+                label="Backup"
+                valueLabel={
+                  run.progress.total === 0
+                    ? 'Reading the settings'
+                    : `${run.progress.done} of ${run.progress.total} presets read`
+                }
+              />
+            </>
+          ) : null}
           {progress === null ? null : (
             <>
               <p className="text-sm">{progress.label}…</p>
@@ -571,6 +893,16 @@ export function FlashCard({
             <CodeBlock title="M-Audio bootloader" content={vendorLog.join('\n')} wrap maxHeight="sm" follow />
           )}
           {run.kind === 'failed' ? <Alert variant="destructive" title={run.title} description={run.message} /> : null}
+          {isRunning ? null : (
+            <AfterUpload
+              after={after}
+              backup={backup}
+              canRestore={canBackUp && link?.current() != null}
+              onKeep={() => setAfter({ kind: 'kept' })}
+              onUseFirmware={applyFirmwarePresets}
+              onRestore={restore}
+            />
+          )}
         </>
       }
       footerActionsSlot={

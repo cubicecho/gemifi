@@ -37,6 +37,12 @@ Presets (sysex.md 4.5; HELLO caps bit 5):
   gemifi.py preset move N|NAME TO|up|down [--yes]  reorder: the preset goes to slot TO, the ones between shift by one
   flash takes --backup FILE / --no-backup and --keep-presets / --use-firmware-presets (see tools/README.md)
 
+Layout and raw readings (sysex.md 4.7, 4.8; HELLO caps bits 8 and 9):
+  gemifi.py layout [--json]           where the controls are (the YAML's layout:)
+  gemifi.py monitor [KIND...] [--seconds S]
+                                      raw readings as they change: buttons, matrix, analog, encoders, pads
+                                      (pins before debounce, ADC before adc_min/adc_max, detent counts)
+
 Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY are an index or a component id:
   gemifi.py components [--json]       list the device's components: kind, index, id, name, role, extras
   gemifi.py fb led LED LEVEL          LEVEL 0..127 (0 off, 1 blink, 2..127 on) or off/blink/on
@@ -48,7 +54,7 @@ Host feedback (sysex.md 4.6; HELLO caps bit 6). LED, ENCODER, INDEX and DISPLAY 
   gemifi.py fb release [all|leds|values|text]        hand the states back to the device
   fb commands are notifications: sent once, never answered, so they return at once.
 
-Physical unlock (sysex.md 4.7; HELLO caps bit 10): flash, `reboot boot` and factory-reset on such a device
+Physical unlock (sysex.md 4.9; HELLO caps bit 10): flash, `reboot boot` and factory-reset on such a device
 reply LOCKED first. The tool then prints what to hold on the device (e.g. "Hold Pitch down + Pitch up on the
 device for 2 s") and waits up to 35 s; once the device sends UNLOCKED it sends the request again.
 
@@ -58,6 +64,7 @@ Choose one with --backend. --port picks a port by substring instead of the "gemi
 ESP8266 builds with GM_MIDI_SERIAL; needs pyserial). Every command works over it.
 """
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -86,7 +93,7 @@ class StatusError(GemifiError):
 
 
 class NotUnlocked(StatusError):
-    """The device replied LOCKED (sysex.md 4.7) and the user didn't unlock it: the window closed (UNLOCKED
+    """The device replied LOCKED (sysex.md 4.9) and the user didn't unlock it: the window closed (UNLOCKED
     state 0), no UNLOCKED came in time, or UNLOCK itself failed."""
 
     def __init__(self, msg):
@@ -104,7 +111,7 @@ class Session:
     2000 ms for FW_BEGIN/FW_END/COMMIT/FACTORY_RESET); on a timeout, BAD_CHECKSUM or BUSY resend the identical frame (same
     seq), up to `retries` resends (default 5, so 6 sends). LOG/EVENT seen meanwhile go to on_unsolicited.
     `timeout`/`long_timeout` override the spec values (tests use tiny ones).
-    LOCKED (sysex.md 4.7) is never resent here: request_unlocked() shows `on_prompt` the unlock prompt, waits
+    LOCKED (sysex.md 4.9) is never resent here: request_unlocked() shows `on_prompt` the unlock prompt, waits
     for UNLOCKED (`unlock_wait` s, default the window + 5 s) and sends the request again."""
 
     def __init__(self, port, timeout=gp.REPLY_TIMEOUT_S, retries=gp.MAX_RESENDS, on_unsolicited=None,
@@ -120,7 +127,7 @@ class Session:
         self.bulk = True        # GET_PARAMS / SET_PARAMS until the device replies BAD_CMD
         self.on_prompt = on_prompt
         self.unlock_wait = unlock_wait
-        self.unlocked_state = None  # the last UNLOCKED `state` seen (sysex.md 4.7); None = none since the reset
+        self.unlocked_state = None  # the last UNLOCKED `state` seen (sysex.md 4.9); None = none since the reset
 
     def next_seq(self):
         self.seq = (self.seq + 1) & 0x7F
@@ -176,7 +183,7 @@ class Session:
                     break
         raise NoReply(f"no reply to {gp.CMD_NAMES.get(cmd, hex(cmd))} after {tries} tries")
 
-    # -- physical unlock (sysex.md 4.7) --
+    # -- physical unlock (sysex.md 4.9) --
 
     def _note_unlocked(self, f):
         if f.cmd == gp.UNLOCKED:
@@ -257,7 +264,7 @@ class Session:
     def reboot(self, mode):
         """REBOOT(mode). The reply may be lost as the device resets, so a timeout counts as success
         (sysex.md 1). Returns True if a reply was seen. REBOOT(1) on a locked device waits for the unlock
-        (sysex.md 4.7; NotUnlocked if it doesn't come)."""
+        (sysex.md 4.9; NotUnlocked if it doesn't come)."""
         try:
             expect_ok(self.request_unlocked(gp.REBOOT, gp.req_reboot(mode)), "REBOOT")
             return True
@@ -274,18 +281,22 @@ class Session:
 
     def get_schema_bytes(self, window=gp.SCHEMA_WINDOW):
         """Read the whole schema with GET_SCHEMA windows from offset 0 until offset >= total."""
+        return self.get_window_bytes(gp.GET_SCHEMA, "GET_SCHEMA", window)
+
+    def get_window_bytes(self, cmd, what, window=gp.SCHEMA_WINDOW):
+        """A blob read in windows (GET_SCHEMA, GET_LAYOUT: sysex.md 4.3, 4.7) from 0 until offset >= total."""
         data = bytearray()
         total = None
         while total is None or len(data) < total:
-            f = expect_ok(self.request(gp.GET_SCHEMA, gp.req_get_schema(len(data), window)), "GET_SCHEMA")
+            f = expect_ok(self.request(cmd, gp.req_get_schema(len(data), window)), what)
             t, off, chunk = gp.parse_schema_reply(f.payload)
             if off != len(data):
-                raise GemifiError(f"GET_SCHEMA at {len(data)}: device echoed offset {off}")
+                raise GemifiError(f"{what} at {len(data)}: device echoed offset {off}")
             if total is not None and t != total:
-                raise GemifiError(f"GET_SCHEMA: total changed from {total} to {t} mid-read")
+                raise GemifiError(f"{what}: total changed from {total} to {t} mid-read")
             total = t
             if len(chunk) > window or (not chunk and len(data) < total) or len(data) + len(chunk) > total:
-                raise GemifiError(f"GET_SCHEMA at {len(data)}: {len(chunk)} bytes returned (total {total})")
+                raise GemifiError(f"{what} at {len(data)}: {len(chunk)} bytes returned (total {total})")
             data += chunk
         return bytes(data)
 
@@ -607,6 +618,10 @@ def print_unsolicited(f, schema=None):
             print(describe_param_changed(gp.parse_param_changed(f.payload), schema), flush=True)
         elif f.cmd == gp.PRESET_CHANGED:
             print(gp.parse_preset_changed(f.payload), flush=True)
+        elif f.cmd == gp.RAW:
+            m = gp.parse_raw(f.payload)
+            if m is not None:
+                print(raw_text(m), flush=True)
         elif f.cmd == gp.BOOTED:
             h = gp.parse_booted(f.payload)
             print(f"BOOTED {h.node or 'device'}, fw {gp.fmt_version(h.fw_version)}, caps 0x{h.caps:04x} "
@@ -641,7 +656,7 @@ def open_session(a, backend, kind="any"):
 
 
 def read_diag(s):
-    """The diagnostic params (sysex.md 4.8) as [(id, name, value)]; one that replies BAD_PARAM is not reported."""
+    """The diagnostic params (sysex.md 4.10) as [(id, name, value)]; one that replies BAD_PARAM is not reported."""
     out = []
     for pid, pname in gp.DIAG_PARAMS.items():
         f = s.request(gp.GET_PARAM, gp.req_get_param(pid, 0))
@@ -672,7 +687,7 @@ def cmd_hello(a, backend):
 
 
 def cmd_unlock(a, backend):
-    """Unlock a device with physical unlock (sysex.md 4.7) before a flash or a factory reset: UNLOCK with
+    """Unlock a device with physical unlock (sysex.md 4.9) before a flash or a factory reset: UNLOCK with
     `open` 1, show the prompt, wait for UNLOCKED."""
     name, port, s = open_session(a, backend, "app")
     with port:
@@ -786,7 +801,7 @@ def print_schema(schema, size=None):
             print(line(r))
             pad = " " * (widths[0] + 4)
             if p.options:
-                print(pad + "options: " + ", ".join(f"{p.min + i}={o}" for i, o in enumerate(p.options)))
+                print(pad + "options: " + ", ".join(f"{p.min + i}={o}" for i, o in enumerate(p.options) if o))
             if p.index_labels:
                 print(pad + "index:   " + ", ".join(f"{i}={s}" for i, s in enumerate(p.index_labels)))
 
@@ -968,7 +983,7 @@ def preset_params(schema):
 
 def backup_params(params):
     """The params a backup keeps: not the read-only, volatile ones (state: preset.dirty, the diag.* of
-    sysex.md 4.8)."""
+    sysex.md 4.10)."""
     return [p for p in params if not (p.read_only and p.volatile)]
 
 
@@ -1702,6 +1717,97 @@ def send_vendor(a, backend_factory, recs, version, stock=False):
     return 0
 
 
+# ---------------- layout and raw readings (sysex.md 4.7, 4.8) ----------------
+
+RAW_KIND_NAMES = {gp.EV_BUTTON: "buttons", gp.EV_KEY: "matrix", gp.EV_ANALOG: "analog", gp.EV_ENCODER: "encoders",
+                  gp.EV_PAD: "pads"}
+MONITOR_KINDS = {"buttons": gp.MON_BUTTONS, "matrix": gp.MON_MATRIX, "analog": gp.MON_ANALOG,
+                 "encoders": gp.MON_ENCODERS, "pads": gp.MON_PADS}
+MONITOR_RENEW_S = 2.0                # sysex.md 4.8: well inside the device's 5 s timeout
+
+
+def cmd_layout(a, backend):
+    name, port, s, h = config_session(a, backend)
+    with port:
+        if not h.caps & gp.CAP_LAYOUT:
+            raise GemifiError(f"{name}: this firmware has no layout (HELLO caps bit 8; the YAML has no layout:)")
+        lay = gp.parse_layout(s.get_window_bytes(gp.GET_LAYOUT, "GET_LAYOUT"))
+    if a.json:
+        print(json.dumps({"width": lay.width, "height": lay.height,
+                          "items": [dataclasses.asdict(it) | {"extra": it.extra.hex(" ")} for it in lay.items]},
+                         indent=1))
+        return 0
+    print(f"{name}: {lay.width} x {lay.height} units, {len(lay.items)} items")
+    for it in lay.items:
+        what = f"{gp.KIND_NAMES.get(it.kind, f'kind{it.kind}')} {it.index}"
+        extra = ""
+        if it.shape == gp.SHAPE_KEYS:
+            extra = f"  {it.n_keys} keys from {gp.note_name(it.first_note)} ({it.first_note})"
+        elif it.shape == gp.SHAPE_XY:
+            extra = f"  Y: analog {it.y_index}"
+        print(f"  {what:<12} {gp.LAYOUT_SHAPES.get(it.shape, f'shape {it.shape}'):<12} at {it.x:>3},{it.y:<3} "
+              f"{it.w} x {it.h}{extra}")
+    return 0
+
+
+def raw_text(m):
+    """A RAW message as one line."""
+    k = RAW_KIND_NAMES.get(m.kind, f"kind{m.kind}")
+    if m.kind == gp.EV_KEY:
+        rows = ["".join("#" if m.values[r * m.cols + c] else "." for c in range(m.cols)) for r in range(m.rows)]
+        return f"{k:<8} rows {m.first}..{m.first + m.rows - 1}: " + " ".join(rows)
+    if m.kind == gp.EV_BUTTON:
+        down = [str(m.first + i) for i, v in enumerate(m.values) if v]
+        return f"{k:<8} {m.first}..{m.first + len(m.values) - 1}: pressed " + (", ".join(down) or "none")
+    vals = ["-" if m.kind == gp.EV_ANALOG and v == gp.RAW_NONE else str(v) for v in m.values]
+    return f"{k:<8} {m.first}..{m.first + len(m.values) - 1}: " + " ".join(vals)
+
+
+def cmd_monitor(a, backend):
+    """Raw readings until Ctrl-C (or --seconds): a line for each message that differs from that kind's last."""
+    name, port, s, h = config_session(a, backend)
+    want = 0
+    for k in a.kinds or list(MONITOR_KINDS):
+        want |= MONITOR_KINDS[k]
+    with port:
+        if not h.caps & gp.CAP_MONITOR:
+            raise GemifiError(f"{name}: this firmware has no raw readings (HELLO caps bit 9)")
+
+        def start(kinds):
+            f = expect_ok(s.request(gp.MONITOR, gp.req_monitor(kinds)), "MONITOR")
+            return gp.parse_monitor_reply(f.payload)
+
+        kinds, interval, _timeout = start(want)
+        names = [n for n, b in MONITOR_KINDS.items() if kinds & b]
+        print(f"{name}: raw {', '.join(names) or 'nothing'} every {interval} ms (Ctrl-C to stop)", file=sys.stderr)
+        last, renewed, t0 = {}, time.monotonic(), time.monotonic()
+        try:
+            while a.seconds is None or time.monotonic() - t0 < a.seconds:
+                if time.monotonic() - renewed >= MONITOR_RENEW_S:
+                    start(want)
+                    renewed = time.monotonic()
+                for msg in port.recv(0.2):
+                    if not gp.is_gemifi(msg):
+                        continue
+                    try:
+                        f = gp.parse_frame(msg)
+                        m = gp.parse_raw(f.payload) if f.cmd == gp.RAW else None
+                    except gp.ProtocolError as e:
+                        print(f"[bad frame: {e}]")
+                        continue
+                    if m is None:
+                        continue
+                    key = (m.kind, m.first)
+                    if last.get(key) != m.values:
+                        last[key] = m.values
+                        print(raw_text(m), flush=True)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            start(0)
+    return 0
+
+
 # ---------------- host feedback (sysex.md 4.6) ----------------
 
 def feedback_session(a, backend):
@@ -1871,7 +1977,7 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("ports")
     c = sub.add_parser("hello")
-    c.add_argument("--diag", action="store_true", help="also read the diagnostic params (sysex.md 4.8)")
+    c.add_argument("--diag", action="store_true", help="also read the diagnostic params (sysex.md 4.10)")
     sub.add_parser("unlock", help="open the unlock window and wait for the combo on the device (caps bit 10)")
     lg = sub.add_parser("log")
     lg.add_argument("--names", action="store_true", help="read the schema first so PARAM_CHANGED shows names")
@@ -1952,6 +2058,12 @@ def build_parser():
                       "becomes a new preset, a copy of preset 1's firmware values)")
     x.add_argument("slot", metavar="N|NAME")
     x.add_argument("name", metavar="NAME", help=f"0..{gp.PRESET_NAME_MAX} printable ASCII characters")
+    c = sub.add_parser("layout", help="print the device's physical layout (caps bit 8)")
+    c.add_argument("--json", action="store_true", help="print it as JSON")
+    c = sub.add_parser("monitor", help="print the raw readings: buttons, matrix, analog, encoders, pads (caps bit 9)")
+    c.add_argument("kinds", nargs="*", choices=list(MONITOR_KINDS), metavar="KIND",
+                   help="buttons, matrix, analog, encoders or pads (default: all)")
+    c.add_argument("--seconds", type=float, help="stop after this long (default: Ctrl-C)")
     c = sub.add_parser("components", help="list the device's components (host feedback, caps bit 6)")
     c.add_argument("--json", action="store_true", help="print them as JSON")
     c = sub.add_parser("fb", help="send a host feedback notification (LEDs, values, rings, text)")
@@ -1989,7 +2101,7 @@ def build_parser():
 COMMANDS = {"ports": cmd_ports, "hello": cmd_hello, "unlock": cmd_unlock, "log": cmd_log, "reboot": cmd_reboot, "schema": cmd_schema,
             "get": cmd_get, "set": cmd_set, "commit": cmd_commit, "factory-reset": cmd_factory_reset,
             "backup": cmd_backup, "restore": cmd_restore, "presets": cmd_presets, "preset": cmd_preset,
-            "components": cmd_components, "fb": cmd_fb}
+            "components": cmd_components, "fb": cmd_fb, "layout": cmd_layout, "monitor": cmd_monitor}
 
 
 def main(argv=None):

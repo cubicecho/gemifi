@@ -639,7 +639,7 @@ int hal_boot_mailbox(void)
     return m->magic == GEMIFI_BOOT_MAGIC && m->boot_version >= GEMIFI_VERSION(0, 1, 2);
 }
 
-/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.8) ----
+/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.10) ----
  * Under the gemifi bootloader RCC_CSR is already cleared: the flags are in
  * the mailbox (sysex.md 6). Otherwise RCC_CSR as the app found it
  * (sys_reset_cause). The F1 reports a brown-out as a power-on reset. */

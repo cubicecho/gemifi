@@ -16,7 +16,7 @@ P_ANALOG_CC, P_ACTION, P_NUMBER, P_GLIDE, P_RAMP, P_LOG = 8, 9, 10, 11, 12, 14
 P_ACTIVE, P_PROGRAM, P_DIRTY = gp.P_PRESET_ACTIVE, gp.P_PRESET_PROGRAM, gp.P_PRESET_DIRTY
 ACT_NOTE, ACT_PRESET_NEXT, ACT_PRESET_PREV = 4, 13, 14
 SUSTAIN, EDIT, MOD = 0, 1, 6               # button indexes (Edit: the mode button)
-PITCH_DOWN, PITCH_UP = 4, 5                # the unlock combo (Makefile adds unlock: true: the boot_combo, sysex.md 4.7)
+PITCH_DOWN, PITCH_UP = 4, 5                # the unlock combo (Makefile adds unlock: true: the boot_combo, sysex.md 4.9)
 N_SLOTS = 8
 
 fails = 0
@@ -91,7 +91,7 @@ class Dev:
         return reply, unsol, chan
 
     def unlock(self):
-        """Hold the unlock combo for its 2 s (sysex.md 4.7), then let go. -> the UNLOCKED states sent."""
+        """Hold the unlock combo for its 2 s (sysex.md 4.9), then let go. -> the UNLOCKED states sent."""
         self.L.sim_button(PITCH_DOWN, 1); self.L.sim_button(PITCH_UP, 1); self.advance(2100)
         u = self.split(self.take())[1]
         self.L.sim_button(PITCH_DOWN, 0); self.L.sim_button(PITCH_UP, 0); self.advance(1100); self.take()

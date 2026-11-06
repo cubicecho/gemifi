@@ -41,7 +41,10 @@ function encodeComponent(c: Component): number[] {
       out.push(...encodeU14(c.keys), c.firstNote);
       break;
     case ComponentKind.Analog:
-      out.push(...optional(c.takeover));
+      out.push(...optional(c.takeover), ...optional(c.touch ?? null));
+      if (c.adcMin !== undefined && c.adcMax !== undefined) {
+        out.push(...encodeU14(c.adcMin), ...encodeU14(c.adcMax));
+      }
       break;
     case ComponentKind.Encoder:
       out.push(c.ring, ...encodeU14(c.center ?? NONE_INDEX), ...optional(c.mode));
@@ -75,6 +78,18 @@ const EXAMPLES: Component[] = [
   { kind: ComponentKind.Analog, ...base, index: 0, id: 'fader_1', name: 'Fader 1', role: 'track_volume', takeover: 1 },
   { kind: ComponentKind.Analog, ...base, index: 1, id: 'knob', name: 'Knob', takeover: 0 },
   { kind: ComponentKind.Analog, ...base, index: 2, id: 'old', name: 'Older firmware', takeover: null },
+  { kind: ComponentKind.Analog, ...base, index: 3, id: 'touchy', name: 'Touch', takeover: 0, touch: 2 },
+  {
+    kind: ComponentKind.Analog,
+    ...base,
+    index: 4,
+    id: 'aftertouch',
+    name: 'Aftertouch',
+    takeover: 0,
+    touch: 0,
+    adcMin: 2304,
+    adcMax: 1232,
+  },
   { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_1', name: 'Encoder 1', ring: 11, center: 300, mode: 0 },
   { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_2', name: 'Encoder 2', ring: 0, center: null, mode: 3 },
   { kind: ComponentKind.Encoder, ...base, index: 0, id: 'enc_3', name: 'Older', ring: 0, center: null, mode: null },
@@ -117,6 +132,19 @@ describe('GET_COMPONENT (§4.6.1)', () => {
     expect(parseComponent([4, 0, 0, 1, 0, ...strings, 5, 0x7f, 0x7f, 2])).toMatchObject({ ring: 5, mode: 2 });
     expect(parseComponent([5, 0, 0, 1, 0, ...strings, 2, 1])).toMatchObject({ colours: 2, owner: 1 });
     expect(parseComponent([5, 0, 0, 1, 0, ...strings, 2])).toMatchObject({ colours: 2, owner: null });
+  });
+
+  it("reads an analog's touch and adc range after takeover, and leaves them out when absent", () => {
+    const strings = [0, 0, 0];
+    const head = [3, 0, 0, 1, 0, ...strings];
+    expect(parseComponent([...head, 0, 2, 0x20, 0x00, 0x7f, 0x1f])).toMatchObject({
+      touch: 2,
+      adcMin: 32,
+      adcMax: 4095,
+    });
+    const old = parseComponent([...head, 1, 0]);
+    expect(old).toMatchObject({ takeover: 1, touch: 0 });
+    expect('adcMin' in old).toBe(false);
   });
 
   it('says what FB_VALUE and FB_LED reach', () => {

@@ -39,7 +39,10 @@ PRESET_DELETE = 0x12
 PRESET_MOVE = 0x13
 # Host feedback (app only, sysex.md 4.6)
 GET_COMPONENT = 0x11
-# Physical unlock (app only, sysex.md 4.7; HELLO caps bit 10)
+# Layout and raw readings (app only, sysex.md 4.7, 4.8)
+GET_LAYOUT = 0x14
+MONITOR = 0x15
+# Physical unlock (app only, sysex.md 4.9; HELLO caps bit 10)
 UNLOCK = 0x16
 NOTIFY_FIRST, NOTIFY_LAST = 0x20, 0x3F
 FB_LED = 0x20
@@ -57,7 +60,8 @@ EVENT = 0x61
 PARAM_CHANGED = 0x62
 PRESET_CHANGED = 0x63
 BOOTED = 0x64                  # sysex.md 4.6.3: HELLO's fields, sent once after boot (caps bit 6)
-UNLOCKED = 0x66                # sysex.md 4.7: `state` (1 unlocked, 0 locked again / window closed); caps bit 10
+RAW = 0x65                     # sysex.md 4.8: raw readings while MONITOR runs (caps bit 9)
+UNLOCKED = 0x66                # sysex.md 4.9: `state` (1 unlocked, 0 locked again / window closed); caps bit 10
 
 CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "FW_DATA",
              FW_END: "FW_END", FW_ABORT: "FW_ABORT", GET_SCHEMA: "GET_SCHEMA", GET_PARAM: "GET_PARAM",
@@ -68,14 +72,15 @@ CMD_NAMES = {HELLO: "HELLO", REBOOT: "REBOOT", FW_BEGIN: "FW_BEGIN", FW_DATA: "F
              PRESET_DELETE: "PRESET_DELETE", PRESET_MOVE: "PRESET_MOVE",
              PRESET_CHANGED: "PRESET_CHANGED", BOOTED: "BOOTED", GET_COMPONENT: "GET_COMPONENT", FB_LED: "FB_LED",
              FB_LED_RGB: "FB_LED_RGB", FB_LEDS: "FB_LEDS", FB_VALUE: "FB_VALUE", FB_RING: "FB_RING",
-             FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE", UNLOCK: "UNLOCK", UNLOCKED: "UNLOCKED"}
+             FB_TEXT: "FB_TEXT", FB_RELEASE: "FB_RELEASE", GET_LAYOUT: "GET_LAYOUT", MONITOR: "MONITOR",
+             RAW: "RAW", UNLOCK: "UNLOCK", UNLOCKED: "UNLOCKED"}
 
 STATUS = {0: "OK", 1: "BAD_CHECKSUM", 2: "BAD_CMD", 3: "BAD_LEN", 4: "BAD_STATE", 5: "BAD_ADDR",
           6: "FLASH_ERR", 7: "BAD_IMAGE", 8: "BAD_BOARD", 9: "BUSY", 10: "BAD_PARAM", 11: "BAD_VALUE",
           12: "LOCKED"}
 (OK, BAD_CHECKSUM, BAD_CMD, BAD_LEN, BAD_STATE, BAD_ADDR, FLASH_ERR, BAD_IMAGE, BAD_BOARD, BUSY,
  BAD_PARAM, BAD_VALUE, LOCKED) = range(13)
-# LOCKED (sysex.md 1, 4.7) is not resent like BUSY: the host waits for UNLOCKED, then sends the request again.
+# LOCKED (sysex.md 1, 4.9) is not resent like BUSY: the host waits for UNLOCKED, then sends the request again.
 
 ROLE_APP, ROLE_BOOT = 0, 1
 REBOOT_APP, REBOOT_BOOT = 0, 1
@@ -83,13 +88,16 @@ CAP_FW, CAP_CONFIG, CAP_LOG, CAP_EVENT = 1, 2, 4, 8
 CAP_PRESETS = 32               # sysex.md 4.1 bit 5 (bit 4 is not assigned)
 CAP_FEEDBACK = 1 << 6          # sysex.md 4.1 bit 6: host feedback (GET_COMPONENT, FB_*)
 CAP_GEMIFI_BOOT = 1 << 7       # sysex.md 4.1 bit 7: REBOOT(1) leads to a gemifi bootloader (Code 61)
-CAP_UNLOCK = 1 << 10           # sysex.md 4.1 bit 10: physical unlock (LOCKED, UNLOCK, UNLOCKED; 4.7)
+CAP_LAYOUT = 1 << 8            # sysex.md 4.1 bit 8: GET_LAYOUT (4.7)
+CAP_MONITOR = 1 << 9           # sysex.md 4.1 bit 9: MONITOR and RAW (4.8)
+CAP_UNLOCK = 1 << 10           # sysex.md 4.1 bit 10: physical unlock (LOCKED, UNLOCK, UNLOCKED; 4.9)
 CAP_NAMES = ((CAP_FW, "fw-upload"), (CAP_CONFIG, "config"), (CAP_LOG, "log"), (CAP_EVENT, "event"),
              (CAP_PRESETS, "presets"), (CAP_FEEDBACK, "feedback"), (CAP_GEMIFI_BOOT, "gemifi-boot"),
-             (CAP_UNLOCK, "unlock"))
+             (CAP_LAYOUT, "layout"), (CAP_MONITOR, "monitor"), (CAP_UNLOCK, "unlock"))
 LOG_LEVELS = {0: "ERROR", 1: "WARN", 2: "INFO", 3: "DEBUG"}
 EVENT_TYPES = {1: "button", 2: "key", 3: "analog", 4: "encoder", 7: "pad"}
 EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER = 1, 2, 3, 4
+EV_PAD = 7
 
 APROM_SIZE = 32 * 1024
 PAGE_SIZE = 512
@@ -741,9 +749,9 @@ COLOURS = {1: "single", 2: "bicolour", 3: "RGB"}
 # Fields added after the first F3 firmware (sysex.md 4.6.1 "Added fields"); None in a Component = not reported.
 TAKEOVER_NONE, TAKEOVER_PICKUP = 0, 1
 TAKEOVERS = {TAKEOVER_NONE: "none", TAKEOVER_PICKUP: "pickup"}
-ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU = 0, 1, 2, 3
+ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU, ENC_REL_SIGN = 0, 1, 2, 3, 4
 ENC_MODES = {ENC_ABSOLUTE: "absolute", ENC_REL_TWOS: "relative_twos", ENC_REL_OFFSET: "relative_offset",
-             ENC_MCU: "mcu_vpot"}
+             ENC_MCU: "mcu_vpot", ENC_REL_SIGN: "relative_sign"}
 OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
 OWNERS = {OWNER_HOST_THEN_LOCAL: "host_then_local", OWNER_HOST: "host", OWNER_LOCAL: "local"}
 DISPLAY_TYPES = {1: "characters", 2: "segments"}
@@ -1097,7 +1105,7 @@ def parse_notification(cmd, payload):
     return Notification(cmd, f)
 
 
-# ---- physical unlock (sysex.md 4.7; HELLO caps bit 10) ----
+# ---- physical unlock (sysex.md 4.9; HELLO caps bit 10) ----
 
 # The requests that may reply LOCKED: FW_BEGIN (A/B app), REBOOT with mode 1, FACTORY_RESET.
 UNLOCK_STATE_LOCKED, UNLOCK_STATE_UNLOCKED = 0, 1
@@ -1107,7 +1115,7 @@ UNLOCK_COMBO_MAX = 8
 
 
 def needs_unlock(cmd, payload=b""):
-    """True for a request a device with caps bit 10 may answer LOCKED (sysex.md 4.7)."""
+    """True for a request a device with caps bit 10 may answer LOCKED (sysex.md 4.9)."""
     return cmd in (FW_BEGIN, FACTORY_RESET) or (cmd == REBOOT and bytes(payload[:1]) == bytes([REBOOT_BOOT]))
 
 
@@ -1118,7 +1126,7 @@ def req_unlock(open_window):
 
 @dataclass
 class UnlockInfo:
-    """An UNLOCK reply (sysex.md 4.7): state 0 locked / 1 unlocked, window = seconds left (0 = closed),
+    """An UNLOCK reply (sysex.md 4.9): state 0 locked / 1 unlocked, window = seconds left (0 = closed),
     hold = ms the combo must be held (0 = a press), names = the combo buttons' display names."""
     state: int
     window: int
@@ -1183,7 +1191,7 @@ def build_unlocked(state):
     return bytes([1 if state else 0])
 
 
-# ---- diagnostics (sysex.md 4.8): read-only VOLATILE params in the group "Debug" ----
+# ---- diagnostics (sysex.md 4.10): read-only VOLATILE params in the group "Debug" ----
 
 P_DIAG_RESET_REASON, P_DIAG_BOOT_LOOP, P_DIAG_SETTINGS, P_DIAG_SCAN_MAX, P_DIAG_LOOP_MAX, P_DIAG_SCAN_PERIOD, \
     P_DIAG_UPTIME = range(65, 72)
@@ -1470,7 +1478,7 @@ def parse_value(p, text, check_range=True):
         t = t[:-len(p.unit)].strip()          # "80ms" / "80 ms" for a param with unit "ms"
     v = None
     if p.type == T_ENUM:
-        hits = [i for i, o in enumerate(p.options) if o.lower() == t.lower()]
+        hits = [i for i, o in enumerate(p.options) if o and o.lower() == t.lower()]   # "": left out
         if hits:
             v = p.min + hits[0]
     elif p.type == T_NOTE:
@@ -1486,7 +1494,7 @@ def parse_value(p, text, check_range=True):
         except ValueError:
             hint = ""
             if p.type == T_ENUM:
-                hint = " (options: " + ", ".join(p.options) + ")"
+                hint = " (options: " + ", ".join(o for o in p.options if o) + ")"
             elif p.type == T_NOTE:
                 hint = " (a number or a note name like C4; 60 = C4)"
             raise ValueError(f"{p.name}: can't read {text!r}{hint}") from None
@@ -1601,3 +1609,184 @@ class SysexAssembler:
                 else:
                     self.buf.append(b)
         return out
+
+
+# ---- physical layout and raw readings (sysex.md 4.7, 4.8) ----
+
+LAYOUT_VERSION = 1
+LAYOUT_SHAPES = {0: "button", 1: "round_button", 2: "knob", 3: "encoder", 4: "fader", 5: "wheel", 6: "pad",
+                 7: "display", 8: "keys", 9: "xy"}
+SHAPE_KEYS, SHAPE_XY = 8, 9
+MON_BUTTONS, MON_MATRIX, MON_ANALOG, MON_ENCODERS, MON_PADS = 1, 2, 4, 8, 16   # MONITOR kinds bits
+MON_KIND_RAW = {MON_BUTTONS: 1, MON_MATRIX: 2, MON_ANALOG: 3, MON_ENCODERS: 4, MON_PADS: 7}
+RAW_NONE = 0x3FFF                  # RAW analog: no reading (an XY pad not touched)
+
+
+@dataclass
+class LayoutItem:
+    """One control in the layout (sysex.md 4.7). n_keys / first_note for a keys item, y_index for an xy item;
+    `extra` keeps bytes past the fields this tool knows."""
+    kind: int
+    index: int
+    shape: int
+    x: int
+    y: int
+    w: int
+    h: int
+    n_keys: int = 0
+    first_note: int = 0
+    y_index: int = 0
+    extra: bytes = b""
+
+
+@dataclass
+class Layout:
+    width: int
+    height: int
+    items: list
+
+
+def build_layout(lay):
+    """Layout -> the GET_LAYOUT blob."""
+    out = bytearray([LAYOUT_VERSION, lay.width, lay.height]) + bytes(struct.pack("<H", len(lay.items)))
+    for it in lay.items:
+        body = [it.kind, it.index, it.shape, it.x, it.y, it.w, it.h]
+        if it.shape == SHAPE_KEYS:
+            body += [it.n_keys, it.first_note]
+        elif it.shape == SHAPE_XY:
+            body += [it.y_index]
+        body += list(it.extra)
+        out += bytes([len(body), *body])
+    return bytes(out)
+
+
+def parse_layout(blob):
+    """The GET_LAYOUT blob -> Layout. Bytes past the known fields of an item are kept in `extra` and skipped
+    (sysex.md 4.7). Raises ProtocolError."""
+    if len(blob) < 5:
+        raise ProtocolError("layout: shorter than its 5-byte header")
+    if blob[0] != LAYOUT_VERSION:
+        raise ProtocolError(f"layout version {blob[0]} (this tool reads {LAYOUT_VERSION})")
+    width, height, n = blob[1], blob[2], struct.unpack_from("<H", blob, 3)[0]
+    pos, items = 5, []
+    for i in range(n):
+        if pos >= len(blob) or pos + 1 + blob[pos] > len(blob):
+            raise ProtocolError(f"layout: item {i} runs past the end")
+        size = blob[pos]
+        body = blob[pos + 1:pos + 1 + size]
+        pos += 1 + size
+        if size < 7:
+            raise ProtocolError(f"layout: item {i} has {size} bytes, needs 7")
+        it = LayoutItem(*body[:7])
+        known = 7
+        if it.shape == SHAPE_KEYS and size >= 9:
+            it.n_keys, it.first_note, known = body[7], body[8], 9
+        elif it.shape == SHAPE_XY and size >= 8:
+            it.y_index, known = body[7], 8
+        it.extra = bytes(body[known:])
+        items.append(it)
+    return Layout(width, height, items)
+
+
+def key_rects(it):
+    """The keys of a keys item as (key index, is_black, x, y, w, h) in units, by the rule in sysex.md 4.7."""
+    notes = [(it.first_note + k) % 12 in (0, 2, 4, 5, 7, 9, 11) for k in range(it.n_keys)]
+    whites = sum(notes) or 1
+    ww = it.w / whites
+    out, wi = [], 0
+    for k, white in enumerate(notes):
+        if white:
+            out.append((it.index + k, False, it.x + wi * ww, it.y, ww, it.h))
+            wi += 1
+        else:
+            bw = 0.6 * ww
+            out.append((it.index + k, True, it.x + wi * ww - bw / 2, it.y, bw, 0.6 * it.h))
+    return out
+
+
+def req_get_layout(offset, max_bytes=SCHEMA_WINDOW):
+    """GET_LAYOUT: the same windows as GET_SCHEMA."""
+    return req_get_schema(offset, max_bytes)
+
+
+parse_layout_reply = parse_schema_reply           # total u28, offset u28, packed data
+build_layout_reply = build_schema_reply
+
+
+def req_monitor(kinds):
+    """MONITOR: kinds (MON_* bits; 0 stops)."""
+    _check_byte(kinds, "kinds")
+    return bytes([kinds])
+
+
+def parse_monitor_reply(payload):
+    """MONITOR reply (status OK) -> (kinds, interval_ms, timeout_ms)."""
+    if len(payload) < 6 or payload[0] != OK:
+        raise ProtocolError("MONITOR reply too short or not OK")
+    return payload[1], dec_u14(payload[2:4]), dec_u14(payload[4:6])
+
+
+def build_monitor_reply(kinds, interval_ms=20, timeout_ms=5000, status=OK):
+    if status != OK:
+        return bytes([status])
+    return bytes([OK, kinds]) + u14(interval_ms) + u14(timeout_ms)
+
+
+@dataclass
+class RawMsg:
+    """RAW (sysex.md 4.8). Buttons: `first` and `values` (1 pressed / 0); key matrix: `first` = the first row,
+    `rows`, `cols` and `values` row by row (1 closed); analog, encoders, pads: `first` and `values`."""
+    kind: int
+    first: int
+    values: list
+    rows: int = 0
+    cols: int = 0
+
+
+def _bits(data, n):
+    return [(data[b // 7] >> (b % 7)) & 1 for b in range(n)]
+
+
+def _pack_bits(bits):
+    out = bytearray((len(bits) + 6) // 7)
+    for b, on in enumerate(bits):
+        if on:
+            out[b // 7] |= 1 << (b % 7)
+    return bytes(out)
+
+
+def parse_raw(payload):
+    """RAW payload -> RawMsg, or None for a kind this tool doesn't know. Raises ProtocolError."""
+    if not payload:
+        raise ProtocolError("RAW: empty")
+    kind = payload[0]
+    if kind == EV_KEY:
+        if len(payload) < 4:
+            raise ProtocolError("RAW key matrix: too short")
+        row, rows, cols = payload[1], payload[2], payload[3]
+        n = rows * cols
+        if len(payload) < 4 + (n + 6) // 7:
+            raise ProtocolError("RAW key matrix: fewer bytes than rows x cols")
+        return RawMsg(kind, row, _bits(payload[4:], n), rows, cols)
+    if kind not in (EV_BUTTON, EV_ANALOG, EV_ENCODER, EV_PAD):
+        return None
+    if len(payload) < 4:
+        raise ProtocolError("RAW: too short")
+    first, n = dec_u14(payload[1:3]), payload[3]
+    if kind == EV_BUTTON:
+        if len(payload) < 4 + (n + 6) // 7:
+            raise ProtocolError("RAW buttons: fewer bytes than buttons")
+        return RawMsg(kind, first, _bits(payload[4:], n))
+    if len(payload) < 4 + 2 * n:
+        raise ProtocolError("RAW: fewer values than n")
+    return RawMsg(kind, first, [dec_u14(payload[4 + 2 * i:6 + 2 * i]) for i in range(n)])
+
+
+def build_raw(m):
+    """RawMsg -> RAW payload (device side: tests, the vectors)."""
+    if m.kind == EV_KEY:
+        return bytes([m.kind, m.first, m.rows, m.cols]) + _pack_bits(m.values)
+    head = bytes([m.kind]) + u14(m.first) + bytes([len(m.values)])
+    if m.kind == EV_BUTTON:
+        return head + _pack_bits(m.values)
+    return head + b"".join(u14(v) for v in m.values)

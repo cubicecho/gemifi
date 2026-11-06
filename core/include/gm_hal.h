@@ -144,7 +144,7 @@ uint32_t hal_ns_to_cycles(uint32_t ns);
  * returning NULL is in core/src/vpin.c. */
 volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit);
 
-/* Why the app started (diag.reset_reason, sysex.md 4.8): a GM_RESET_*
+/* Why the app started (diag.reset_reason, sysex.md 4.10): a GM_RESET_*
  * value of gm_safety.h, and whether the bootloader's boot-loop guard had
  * stopped the app before this start (sysex.md 6). Weak defaults returning
  * 0 (unknown, no) are in core/src/safety.c. */

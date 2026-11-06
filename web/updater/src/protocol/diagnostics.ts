@@ -1,5 +1,5 @@
 /**
- * The diagnostics params (`protocol/sysex.md` §4.8): read-only, VOLATILE values in the group
+ * The diagnostics params (`protocol/sysex.md` §4.10): read-only, VOLATILE values in the group
  * "Debug" that say why the app started and how long its scans take. A host shows them with the
  * device info, not as settings. Framework-free: the caller supplies the client.
  */
@@ -21,7 +21,7 @@ export interface Diagnostic {
 
 /**
  * @param param - A param.
- * @returns Whether it is one of the diagnostics (§4.8, ids 65–74).
+ * @returns Whether it is one of the diagnostics (§4.10, ids 65–74).
  */
 export function isDiagnostic(param: Pick<ParamSpec, 'id'>): boolean {
   return param.id >= DIAG_PARAM_FIRST && param.id <= DIAG_PARAM_LAST;

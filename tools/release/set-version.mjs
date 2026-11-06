@@ -5,7 +5,8 @@
 //
 //   node tools/release/set-version.mjs 1.2.3
 //
-// - tools/builder/dashboard.py   VERSION, which /api/info answers with (the builder UI shows it)
+// - tools/builder/gemifi_device.py   VERSION: the builder's, which min_version: is checked against
+//                                    and /api/info answers with (the builder UI shows it)
 // - web/updater/package.json     and its lock file's root entries
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -29,7 +30,7 @@ function edit(rel, change) {
   console.log(`${rel}: ${version}`);
 }
 
-edit("tools/builder/dashboard.py", (s) => s.replace(/^VERSION = "[^"]*"/m, `VERSION = "${version}"`));
+edit("tools/builder/gemifi_device.py", (s) => s.replace(/^VERSION = "[^"]*"/m, `VERSION = "${version}"`));
 
 const json = (s, set) => {
   const o = JSON.parse(s);

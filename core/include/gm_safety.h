@@ -1,6 +1,6 @@
 /*
  * gm_safety.h: recovery and safety (core/README.md "Factory-reset combo",
- * "Physical unlock", "Status LED"; protocol/sysex.md 4.7, 4.8).
+ * "Physical unlock", "Status LED"; protocol/sysex.md 4.9, 4.10).
  *
  *   - The factory-reset combo: buttons held at power-up for a few seconds
  *     wipe the stored settings (not the firmware).
@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-/* diag.reset_reason values (sysex.md 4.8) */
+/* diag.reset_reason values (sysex.md 4.10) */
 enum {
     GM_RESET_UNKNOWN, GM_RESET_POWER_ON, GM_RESET_PIN, GM_RESET_SOFTWARE,
     GM_RESET_WATCHDOG, GM_RESET_BROWN_OUT, GM_RESET_CRASH, GM_RESET_LOW_POWER,
@@ -75,7 +75,7 @@ int gm_status_level(void);
  * LED update meanwhile). */
 int gm_status_active(void);
 
-/* ---- app_proto (sysex.md 4.7) ------------------------------------------- */
+/* ---- app_proto (sysex.md 4.9) ------------------------------------------- */
 /* 1 = locked: reply LOCKED (the unlock window opens or restarts).
  * 0 = go ahead. Always 0 without GM_UNLOCK. */
 int gm_unlock_check(void);

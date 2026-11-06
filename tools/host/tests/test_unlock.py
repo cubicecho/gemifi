@@ -1,4 +1,4 @@
-"""Physical unlock (sysex.md 4.7) and diagnostics (4.8): the codec, and the host's LOCKED -> prompt -> UNLOCKED ->
+"""Physical unlock (sysex.md 4.9) and diagnostics (4.10): the codec, and the host's LOCKED -> prompt -> UNLOCKED ->
 send again flow against tests/sim_device.py."""
 import contextlib
 import io

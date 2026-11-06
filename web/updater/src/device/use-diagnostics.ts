@@ -11,7 +11,7 @@ export type DiagnosticsState =
   | { kind: 'error'; message: string };
 
 /**
- * Reads the diagnostics (§4.8) once the device's schema is in, again whenever the schema is read
+ * Reads the diagnostics (§4.10) once the device's schema is in, again whenever the schema is read
  * again, and on demand.
  *
  * @param client - The connected device with a config, or null.

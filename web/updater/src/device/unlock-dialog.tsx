@@ -14,7 +14,7 @@ const WAITING_FOR: Readonly<Record<number, string>> = Object.freeze({
 });
 
 /**
- * Asks the user to unlock the device (§4.7) while a request that answered LOCKED waits. The
+ * Asks the user to unlock the device (§4.9) while a request that answered LOCKED waits. The
  * request goes on by itself once the device says it is unlocked; Cancel stops it.
  *
  * @param props - The connected device's client.

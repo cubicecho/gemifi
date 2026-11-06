@@ -5,6 +5,7 @@
 
 import { encodeS32, encodeU14, encodeU28, encodeU32, PayloadReader, pack } from './encoding.ts';
 import type { Frame } from './frame.ts';
+import { parseRaw, type RawReading } from './monitor.ts';
 import { Capability, type RebootMode, Role, UID_BYTES, UnlockOpen, UnlockState, Unsolicited } from './wire.ts';
 
 /** What HELLO tells about a device. */
@@ -78,7 +79,13 @@ export interface PresetChangedMessage {
   dirty: boolean;
 }
 
-/** An UNLOCKED message (0x66, §4.7): the device was unlocked, or locked again. */
+/** A RAW message (0x65, §4.8): one kind's raw readings, while MONITOR runs. */
+export interface RawMessage {
+  kind: 'raw';
+  reading: RawReading;
+}
+
+/** An UNLOCKED message (0x66, §4.9): the device was unlocked, or locked again. */
 export interface UnlockedMessage {
   kind: 'unlocked';
   /** True: unlocked. False: locked again, or the unlock window closed without an unlock. */
@@ -92,9 +99,10 @@ export type DeviceMessage =
   | ParamChangedMessage
   | BootedMessage
   | PresetChangedMessage
+  | RawMessage
   | UnlockedMessage;
 
-/** What UNLOCK tells (§4.7): the lock's state and what to ask the user. */
+/** What UNLOCK tells (§4.9): the lock's state and what to ask the user. */
 export interface UnlockInfo {
   /** The device is unlocked now. */
   isUnlocked: boolean;
@@ -120,7 +128,7 @@ export function unlockPayload(open: boolean): number[] {
 const MS_PER_SECOND = 1000;
 
 /**
- * What to ask the user to do on the device (§4.7).
+ * What to ask the user to do on the device (§4.9).
  *
  * @param buttons - The combo's buttons, by their display names; empty when the device did not say.
  * @param holdMs - How long to hold them; 0 for a press; null when the device did not say.
@@ -420,6 +428,9 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
     const reader = new PayloadReader(frame.payload);
     return { kind: 'preset', slot: reader.u14(), dirty: reader.byte() !== 0 };
   }
+  if (frame.cmd === Unsolicited.Raw) {
+    return { kind: 'raw', reading: parseRaw(frame.payload) };
+  }
   if (frame.cmd === Unsolicited.Unlocked) {
     return { kind: 'unlocked', isUnlocked: new PayloadReader(frame.payload).byte() === UnlockState.Unlocked };
   }
@@ -447,6 +458,8 @@ const CAPABILITY_NAMES: ReadonlyArray<readonly [number, string]> = [
   [Capability.Log, 'log'],
   [Capability.Event, 'events'],
   [Capability.Feedback, 'feedback'],
+  [Capability.Layout, 'layout'],
+  [Capability.Monitor, 'raw readings'],
   [Capability.Unlock, 'physical unlock'],
 ];
 

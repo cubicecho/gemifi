@@ -269,7 +269,7 @@ void hal_reboot(int to_bootloader)
     sys_reset_to(1);                /* via LDROM; it starts the app unless asked */
 }
 
-/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.8) ----
+/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.10) ----
  * GCR_RSTSRC only shows the bootloader's hand-off (CPU_RST): the gemifi
  * bootloader leaves the flags it found in the mailbox's magic_inv (sysex.md
  * 6). Under a bootloader that doesn't (older ones write 0, the stock LDROM

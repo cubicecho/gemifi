@@ -273,7 +273,7 @@ void gm_esp_loop(void)
     gm_esp_scan_service();
 }
 
-/* ---- why the app started (diag.reset_reason, sysex.md 4.8) ------------ */
+/* ---- why the app started (diag.reset_reason, sysex.md 4.10) ------------ */
 
 uint32_t hal_reset_reason(void)
 {

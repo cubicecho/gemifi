@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # M-Audio Code 61 with gemifi (STM32F103RBT6, confirmed on hardware 2026-11-03).
 # Runs under the gemifi bootloader (bootloader/stm32f1). Working on hardware
 # (2026-11-03): keys with velocity, panel buttons, encoders, faders, wheels,
@@ -585,3 +586,88 @@ modes:
           encoder_6: { cc: none, daw: pan_6 }
           encoder_7: { cc: none, daw: pan_7 }
           encoder_8: { cc: none, daw: pan_8 }
+
+# Where the controls are, for the web page's drawing (core/README.md "Layout"): units of about
+# 5 mm from the top left; [x, y] or [x, y, w, h]. Approximate, from the panel as the user
+# described it: the XY pad top left with the wheels under it, left of the keys; the display,
+# preset and transport buttons; the 16 pads (pad 1 bottom left, pad 13 top left); the encoders
+# over the faders, B1 under the master fader and B2-B9 under faders 1-8. Sustain is a jack and
+# aftertouch is under the keys, so they aren't drawn; nor are slots 38 and 39.
+layout:
+  keys: [18, 30, 144, 22]
+  controls:
+    xy_x:         { x: 2, y: 2, w: 12, h: 12, shape: xy }
+    x_mode:       [15, 2]
+    x_button:     [15, 5]
+    y_mode:       [15, 9]
+    y_button:     [15, 12]
+    pitch_wheel:  { x: 3, y: 30, w: 4, h: 14, shape: wheel }
+    mod_wheel:    { x: 10, y: 30, w: 4, h: 14, shape: wheel }
+    display:      [22, 2, 16, 5]
+    down:         [40, 3]
+    up:           [44, 3]
+    channel:      [22, 9]
+    edit:         [26, 9]
+    zone:         [30, 9]
+    num_1:        [34, 9]
+    num_2:        [38, 9]
+    num_3:        [42, 9]
+    num_4:        [46, 9]
+    shift:        [22, 13]
+    transpose:    [26, 13]
+    octave_down:  [30, 13]
+    octave_up:    [34, 13]
+    pad_octave_down: [40, 13]
+    pad_octave_up:   [44, 13]
+    rewind:       [22, 18, 4, 3]
+    fast_forward: [27, 18, 4, 3]
+    stop:         [32, 18, 4, 3]
+    play:         [37, 18, 4, 3]
+    record:       [42, 18, 4, 3]
+    pad_13: [54, 2, 6, 6]
+    pad_14: [61, 2, 6, 6]
+    pad_15: [68, 2, 6, 6]
+    pad_16: [75, 2, 6, 6]
+    pad_9:  [54, 9, 6, 6]
+    pad_10: [61, 9, 6, 6]
+    pad_11: [68, 9, 6, 6]
+    pad_12: [75, 9, 6, 6]
+    pad_5:  [54, 16, 6, 6]
+    pad_6:  [61, 16, 6, 6]
+    pad_7:  [68, 16, 6, 6]
+    pad_8:  [75, 16, 6, 6]
+    pad_1:  [54, 23, 6, 6]
+    pad_2:  [61, 23, 6, 6]
+    pad_3:  [68, 23, 6, 6]
+    pad_4:  [75, 23, 6, 6]
+    encoder_1: [90, 2, 4, 4]
+    encoder_2: [97, 2, 4, 4]
+    encoder_3: [104, 2, 4, 4]
+    encoder_4: [111, 2, 4, 4]
+    encoder_5: [118, 2, 4, 4]
+    encoder_6: [125, 2, 4, 4]
+    encoder_7: [132, 2, 4, 4]
+    encoder_8: [139, 2, 4, 4]
+    fader_1: { x: 91, y: 8, w: 2, h: 14, shape: fader }
+    fader_2: { x: 98, y: 8, w: 2, h: 14, shape: fader }
+    fader_3: { x: 105, y: 8, w: 2, h: 14, shape: fader }
+    fader_4: { x: 112, y: 8, w: 2, h: 14, shape: fader }
+    fader_5: { x: 119, y: 8, w: 2, h: 14, shape: fader }
+    fader_6: { x: 126, y: 8, w: 2, h: 14, shape: fader }
+    fader_7: { x: 133, y: 8, w: 2, h: 14, shape: fader }
+    fader_8: { x: 140, y: 8, w: 2, h: 14, shape: fader }
+    fader_9: { x: 147, y: 8, w: 2, h: 14, shape: fader }
+    b2: [90, 24, 4, 2]
+    b3: [97, 24, 4, 2]
+    b4: [104, 24, 4, 2]
+    b5: [111, 24, 4, 2]
+    b6: [118, 24, 4, 2]
+    b7: [125, 24, 4, 2]
+    b8: [132, 24, 4, 2]
+    b9: [139, 24, 4, 2]
+    b1: [146, 24, 4, 2]
+    encoder_mode: [153, 2, 4, 2]
+    fader_mode:   [153, 6, 4, 2]
+    button_mode:  [153, 10, 4, 2]
+    bank_left:    [153, 14, 4, 2]
+    bank_right:   [153, 18, 4, 2]

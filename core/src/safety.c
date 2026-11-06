@@ -2,7 +2,7 @@
  * safety.c: the factory-reset combo, physical unlock, the status LED's
  * blink codes and the diagnostics (gm_safety.h; core/README.md
  * "Factory-reset combo", "Physical unlock", "Status LED"; protocol/sysex.md
- * 4.7, 4.8).
+ * 4.9, 4.10).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -29,7 +29,7 @@
 #define GM_N_BUTTONS 0
 #endif
 
-#define UNLOCK_WINDOW_MS 30000u      /* sysex.md 4.7 */
+#define UNLOCK_WINDOW_MS 30000u      /* sysex.md 4.9 */
 #define UNLOCK_IDLE_MS   300000u     /* unlocked: no request for 5 min -> locked */
 #define RESET_WATCH_MS   1500u       /* the reset combo counts if held this soon after start */
 #define CODE_SHOW_MS     10000u      /* error codes: this long after start */
@@ -146,7 +146,7 @@ static const char *combo_text(char *buf, uint32_t n, const char *pre, mask_t com
 }
 #endif
 
-/* ---- physical unlock (sysex.md 4.7) -------------------------------------- */
+/* ---- physical unlock (sysex.md 4.9) -------------------------------------- */
 
 #if GM_UNLOCK
 #define UNLOCK_MASK ((mask_t)(GM_UNLOCK_COMBO))

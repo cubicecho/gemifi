@@ -11,9 +11,12 @@ expect = ["midi.channel", "midi.transpose", "midi.octave", "velocity.curve", "ve
           "velocity.fast", "velocity.slow", "button.action", "button.number", "bend.glide",
           "ramp.time", "analog.cc", "analog.mode", "debug.events", "debug.log_level",
           "diag.reset_reason", "diag.boot_loop", "diag.settings", "diag.scan_max", "diag.loop_max",
-          "diag.scan_period", "diag.uptime",
+          "diag.scan_period", "diag.uptime", "config.hash",
           "preset.active", "preset.program", "preset.dirty", "preset.count"]
 assert names == expect, names
+# config.hash: the builder's hash of the YAML (core/README.md "Config hash"), read-only and not stored
+ch = next(p for p in s.params if p.name == "config.hash")
+assert ch.read_only and ch.volatile and (ch.min, ch.max) == (0, 0x7FFFFFFF) and 0 <= ch.defaults[0] <= ch.max, ch
 # schema flags bit 5 = PRESET (per-preset param, research/core/presets-design.md §1)
 F_PRESET = 0x20
 per_preset = {p.name for p in s.params if p.flags & F_PRESET}
@@ -24,7 +27,7 @@ active = next(p for p in s.params if p.name == "preset.active")
 assert (active.min, active.max) == (1, 8), active
 dirty = next(p for p in s.params if p.name == "preset.dirty")
 assert dirty.read_only and dirty.volatile, dirty
-# diag.* (sysex.md 4.8): read-only, volatile, never per-preset
+# diag.* (sysex.md 4.10): read-only, volatile, never per-preset
 diag = [p for p in s.params if p.name.startswith("diag.")]
 assert all(p.read_only and p.volatile for p in diag), diag
 act = next(p for p in s.params if p.name == "button.action")

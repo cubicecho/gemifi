@@ -1,0 +1,57 @@
+# Test device for core/test/test_msg.c: the MIDI message kinds (core/README.md
+# "MIDI messages"): 14-bit CC, NRPN / RPN with the null RPN after, bank
+# select, panic, MMC, custom SysEx with a Roland checksum, the
+# sign-magnitude encoder mode, and per-control channel / min / max. Not a
+# real board; the pins only need to be distinct for the simulated HAL.
+gemifi: 2
+name: msg-test
+friendly_name: Msg Test
+board_id: 0x3F15
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+midi_messages:
+  null_rpn: true
+  mmc_device_id: 0x10
+  sysex:
+    - { id: gs_volume, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }   # Roland GS master volume
+    - { id: cutoff, data: "F0 43 ch 7F msb lsb F7" }                 # a 14-bit value and the channel
+
+key_matrix:
+  type: switch
+  rows: [PA0]
+  columns: [PA1, PA2]
+  keys: 2
+  first_note: 60
+
+buttons:
+  - { id: b_panic, pin: { number: PB0, inverted: true }, action: panic }
+  - { id: b_play, pin: { number: PB1, inverted: true }, action: mmc, mmc: play }
+  - { id: b_prog, pin: { number: PB2, inverted: true }, action: program, program: 5, bank: 300, channel: 3 }
+  - { id: b_vol, pin: { number: PB3, inverted: true }, action: sysex, sysex: gs_volume, min: 0, max: 100 }
+  - { id: b_cc, pin: { number: PB4, inverted: true }, action: cc_momentary, cc: 64, min: 10, max: 100, channel: 2 }
+  - { id: b_note, pin: { number: PB5, inverted: true }, action: note, note: 50 }
+  - { id: b_next, pin: { number: PB6, inverted: true }, action: program_next, bank: { msb: 1, lsb: 2 } }
+
+analog:
+  - { id: a_cc14, pin: PA3, mode: cc14, cc: 7 }
+  - { id: a_nrpn, pin: PA4, mode: nrpn14, nrpn: 1234 }
+  - { id: a_rpn, pin: PA5, mode: rpn, rpn: 2 }
+  - { id: a_sx, pin: PA6, mode: sysex, sysex: cutoff, channel: 9 }
+  - { id: a_rng, pin: PA7, cc: 20, min: 100, max: 20, channel: 5 }
+
+encoders:
+  - { id: e_sign, pin_a: PC0, pin_b: PC1, cc: 40, mode: relative_sign }
+  - { id: e_cc14, pin_a: PC2, pin_b: PC3, cc: 3, mode: cc14 }
+  - { id: e_nrpn, pin_a: PC4, pin_b: PC5, nrpn: 500, mode: nrpn, min: 10, max: 20 }
+  - { id: e_ch, pin_a: PC6, pin_b: PC7, cc: 41, channel: 4 }
+
+presets:
+  list:
+    - { name: One, program: 1, bank: 2 }
+    - name: Two
+      program: 7
+      bank: { msb: 1, lsb: 3 }
+      analog: { a_rng: { mode: nrpn, nrpn: 300 } }

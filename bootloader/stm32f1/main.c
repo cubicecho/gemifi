@@ -27,7 +27,7 @@
  * (they never clear the count).
  *
  * Every reset, the mailbox gets the reset flags (RCC_CSR, then cleared) in
- * its second word, for the app's diag.reset_reason (sysex.md 4.8).
+ * its second word, for the app's diag.reset_reason (sysex.md 4.10).
  *
  * In update mode, holding the power button for 2 s switches the board off.
  *

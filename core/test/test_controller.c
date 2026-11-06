@@ -327,7 +327,7 @@ static void boot(void)
     out_n = 0;
 }
 
-/* Physical unlock (sysex.md 4.7), opt-in: test_controller builds the
+/* Physical unlock (sysex.md 4.9), opt-in: test_controller builds the
  * Keystation with `unlock: true` (Pitch down + Pitch up, buttons 4 and 5,
  * the boot_combo); test_controller_wtf builds it as shipped, unlock off. */
 #if GM_UNLOCK
@@ -1249,7 +1249,7 @@ static void test_safety(void)
     run_ms(100);
 #endif
 
-    /* diag.* (sysex.md 4.8) */
+    /* diag.* (sysex.md 4.10) */
     boot();
     CHECK(get_param(P_DIAG_RESET, 0, &v) == GSX_OK && v == GM_RESET_UNKNOWN, "diag.reset_reason (weak HAL: unknown)");
     CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_NONE, "diag.settings: none stored");
@@ -1322,6 +1322,154 @@ static void test_safety(void)
 }
 
 /* ---- tests ------------------------------------------------------------ */
+
+/* ---- layout and raw readings (sysex.md 4.7, 4.8) ------------------------ */
+
+/* The next RAW message at or after *at in the output; its payload offset,
+ * or -1. *at moves past it. */
+static int next_raw(int *at, int *len)
+{
+    for (int i = *at; i + GSX_OVERHEAD < out_n; i++) {
+        if (out[i] == 0xF0 && out[i + 1] == 0x7D && out[i + 1 + GSX_OFF_CMD] == GSX_MSG_RAW) {
+            *len = (int)gsx_get_u(out + i + 1 + GSX_OFF_LEN, 2);
+            *at = i + 1;
+            return i + 1 + GSX_OFF_PAYLOAD;
+        }
+    }
+    return -1;
+}
+
+static int count_raw(void)
+{
+    int at = 0, len, n = 0;
+    while (next_raw(&at, &len) >= 0)
+        n++;
+    return n;
+}
+
+static int monitor(uint8_t kinds, int *pl)
+{
+    return request(GSX_CMD_MONITOR, &kinds, 1, pl);
+}
+
+static void test_layout(void)
+{
+    /* GET_LAYOUT: windows of the blob, as GET_SCHEMA */
+    uint8_t got[GM_LAYOUT_BYTES + 64];
+    uint32_t off = 0, total = 0;
+    for (int guard = 0; guard < 64; guard++) {
+        uint8_t p[6];
+        put_u(p, off, 4);
+        put_u(p + 4, 64, 2);
+        int pl, len;
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, &pl) == GSX_OK, "GET_LAYOUT at %u", off);
+        total = gsx_get_u(out + pl, 4);
+        CHECK(gsx_get_u(out + pl + 4, 4) == off, "GET_LAYOUT offset echo");
+        find_sysex(GSX_CMD_GET_LAYOUT | GSX_REPLY, &len);
+        int n = gsx_unpack(out + pl + 8, (uint32_t)(len - 9), got + off);
+        if (n <= 0)
+            break;
+        off += (uint32_t)n;
+    }
+    CHECK(total == GM_LAYOUT_BYTES && off == total && memcmp(got, gm_layout, total) == 0,
+          "GET_LAYOUT reads the whole layout (%u of %u bytes)", off, total);
+    CHECK(got[0] == 1 && got[3] == 9 && got[4] == 0, "layout v1 with 9 items (7 buttons, the knob, the keys)");
+    /* the last item: the keys, made by the builder under the controls */
+    const uint8_t *k = got + total - 10;
+    CHECK(k[0] == 9 && k[1] == GSX_KIND_MATRIX && k[3] == 8 && k[8] == 32 && k[9] == 48,
+          "keys item: 32 keys from note 48");
+    {
+        uint8_t p[6];
+        put_u(p, total, 4);
+        put_u(p + 4, 64, 2);
+        int pl, len;
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, &pl) == GSX_OK, "GET_LAYOUT at total");
+        find_sysex(GSX_CMD_GET_LAYOUT | GSX_REPLY, &len);
+        CHECK(len == 9, "GET_LAYOUT at total: no data");
+        put_u(p + 4, 0, 2);
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, 0) == GSX_BAD_LEN, "GET_LAYOUT max 0");
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 5, 0) == GSX_BAD_LEN, "GET_LAYOUT short");
+    }
+}
+
+static void test_monitor(void)
+{
+    int pl;
+    CHECK(monitor(0x7F, &pl) == GSX_OK, "MONITOR");
+    CHECK(out[pl] == (GSX_MON_BUTTONS | GSX_MON_MATRIX | GSX_MON_ANALOG),
+          "MONITOR: buttons, key matrix and analog (no encoders or pads here): 0x%x", out[pl]);
+    CHECK(gsx_get_u(out + pl + 1, 2) == GM_MONITOR_INTERVAL_MS && gsx_get_u(out + pl + 3, 2) == GM_MONITOR_TIMEOUT_MS,
+          "MONITOR interval and timeout");
+    {
+        uint8_t two[2] = { 1, 0 };
+        CHECK(request(GSX_CMD_MONITOR, two, 2, 0) == GSX_BAD_LEN, "MONITOR with 2 bytes");
+    }
+    adc[0] = 1234;
+    level[1 + 2] = 0;               /* Oct - held (button 2), not yet debounced */
+    contact[3][1] = 1;              /* key 3's first contact: row 3, column 1 */
+    ticks(2);
+    out_n = 0;
+    run_ms(4 * GM_MONITOR_INTERVAL_MS);
+    int at = 0, len, seen = 0;
+    for (int p; (p = next_raw(&at, &len)) >= 0;) {
+        if (out[p] == EV_BUTTON) {
+            CHECK(len == 1 + 2 + 1 + 1 && gsx_get_u(out + p + 1, 2) == 0 && out[p + 3] == 7,
+                  "RAW buttons: first 0, 7 buttons, one byte");
+            CHECK(out[p + 4] == 1u << 2, "RAW buttons: Oct - pressed (0x%x)", out[p + 4]);
+            seen |= 1;
+        } else if (out[p] == EV_KEY) {
+            CHECK(len == 1 + 3 + 10 && out[p + 1] == 0 && out[p + 2] == 8 && out[p + 3] == 8,
+                  "RAW key matrix: rows 0..7, 8 columns, 10 bytes");
+            int b = 3 * 8 + 1, ones = 0;
+            for (int i = 0; i < 64; i++)
+                ones += (out[p + 4 + i / 7] >> (i % 7)) & 1;
+            CHECK(((out[p + 4 + b / 7] >> (b % 7)) & 1) && ones == 1, "RAW key matrix: row 3 column 1 closed");
+            seen |= 2;
+        } else if (out[p] == EV_ANALOG) {
+            CHECK(len == 1 + 2 + 1 + 2 && out[p + 3] == 1 && gsx_get_u(out + p + 4, 2) == 1234,
+                  "RAW analog: the volume knob's reading, 1234 (got %u)", gsx_get_u(out + p + 4, 2));
+            seen |= 4;
+        }
+    }
+    CHECK(seen == 7, "RAW: every kind in turn (seen 0x%x)", seen);
+    CHECK(count_raw() >= 3 && count_raw() <= 5, "RAW: one per %u ms (%d in %u ms)", GM_MONITOR_INTERVAL_MS,
+          count_raw(), 4 * GM_MONITOR_INTERVAL_MS);
+    level[1 + 2] = 1;
+    contact[3][1] = 0;
+    run_ms(20);
+
+    /* only the kinds asked for */
+    CHECK(monitor(GSX_MON_ANALOG | GSX_MON_ENCODERS, &pl) == GSX_OK && out[pl] == GSX_MON_ANALOG,
+          "MONITOR analog + encoders: analog only");
+    out_n = 0;
+    run_ms(3 * GM_MONITOR_INTERVAL_MS);
+    at = 0;
+    int only = 1;
+    for (int p; (p = next_raw(&at, &len)) >= 0;)
+        only &= out[p] == EV_ANALOG;
+    CHECK(only && count_raw() >= 2, "RAW: analog only");
+
+    /* it stops by itself without a renewal */
+    run_ms(GM_MONITOR_TIMEOUT_MS);
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() == 0, "RAW stops %u ms after the last MONITOR", GM_MONITOR_TIMEOUT_MS);
+
+    /* renewed in time it goes on; MONITOR 0 stops it */
+    monitor(GSX_MON_BUTTONS, 0);
+    for (int i = 0; i < 4; i++) {
+        run_ms(2000);
+        monitor(GSX_MON_BUTTONS, 0);
+    }
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() >= 4, "RAW goes on while it is renewed");
+    CHECK(monitor(0, &pl) == GSX_OK && out[pl] == 0, "MONITOR 0");
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() == 0, "MONITOR 0 stops it");
+    adc[0] = 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -1681,6 +1829,8 @@ int main(int argc, char **argv)
     test_presets();
     test_modes();
     test_velocity_sweep();
+    test_layout();
+    test_monitor();
     test_safety();
 
     /* HELLO, FW_* in the app, REBOOT */
@@ -1690,7 +1840,7 @@ int main(int argc, char **argv)
         CHECK(out[pl] == 0 && gsx_get_u(out + pl + 1, 2) == 1, "role app, board 1");
         uint32_t caps = gsx_get_u(out + pl + 1 + 2 + 5 + 1 + 2, 2);
         CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS | GSX_CAP_FEEDBACK |
-                       (GM_UNLOCK ? GSX_CAP_UNLOCK : 0)), "caps 0x%x", caps);
+                       GSX_CAP_LAYOUT | GSX_CAP_MONITOR | (GM_UNLOCK ? GSX_CAP_UNLOCK : 0)), "caps 0x%x", caps);
         int node_at = pl + 1 + 2 + 5 + 1 + 2 + 2 + 14;
         size_t node_len = strlen(gm_device.node_name);
         CHECK(out[node_at] == node_len && memcmp(out + node_at + 1, gm_device.node_name, node_len) == 0,

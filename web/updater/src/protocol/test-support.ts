@@ -7,8 +7,90 @@ import type { Transport } from './client.ts';
 import { encodeS32, encodeU14, encodeU28, PayloadReader, pack } from './encoding.ts';
 import { decodeFrame, encodeFrame } from './frame.ts';
 import { HEADER_OFFSET, IMAGE_MAGIC, imageCrc } from './image.ts';
+import type { DeviceLayout } from './layout.ts';
+import type { RawReading } from './monitor.ts';
 import type { ParamSpec, Schema } from './schema.ts';
-import { Command, ParamFlag, ParamType, Status } from './wire.ts';
+import { Command, LAYOUT_VERSION, LayoutShape, ParamFlag, ParamType, RAW_NO_READING, RawKind, Status } from './wire.ts';
+
+/** Bits per byte of a RAW bit field (§4.8). */
+const RAW_BITS_PER_BYTE = 7;
+
+/**
+ * Writes a layout blob the way §4.7 lays it out (the inverse of `parseLayout`).
+ *
+ * @param layout - The layout.
+ * @returns The unpacked blob.
+ */
+export function encodeLayout(layout: DeviceLayout): number[] {
+  const BYTE = 0xff;
+  const BYTE_BITS = 8;
+  const out = [
+    LAYOUT_VERSION,
+    layout.width,
+    layout.height,
+    layout.items.length & BYTE,
+    layout.items.length >> BYTE_BITS,
+  ];
+  for (const item of layout.items) {
+    const fields = [item.kind, item.index, item.shape, item.x, item.y, item.w, item.h];
+    if (item.shape === LayoutShape.Keys) {
+      fields.push(item.keys?.count ?? 0, item.keys?.firstNote ?? 0);
+    }
+    if (item.shape === LayoutShape.Xy) {
+      fields.push(item.yIndex ?? 0);
+    }
+    out.push(fields.length, ...fields);
+  }
+  return out;
+}
+
+/**
+ * @param bits - Flags.
+ * @returns They as a RAW bit field: 7 per byte, low bit first.
+ */
+function encodeBits(bits: readonly boolean[]): number[] {
+  const out = Array.from({ length: Math.ceil(bits.length / RAW_BITS_PER_BYTE) }, () => 0);
+  bits.forEach((bit, i) => {
+    if (bit) {
+      const at = Math.floor(i / RAW_BITS_PER_BYTE);
+      out[at] = (out[at] ?? 0) | (1 << (i % RAW_BITS_PER_BYTE));
+    }
+  });
+  return out;
+}
+
+/**
+ * Writes a RAW payload the way §4.8 lays it out (the inverse of `parseRaw`).
+ *
+ * @param reading - The reading; `unknown` writes only its type byte.
+ * @returns The payload.
+ */
+export function encodeRaw(reading: RawReading): number[] {
+  switch (reading.kind) {
+    case 'buttons':
+      return [RawKind.Buttons, ...encodeU14(reading.first), reading.pressed.length, ...encodeBits(reading.pressed)];
+    case 'matrix':
+      return [RawKind.KeyMatrix, reading.row, reading.rows, reading.cols, ...encodeBits(reading.closed)];
+    case 'analog':
+      return [
+        RawKind.Analog,
+        ...encodeU14(reading.first),
+        reading.values.length,
+        ...reading.values.flatMap((v) => encodeU14(v ?? RAW_NO_READING)),
+      ];
+    case 'encoders':
+      return [
+        RawKind.Encoders,
+        ...encodeU14(reading.first),
+        reading.counts.length,
+        ...reading.counts.flatMap(encodeU14),
+      ];
+    case 'pads':
+      return [RawKind.Pads, ...encodeU14(reading.first), reading.values.length, ...reading.values.flatMap(encodeU14)];
+    default:
+      return [reading.type];
+  }
+}
 
 /** Fields a test may change in the synthetic image. */
 export interface TestImageOptions {

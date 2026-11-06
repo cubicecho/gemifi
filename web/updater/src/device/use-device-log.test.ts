@@ -37,7 +37,7 @@ describe('formatDeviceMessage', () => {
     );
   });
 
-  it('formats UNLOCKED (§4.7)', () => {
+  it('formats UNLOCKED (§4.9)', () => {
     expect(formatDeviceMessage({ kind: 'unlocked', isUnlocked: true })).toBe('              UNLOCKED unlocked');
     expect(formatDeviceMessage({ kind: 'unlocked', isUnlocked: false })).toBe('              UNLOCKED locked');
   });

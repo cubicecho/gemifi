@@ -102,6 +102,33 @@
       ],
       "params": ["analog.cc"],
       "yaml": "analog:\n  - { id: fader_1, pin: PA0, cc: 20, daw: volume_1, touch: movement }\nbuttons:\n  - { id: play, pin: PB4, action: cc_momentary, cc: 118, daw: play }\n  - { id: back, pin: PB5, action: cc_momentary, cc: 119, daw: nav_back }\n  - { id: panic, pin: PB6, action: cc_momentary, cc: 3, daw: zynthian.all_notes_off }\n"
+    },
+    {
+      "id": "midi_messages",
+      "title": "MIDI messages: 14-bit CC, NRPN, bank, panic, MMC, SysEx",
+      "summary": "Controls can send 14-bit CCs, NRPN / RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it, or lists it in midi_messages.enable.",
+      "notes": [
+        "cc14 sends the MSB on the CC (0..31) and the LSB on CC + 32. nrpn / rpn take their number in nrpn: / rpn: (0..16383); nrpn14 / rpn14 send data entry MSB and LSB.",
+        "SysEx data: is hex from F0 to F7. v is the value, msb / lsb its 14-bit halves, ch the channel, and [ ... ] cs a Roland checksum of the bytes in the brackets.",
+        "channel:, min: and max: on a control are build-time: the same in every preset. min greater than max inverts the range.",
+        "midi_messages.enable: [cc14, nrpn, program, panic, mmc] compiles a kind in for the web page before anything uses it."
+      ],
+      "params": ["analog.mode", "analog.cc", "button.action", "encoder.mode"],
+      "yaml": "midi_messages:\n  null_rpn: true\n  sysex:\n    - { id: gs_volume, data: \"F0 41 10 42 12 [40 00 04 v] cs F7\" }\nbuttons:\n  - { id: panic, pin: PB4, action: panic }\n  - { id: play, pin: PB5, action: mmc, mmc: play }\n  - { id: piano, pin: PB6, action: program, program: 0, bank: { msb: 121, lsb: 0 }, channel: 2 }\nanalog:\n  - { id: fader_1, pin: PA0, mode: cc14, cc: 7 }\n  - { id: fader_2, pin: PA1, mode: nrpn14, nrpn: 1234 }\n  - { id: volume, pin: PA2, mode: sysex, sysex: gs_volume, min: 0, max: 100 }\nencoders:\n  - { id: encoder_1, pin_a: PB8, pin_b: PB9, cc: 20, mode: relative_sign }\n"
+    },
+    {
+      "id": "layout",
+      "title": "Layout",
+      "summary": "layout: says where each control is, so the web page can draw the device and light up the control being moved (the Tester view, Find a control). Units are about 5 mm, from the top left.",
+      "notes": [
+        "Each control by its id: [x, y], [x, y, w, h], or { x, y, w, h, shape }. A control left out isn't drawn; the page lists it under the drawing.",
+        "Shapes: button, round_button, pad (buttons and pads); knob, fader, wheel, xy (analog inputs); encoder, knob (encoders); display. Without shape: a button, a knob, an encoder, a pad or a display, with a size to match.",
+        "The keys of key_matrix go under the controls by themselves, a white key 4 units wide. keys: [x, y, w, h] places them elsewhere.",
+        "shape: xy on one axis of an xy_pad draws the pad once, for both axes.",
+        "Without layout: the firmware has no layout and pays nothing for it."
+      ],
+      "params": [],
+      "yaml": "analog:\n  - { id: volume, pin: PA0, cc: 7 }\n  - { id: fader_1, pin: PA1, cc: 20 }\nbuttons:\n  - { id: play, pin: PB4, action: cc_momentary, cc: 118 }\n  - { id: stop, pin: PB5, action: cc_momentary, cc: 117 }\nlayout:\n  controls:\n    volume: { x: 1, y: 1, w: 4, h: 4 }\n    fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }\n    play: [11, 1]\n    stop: [11, 4]\n"
     }
   ]
 }

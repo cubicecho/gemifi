@@ -10,7 +10,7 @@ const RO = ParamFlag.ReadOnly | ParamFlag.Volatile;
 
 const RESET_REASONS = ['unknown', 'power-on', 'reset pin', 'software', 'watchdog', 'brown-out', 'crash', 'low-power'];
 
-/** The §4.8 params as a device YAML build lists them, in the Debug group (4). */
+/** The §4.10 params as a device YAML build lists them, in the Debug group (4). */
 const DIAG_PARAMS = [
   makeParam({
     id: DiagParam.ResetReason,
@@ -51,7 +51,7 @@ const DIAG_PARAMS = [
   }),
 ];
 
-describe('diagnostics (§4.8)', () => {
+describe('diagnostics (§4.10)', () => {
   it('knows the diagnostics ids', () => {
     expect(isDiagnostic({ id: 65 })).toBe(true);
     expect(isDiagnostic({ id: 74 })).toBe(true);

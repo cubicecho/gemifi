@@ -39,6 +39,11 @@ jobs:
         working-directory: tools/builder
         run: python -m pytest -q tests
 
+      # The device YAML's JSON schema is generated from the validator: a validator change without a
+      # regenerated site/src/schema/device.json fails here (the site publishes that file).
+      - name: Device YAML schema up to date
+        run: python tools/builder/gemifi_build.py schema --check site/src/schema/device.json
+
       - name: Core
         run: make -C core/test test
 

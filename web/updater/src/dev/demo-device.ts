@@ -1,8 +1,8 @@
 /**
  * A pretend Code 61 for `npm run dev` with `?demo` in the URL: HELLO, the config (§4.3) and the
  * presets (§4.5), in memory, so the Presets view can be worked on without a keyboard. It has the
- * physical unlock (§4.7): FACTORY_RESET and REBOOT(1) answer LOCKED, and the pretend user holds
- * the combo a few seconds later. It reports the diagnostics (§4.8) too. It is never part of a
+ * physical unlock (§4.9): FACTORY_RESET and REBOOT(1) answer LOCKED, and the pretend user holds
+ * the combo a few seconds later. It reports the diagnostics (§4.10) too. It is never part of a
  * production build (see `useDemoClient`).
  */
 
@@ -39,11 +39,19 @@ import {
   UnlockState,
   Unsolicited,
 } from '../protocol/wire.ts';
+import { withDemoMidi } from './demo-midi.ts';
+import { DEMO_ANALOGS, DEMO_BUTTONS, DEMO_ENCODERS, DEMO_PADS, DemoTools } from './demo-tools.ts';
 
 const P = ParamFlag.Preset;
-const BUTTONS = ['Oct -', 'Oct +', 'Sustain', 'Shift'];
-const ANALOGS = ['Mod wheel', 'Expression'];
-const PADS = ['Pad 1', 'Pad 2', 'Pad 3', 'Pad 4'];
+const BUTTONS = DEMO_BUTTONS;
+const ANALOGS = DEMO_ANALOGS;
+const PADS = DEMO_PADS;
+/** Button actions: octave down / up, sustain as CC momentary, the rest CC momentary or toggle (B1-B9). */
+const BUTTON_ACTIONS = BUTTONS.map((name, i) =>
+  i === 0 ? 5 : i === 1 ? 6 : i === 3 ? 0 : name.startsWith('B') ? 2 : 1,
+);
+const BUTTON_NUMBERS = BUTTONS.map((_, i) => (i < 2 ? 0 : i === 2 ? 64 : i === 3 ? 0 : i < 9 ? 106 + i : 76 + i));
+const ANALOG_CCS = [0, 1, 20, 21, 22, 23, 24, 25, 26, 27, 7, 16, 17];
 
 /** Host feedback (§4.6): the Code 61's LEDs, roughly, and its 6-character display. */
 const DEMO_LEDS: readonly { id: string; name: string; colours: number }[] = [
@@ -57,18 +65,18 @@ const DEMO_LEDS: readonly { id: string; name: string; colours: number }[] = [
 ];
 const DEMO_DISPLAY_COLS = 6;
 
-/** The unlock combo (§4.7): the Code 61's boot combo, held for 2 s. */
+/** The unlock combo (§4.9): the Code 61's boot combo, held for 2 s. */
 const UNLOCK_BUTTONS = ['Up', 'Down'];
 const UNLOCK_HOLD_MS = 2000;
 /** How long after a LOCKED reply the pretend user has held the combo. */
 const DEMO_UNLOCK_AFTER_MS = 4000;
-/** An unlocked device locks again after this long without a request (§4.7). */
+/** An unlocked device locks again after this long without a request (§4.9). */
 const RELOCK_IDLE_MS = 5 * 60 * 1000;
 /** How long the pretend reboot takes before BOOTED. */
 const DEMO_REBOOT_MS = 1500;
 const MS_PER_SECOND = 1000;
 
-/** The diagnostics (§4.8), read-only and VOLATILE in the Debug group. */
+/** The diagnostics (§4.10), read-only and VOLATILE in the Debug group. */
 const DIAG = ParamFlag.ReadOnly | ParamFlag.Volatile;
 const RESET_REASONS = ['unknown', 'power-on', 'reset pin', 'software', 'watchdog', 'brown-out', 'crash', 'low-power'];
 const SETTINGS_STATES = ['loaded', 'none stored', 'some reset', 'ignored (safe mode)', 'wiped'];
@@ -76,7 +84,7 @@ const SETTINGS_STATES = ['loaded', 'none stored', 'some reset', 'ignored (safe m
 const RESET_SOFTWARE = 3;
 
 /** Roughly the Code 61's groups and params, with the per-preset ones flagged. */
-const GROUPS = ['MIDI', 'Velocity', 'Buttons', 'Analog', 'Pads', 'Presets', 'Debug'];
+const GROUPS = ['MIDI', 'Velocity', 'Buttons', 'Analog', 'Encoders', 'Pads', 'Presets', 'Debug'];
 const PARAMS: ParamSpec[] = [
   makeParam({ id: 1, name: 'midi.channel', label: 'MIDI channel', group: 0, min: 1, max: 16, defaults: [1], flags: P }),
   makeParam({
@@ -118,9 +126,9 @@ const PARAMS: ParamSpec[] = [
     label: 'Action',
     group: 2,
     type: ParamType.Enum,
-    count: 4,
+    count: BUTTONS.length,
     max: 6,
-    defaults: [5, 6, 1, 0],
+    defaults: BUTTON_ACTIONS,
     indexLabels: BUTTONS,
     options: ['None', 'CC momentary', 'CC toggle', 'CC ramp', 'Note', 'Octave down', 'Octave up'],
     flags: P,
@@ -130,8 +138,8 @@ const PARAMS: ParamSpec[] = [
     name: 'button.number',
     label: 'Number',
     group: 2,
-    count: 4,
-    defaults: [0, 0, 64, 0],
+    count: BUTTONS.length,
+    defaults: BUTTON_NUMBERS,
     indexLabels: BUTTONS,
     flags: P,
   }),
@@ -140,8 +148,8 @@ const PARAMS: ParamSpec[] = [
     name: 'analog.cc',
     label: 'CC',
     group: 3,
-    count: 2,
-    defaults: [1, 11],
+    count: ANALOGS.length,
+    defaults: ANALOG_CCS,
     indexLabels: ANALOGS,
     flags: P,
   }),
@@ -151,29 +159,40 @@ const PARAMS: ParamSpec[] = [
     label: 'Sends',
     group: 3,
     type: ParamType.Enum,
-    count: 2,
+    count: ANALOGS.length,
     max: 2,
+    defaults: ANALOGS.map((_, i) => (i === 0 ? 1 : 0)),
     indexLabels: ANALOGS,
     options: ['CC', 'Pitch bend', 'Channel pressure'],
+    flags: P,
+  }),
+  makeParam({
+    id: 15,
+    name: 'encoder.cc',
+    label: 'CC',
+    group: 4,
+    count: DEMO_ENCODERS.length,
+    defaults: DEMO_ENCODERS.map((_, i) => 70 + i),
+    indexLabels: DEMO_ENCODERS,
     flags: P,
   }),
   makeParam({
     id: 20,
     name: 'pad.note',
     label: 'Note',
-    group: 4,
+    group: 5,
     type: ParamType.Note,
-    count: 4,
-    defaults: [36, 38, 42, 46],
+    count: PADS.length,
+    defaults: PADS.map((_, i) => 36 + i),
     indexLabels: PADS,
     flags: P,
   }),
-  makeParam({ id: 24, name: 'pad.threshold', label: 'Hit threshold', group: 4, max: 4095, defaults: [300] }),
+  makeParam({ id: 24, name: 'pad.threshold', label: 'Hit threshold', group: 5, max: 4095, defaults: [300] }),
   makeParam({
     id: PresetParam.Active,
     name: 'preset.active',
     label: 'Active preset',
-    group: 5,
+    group: 6,
     min: 1,
     max: 3,
     defaults: [1],
@@ -182,7 +201,7 @@ const PARAMS: ParamSpec[] = [
     id: PresetParam.Program,
     name: 'preset.program',
     label: 'Program change',
-    group: 5,
+    group: 6,
     min: -1,
     defaults: [-1],
     flags: P,
@@ -191,7 +210,7 @@ const PARAMS: ParamSpec[] = [
     id: PresetParam.Dirty,
     name: 'preset.dirty',
     label: 'Unsaved edits',
-    group: 5,
+    group: 6,
     type: ParamType.Bool,
     max: 1,
     flags: ParamFlag.Volatile | ParamFlag.ReadOnly,
@@ -200,7 +219,7 @@ const PARAMS: ParamSpec[] = [
     id: PresetParam.Count,
     name: 'preset.count',
     label: 'Presets in use',
-    group: 5,
+    group: 6,
     min: 1,
     max: 3,
     defaults: [1],
@@ -210,7 +229,7 @@ const PARAMS: ParamSpec[] = [
     id: 13,
     name: 'debug.events',
     label: 'Send events',
-    group: 6,
+    group: 7,
     type: ParamType.Bool,
     max: 1,
     flags: ParamFlag.Volatile,
@@ -314,13 +333,19 @@ class DemoDevice {
   /** Presets in use: slots 1..used; the rest are free (§4.5). */
   #used = 2;
   #listeners = new Set<(bytes: Uint8Array) => void>();
-  /** Physical unlock (§4.7). */
+  /** Physical unlock (§4.9). */
   #isUnlocked = false;
   /** When the unlock window closes, as a `Date.now()` time; 0 when it is closed. */
   #windowEndsAt = 0;
   #unlockTimer: ReturnType<typeof setTimeout> | undefined;
   #relockTimer: ReturnType<typeof setTimeout> | undefined;
   #startedAt = Date.now();
+
+  /** The controls: layout, components, RAW and EVENTs (demo-tools.ts). */
+  readonly #tools = new DemoTools(
+    (bytes) => this.#emit(bytes),
+    () => this.#live.get('13:0') === 1,
+  );
 
   constructor() {
     for (const { key, param, index } of keysOf(() => true)) {
@@ -398,7 +423,7 @@ class DemoDevice {
     }, DEMO_UNLOCK_AFTER_MS);
   }
 
-  /** Locks again after five minutes without a request (§4.7). */
+  /** Locks again after five minutes without a request (§4.9). */
   #keepUnlocked(): void {
     clearTimeout(this.#relockTimer);
     if (this.#isUnlocked === false) {
@@ -423,7 +448,7 @@ class DemoDevice {
     return Math.max(0, Math.ceil((this.#windowEndsAt - Date.now()) / MS_PER_SECOND));
   }
 
-  /** @returns The UNLOCK reply's fields (§4.7). */
+  /** @returns The UNLOCK reply's fields (§4.9). */
   #unlockFields(): number[] {
     return [
       this.#isUnlocked ? UnlockState.Unlocked : UnlockState.Locked,
@@ -448,6 +473,8 @@ class DemoDevice {
           Capability.Event |
           Capability.Presets |
           Capability.Feedback |
+          Capability.Layout |
+          Capability.Monitor |
           Capability.Unlock,
       ),
       ...pack([0xde, 0x70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
@@ -516,7 +543,7 @@ class DemoDevice {
       return; // FB_*: never answered; the demo has no LEDs to light
     }
     this.#keepUnlocked();
-    // FACTORY_RESET and REBOOT(1) need the user's OK on the device first (§4.7).
+    // FACTORY_RESET and REBOOT(1) need the user's OK on the device first (§4.9).
     const isGuarded = cmd === Command.FactoryReset || (cmd === Command.Reboot && payload[0] === 1);
     if (isGuarded && this.#isUnlocked === false) {
       this.#openWindow();
@@ -546,6 +573,20 @@ class DemoDevice {
       case Command.Reboot:
         reply(Status.Ok);
         this.#restart();
+        return;
+      case Command.GetLayout: {
+        const offset = reader.u28();
+        const max = reader.u14();
+        const bytes = this.#tools.layoutBytes;
+        reply(Status.Ok, [
+          ...encodeU28(bytes.length),
+          ...encodeU28(offset),
+          ...pack(bytes.slice(offset, offset + max)),
+        ]);
+        return;
+      }
+      case Command.Monitor:
+        reply(Status.Ok, this.#tools.monitor(reader.byte()));
         return;
       case Command.GetSchema: {
         const offset = reader.u28();
@@ -585,6 +626,7 @@ class DemoDevice {
             return;
           }
           this.#live.set(key, value);
+          this.#tools.wake();
           if (isPerPreset(param) && this.#dirty === false) {
             this.#dirty = true;
             setTimeout(() => this.#changed(), 0);
@@ -697,6 +739,8 @@ class DemoDevice {
           reply(Status.Ok, [...head(DEMO_LEDS.length, led.id, led.name), led.colours, LedOwner.HostThenLocal]);
         } else if (kind === ComponentKind.Display && index === 0) {
           reply(Status.Ok, [...head(1, 'display', 'Display'), DEMO_DISPLAY_COLS, 1, 1]);
+        } else if (this.#tools.component(kind, index) !== null) {
+          reply(Status.Ok, this.#tools.component(kind, index) ?? []);
         } else {
           reply(Status.BadParam);
         }
@@ -720,5 +764,6 @@ class DemoDevice {
 
 /** @returns A client talking to a new pretend Code 61. */
 export function demoClient(): SysexClient {
-  return new SysexClient(new DemoDevice().transport());
+  // withDemoMidi (demo-midi.ts): notes and CCs now and then, for the MIDI monitor.
+  return new SysexClient(withDemoMidi(new DemoDevice().transport()));
 }

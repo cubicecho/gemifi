@@ -77,6 +77,17 @@ function jumpToLine(box: HTMLTextAreaElement, line: number): void {
 }
 
 /**
+ * @param diag - One finding.
+ * @returns Where it is: `Line 12` in this file, `presets/x.yaml:12` in another, or null.
+ */
+function placeOf(diag: Diagnostic): string | null {
+  if (diag.file !== null) {
+    return diag.line === null ? diag.file : `${diag.file}:${diag.line}`;
+  }
+  return diag.line === null ? null : `Line ${diag.line}`;
+}
+
+/**
  * The validator's findings, each a button that jumps to its line.
  *
  * @param props - The check's result and the jump.
@@ -110,10 +121,11 @@ function CheckResult({ result, onJump }: { result: ValidationResult; onJump: (li
           label="Problems"
           contentSlot={result.diags.map((diag, index) => {
             const look = LEVEL_LOOKS[diag.level];
-            const where = [diag.line === null ? null : `Line ${diag.line}`, diag.path === '' ? null : diag.path]
+            const where = [placeOf(diag), diag.path === '' ? null : diag.path]
               .filter((part) => part !== null)
               .join(' · ');
-            const { line } = diag;
+            // A line in a package or an !include file is that file's: it is named, not jumped to.
+            const line = diag.file === null ? diag.line : null;
             return (
               <ListItem
                 // biome-ignore lint/suspicious/noArrayIndexKey: two diagnostics can say the same thing.

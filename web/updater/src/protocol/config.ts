@@ -41,33 +41,52 @@ function badReply(message: string): RequestError {
 }
 
 /**
+ * Reads a blob the device serves in 64-byte windows (GET_SCHEMA §4.3, GET_LAYOUT §4.7), from
+ * offset 0 until the device's `total` is reached.
+ *
+ * @param client - The device.
+ * @param command - The paged read's command.
+ * @param name - Its name, for the errors.
+ * @param options - An abort signal.
+ * @returns The unpacked bytes.
+ */
+export async function readPagedBytes(
+  client: SysexClient,
+  command: number,
+  name: string,
+  options: RequestOptions = {},
+): Promise<number[]> {
+  const bytes: number[] = [];
+  let total = Number.POSITIVE_INFINITY;
+  while (bytes.length < total) {
+    const offset = bytes.length;
+    const reply = await client.request(command, getSchemaPayload(offset, SCHEMA_WINDOW_BYTES), options);
+    const window = parseSchemaWindow(reply);
+    if (window.offset !== offset) {
+      throw badReply(`${name} for offset ${offset} answered offset ${window.offset}.`);
+    }
+    if (window.data.length > SCHEMA_WINDOW_BYTES) {
+      throw badReply(`${name} sent ${window.data.length} bytes when ${SCHEMA_WINDOW_BYTES} were asked for.`);
+    }
+    total = window.total;
+    const isStuck = window.data.length === 0 && offset < total;
+    if (isStuck) {
+      throw badReply(`${name} sent no data at offset ${offset} of ${total}.`);
+    }
+    bytes.push(...window.data);
+  }
+  return bytes.slice(0, total);
+}
+
+/**
  * Reads the whole schema, 64 bytes at a time, until the device's `total` is reached.
  *
  * @param client - The device.
  * @param options - An abort signal.
  * @returns The unpacked schema bytes.
  */
-export async function readSchemaBytes(client: SysexClient, options: RequestOptions = {}): Promise<number[]> {
-  const bytes: number[] = [];
-  let total = Number.POSITIVE_INFINITY;
-  while (bytes.length < total) {
-    const offset = bytes.length;
-    const reply = await client.request(Command.GetSchema, getSchemaPayload(offset, SCHEMA_WINDOW_BYTES), options);
-    const window = parseSchemaWindow(reply);
-    if (window.offset !== offset) {
-      throw badReply(`GET_SCHEMA for offset ${offset} answered offset ${window.offset}.`);
-    }
-    if (window.data.length > SCHEMA_WINDOW_BYTES) {
-      throw badReply(`GET_SCHEMA sent ${window.data.length} bytes when ${SCHEMA_WINDOW_BYTES} were asked for.`);
-    }
-    total = window.total;
-    const isStuck = window.data.length === 0 && offset < total;
-    if (isStuck) {
-      throw badReply(`GET_SCHEMA sent no data at offset ${offset} of ${total}.`);
-    }
-    bytes.push(...window.data);
-  }
-  return bytes.slice(0, total);
+export function readSchemaBytes(client: SysexClient, options: RequestOptions = {}): Promise<number[]> {
+  return readPagedBytes(client, Command.GetSchema, 'GET_SCHEMA', options);
 }
 
 /**

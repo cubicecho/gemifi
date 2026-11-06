@@ -1,7 +1,7 @@
 /**
  * A stop-and-wait client for one device link (`protocol/sysex.md` §1): one request outstanding,
  * a reply matched by `cmd | 0x40` and `seq`, and the same request (same `seq`) resent on timeout.
- * A LOCKED reply (§4.7) is not resent at once: the client asks UNLOCK what to tell the user,
+ * A LOCKED reply (§4.9) is not resent at once: the client asks UNLOCK what to tell the user,
  * offers it as an {@link UnlockPrompt}, waits for UNLOCKED and then sends the request again.
  * Knows nothing about Web MIDI: anything that can send and receive whole SysEx messages will do.
  */
@@ -50,7 +50,7 @@ export const RequestFailure = {
   BadReply: 'bad-reply',
   /** The caller gave up, or the client was closed. */
   Aborted: 'aborted',
-  /** The device answered LOCKED and was not unlocked on the device (§4.7). */
+  /** The device answered LOCKED and was not unlocked on the device (§4.9). */
   Locked: 'locked',
 } as const;
 export type RequestFailure = (typeof RequestFailure)[keyof typeof RequestFailure];
@@ -114,7 +114,7 @@ const MAX_UNLOCKS = 3;
 /** Milliseconds in a second. */
 const MS_PER_SECOND = 1000;
 
-/** What the user is asked while a request waits for the device to be unlocked (§4.7). */
+/** What the user is asked while a request waits for the device to be unlocked (§4.9). */
 export interface UnlockPrompt {
   /** The request that answered LOCKED: FW_BEGIN, REBOOT or FACTORY_RESET. */
   cmd: number;
@@ -190,7 +190,7 @@ export class SysexClient {
   }
 
   /**
-   * Listens for the unlock prompt (§4.7): set while a request waits for the user to unlock the
+   * Listens for the unlock prompt (§4.9): set while a request waits for the user to unlock the
    * device, null once none does.
    *
    * @param listener - Called with each change.
@@ -220,7 +220,7 @@ export class SysexClient {
 
   /**
    * Sends a request and waits for its reply. Requests queue: only one is ever outstanding. A
-   * LOCKED reply waits for the user to unlock the device (§4.7), then sends the request again.
+   * LOCKED reply waits for the user to unlock the device (§4.9), then sends the request again.
    *
    * @param cmd - The request command.
    * @param payload - Its 7-bit payload.
@@ -262,7 +262,7 @@ export class SysexClient {
 
   /**
    * After a LOCKED reply: asks UNLOCK what to tell the user, offers the prompt and waits for
-   * UNLOCKED (§4.7). Resolves once the device is unlocked; throws `locked` when it was not, and
+   * UNLOCKED (§4.9). Resolves once the device is unlocked; throws `locked` when it was not, and
    * `aborted` when the caller, the prompt's cancel or close() stopped it.
    *
    * @param cmd - The request that answered LOCKED.

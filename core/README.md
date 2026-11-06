@@ -153,20 +153,20 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 
 | Component | Fields | Params it creates (per item, as arrays) |
 |---|---|---|
-| button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`) or `mcu:` (action `mcu`) | `button.action`, `button.number` |
+| button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`), `mcu:` (action `mcu`), `program:`, `mmc:` or `sysex:`; optional `bank:`, `channel:`, `min:`, `max:` ("MIDI messages") | `button.action`, `button.number` |
 | LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `idle:` / `active:` ("LED looks" below), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |
-| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below), optional `takeover:`, `touch:` ("DAW scripts"), `mcu:` | `analog.cc`, `analog.mode` |
+| analog (pot, slider, fader, expression, wheel) | `id`/`name`, `pin` (ADC pin or mux channel), `adc_min`, `adc_max` (the raw 0..4095 reading at the bottom and top; swap them to reverse), default `cc`, default `mode` (`cc`; `pitch_bend` or `channel_pressure`: no `cc` needed; "Pitch wheels and aftertouch" below; `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14` with `nrpn:` / `rpn:`, `sysex` with `sysex:`: "MIDI messages"), optional `channel:`, `min:`, `max:`, `takeover:`, `touch:` ("DAW scripts"), `mcu:` | `analog.cc`, `analog.mode` |
 | pad (velocity pad: pressure / FSR) | `id`/`name`, `pin` (ADC pin or mux channel; `inverted: true` if pressure lowers the reading), default `note`, optional `led` (lit while the pad is held); what all pads share goes in the top-level `pad_settings:` ("Pads" below) | `pad.note`, and once per device `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.threshold`, `pad.release`, `pad.full`, `pad.window`, `pad.retrigger` |
-| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:`, `acceleration:` (the default in the top-level `encoder_settings:`; "Encoder acceleration" below) | `encoder.cc`, `encoder.mode` |
+| encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, default `mode` (below; `nrpn:` / `rpn:` for those modes), optional `channel:`, `min:`, `max:`, `mcu:`, `ring:`, `acceleration:` (the default in the top-level `encoder_settings:`; "Encoder acceleration" below) | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
 
-Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`. The list with ids is in `src/settings.c`; ids never change meaning.
+Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`, and the read-only `config.hash` ("Config hash" below). The list with ids is in `src/settings.c`; ids never change meaning.
 
 **Key matrix.** One row is driven at a time (to the active level: high, or low with `inverted`), the columns are read, then the row is released. `type: switch`: key = row + rows × column. `type: velocity`: two contacts per key; key k is on row k % rows and columns 2p, 2p+1 with p = k / rows. Whichever contact closes first starts the timer, the second sends Note On with a velocity from the time between them, and the key is released when both are open. Put diodes on the matrix if more than one key can be held.
 
-**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with 2 or more preset slots (see "Presets") 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
+**Button actions** (`button.action` values; YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with 2 or more preset slots (see "Presets") 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). The MIDI message actions, only on devices that use them ("MIDI messages"): 17 program (`program`, `program:` 0..127), 18 panic (`panic`), 19 MMC (`mmc`, `mmc: play` etc.), 20 SysEx (`sysex`, `sysex:` a string's id). Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
 
-**Encoder modes** (`encoder.mode`): 0 absolute (0..127, sends the value), 1 relative two's complement (1 = +1, 127 = −1), 2 relative offset (65 = +1, 63 = −1).
+**Encoder modes** (`encoder.mode`, YAML `mode:`): 0 absolute (`absolute`: 0..127, sends the value), 1 relative two's complement (`relative_twos`: 1 = +1, 127 = −1), 2 relative offset (`relative_offset`: 65 = +1, 63 = −1), 3 relative sign-magnitude (`relative_sign`: 1 = +1, 65 = −1), and with the message kinds ("MIDI messages") the absolute 4 `cc14`, 5 `nrpn`, 6 `nrpn14`, 7 `rpn`, 8 `rpn14`.
 
 ### Encoder acceleration
 
@@ -195,6 +195,52 @@ encoders:
   (absolute values stop at 127). A mapping takes `slow` (2ms..1000ms), `fast` (1ms, shorter than slow), `max` (1..32; 1 is the same as off) and `curve` (`linear`, `quadratic`, `cubic`); keys left out come from `encoder_settings:`'s acceleration, else from `medium`. Bare `off` works with or without quotes.
 - **Build time only, for now:** the settings are in the device tables (flash), not params, so a preset or the web app can't change them yet; a preset's `acceleration:` and a twin's are refused with where to set it.
 - **Generated:** `GM_ENC_ACCEL` in `gm_device_config.h`; with 1, `gm_enc_accel[]` (`gm_enc_accel_t`: slow ms, fast ms, max, curve) has one entry per scanned encoder (off: `{ 0, 0, 1, GM_ACCEL_LINEAR }`). With every encoder off it is 0 and the code compiles to nothing (the same image as before acceleration). RAM with it: 8 bytes per scanned encoder; the divides run only when an encoder moves.
+
+### MIDI messages
+
+Besides notes, 7-bit CCs, pitch bend, pressure and program changes, a control can send 14-bit CCs, NRPN and RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it (or lists it in `midi_messages.enable`), so a device that uses none of them gets the same image as before.
+
+```yaml
+midi_messages:                 # all optional
+  enable: [cc14, nrpn, program, panic, mmc]   # compile these in for the web page, even if nothing uses them yet
+  null_rpn: true               # after each NRPN / RPN message, the null RPN (101 / 100 = 127); default false
+  mmc_device_id: 0x7F          # the MMC target, 0..0x7F; default 0x7F (all devices)
+  sysex:                       # strings in hex, F0 to F7, with placeholders
+    - { id: gs_volume, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }   # Roland GS master volume
+    - { id: cutoff, data: "F0 43 ch 7F msb lsb F7" }
+
+buttons:
+  - { id: stop, pin: PB0, action: mmc, mmc: stop }
+  - { id: play, pin: PB1, action: mmc, mmc: play }
+  - { id: panic, pin: PB2, action: panic }
+  - { id: piano, pin: PB3, action: program, program: 0, bank: { msb: 121, lsb: 0 }, channel: 2 }
+  - { id: volume_max, pin: PB4, action: sysex, sysex: gs_volume, max: 100 }
+  - { id: sustain, pin: PB5, action: cc_momentary, cc: 64, min: 0, max: 100 }
+analog:
+  - { id: fader_1, pin: PA0, mode: cc14, cc: 7 }          # MSB on CC 7, LSB on CC 39
+  - { id: fader_2, pin: PA1, mode: nrpn14, nrpn: 1234 }
+  - { id: knob, pin: PA2, mode: sysex, sysex: cutoff, channel: 3 }
+  - { id: expr, pin: PA3, cc: 11, min: 127, max: 0 }      # reversed
+encoders:
+  - { id: encoder_1, pin_a: PB6, pin_b: PB7, cc: 20, mode: relative_sign }
+  - { id: encoder_2, pin_a: PB8, pin_b: PB9, mode: rpn14, rpn: 0 }   # pitch bend range
+```
+
+- **14-bit CC** (`mode: cc14`, analog inputs and encoders): the MSB on `cc` (0..31), then the LSB on `cc` + 32. A fader then has the ADC's resolution: it sends when it moves by 3 raw counts (half the pitch bend's noise step), so about 1300 steps over its travel instead of 128.
+- **NRPN and RPN** (`mode: nrpn`, `nrpn14`, `rpn`, `rpn14`; the number in `nrpn:` / `rpn:`, 0..16383): CC 99 / 98 (NRPN) or 101 / 100 (RPN) with the number's MSB and LSB, then data entry: CC 6 with the 7-bit value, or CC 6 and 38 with the 14-bit one. `null_rpn: true` adds the null RPN after each, so a later data entry from anything else goes nowhere. Every message sends the number again, so a receiver that missed one still gets the next.
+- **Numbers.** The number is the `analog.cc` / `encoder.cc` param, so a preset or the web page can change it. On a device with NRPN or RPN, those params go up to 16383; a CC mode then uses the number's low 7 bits. That costs no RAM, but on the stm32f1's packed store those values take 2 bytes instead of 1 ("Storage" in "Presets"; the builder counts it).
+- **Encoders.** `mode:` sets an encoder's default (`absolute`, the relative modes, or the absolute 14-bit / NRPN / RPN ones). `relative_sign` is sign-magnitude: 1..63 up, 65..127 down (some DAWs want this one, others two's complement or offset 64). An absolute 14-bit encoder moves 1/256 of its range per detent, or more with acceleration.
+- **Bank select.** `program` sends a Program Change of `program:` (0..127). `bank:` on a `program`, `program_next` or `program_prev` button sends Bank Select first: CC 0 = bank >> 7, then CC 32 = bank & 127. Give it as 0..16383 or as `{ msb, lsb }`. A preset takes `bank:` next to its `program:` (the `preset.bank` param, per preset).
+- **Panic** (`action: panic`): first gemifi lets go of what it holds, as a preset switch does: Note Off for held keys, note buttons and pads, CC momentary buttons back to their off value, ramps and pitch bend back. Then All Sound Off (120), All Notes Off (123) and Reset All Controllers (121) on all 16 channels, 144 bytes. The keys and buttons still held then send nothing when let go.
+- **MMC** (`action: mmc`, `mmc:` one of `stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset`, or a number 1..127): `F0 7F <device> 06 <command> F7` on press.
+- **SysEx strings** are fixed at build time and stored in flash. `data:` is hex bytes from F0 to F7. Placeholders: `v` the value (7-bit), `msb` / `lsb` its top and bottom 7 bits (a 14-bit value), `ch` the control's channel (0..15). `[ ... ] cs` is a Roland checksum: `cs` becomes (128 − (sum of the bytes in the brackets) % 128) % 128. A string sends at most 64 bytes. An analog input with `mode: sysex` sends it with its value; a button with `action: sysex` sends it with `max:` on press and `min:` on release (127 / 0, or 16383 / 0 for a 14-bit string; the release only if the string has a value). Its number is the string's index (`sysex:` takes the id).
+- **Channel, `min:` and `max:`** on a button, analog input or encoder (build time only). `channel:` (1..16) sends on that channel instead of `midi.channel`; pitch bend buttons stay on `midi.channel`. `min:` / `max:` map the value range onto min..max, in the mode's units (0..127, or 0..16383 in a 14-bit mode); min greater than max inverts it. A CC button sends `max` for on and `min` for off; a relative encoder with min > max turns the other way. Layer twins have their physical control's. They are tables in flash, not params: they are the same in every preset and the web page can't change them. Per-preset params would need a byte per control and preset, which the Code 61's store (4 slots, 1460 of 1744 B) doesn't have room for.
+- **What comes back.** Host feedback updates absolute encoders and pick-up for these kinds too: a 14-bit CC's MSB then LSB, and an NRPN or RPN (the device keeps the last number chosen on each channel, then takes CC 6 / 38). A control with a `channel:` listens on that channel.
+- **DIN MIDI.** SysEx and MMC go to DIN Out like other messages. With `cc14`, CCs 32-63 aren't coalesced, so an LSB never goes out before its MSB.
+- **The schema.** The new values have fixed numbers (`button.action` 17 program, 18 panic, 19 MMC, 20 SysEx; `analog.mode` 3..8; `encoder.mode` 3..8). An option a device was built without has an empty label: the firmware refuses it and the web page doesn't offer it (protocol/sysex.md §4.4).
+- **Cost.** Keystation Mini 32 with every kind on: +1.1 KB of flash and 44 bytes of RAM (26.7 of its 32 KB). Code 61: +1.7 KB, 32 bytes of RAM. With none on, +28 bytes (Keystation) and +64 bytes (Code 61). RAM with NRPN feedback: 32 bytes (the last number per channel).
+- **Generated:** `GM_MSG_CC14`, `GM_MSG_NRPN`, `GM_MSG_PROGRAM`, `GM_MSG_PANIC`, `GM_MSG_MMC`, `GM_N_SYSEX` (and `GM_NULL_RPN`, `GM_MMC_DEVICE`, `GM_SYSEX_MAX`) in `gm_device_config.h`; with them on, `GM_BTN_CTL`, `GM_ANALOG_CTL`, `GM_ENC_CTL` (`gm_button_ctl[]`, `gm_analog_ctl[]`, `gm_encoder_ctl[]`: `gm_ctl_t` min, max, channel), `GM_BTN_BANK` (`gm_button_bank[]`), `GM_ENC_MODES` (`gm_encoder_mode_defaults[]`) and `gm_sysex[]` (`gm_sysex_t`, `gm_device.h`).
+- **Tests:** `core/test` `test_msg` (`msg-test.yaml`), the builder's `TestMidiMessages`.
 
 ### LED looks (idle and active)
 
@@ -353,6 +399,33 @@ displays:
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
+## Layout
+
+`layout:` says where each control is on the device, so the web page can draw it and light up the control being moved (its Tester view and "Find a control"). The device sends it on request (GET_LAYOUT, `protocol/sysex.md` §4.7). Without `layout:` the firmware has no layout and pays nothing for it, and the page shows the controls as a list.
+
+```yaml
+layout:
+  size: [80, 30]               # optional: the drawing's size; default: just big enough
+  keys: [0, 12, 76, 14]        # optional: where key_matrix goes; default: under the controls
+  controls:
+    volume: { x: 1, y: 1, w: 4, h: 4 }        # by id
+    fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }
+    play: [11, 1]              # [x, y], with the shape's size
+    stop: [11, 4, 3, 2]        # [x, y, w, h]
+    xy_x: { x: 20, y: 1, w: 10, h: 10, shape: xy }   # one axis of an xy_pad draws the pad for both
+```
+
+- **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
+- **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. An id that names no control is a warning and isn't drawn, so a device built on a package can `!remove` a control the package's layout places. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
+- **Shapes.** Buttons: `button` (the default, 3 × 2), `round_button` (2 × 2), `pad`. Analog inputs: `knob` (the default, 3 × 3), `fader` (2 × 8), `wheel` (2 × 7), `xy` (8 × 8). Encoders: `encoder` (the default, 3 × 3), `knob`. Pads: `pad` (the default, 4 × 4), `button`, `round_button`. Displays: `display` (10 × 3). Without `w` and `h` a control takes its shape's size.
+- **Keys.** With a `key_matrix`, the builder adds the keys by itself: under the controls, from x 0, a white key 4 units wide and 14 high. `keys:` places them elsewhere. Which keys are black comes from `first_note`, so a keyboard needs nothing more.
+- **Cost.** 5 bytes, plus 8 a control (10 for the keys, 9 for an XY pad), and the GET_LAYOUT code (about 150 bytes on a NUC120). The Keystation's layout is 79 bytes, the Code 61's 616.
+- **Generated code:** `GM_LAYOUT_BYTES` in `gm_device_config.h` and `gm_layout[]`, the GET_LAYOUT blob, in `gm_device_config.c`.
+
+### Raw readings
+
+For calibrating and porting, a host can ask for the readings as the scan sees them (MONITOR and RAW, `protocol/sysex.md` §4.8): each button's pin, every contact of the key matrix, the ADC readings before `adc_min`/`adc_max`, encoder detent counts and pad pressure. The device sends one short message every 20 ms from the main loop, so the scan and the keys' MIDI aren't slowed, and stops by itself 5 s after the host's last request. The web page's Tester view uses it, and writes `adc_min`/`adc_max` from a pass of moving every control end to end. GET_COMPONENT reports each analog input's `adc_min` and `adc_max` for it. It costs about 700 bytes of flash on a NUC120 (`GM_MONITOR 0` in a build leaves it out).
+
 ## DIN MIDI
 
 The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). `din_midi.mode` sets how they reach USB:
@@ -411,11 +484,13 @@ i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub is used
 scan_interval: 125us           # matrix/encoder scan period
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
+midi_messages: { enable: [cc14] }   # 14-bit CC, NRPN, bank select, panic, MMC, SysEx ("MIDI messages")
 boot_combo: [pitch_down, pitch_up]  # button ids
 factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
 unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")
 status_led: edit_led           # blink codes ("Status LED")
 write_to_flash: false          # what the device stores on its own (below); host saves always work
+layout: { controls: { volume: [1, 1] } }   # where the controls are, for drawing the device ("Layout")
 
 cd74hc4051:
   - id: faders
@@ -551,7 +626,7 @@ factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
 
 #### Physical unlock
 
-Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.7). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
+Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.9). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
 
 ```yaml
 unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # hold: 0s (a press) .. 10s, default 2s
@@ -580,11 +655,56 @@ unlock: false              # off, the same as leaving it out
 | 3 flashes, pause, again | Started after the boot-loop fallback: the bootloader had stopped the app because it kept failing (protocol/sysex.md §6) |
 | 4 flashes, pause, again | Started after a watchdog reset or a crash |
 
-The flash codes show for the first 10 s after power-up (200 ms on, 300 ms off per flash, then 1.2 s dark), the most serious one if there are several (3, then 4, then 2). The diagnostics params (`diag.*`, protocol/sysex.md §4.8) say the same, and more, to a host.
+The flash codes show for the first 10 s after power-up (200 ms on, 300 ms off per flash, then 1.2 s dark), the most serious one if there are several (3, then 4, then 2). The diagnostics params (`diag.*`, protocol/sysex.md §4.10) say the same, and more, to a host.
 
 Generated code: `GM_STATUS_LED` (the LED index, -1 = none). Tests: `core/test` `test_controller` (the Keystation plus `unlock: true`: unlock, the window, the idle relock, the factory-reset combo, blink code 2, `diag.*`), `test_controller_wtf` (the Keystation as shipped: unlock compiled out, nothing replies LOCKED) and the NUC host-sim `run_presets.py` (its Makefile adds `unlock: true`; FACTORY_RESET locked, then unlocked, also through `gemifi.py`).
 
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
+
+**Editors.** The builder makes a JSON schema of this format (`gemifi_build.py schema`), published at https://cubicecho.github.io/gemifi/schema/device.json and with each release. With VS Code's YAML extension, a first line of `# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json` (the files in `devices/` have it) gives completion and marks unknown keys and wrong types. The builder still has the last word: the schema doesn't know which pins a chip has, which ids exist or what a platform can do. For the tags below, add `"yaml.customTags": ["!include scalar", "!include mapping", "!extend scalar", "!remove scalar"]` to the VS Code settings.
+
+### Packages and substitutions
+
+A device file can be built from other files, as in ESPHome. It all happens in the builder (`tools/builder/gemifi_yaml.py`), before validation, so the firmware is the same as if the file had been written out in full.
+
+```yaml
+substitutions:
+  node: my-keys
+  base_cc: 20
+packages:
+  keys: preset:keystation-mini32-mk3   # devices/keystation-mini32-mk3.yaml
+  pads: pads.yaml                      # next to this file
+  leds: !include { file: leds.yaml, vars: { first: 4 } }
+min_version: 0.34.0
+name: ${node}
+buttons:
+  - id: !extend sustain                # change one of the package's buttons
+    cc: ${base_cc}
+  - id: !remove oct_up                 # drop one
+  - id: extra                          # add one
+    pin: PB9
+    action: cc_toggle
+    cc: 21
+scan_interval: !remove                 # drop a key a package set (back to the default)
+factory_reset_combo: [oct_down, mod]   # the package's combo named oct_up: a key here replaces it
+```
+
+- **`packages:`** is a mapping of name: package, or a list of packages. A package is a part of a device file, merged under this one. It is a file name (relative to the file that names it), `preset:<name>` (`devices/<name>.yaml`), an `!include`, or a mapping written in place. Packages can have packages of their own. Remote packages (`github://...`) aren't supported yet.
+- **Merging.** Packages merge in order, then the device file goes on top. Mappings merge key by key. A list whose items all have an id (or a `name:` the id comes from) merges by id: an item with the same id as a package's replaces it in place, other items are added at the end. Any other list replaces the package's. A scalar replaces the package's. Key order is kept (it matters for hubs: their order is the file's).
+- **`- id: !extend <id>`** merges the item's other keys into the package's item with that id, instead of replacing it. **`- id: !remove <id>`** drops that item. Both are errors when no package brought that id in. **`key: !remove`** drops a key a package set.
+- **`!include file.yaml`** puts that file's content in place of the value, anywhere. `!include { file: f.yaml, vars: { name: value } }` also sets substitutions for that file only.
+- **`substitutions:`** is a mapping of name: value (text or a number). `${name}` is replaced in every string value. A value that is only `${name}` takes the substitution's type, so `cc: ${base_cc}` is a number. Substitutions can use other substitutions. Packages can bring substitutions; the device file's win, and `gemifi_build.py validate|generate|build ... -s NAME VALUE` wins over both. An unknown `${name}` is an error. Inside `{ ... }`, quote a value that has `${` in it: `{ cc: "${base_cc}" }` (YAML reads the braces otherwise). Keys and ids from a package are matched before substitutions are made, so `!extend` an id as the package writes it (or give the package's ids through `vars:`).
+- **`min_version: x.y.z`** in any of the files: the builder refuses to build with an older version, and says which one is needed. The builder's version is `VERSION` in `tools/builder/gemifi_device.py` (set at each release).
+- **Errors** in a package or an included file give that file and its line (`pads.yaml:12: error: ...`). The dashboard shows them with the file's name and doesn't jump to them.
+- **The dashboard's "new device from a preset"** (and `gemifi_build.py new`) writes a short file that uses the preset as a package, so it follows the preset when gemifi updates it. `gemifi_build.py new --copy` copies the preset instead.
+
+### Config hash
+
+The builder hashes the resolved config (after packages, includes and substitutions) and bakes it into the firmware as `GM_CONFIG_HASH` in `gm_device_config.h`. The device reports it as the read-only param `config.hash` (id 39, protocol/sysex.md §4.4), so a host can tell which config a device runs. The web page shows it in the device info. With the dashboard, it also says whether the device runs the config of each file with its node name: this config, the file's last build (the file has changed since), or a different config.
+
+- **What is hashed:** the resolved tree as one line of JSON (UTF-8, no spaces): mappings in file order, lists in order, every scalar as `"<type>:<text>"`, e.g. `"int:0x40"`, `"str:Sustain"`, `"bool:true"` (the text as written, after substitutions). Comments, layout, `substitutions:`, `packages:`, `min_version:` and how the config is split into files don't count; two files hash the same when they read the same, key order included. The value is the first 4 bytes of the SHA-256, big-endian, with the top bit cleared (0..0x7FFFFFFF).
+- `gemifi_build.py build` prints it (`config hash: 09754273`) and leaves it in `<out>/config.hash`.
+- It costs about 80 bytes of flash and 4 of RAM. Firmware built before it has no `config.hash`.
 
 ## Presets
 
@@ -613,7 +733,7 @@ presets:
 
 - **Slot 1** is the first list entry (or "Default" when the list is empty); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (one preset: they do nothing). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
-- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `cc`, `note`, `preset`, `mcu`), `analog.cc`/`analog.mode`, `encoder.cc`/`encoder.mode`, `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
+- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `cc`, `note`, `preset`, `mcu`, `program`, `mmc`, `sysex`), `analog.cc`/`analog.mode` (`cc`, `mode`, `nrpn`, `rpn`, `sysex`), `encoder.cc`/`encoder.mode` (`cc`, `mode`, `nrpn`, `rpn`), `bank` (`preset.bank`, with `program`: "MIDI messages"), `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
 - **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
 - **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its 3 config pages of 1 KB: there the Code 61 fits up to 5 slots.
 
@@ -918,6 +1038,8 @@ encoders:
 #define GM_USB_DAW_PORT 0                 /* 1: second USB-MIDI cable (then also GM_DAW_PORT_NAME) */
 /* write_to_flash ("Writes the device makes on its own") */
 #define GM_ENC_ACCEL 0                    /* 1: gm_enc_accel[] (encoder acceleration:) */
+#define GM_MSG_CC14 0                     /* "MIDI messages": the kinds compiled in (also GM_MSG_NRPN, */
+#define GM_N_SYSEX 0                      /* _PROGRAM, _PANIC, _MMC; GM_BTN_CTL, ... for the tables) */
 #define GM_WRITE_LAST_PRESET 0            /* 1: store preset.active on its own once quiet */
 #define GM_WRITE_DELAY_MS 10000u          /* write_to_flash.delay */
 #define GM_WRITE_IDLE_MS 3000u            /* write_to_flash.idle */
@@ -935,4 +1057,4 @@ encoders:
 #define GM_I2C_SCL 9                      /* otherwise the board's default Wire pins */
 ```
 Optional build flags on ESP: `GM_MIDI_BAUD` (serial transport, default 115200), `GM_FW_VERSION` (`major << 24 | minor << 16 | patch`; normally set by the YAML `project: { version }`).
-`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Only when the YAML uses them: `gm_led_fb[]` (`GM_LED_FB`), `gm_analog_pickup[]` (`GM_ANALOG_PICKUP`), `gm_analog_mcu[]`, `gm_encoder_mcu[]`, `gm_encoder_ring[]` (`GM_MCU`), `gm_enc_accel[]` (`GM_ENC_ACCEL`, "Encoder acceleration"). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.
+`gm_device_config.c`: `const gm_device_t gm_device = {...}` with its tables, and the default arrays `gm_button_action_defaults[]`, `gm_button_number_defaults[]`, `gm_analog_cc_defaults[]`, `gm_encoder_cc_defaults[]` (each at least one element long, so a count of 0 still compiles). Only when the YAML uses them: `gm_led_fb[]` (`GM_LED_FB`), `gm_analog_pickup[]` (`GM_ANALOG_PICKUP`), `gm_analog_mcu[]`, `gm_encoder_mcu[]`, `gm_encoder_ring[]` (`GM_MCU`), `gm_enc_accel[]` (`GM_ENC_ACCEL`, "Encoder acceleration"), the "MIDI messages" tables (`gm_button_ctl[]`, `gm_analog_ctl[]`, `gm_encoder_ctl[]`, `gm_button_bank[]`, `gm_encoder_mode_defaults[]`, `gm_sysex[]`). Plain `make` (firmware and `core/test`) generates them from `devices/keystation-mini32-mk3.yaml` into the build dir.

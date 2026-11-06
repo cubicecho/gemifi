@@ -385,7 +385,7 @@ describe('update mode on Windows and after a reload', () => {
     expect(outcome.kind).toBe('done');
     expect(log.some((line) => line.includes('quota'))).toBe(true);
   });
-  it('stops when the app answered LOCKED and was not unlocked (§4.7)', async () => {
+  it('stops when the app answered LOCKED and was not unlocked (§4.9)', async () => {
     const ports: ProbePort[] = [{ id: 'gemifi', name: 'gemifi (code61)', selected: true, transport: new FakePort() }];
     const run = vendorUpdate({
       records,

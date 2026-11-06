@@ -21,7 +21,7 @@ function unlockReply(state: number, window: number, holdMs: number, buttons: str
   return [state, window, ...encodeU14(holdMs), buttons.length, ...buttons.flatMap(encodeLstring)];
 }
 
-/** An app with physical unlock (§4.7): FACTORY_RESET, REBOOT(1) and FW_BEGIN answer LOCKED until unlocked. */
+/** An app with physical unlock (§4.9): FACTORY_RESET, REBOOT(1) and FW_BEGIN answer LOCKED until unlocked. */
 class FakeLockedDevice {
   isUnlocked = false;
   /** Seconds the unlock window has left; a LOCKED reply opens it. */
@@ -126,7 +126,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('UNLOCK codec (§4.7)', () => {
+describe('UNLOCK codec (§4.9)', () => {
   it('builds the request: open 0 or 1', () => {
     expect(unlockPayload(false)).toEqual([0]);
     expect(unlockPayload(true)).toEqual([1]);
@@ -173,7 +173,7 @@ describe('UNLOCK codec (§4.7)', () => {
   });
 });
 
-describe('a LOCKED reply (§4.7)', () => {
+describe('a LOCKED reply (§4.9)', () => {
   it('asks UNLOCK, offers the prompt, waits for UNLOCKED and sends the request again', async () => {
     const device = new FakeLockedDevice();
     const client = new SysexClient(device.transport(), FAST);

@@ -7,7 +7,7 @@ const TICK_MS = 250;
 const MS_PER_SECOND = 1000;
 
 /**
- * The unlock prompt (§4.7) of the connected device's client: set while a request that answered
+ * The unlock prompt (§4.9) of the connected device's client: set while a request that answered
  * LOCKED waits for the user to unlock the device.
  *
  * @param client - The connected device, or null.

@@ -9,7 +9,7 @@ export interface RequestSettings {
   /** How many times a request is resent after the first try before giving up. */
   maxRetries: number;
   /**
-   * After a LOCKED reply (§4.7): how long past the end of the device's unlock window to keep
+   * After a LOCKED reply (§4.9): how long past the end of the device's unlock window to keep
    * waiting for UNLOCKED before giving up.
    */
   unlockGraceMs: number;

@@ -686,7 +686,7 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<Vendor
     try {
       await options.request();
     } catch (error) {
-      // A locked app that was not unlocked (§4.7) set no update request: a power cycle would not help.
+      // A locked app that was not unlocked (§4.9) set no update request: a power cycle would not help.
       const isNotUnlocked =
         error instanceof RequestError &&
         (error.failure === RequestFailure.Locked || error.failure === RequestFailure.Aborted);

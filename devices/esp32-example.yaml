@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # Example ESP32-S3 USB MIDI controller (gemifi ESP platform reference).
 # The default device of firmware/esp/midi-controller (esp32s2 / esp32s3).
 # Pins are for an ESP32-S3-DevKitC-1.

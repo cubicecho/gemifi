@@ -269,6 +269,7 @@ python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # 
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
 python3 tools/host/gemifi.py presets | preset select|save|reset|rename|delete|move     # presets, below
 python3 tools/host/gemifi.py components | fb led|rgb|leds|value|ring|text|release   # host feedback, below
+python3 tools/host/gemifi.py layout | monitor [buttons|matrix|analog|encoders|pads]   # layout, raw readings, below
 cd tools/host && python3 -m unittest            # codec, mkimage, upload against a simulated bootloader, vectors
 python3 tools/host/make_test_vectors.py         # regenerate protocol/test-vectors.json (--check to compare)
 ```
@@ -288,7 +289,7 @@ On a device with presets it also backs up before step 2 and checks the presets a
 
 It picks the path from HELLO: a device whose **app** answers with role 0, caps bit 0 (firmware upload) and a non-zero `max_chunk` takes the upload itself (A/B slots, below), and is never rebooted into a bootloader.
 
-**Physical unlock** (HELLO caps bit 10, `protocol/sysex.md` §4.7). Opt-in: only a device whose YAML sets `unlock:` has it (the shipped device files leave it off). On such a device, REBOOT(1) (`reboot boot`, and step 2 of a flash), an A/B FW_BEGIN and FACTORY_RESET first reply LOCKED. The tool then prints what to do, for example `Hold Pitch down + Pitch up on the device for 2 s`, and waits (the unlock window, 30 s, plus 5 s). Once you hold the combo, the device sends UNLOCKED and the tool sends the request again. If the window closes first, it stops with "device not unlocked". `gemifi.py unlock` does the unlock on its own, before a flash or a reset. The device locks again after 5 minutes without a request, and on a reboot. `gemifi.py hello --diag` shows why the app last started (reset reason, boot-loop guard, settings) and its scan timings (§4.8).
+**Physical unlock** (HELLO caps bit 10, `protocol/sysex.md` §4.9). Opt-in: only a device whose YAML sets `unlock:` has it (the shipped device files leave it off). On such a device, REBOOT(1) (`reboot boot`, and step 2 of a flash), an A/B FW_BEGIN and FACTORY_RESET first reply LOCKED. The tool then prints what to do, for example `Hold Pitch down + Pitch up on the device for 2 s`, and waits (the unlock window, 30 s, plus 5 s). Once you hold the combo, the device sends UNLOCKED and the tool sends the request again. If the window closes first, it stops with "device not unlocked". `gemifi.py unlock` does the unlock on its own, before a flash or a reset. The device locks again after 5 minutes without a request, and on a reboot. `gemifi.py hello --diag` shows why the app last started (reset reason, boot-loop guard, settings) and its scan timings (§4.10).
 
 ### ESP32 / ESP8266
 
@@ -404,6 +405,17 @@ gemifi.py preset move 3 up [--yes]         # one step: up / down
 **Presets and firmware updates (`flash`).**
 - Before the upload, on a device with presets, `flash` saves a backup to `gemifi-backup-<board>-<version>-<time>.json` in the current directory. `--backup FILE` picks the name (and also works on a device without presets); `--no-backup` skips it. If the device is already in the bootloader, there is nothing to read, and it says so.
 - After the upload, it reads PRESET_INFO for every slot. If a slot's stored edits were made on another presets revision (the firmware's YAML presets changed), it lists them and asks: keep your edits on top of the new presets (Enter, the default), or use the firmware's presets (PRESET_RESET on every slot; names too; the globals stay). `--keep-presets` and `--use-firmware-presets` answer in advance. Either way, `gemifi.py restore <backup>` undoes it.
+
+### Layout and raw readings (`gemifi.py`, HELLO caps bits 8 and 9)
+
+`protocol/sysex.md` §4.7 and §4.8. For porting and calibrating a controller from a terminal; the web page's Tester view shows the same.
+
+```sh
+gemifi.py layout [--json]                   # where the controls are: kind, index, shape, x, y, size (YAML layout:)
+gemifi.py monitor [KIND...] [--seconds S]   # raw readings as they change: buttons, matrix, analog, encoders, pads
+```
+
+`monitor` prints a line each time a kind's readings change: the buttons pressed (the pin, before debounce), the key matrix rows (`#` = contact closed), the ADC readings before `adc_min`/`adc_max` (`-` = an XY pad not touched), the encoders' detent counts and the pads' pressure. It renews MONITOR every 2 s and stops the stream on the way out; the device stops by itself 5 s after the last one anyway.
 
 ### Host feedback (`gemifi.py`, app firmware with HELLO caps bit 6)
 

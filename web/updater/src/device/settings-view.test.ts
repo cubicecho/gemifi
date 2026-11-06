@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { layoutSchema } from '../protocol/schema.ts';
 import { makeParam } from '../protocol/test-support.ts';
-import { ParamFlag, PresetParam } from '../protocol/wire.ts';
-import { settingsSections, splitByScope } from './settings-view.tsx';
+import { ParamFlag, ParamType, PresetParam } from '../protocol/wire.ts';
+import { enumOptions, settingsSections, splitByScope } from './settings-view.tsx';
 
 const P = ParamFlag.Preset;
+
+describe('enumOptions', () => {
+  it('leaves out the options the firmware has no label for', () => {
+    const param = makeParam({
+      id: 9,
+      name: 'button.action',
+      label: 'Action',
+      type: ParamType.Enum,
+      min: 0,
+      max: 3,
+      options: ['None', '', 'Panic', 'MMC'],
+    });
+    expect(enumOptions(param)).toEqual([
+      { value: '0', label: 'None' },
+      { value: '2', label: 'Panic' },
+      { value: '3', label: 'MMC' },
+    ]);
+  });
+});
 
 describe('splitByScope', () => {
   const schema = {
@@ -45,7 +64,7 @@ describe('splitByScope', () => {
 });
 
 describe('settingsSections', () => {
-  it('leaves the diagnostics (§4.8) to the Device card, and keeps the rest of Debug', () => {
+  it('leaves the diagnostics (§4.10) to the Device card, and keeps the rest of Debug', () => {
     const RO = ParamFlag.ReadOnly | ParamFlag.Volatile;
     const schema = {
       version: 1,

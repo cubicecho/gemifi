@@ -102,6 +102,20 @@
       ],
       "params": ["analog.cc"],
       "yaml": "analog:\n  - { id: fader_1, pin: PA0, cc: 20, daw: volume_1, touch: movement }\nbuttons:\n  - { id: play, pin: PB4, action: cc_momentary, cc: 118, daw: play }\n  - { id: back, pin: PB5, action: cc_momentary, cc: 119, daw: nav_back }\n  - { id: panic, pin: PB6, action: cc_momentary, cc: 3, daw: zynthian.all_notes_off }\n"
+    },
+    {
+      "id": "layout",
+      "title": "Layout",
+      "summary": "layout: says where each control is, so the web page can draw the device and light up the control being moved (the Tester view, Find a control). Units are about 5 mm, from the top left.",
+      "notes": [
+        "Each control by its id: [x, y], [x, y, w, h], or { x, y, w, h, shape }. A control left out isn't drawn; the page lists it under the drawing.",
+        "Shapes: button, round_button, pad (buttons and pads); knob, fader, wheel, xy (analog inputs); encoder, knob (encoders); display. Without shape: a button, a knob, an encoder, a pad or a display, with a size to match.",
+        "The keys of key_matrix go under the controls by themselves, a white key 4 units wide. keys: [x, y, w, h] places them elsewhere.",
+        "shape: xy on one axis of an xy_pad draws the pad once, for both axes.",
+        "Without layout: the firmware has no layout and pays nothing for it."
+      ],
+      "params": [],
+      "yaml": "analog:\n  - { id: volume, pin: PA0, cc: 7 }\n  - { id: fader_1, pin: PA1, cc: 20 }\nbuttons:\n  - { id: play, pin: PB4, action: cc_momentary, cc: 118 }\n  - { id: stop, pin: PB5, action: cc_momentary, cc: 117 }\nlayout:\n  controls:\n    volume: { x: 1, y: 1, w: 4, h: 4 }\n    fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }\n    play: [11, 1]\n    stop: [11, 4]\n"
     }
   ]
 }

@@ -3146,5 +3146,128 @@ class TestDashboardServing(unittest.TestCase):
                     os.environ[k] = v
 
 
+LAYOUT_NUC = MINIMAL_NUC + """\
+  - { id: b, pin: PA2 }
+analog:
+  - { id: vol, pin: PA0, cc: 7 }
+key_matrix:
+  type: velocity
+  rows: [PA8, PA9, PC0, PC1, PC2, PC3, PC6, PC7]
+  columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
+  keys: 32
+  first_note: 48
+"""
+
+
+def layout(body, base=LAYOUT_NUC):
+    """base + a layout: block (body: the lines under it, indented by 2)."""
+    return base + "layout:\n" + "".join(f"  {ln}\n" for ln in body.strip("\n").split("\n"))
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestLayout(unittest.TestCase):
+    """layout: (core/README.md "Layout") and the GET_LAYOUT blob it becomes (sysex.md 4.7)."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return dev, files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def test_none_without_layout(self):
+        """No layout: no blob and no GM_LAYOUT_BYTES, so the firmware has no GET_LAYOUT (no flash cost)."""
+        dev, h, c = self.gen(LAYOUT_NUC)
+        self.assertIsNone(dev.layout)
+        self.assertNotIn("GM_LAYOUT_BYTES", h)
+        self.assertNotIn("gm_layout", c)
+
+    def test_controls_and_generated_keys(self):
+        """Controls where the YAML puts them, default sizes by shape, and the keys under them: 19 white keys of 4
+        units from C3, with the key count and first note."""
+        dev, h, c = self.gen(layout("controls:\n  vol: { x: 1, y: 1 }\n  a: [6, 1]\n  b: [10, 1, 4, 3]\n"))
+        width, height, items = dev.layout
+        got = [(it.kind, it.index, it.shape, it.x, it.y, it.w, it.h, it.extra) for it in items]
+        self.assertEqual(got, [(3, 0, 2, 1, 1, 3, 3, []), (1, 0, 0, 6, 1, 3, 2, []), (1, 1, 0, 10, 1, 4, 3, []),
+                               (2, 0, 8, 0, 5, 76, 14, [32, 48])])
+        self.assertEqual((width, height), (76, 19))
+        blob = gd.layout_blob(dev)
+        self.assertEqual(blob[:5], bytes([1, 76, 19, 4, 0]))
+        self.assertEqual(blob[5:13], bytes([7, 3, 0, 2, 1, 1, 3, 3]))
+        self.assertEqual(blob[-10:], bytes([9, 2, 0, 8, 0, 5, 76, 14, 32, 48]))
+        self.assertIn(f"#define GM_LAYOUT_BYTES {len(blob)} ", h)
+        self.assertIn("const uint8_t gm_layout[GM_LAYOUT_BYTES] = {", c)
+        self.assertIn("    9, 2, 0, 8, 0, 5, 76, 14, 32, 48, /* keys: keys */", c)
+        # the host codec reads it back
+        sys.path.insert(0, os.path.join(REPO, "tools", "host"))
+        import gemifi_proto as gp
+        lay = gp.parse_layout(blob)
+        self.assertEqual(gp.build_layout(lay), blob)
+
+    def test_keys_placed_and_size(self):
+        dev, _h, _c = self.gen(layout("size: [90, 30]\nkeys: { x: 2, y: 10, w: 80, h: 18 }\ncontrols:\n  a: [0, 0]\n"))
+        width, height, items = dev.layout
+        self.assertEqual((width, height), (90, 30))
+        self.assertEqual((items[-1].x, items[-1].y, items[-1].w, items[-1].h), (2, 10, 80, 18))
+        self.assertError(layout("size: [20, 10]\ncontrols:\n  a: [0, 0]\n"),
+                         r"20 x 10 is smaller than what is placed \(76 x 17\)")
+        self.assertError(layout("keys: { x: 0, y: 0, shape: knob }\n"), r"the keys are always drawn as keys")
+        self.assertError(layout("controls:\n  a: [0, 0]\n", MINIMAL_NUC + "  - { id: b, pin: PA2 }\n") +
+                         "  keys: [0, 4]\n", r"the device has no key_matrix")
+        # only keys: the keyboard alone is a layout
+        dev, _h, _c = self.gen(layout("keys: [0, 0]\n"))
+        self.assertEqual(len(dev.layout[2]), 1)
+
+    def test_errors(self):
+        self.assertError(layout("controls:\n  volume: [0, 0]\n"), r"no control with id 'volume'.*did you mean 'vol'")
+        self.assertError(layout("controls:\n  vol: [0]\n"), r"must be \[x, y\] or \[x, y, w, h\]")
+        self.assertError(layout("controls:\n  vol: { x: 0 }\n"), r"is required", path="layout.controls.vol.y")
+        self.assertError(layout("controls:\n  vol: { x: 0, y: 0, shape: slider }\n"), r"unknown shape 'slider'")
+        self.assertError(layout("controls:\n  a: { x: 0, y: 0, shape: fader }\n"),
+                         r"a button can't be drawn as 'fader' \(use button \| round_button \| pad\)")
+        self.assertError(layout("controls:\n  vol: { x: 0, y: 0, shape: xy }\n"), r"isn't on an xy_pad hub")
+        self.assertError(layout("controls:\n  a: [250, 0, 10, 2]\n"), r"reaches past 255 units")
+        self.assertError(layout("controls:\n  a: [0, 0, 0, 2]\n"), r"out of range|at least 1")
+        self.assertError(layout("bogus: 1\n"), r"unknown key")
+        led = LAYOUT_NUC + "leds:\n  - { id: l, pin: PA12 }\n"
+        self.assertError(layout("controls:\n  l: [0, 0]\n", led), r"'l' is an LED: layout: places buttons")
+
+    def test_xy_pad(self):
+        """One entry with shape: xy draws both axes: index = the X analog, then y_index."""
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        base = (stm + "xy_pad:\n  - { id: xy, x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10 }\n"
+                "analog:\n  - { id: knob, pin: PA0, cc: 7 }\n  - { id: ay, pin: { xy_pad: xy, number: y }, cc: 17 }\n"
+                "  - { id: ax, pin: { xy_pad: xy, number: x }, cc: 16 }\n")
+        dev, _h, _c = self.gen(layout("controls:\n  ay: { x: 0, y: 0, w: 10, h: 10, shape: xy }\n", base))
+        it = dev.layout[2][0]
+        self.assertEqual((it.kind, it.index, it.shape, it.extra), (3, 2, 9, [1]))
+        self.assertError(layout("controls:\n  ax: { x: 0, y: 0, shape: xy }\n  ay: { x: 9, y: 0, shape: xy }\n", base),
+                         r"xy_pad 'xy' is already placed")
+        self.assertError(layout("controls:\n  ax: { x: 0, y: 0, shape: xy }\n  ay: [9, 0]\n", base),
+                         r"'ay' is already placed")
+
+    def test_layer_twin_refused(self):
+        text = modes(TestModes.GRID + "    kick: { daw: clip_1_1 }\n", TestModes.LAYER_BASE)
+        self.assertClean(layout("controls:\n  kick: [0, 0]\n  sel: [5, 0]\n", text))
+        self.assertError(layout("controls:\n  kick_grid: [0, 0]\n", text), r"'kick_grid' is a layer twin")
+        self.assertError(layout("controls:\n  sel_grid: [0, 0]\n", modes(TestModes.GRID + "    sel: { cc: 9 }\n",
+                                                                           TestModes.LAYER_BASE)),
+                         r"'sel_grid' is a layer twin")
+
+    def test_devices(self):
+        """The Keystation and the Code 61 have layouts: every control drawn once, inside the drawing."""
+        for name, n in (("keystation-mini32-mk3.yaml", 9), ("m-audio-code61.yaml", 76)):
+            dev, diags = gd.load_device(os.path.join(REPO, "devices", name))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            width, height, items = dev.layout
+            self.assertEqual(len(items), n, name)
+            self.assertTrue(all(it.x + it.w <= width and it.y + it.h <= height for it in items))
+            keys = [it for it in items if it.shape == gd.LAYOUT_SHAPES["keys"]]
+            self.assertEqual(len(keys), 1)
+            self.assertEqual(keys[0].extra, [dev.matrix.keys, dev.matrix.first_note])
+
+
 if __name__ == "__main__":
     unittest.main()

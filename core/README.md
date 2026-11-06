@@ -353,6 +353,33 @@ displays:
 - **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
 - **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
 
+## Layout
+
+`layout:` says where each control is on the device, so the web page can draw it and light up the control being moved (its Tester view and "Find a control"). The device sends it on request (GET_LAYOUT, `protocol/sysex.md` §4.7). Without `layout:` the firmware has no layout and pays nothing for it, and the page shows the controls as a list.
+
+```yaml
+layout:
+  size: [80, 30]               # optional: the drawing's size; default: just big enough
+  keys: [0, 12, 76, 14]        # optional: where key_matrix goes; default: under the controls
+  controls:
+    volume: { x: 1, y: 1, w: 4, h: 4 }        # by id
+    fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }
+    play: [11, 1]              # [x, y], with the shape's size
+    stop: [11, 4, 3, 2]        # [x, y, w, h]
+    xy_x: { x: 20, y: 1, w: 10, h: 10, shape: xy }   # one axis of an xy_pad draws the pad for both
+```
+
+- **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
+- **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
+- **Shapes.** Buttons: `button` (the default, 3 × 2), `round_button` (2 × 2), `pad`. Analog inputs: `knob` (the default, 3 × 3), `fader` (2 × 8), `wheel` (2 × 7), `xy` (8 × 8). Encoders: `encoder` (the default, 3 × 3), `knob`. Pads: `pad` (the default, 4 × 4), `button`, `round_button`. Displays: `display` (10 × 3). Without `w` and `h` a control takes its shape's size.
+- **Keys.** With a `key_matrix`, the builder adds the keys by itself: under the controls, from x 0, a white key 4 units wide and 14 high. `keys:` places them elsewhere. Which keys are black comes from `first_note`, so a keyboard needs nothing more.
+- **Cost.** 5 bytes, plus 8 a control (10 for the keys, 9 for an XY pad), and the GET_LAYOUT code (about 150 bytes on a NUC120). The Keystation's layout is 79 bytes, the Code 61's 616.
+- **Generated code:** `GM_LAYOUT_BYTES` in `gm_device_config.h` and `gm_layout[]`, the GET_LAYOUT blob, in `gm_device_config.c`.
+
+### Raw readings
+
+For calibrating and porting, a host can ask for the readings as the scan sees them (MONITOR and RAW, `protocol/sysex.md` §4.8): each button's pin, every contact of the key matrix, the ADC readings before `adc_min`/`adc_max`, encoder detent counts and pad pressure. The device sends one short message every 20 ms from the main loop, so the scan and the keys' MIDI aren't slowed, and stops by itself 5 s after the host's last request. The web page's Tester view uses it, and writes `adc_min`/`adc_max` from a pass of moving every control end to end. GET_COMPONENT reports each analog input's `adc_min` and `adc_max` for it. It costs about 700 bytes of flash on a NUC120 (`GM_MONITOR 0` in a build leaves it out).
+
 ## DIN MIDI
 
 The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). `din_midi.mode` sets how they reach USB:
@@ -413,6 +440,7 @@ hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer +
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
 boot_combo: [pitch_down, pitch_up]  # button ids
 write_to_flash: false          # what the device stores on its own (below); host saves always work
+layout: { controls: { volume: [1, 1] } }   # where the controls are, for drawing the device ("Layout")
 
 cd74hc4051:
   - id: faders

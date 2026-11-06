@@ -26,20 +26,41 @@ FORMAT_VERSION = 2
 VERSION = "0.34.0"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
-# actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section.
+# actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
+# MIDI message actions (17-20) are compiled in only on devices that use them (MSG_ACTIONS).
 ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note": 4, "octave_down": 5,
               "octave_up": 6, "transpose_down": 7, "transpose_up": 8, "bend_down": 9, "bend_up": 10,
               "program_next": 11, "program_prev": 12, "preset_next": 13, "preset_prev": 14,
-              "preset_select": 15, "mcu": 16}
+              "preset_select": 15, "mcu": 16, "program": 17, "panic": 18, "mmc": 19, "sysex": 20}
 ACTIONS = list(ACTION_IDS)
 CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
 PRESET_ACTIONS = {"preset_next", "preset_prev", "preset_select"}
-NUMBER_KEYS = ("cc", "note", "preset")      # the YAML keys that give button.number (mcu: aside)
+PROGRAM_ACTIONS = {"program_next", "program_prev", "program"}     # these take bank:
+# the YAML keys that give button.number (mcu: aside)
+NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
 
 
 def number_key(act):
     """The key that gives button.number for an action (None: the action takes no number)."""
+    if act in ("program", "mmc", "sysex"):
+        return act
     return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
+
+
+# ---- MIDI messages (core/README.md "MIDI messages") ----
+# The message kinds a firmware may compile in (gm_settings.h GM_MSG_*): each is on when the YAML uses it
+# or lists it in midi_messages.enable. sysex is on when midi_messages.sysex has strings.
+MSG_FEATURES = ["cc14", "nrpn", "program", "panic", "mmc"]
+MSG_ALIASES = {"rpn": "nrpn", "bank_select": "program"}
+MSG_ACTIONS = {"program": "program", "panic": "panic", "mmc": "mmc", "sysex": "sysex"}   # action -> feature
+# MMC commands (MIDI 1.0 MMC, `F0 7F dev 06 cmd F7`): the YAML's mmc: names -> button.number
+MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
+                "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
+SYSEX_MAX = 64              # bytes of one sent SysEx string (the stack buffer in controller.c)
+SYSEX_TOKENS = {"v": 0x80, "msb": 0x81, "lsb": 0x82, "ch": 0x83}   # gm_device.h GM_SX_*
+SX_SUM_START, SX_SUM = 0x84, 0x85
+BANK_NONE = 0xFFFF          # gm_device.h GM_BANK_NONE
+CTL_TOP = 0xFFFF            # gm_device.h GM_CTL_TOP
 
 
 # ---- params and their scope (research/core/presets-design.md §1, §10.3) ----
@@ -106,6 +127,8 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("layer.encoder.cc", 37, GLOBAL, lambda d: _twins(d.encoders)),
     ("layer.encoder.mode", 38, GLOBAL, lambda d: _twins(d.encoders)),
     ("config.hash", 39, VOLATILE, lambda d: 1),     # read-only: the resolved YAML's hash (gemifi_yaml.py)
+    # MIDI messages (core/README.md "MIDI messages"): ids 41-59
+    ("preset.bank", 41, PRESET, lambda d: 1 if d.n_presets > 1 and "program" in getattr(d, "msg", ()) else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
@@ -136,7 +159,9 @@ DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # value fits a byte. The packed stm32f1 record (platform/stm32f1/src/config_store.c) sizes its groups
 # from this, so keep it in step with settings.c (test_builder checks it).
 WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
-               "pad.threshold", "pad.release", "pad.full", "pad.retrigger"}
+               "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank"}
+# ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
+NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
 PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
 
@@ -153,8 +178,14 @@ def stored_counts(dev):
 # Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
 # enum's YAML names in value order.
 CURVES = ["normal", "soft", "hard", "fixed"]
-ENC_MODES = ["absolute", "relative_twos", "relative_offset"]
-ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure"]    # analog.mode (gm_settings.h AN_MODE_*)
+# encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
+# (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
+ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
+             "rpn", "rpn14"]
+ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure", "cc14", "nrpn", "nrpn14", "rpn", "rpn14", "sysex"]
+MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
+MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
+WIDE_MODES = {"cc14", "nrpn14", "rpn14"}       # 14-bit values (a SysEx string with msb / lsb too)
 PRESET_GLOBALS = {
     "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
              "transpose": ("midi.transpose", 0, "int", -24, 24),
@@ -179,15 +210,16 @@ PRESET_NOT_HERE = {
 }
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
-    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu"], ["id", "name", "pin", "led", "daw"]),
-    "analog": ("analog input", "analog inputs", ["cc", "mode"],
-               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw"]),
-    "encoders": ("encoder", "encoders", ["cc", "mode"],
+    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu", "program", "mmc", "sysex"],
+                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank"]),
+    "analog": ("analog input", "analog inputs", ["cc", "mode", "nrpn", "rpn", "sysex"],
+               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw", "channel", "min", "max"]),
+    "encoders": ("encoder", "encoders", ["cc", "mode", "nrpn", "rpn"],
                  ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
-                  "acceleration"]),
+                  "acceleration", "channel", "min", "max"]),
     "pads": ("pad", "pads", ["note"], ["id", "name", "pin"]),
 }
-PRESET_KEYS = ["name", "program", *PRESET_GLOBALS, *PRESET_COMPONENTS]
+PRESET_KEYS = ["name", "program", "bank", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]
 MAX_PRESETS = 64
 PRESET_NAME_LEN = 16           # config_store.h CS_NAME_LEN
@@ -332,7 +364,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash"]
+            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash", "midi_messages"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
@@ -348,10 +380,12 @@ HW_SCAN_MATRIX_KEYS = ["row_time", "settle", "precharge", "timer"]
 HW_SCAN_ANALOG_KEYS = ["timer"]
 LED_DEFAULTS_KEYS = ["idle", "active"]
 LED_KEYS = ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback", "owner", "timeout", "daw"]
-BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw"]
-ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw"]
+BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
+               "bank", "channel", "min", "max"]
+ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw", "nrpn",
+               "rpn", "sysex", "channel", "min", "max"]
 ENCODER_KEYS = ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
-                "acceleration"]
+                "acceleration", "mode", "nrpn", "rpn", "channel", "min", "max"]
 MATRIX_KEYS = ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle", "velocity", "daw"]
 VELOCITY_KEYS = ["fast", "slow"]
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
@@ -839,6 +873,13 @@ class Hub:
 
 class Device:
     def __init__(self):
+        self.msg = set()             # MIDI message kinds compiled in (MSG_FEATURES, "sysex"): msg_features()
+        self.msg_used = set()        # ... those the YAML uses
+        self.msg_enable = set()      # ... and midi_messages.enable
+        self.sysex = []              # midi_messages.sysex: Hub(id, data (bytes, GM_SX_* codes), flags)
+        self.sysex_ids = {}
+        self.null_rpn = False
+        self.mmc_id = 0x7F
         self.hubs, self.buttons, self.leds, self.analogs, self.encoders = [], [], [], [], []
         self.matrix = None
         self.version = None
@@ -1543,6 +1584,7 @@ def validate(data, file=None):
             stbs.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
+    validate_midi_messages(v, dev, data)
     validate_components(v, dev, data)
     validate_pads(v, dev, data)
     validate_displays(v, dev, data)
@@ -1568,6 +1610,7 @@ def validate(data, file=None):
     validate_modes(v, dev, data)
     validate_presets(v, dev, data)
     validate_write_to_flash(v, dev, data)
+    msg_features(v, dev, data)
     check_budget(v, dev, data)
 
     if len(dev.buttons) > 64:
@@ -2043,8 +2086,10 @@ def validate_components(v, dev, data):
                     led = -1
         if led >= 0:
             dev.leds[led].used_by.append(("button", act))
+        top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
-                               action_name=act, number=num, led=led, daw=daw_role(v, dev, d, p)))
+                               action_name=act, number=num, led=led, daw=daw_role(v, dev, d, p),
+                               ctl=control_out(v, d, p, top), bank=button_bank(v, dev, d, p, act)))
 
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
     for i, d in enumerate(analogs):
@@ -2061,13 +2106,20 @@ def validate_components(v, dev, data):
         if "mode" in d:
             mode = enum_value(v, d, "mode", f"{p}.mode", ANALOG_MODES)
             mode = 0 if mode is None else mode
+            mode_use(v, dev, ANALOG_MODES[mode], f"{p}.mode", d.line_of("mode"))
         if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
                                                   f"drop mode: {ANALOG_MODES[mode]} or mcu:")
         if mode == 1 and pin is not None and pin.hub and dev.hubs[pin.hub - 1].type in XY_HUBS:
             v.err(f"{p}.mode", d.line_of("mode"), "pitch_bend centres on the power-up reading, and an XY "
                                                   "pad reads nothing until touched: use cc or channel_pressure")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=fader is None and mode == 0)
+        cc = mode_number(v, dev, d, p, ANALOG_MODES[mode], fader is None and mode == 0, ANALOG_NUMBER_KEYS)
+        if fader is not None:
+            for k in ("channel", "min", "max"):
+                if k in d:
+                    v.err(f"{p}.{k}", d.line_of(k), "a Mackie Control fader (mcu:) sends its own messages: "
+                                                    f"drop {k}: or mcu:")
+        ctl = control_out(v, d, p, 16383 if mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
         if lo == hi:
@@ -2075,7 +2127,7 @@ def validate_components(v, dev, data):
         pickup = validate_takeover(v, dev, d, p, fader)
         dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, mode=mode, raw_min=lo,
                                raw_max=hi, pickup=pickup, touch=validate_touch(v, d, p), mcu=fader,
-                               daw=daw_role(v, dev, d, p)))
+                               daw=daw_role(v, dev, d, p), ctl=ctl))
 
     encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
     accel_default = encoder_settings(v, dev, data)
@@ -2100,14 +2152,24 @@ def validate_components(v, dev, data):
                 v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
                                                      "loop: fast spinning may miss steps")
         vpot = mcu_name(v, dev, d, p, MCU_VPOTS, "vpot_1")
-        cc = v.integer(d, "cc", p, 0, 127, default=0, required=vpot is None)
+        mode = 0
+        if "mode" in d:
+            mode = enum_value(v, d, "mode", f"{p}.mode", ENC_MODES)
+            mode = 0 if mode is None else mode
+            mode_use(v, dev, ENC_MODES[mode], f"{p}.mode", d.line_of("mode"))
+        for k in ("mode", "channel", "min", "max"):
+            if k in d and vpot is not None:
+                v.err(f"{p}.{k}", d.line_of(k), f"a Mackie Control V-Pot (mcu:) sends its own messages: drop {k}: "
+                                                "or mcu:")
+        cc = mode_number(v, dev, d, p, ENC_MODES[mode], vpot is None, ENCODER_NUMBER_KEYS)
+        ctl = control_out(v, d, p, 16383 if mode_wide(dev, ENC_MODES[mode], cc) else 127)
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)
         accel = validate_acceleration(v, d, p, accel_default)[1]
         dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
                                 cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center,
-                                daw=daw_role(v, dev, d, p), accel=accel))
+                                daw=daw_role(v, dev, d, p), accel=accel, mode=mode, ctl=ctl))
     check_mcu_unique(v, dev, data)
 
 
@@ -2352,6 +2414,11 @@ def button_action(v, dev, d, p, base=None):
             return base or ("none", 0)
     else:
         act = base[0] if base else "mcu" if "mcu" in d else "none"
+    if act in MSG_ACTIONS:
+        if act == "sysex" and not dev.sysex:
+            v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
+                  "action sysex sends one of the midi_messages.sysex strings, and there are none")
+        dev.msg_used.add(MSG_ACTIONS[act])
     if act in PRESET_ACTIONS and dev.n_presets < 2:
         v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
               f"action {act} switches presets, but this device has {dev.n_presets} preset slot: add "
@@ -2379,7 +2446,7 @@ def button_number(v, dev, d, p, act, base=None):
     if want is None:
         if given:
             k = given[0]
-            if base or k == "preset":
+            if base or k in ("preset", "mmc", "sysex", "program"):
                 what = "a preset number" if k == "preset" else "a CC or note"
                 v.err(f"{p}.{k}", d.line_of(k), f"action {act} takes no {what}: drop {k}:")
                 return keep
@@ -2391,16 +2458,22 @@ def button_number(v, dev, d, p, act, base=None):
     other = [k for k in given if k != want]
     if other:
         v.err(f"{p}.{other[0]}", d.line_of(other[0]), f"action {act} takes {want}:, not {other[0]}:")
-        return v.integer(d, other[0], p, 0, 127, default=0) if other[0] != "preset" else keep
+        return v.integer(d, other[0], p, 0, 127, default=0) if other[0] in ("cc", "note") else keep
     if "number" in d:          # format 1; reported as renamed
         return 0
     lo, hi = (1, dev.n_presets) if want == "preset" else (0, 127)
     if want not in d:
         if base and act == base[0]:
             return keep
-        v.err(p, d.line, f"action {act} needs {want}: ({lo}..{hi}" +
-              (", the preset slot" if want == "preset" else "") + ")")
+        what = {"mmc": f"an MMC command: {', '.join(MMC_COMMANDS)}, or 1..127",
+                "sysex": "the id of a midi_messages.sysex string"}.get(want)
+        v.err(p, d.line, f"action {act} needs {want}: (" + (what or f"{lo}..{hi}" +
+              (", the preset slot" if want == "preset" else "")) + ")")
         return 0
+    if want == "mmc":
+        return mmc_command(v, d, p)
+    if want == "sysex":
+        return sysex_ref(v, dev, d, "sysex", p)
     return v.integer(d, want, p, lo, hi, default=0)
 
 
@@ -3104,7 +3177,7 @@ def validate_presets(v, dev, data):
                   f"'{name}' is already the name of {pth} (line {ln}): preset names are unique")
         names.setdefault(name.lower(), (p, d.line_of("name")))
         program = v.integer(d, "program", p, 0, 127, default=-1)
-        vals = []
+        vals = preset_bank(v, dev, d, p, program)
         if slot == 1:
             for k in d:
                 if k in PRESET_GLOBALS or k in PRESET_COMPONENTS:
@@ -3112,7 +3185,7 @@ def validate_presets(v, dev, data):
                                                     "of the file, so it takes only name: and program: (change "
                                                     "the component itself, or put this in another preset)")
         else:
-            vals = preset_values(v, dev, d, p)     # none: a named copy of preset 1 (fine)
+            vals += preset_values(v, dev, d, p)    # none: a named copy of preset 1 (fine)
         dev.presets.append(Hub(name=name, program=program, vals=sorted(vals), listed=True, line=d.line))
 
 
@@ -3224,26 +3297,377 @@ def preset_values(v, dev, d, p):
                     put("button.number", idx, num, b.number, f"{cp}.{nk or 'action'}", line(nk or "action"),
                         f"button.number[{cid}]")
             elif sec == "analog":
-                if "cc" in o:
-                    put("analog.cc", idx, v.integer(o, "cc", cp, 0, 127), dev.analogs[idx].cc, f"{cp}.cc",
-                        line("cc"), f"analog.cc[{cid}]")
+                a = dev.analogs[idx]
+                m = a.mode
                 if "mode" in o:
                     m = enum_value(v, o, "mode", f"{cp}.mode", ANALOG_MODES)
-                    put("analog.mode", idx, m, dev.analogs[idx].mode, f"{cp}.mode", line("mode"),
+                    if m is not None:
+                        mode_use(v, dev, ANALOG_MODES[m], f"{cp}.mode", line("mode"))
+                    put("analog.mode", idx, m, a.mode, f"{cp}.mode", line("mode"),
                         f"analog.mode[{cid}]", None if m is None else ANALOG_MODES[m])
+                    m = a.mode if m is None else m
+                nk = next((k for k in ANALOG_NUMBER_KEYS if k in o), None)
+                if nk is not None:
+                    put("analog.cc", idx, mode_number(v, dev, o, cp, ANALOG_MODES[m], False, ANALOG_NUMBER_KEYS),
+                        a.cc, f"{cp}.{nk}", line(nk), f"analog.cc[{cid}]")
             elif sec == "pads":
                 put("pad.note", idx, v.integer(o, "note", cp, 0, 127), dev.pads[idx].note, f"{cp}.note",
                     line("note"), f"pad.note[{cid}]")
             else:
                 e = dev.encoders[idx]
-                if "cc" in o:
-                    put("encoder.cc", idx, v.integer(o, "cc", cp, 0, 127), e.cc, f"{cp}.cc", line("cc"),
-                        f"encoder.cc[{cid}]")
+                m = e.mode
                 if "mode" in o:
                     m = enum_value(v, o, "mode", f"{cp}.mode", ENC_MODES)
-                    put("encoder.mode", idx, m, 0, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
+                    if m is not None:
+                        mode_use(v, dev, ENC_MODES[m], f"{cp}.mode", line("mode"))
+                    put("encoder.mode", idx, m, e.mode, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
                         None if m is None else ENC_MODES[m])
+                    m = e.mode if m is None else m
+                nk = next((k for k in ENCODER_NUMBER_KEYS if k in o), None)
+                if nk is not None:
+                    put("encoder.cc", idx, mode_number(v, dev, o, cp, ENC_MODES[m], False, ENCODER_NUMBER_KEYS),
+                        e.cc, f"{cp}.{nk}", line(nk), f"encoder.cc[{cid}]")
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# MIDI messages (core/README.md "MIDI messages")
+
+ANALOG_NUMBER_KEYS = ("cc", "nrpn", "rpn", "sysex")     # the keys that give analog.cc, by mode
+ENCODER_NUMBER_KEYS = ("cc", "nrpn", "rpn")
+MIDI_MESSAGES_KEYS = ["enable", "null_rpn", "mmc_device_id", "sysex"]
+SYSEX_KEYS = ["id", "data"]
+BANK_KEYS = ["msb", "lsb"]
+
+
+def validate_midi_messages(v, dev, data):
+    """midi_messages: { enable, null_rpn, mmc_device_id, sysex } (before the components: they refer to the
+    SysEx strings by id)."""
+    if data.get("midi_messages") is None:
+        return
+    mm = v.mapping(data["midi_messages"], "midi_messages", data.line_of("midi_messages"), MIDI_MESSAGES_KEYS)
+    if mm is None:
+        return
+    if mm.get("enable") is not None:
+        lst = v.seq(mm["enable"], "midi_messages.enable", mm.line_of("enable"))
+        names = [*MSG_FEATURES, *MSG_ALIASES]
+        for i, x in enumerate(lst):
+            p, ln = f"midi_messages.enable[{i}]", lst.line_of(i)
+            f = MSG_ALIASES.get(x, x) if isinstance(x, str) else None
+            if f not in MSG_FEATURES:
+                close = difflib.get_close_matches(str(x), names, 1)
+                hint = f"; did you mean '{close[0]}'?" if close else ""
+                v.err(p, ln, f"unknown message kind '{lst.raw_of(i)}' (valid: {', '.join(names)}{hint}; SysEx is "
+                             "on when midi_messages.sysex has strings)")
+                continue
+            if f in dev.msg_enable:
+                v.warn(p, ln, f"'{x}' is listed twice")
+            dev.msg_enable.add(f)
+    if "null_rpn" in mm:
+        dev.null_rpn = bool(v.boolean(mm, "null_rpn", "midi_messages"))
+        dev.null_rpn_line = mm.line_of("null_rpn")
+    if "mmc_device_id" in mm:
+        x = v.integer(mm, "mmc_device_id", "midi_messages", 0, 0x7F, default=0x7F)
+        dev.mmc_id = 0x7F if x is None else x
+        dev.mmc_line = mm.line_of("mmc_device_id")
+    if mm.get("sysex") is not None:
+        lst = v.seq(mm["sysex"], "midi_messages.sysex", mm.line_of("sysex"))
+        for i, d in enumerate(lst):
+            p = f"midi_messages.sysex[{i}]"
+            d = v.mapping(d, p, lst.line_of(i), SYSEX_KEYS)
+            if d is None:
+                continue
+            ident = v.ident(d, p, "SysEx string", len(dev.sysex), allow_name=False)
+            if "data" not in d or d["data"] is None:
+                v.err(p, d.line, "needs data: the message in hex, e.g. "
+                                 "`data: \"F0 41 10 42 12 [40 00 7F v] cs F7\"`")
+                continue
+            parsed = parse_sysex(v, d["data"], f"{p}.data", d.line_of("data"))
+            if parsed is None or ident is None:
+                continue
+            body, flags = parsed
+            dev.sysex_ids[ident] = len(dev.sysex)
+            dev.sysex.append(Hub(id=ident, data=body, flags=flags, text=" ".join(str(d["data"]).split())))
+        if len(dev.sysex) > 127:
+            v.err("midi_messages.sysex", mm.line_of("sysex"), f"{len(dev.sysex)} strings: at most 127")
+
+
+def parse_sysex(v, text, path, line):
+    """A SysEx string: hex bytes from F0 to F7; v (the value, 7-bit), msb / lsb (a 14-bit value's top and
+    bottom 7 bits), ch (the channel, 0..15); [ ... ] cs: the Roland checksum of the bytes in the brackets.
+    -> (data with gm_device.h GM_SX_* codes, flags), or None after an error."""
+    if not isinstance(text, str):
+        v.err(path, line, "must be a string of hex bytes, e.g. \"F0 41 10 42 12 [40 00 7F v] cs F7\"")
+        return None
+    toks = text.replace("[", " [ ").replace("]", " ] ").split()
+    out, sent, flags = [], 0, 0
+    state = "none"          # none -> open -> closed -> done (the one checksum range)
+    for k, t in enumerate(toks):
+        low = t.lower()
+        if low == "[":
+            if state != "none":
+                v.err(path, line, "only one [ ... ] cs checksum range")
+                return None
+            out.append(SX_SUM_START)
+            state = "open"
+        elif low == "]":
+            if state != "open":
+                v.err(path, line, "] without [")
+                return None
+            state = "closed"
+        elif low == "cs":
+            if state != "closed" or toks[k - 1] != "]":
+                v.err(path, line, "cs (the checksum) goes right after the ] that ends its range: [ ... ] cs")
+                return None
+            out.append(SX_SUM)
+            sent += 1
+            state = "done"
+        elif low in SYSEX_TOKENS:
+            if state == "closed":
+                v.err(path, line, "cs (the checksum) goes right after the ] that ends its range: [ ... ] cs")
+                return None
+            out.append(SYSEX_TOKENS[low])
+            sent += 1
+            flags |= 2 if low != "ch" else 0                            # GM_SX_HAS_VALUE
+            flags |= 1 if low in ("msb", "lsb") else 0                  # GM_SX_WIDE
+        elif re.fullmatch(r"(0x)?[0-9a-fA-F]{1,2}", t):
+            b = int(t, 16)
+            if state == "closed":
+                v.err(path, line, "cs (the checksum) goes right after the ] that ends its range: [ ... ] cs")
+                return None
+            first, last = k == 0, k == len(toks) - 1
+            if first and b != 0xF0:
+                v.err(path, line, f"starts with {t}: a SysEx message starts with F0")
+                return None
+            if last and b != 0xF7:
+                v.err(path, line, f"ends with {t}: a SysEx message ends with F7")
+                return None
+            if not first and not last and b > 0x7F:
+                v.err(path, line, f"{t} is over 7F: the bytes between F0 and F7 are 00..7F")
+                return None
+            out.append(b)
+            sent += 1
+        else:
+            v.err(path, line, f"'{t}' is not a hex byte or a placeholder (v, msb, lsb, ch, [ ] cs)")
+            return None
+    if not toks or toks[-1].lower() != "f7" or toks[0].lower() != "f0":
+        v.err(path, line, "a SysEx message starts with F0 and ends with F7")
+        return None
+    if state in ("open", "closed"):
+        v.err(path, line, "a [ ... ] range needs its cs (the checksum) right after the ]")
+        return None
+    names = {t.lower() for t in toks}
+    if "v" in names and names & {"msb", "lsb"}:
+        v.err(path, line, "use v (a 7-bit value) or msb / lsb (a 14-bit value), not both")
+        return None
+    if sent > SYSEX_MAX:
+        v.err(path, line, f"{sent} bytes: at most {SYSEX_MAX}")
+        return None
+    return out, flags
+
+
+def sysex_ref(v, dev, d, key, path):
+    """sysex: <id> -> the string's index (0 after an error)."""
+    x = d[key]
+    if isinstance(x, str) and x in dev.sysex_ids:
+        return dev.sysex_ids[x]
+    known = list(dev.sysex_ids)
+    close = difflib.get_close_matches(str(d.raw_of(key)), known, 1)
+    hint = f"; did you mean '{close[0]}'?" if close else ""
+    v.err(f"{path}.{key}", d.line_of(key), f"no SysEx string with id '{d.raw_of(key)}' (midi_messages.sysex: "
+                                            f"{', '.join(known) or 'none'}{hint})")
+    return 0
+
+
+def sysex_wide(dev, k):
+    return 0 <= k < len(dev.sysex) and bool(dev.sysex[k].flags & 1)
+
+
+def mmc_command(v, d, path):
+    """mmc: play | stop | ... | 1..127 -> the MMC command byte (button.number)."""
+    x = d["mmc"]
+    if isinstance(x, int) and not isinstance(x, bool):
+        if 1 <= x <= 127:
+            return x
+        v.err(f"{path}.mmc", d.line_of("mmc"), f"{x} is out of range (1..127)")
+        return 0
+    if isinstance(x, str) and x in MMC_COMMANDS:
+        return MMC_COMMANDS[x]
+    close = difflib.get_close_matches(str(d.raw_of("mmc")), list(MMC_COMMANDS), 1)
+    hint = f"did you mean '{close[0]}'? " if close else ""
+    v.err(f"{path}.mmc", d.line_of("mmc"), f"unknown MMC command '{d.raw_of('mmc')}' ({hint}valid: "
+                                           f"{', '.join(MMC_COMMANDS)}, or a number 1..127)")
+    return 0
+
+
+def mode_use(v, dev, mname, path, line):
+    """An analog / encoder mode that needs a message kind: it is compiled in."""
+    f = MODE_FEATURE.get(mname)
+    if f is None:
+        return
+    if f == "sysex" and not dev.sysex:
+        v.err(path, line, "mode sysex sends one of the midi_messages.sysex strings, and there are none")
+    dev.msg_used.add(f)
+
+
+def mode_wide(dev, mname, num):
+    return mname in WIDE_MODES or (mname == "sysex" and sysex_wide(dev, num))
+
+
+def mode_number(v, dev, d, p, mname, required, keys):
+    """analog.cc / encoder.cc from the key the mode takes: cc: (cc, cc14: 0..31; the default for other
+    modes), nrpn: / rpn: (0..16383), sysex: (a string's id). Returns the number (0 when not given)."""
+    want = MODE_NUMBER_KEY.get(mname, "cc")
+    given = [k for k in keys if k in d]
+    if len(given) > 1:
+        v.err(p, d.line, f"give one of {', '.join(k + ':' for k in given)}, not {len(given)}")
+    for k in given:
+        if k != want:
+            v.err(f"{p}.{k}", d.line_of(k), f"mode {mname} takes {want}:, not {k}:" if want != "cc" else
+                  f"{k}: goes with mode: {' / '.join(m for m, n in MODE_NUMBER_KEY.items() if n == k)}")
+            return 0
+    if want == "cc":
+        hi = 31 if mname == "cc14" else 127
+        return v.integer(d, "cc", p, 0, hi, default=0, required=required)
+    if want not in d:
+        v.err(p, d.line, f"mode {mname} needs {want}: (" +
+              ("the id of a midi_messages.sysex string" if want == "sysex" else "0..16383") + ")")
+        return 0
+    if want == "sysex":
+        return sysex_ref(v, dev, d, "sysex", p)
+    x = v.integer(d, want, p, 0, 16383, default=0)
+    return 0 if x is None else x
+
+
+def control_out(v, d, p, top):
+    """channel:, min:, max: -> (min, max, channel) for gm_*_ctl[] (max CTL_TOP: the mode's top, channel 0:
+    midi.channel), or None when none is given."""
+    if not any(k in d for k in ("channel", "min", "max")):
+        return None
+    ch = v.integer(d, "channel", p, 1, 16, default=0) or 0
+    lo = v.integer(d, "min", p, 0, top, default=0) or 0
+    hi = v.integer(d, "max", p, 0, top, default=None)
+    if lo == (top if hi is None else hi):
+        v.err(p, d.line, f"min and max are both {lo}: the control would always send {lo}")
+    return lo, CTL_TOP if hi is None else hi, ch
+
+
+def button_bank(v, dev, d, p, act):
+    """bank: 0..16383 (or { msb, lsb }) on a program action -> its Bank Select, or None."""
+    if "bank" not in d:
+        return None
+    if act not in PROGRAM_ACTIONS:
+        v.err(f"{p}.bank", d.line_of("bank"), f"bank: goes with the actions {', '.join(sorted(PROGRAM_ACTIONS))}, "
+                                             f"not {act}")
+        return None
+    bank = bank_value(v, d, p)
+    if bank is not None:
+        dev.msg_used.add("program")
+    return bank
+
+
+def bank_value(v, d, p):
+    """bank: 0..16383, or { msb: 0..127, lsb: 0..127 } -> the 14-bit bank (CC 0 = bank >> 7, CC 32 = bank & 127)."""
+    x = d["bank"]
+    if isinstance(x, dict):
+        b = v.mapping(x, f"{p}.bank", d.line_of("bank"), BANK_KEYS)
+        if b is None:
+            return None
+        msb = v.integer(b, "msb", f"{p}.bank", 0, 127, default=0) or 0
+        lsb = v.integer(b, "lsb", f"{p}.bank", 0, 127, default=0) or 0
+        return msb << 7 | lsb
+    return v.integer(d, "bank", p, 0, 16383)
+
+
+def preset_bank(v, dev, d, p, program):
+    """A preset's bank: (preset.bank: Bank Select before its Program Change) -> its value list."""
+    if "bank" not in d:
+        return []
+    bank = bank_value(v, d, p)
+    if bank is None:
+        return []
+    if program < 0:
+        v.err(f"{p}.bank", d.line_of("bank"), "bank: is sent before the preset's Program Change: give program: too")
+        return []
+    if dev.n_presets < 2:
+        v.err(f"{p}.bank", d.line_of("bank"), "preset.bank needs 2 or more preset slots")
+        return []
+    dev.msg_used.add("program")
+    return [(PARAM_ID["preset.bank"], 0, bank, f"preset.bank = {bank} (MSB {bank >> 7}, LSB {bank & 127})")]
+
+
+def msg_features(v, dev, data):
+    """What the firmware compiles in: the kinds the YAML uses and those midi_messages.enable lists."""
+    dev.msg = set(dev.msg_enable) | dev.msg_used
+    if dev.sysex:
+        dev.msg.add("sysex")
+    if dev.null_rpn and "nrpn" not in dev.msg:
+        v.warn("midi_messages.null_rpn", dev.null_rpn_line, "nothing sends NRPN / RPN: add nrpn to "
+                                                           "midi_messages.enable to pick it from the web page")
+    if getattr(dev, "mmc_line", None) and "mmc" not in dev.msg:
+        v.warn("midi_messages.mmc_device_id", dev.mmc_line, "no button has action mmc: add mmc to "
+                                                            "midi_messages.enable to pick it from the web page")
+
+
+def msg_defines(dev):
+    m = dev.msg
+    h = ["/* MIDI messages (core/README.md \"MIDI messages\"): kinds used or in midi_messages.enable */"]
+    for f, macro in (("cc14", "GM_MSG_CC14"), ("nrpn", "GM_MSG_NRPN"), ("program", "GM_MSG_PROGRAM"),
+                     ("panic", "GM_MSG_PANIC"), ("mmc", "GM_MSG_MMC")):
+        h.append(f"#define {macro} {1 if f in m else 0}")
+    if dev.null_rpn and "nrpn" in m:
+        h.append("#define GM_NULL_RPN 1 /* midi_messages.null_rpn */")
+    if "mmc" in m:
+        h.append(f"#define GM_MMC_DEVICE 0x{dev.mmc_id:02X} /* midi_messages.mmc_device_id */")
+    h.append(f"#define GM_N_SYSEX {len(dev.sysex)} /* gm_sysex[] (midi_messages.sysex) */")
+    if dev.sysex:
+        sent = max(len(x.data) - (1 if SX_SUM_START in x.data else 0) for x in dev.sysex)
+        h.append(f"#define GM_SYSEX_MAX {sent} /* bytes of the longest, as sent */")
+    flags = (("GM_BTN_CTL", any(getattr(b, "ctl", None) for b in dev.buttons), "gm_button_ctl[]"),
+             ("GM_ANALOG_CTL", any(getattr(a, "ctl", None) for a in dev.analogs), "gm_analog_ctl[]"),
+             ("GM_ENC_CTL", any(getattr(e, "ctl", None) for e in dev.encoders), "gm_encoder_ctl[]"),
+             ("GM_BTN_BANK", any(getattr(b, "bank", None) is not None for b in dev.buttons), "gm_button_bank[]"),
+             ("GM_ENC_MODES", any(getattr(e, "mode", 0) for e in dev.encoders), "gm_encoder_mode_defaults[]"))
+    h += [f"#define {n} {1 if on else 0} /* 1: {t} */" for n, on, t in flags]
+    return h
+
+
+def msg_tables(dev):
+    c = []
+
+    def ctl_table(cname, count, lst):
+        rows = []
+        for x in lst:
+            lo, hi, ch = getattr(x, "ctl", None) or (0, CTL_TOP, 0)
+            rows.append(f"    {{ {lo}, {'GM_CTL_TOP' if hi == CTL_TOP else hi}, {ch} }}, /* {_comment(x.id)} */")
+        return [f"const gm_ctl_t {cname}[{count}] = {{", *rows, "};", ""]
+
+    c.append("/* MIDI messages: per control { min, max, channel } (channel 0 = midi.channel) */")
+    if any(getattr(b, "ctl", None) for b in dev.buttons):
+        c += ctl_table("gm_button_ctl", "GM_N_BUTTONS", dev.buttons)
+    if any(getattr(a, "ctl", None) for a in dev.analogs):
+        c += ctl_table("gm_analog_ctl", "GM_N_ANALOGS", dev.analogs)
+    if any(getattr(e, "ctl", None) for e in dev.encoders):
+        c += ctl_table("gm_encoder_ctl", "GM_N_ENCODERS", dev.encoders)
+    if any(getattr(b, "bank", None) is not None for b in dev.buttons):
+        c.append("const uint16_t gm_button_bank[GM_N_BUTTONS] = { /* Bank Select before a program action */")
+        c += [f"    {'GM_BANK_NONE' if getattr(b, 'bank', None) is None else b.bank}, /* {_comment(b.id)} */"
+              for b in dev.buttons]
+        c += ["};", ""]
+    if any(getattr(e, "mode", 0) for e in dev.encoders):
+        c.append("const int32_t gm_encoder_mode_defaults[GM_N_ENCODERS] = { " +
+                 ", ".join(str(getattr(e, "mode", 0)) for e in dev.encoders) + " }; /* " +
+                 ", ".join(ENC_MODES[getattr(e, "mode", 0)] for e in dev.encoders) + " */")
+        c.append("")
+    if dev.sysex:
+        for k, x in enumerate(dev.sysex):
+            body = ", ".join(f"0x{b:02X}" for b in x.data)
+            c.append(f"static const uint8_t sysex_{k}[{len(x.data)}] = {{ {body} }}; /* {_comment(x.id)}: "
+                     f"{_comment(x.text)} */")
+        c.append("const gm_sysex_t gm_sysex[GM_N_SYSEX] = {")
+        c += [f"    {{ sysex_{k}, {len(x.data)}, {x.flags} }}," for k, x in enumerate(dev.sysex)]
+        c += ["};", ""]
+    return c
 
 
 # ---------------------------------------------------------------------------------------------
@@ -3342,7 +3766,7 @@ STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (cor
 MAX_STEPS = 8
 MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
 # modes[].layer.<button, pad or encoder id>: what its twin is (core/README.md "Button layers")
-LAYER_KEYS = ["name", "action", "cc", "note", "preset", "daw", "idle", "active"]
+LAYER_KEYS = ["name", "action", "cc", "note", "preset", "program", "mmc", "sysex", "daw", "idle", "active"]
 LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
 LAYER_ENCODER_KEYS = ["name", "cc", "daw"]
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
@@ -3803,7 +4227,8 @@ def mode_layer(v, dev, m, layer, lp, ll):
             name = v.string(e, "name", path)
             dev.buttons.append(Hub(id=tid, name=name if name is not None else f"{b.name} {m.id}", pin=b.pin,
                                    action=ACTION_IDS[act], action_name=act, number=num, led=led,
-                                   daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
+                                   daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx,
+                                   ctl=b.ctl, bank=b.bank))
         m.twins += 1
 
 
@@ -3859,7 +4284,7 @@ def layer_encoder(v, dev, m, idx, e, path, line):
     name = v.string(e, "name", path)
     dev.encoders.append(Hub(id=tid, name=name if name is not None else f"{x.name} {m.id}", a=x.a, b=x.b,
                             cc=cc, steps=x.steps, mcu=None, ring=[], ring_center=None,
-                            daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx))
+                            daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx, mode=0, ctl=x.ctl))
 
 
 def layer_led_looks(v, e, p, kind, base_looks):
@@ -4039,7 +4464,8 @@ def packed_record_bytes(dev, scope):
         c = count(dev)
         if s != scope or not c:
             continue
-        per = 2 if name in WIDE_PARAMS else 4
+        wide = name in WIDE_PARAMS or (name in NRPN_WIDE_PARAMS and "nrpn" in getattr(dev, "msg", ()))
+        per = 2 if wide else 4
         words += (1 if per == 4 else 2) if c == 1 else 1 + -(-c // 32) + -(-c // per)
     return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + words + REC_CRC_WORDS)
 
@@ -4251,6 +4677,7 @@ def generate(dev, source="device.yaml"):
     if enc_twins:
         h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
     h.append(f"#define GM_ENC_ACCEL {1 if enc_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */")
+    h += msg_defines(dev)
     btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     if btn_twins:
         h.append(f"#define GM_BTN_TWINS {btn_twins} /* the last buttons: layer twins (layer.button.*) */")
@@ -4393,6 +4820,7 @@ def generate(dev, source="device.yaml"):
           arr("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs],
               " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""),
           arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
+    c += msg_tables(dev)
     c += feedback_tables(dev)
     c += preset_tables(dev)
     c += mode_tables(dev)

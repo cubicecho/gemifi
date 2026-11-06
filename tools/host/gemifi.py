@@ -652,7 +652,7 @@ def print_schema(schema, size=None):
             print(line(r))
             pad = " " * (widths[0] + 4)
             if p.options:
-                print(pad + "options: " + ", ".join(f"{p.min + i}={o}" for i, o in enumerate(p.options)))
+                print(pad + "options: " + ", ".join(f"{p.min + i}={o}" for i, o in enumerate(p.options) if o))
             if p.index_labels:
                 print(pad + "index:   " + ", ".join(f"{i}={s}" for i, s in enumerate(p.index_labels)))
 

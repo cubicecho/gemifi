@@ -176,7 +176,7 @@ static void show(const char *what, const int *v, int n)
 /* Start encoder e's absolute value at v and let it rest (a pause resets it). */
 static void rest(int e, int v)
 {
-    gm_encoder_host((uint32_t)e, (uint32_t)v);
+    gm_encoder_host((uint32_t)e, (uint32_t)v << 7);     /* FB_VALUE: 14-bit */
     run_ms(300);
     out_n = 0;
 }

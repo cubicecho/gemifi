@@ -60,6 +60,7 @@ def one_of(*alts):
 
 
 INT7 = T("integer", minimum=0, maximum=127)
+INT14 = T("integer", minimum=0, maximum=16383)
 NOTE = one_of(T("integer", minimum=0, maximum=127), {"type": "string"})
 PERIOD = ref("period")
 BOOL = T("boolean")
@@ -75,7 +76,14 @@ KEY_TYPES = {
     "action": enum(gd.ACTIONS), "led": ID_REF, "daw": STR, "mcu": STR, "idle": LOOK, "active": LOOK,
     "channel": T("integer", minimum=0, maximum=16), "settle": PERIOD, "delay": PERIOD, "timer": {},
     "dma": BOOL, "address": T("integer"), "count": T("integer", minimum=1),
+    # MIDI messages (core/README.md "MIDI messages")
+    "program": INT7, "mmc": one_of(enum(gd.MMC_COMMANDS), T("integer", minimum=1, maximum=127)),
+    "sysex": {"type": "string", "description": "the id of a midi_messages.sysex string"},
+    "nrpn": INT14, "rpn": INT14,
 }
+KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
+# channel:, min: and max: on a button, analog input or encoder (build time only)
+CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
 
 # hub keys: pins are `*_pin` and `pin_s*`
 HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("integer", minimum=1),
@@ -181,16 +189,16 @@ def device_schema():
                                                         "led_timeout": one_of(PERIOD, {"const": "never"})})),
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{t: hub(t) for t in gd.HUB_TYPES},
-        "buttons": lst(obj(gd.BUTTON_KEYS)),
+        "buttons": lst(obj(gd.BUTTON_KEYS, CTL_TYPES)),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
         "leds": lst(obj(gd.LED_KEYS, {
             "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),
             "owner": enum(gd.LED_OWNERS), "timeout": one_of(PERIOD, {"const": "never"})})),
-        "analog": lst(obj(gd.ANALOG_KEYS, {"mode": enum(gd.ANALOG_MODES),
+        "analog": lst(obj(gd.ANALOG_KEYS, {**CTL_TYPES, "mode": enum(gd.ANALOG_MODES),
                                            "adc_min": T("integer", minimum=0, maximum=4095),
                                            "adc_max": T("integer", minimum=0, maximum=4095),
                                            "takeover": enum(gd.TAKEOVER), "touch": enum(gd.TOUCH)})),
-        "encoders": lst(obj(gd.ENCODER_KEYS, {"steps_per_detent": T("integer", minimum=1, maximum=255),
+        "encoders": lst(obj(gd.ENCODER_KEYS, {**CTL_TYPES, "mode": enum(gd.ENC_MODES), "steps_per_detent": T("integer", minimum=1, maximum=255),
                                               "ring": lst(ID_REF), "ring_center": ID_REF,
                                               "acceleration": accel()})),
         "encoder_settings": obj(gd.ENCODER_SETTINGS_KEYS, {"acceleration": accel()}),
@@ -212,6 +220,12 @@ def device_schema():
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
                                       "port_name": STR, "thru": BOOL, "controller_out": BOOL,
                                       "usb_to_din": BOOL}),
+        "midi_messages": obj(gd.MIDI_MESSAGES_KEYS, {
+            "enable": lst(enum([*gd.MSG_FEATURES, *gd.MSG_ALIASES])), "null_rpn": BOOL,
+            "mmc_device_id": INT7,
+            "sysex": lst(obj(gd.SYSEX_KEYS, {"data": {"type": "string", "description": "hex bytes F0 .. F7, "
+                                                      "with v, msb, lsb, ch and [ ... ] cs placeholders"}}))},
+            "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"),
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),
     }

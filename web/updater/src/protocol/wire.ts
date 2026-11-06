@@ -191,8 +191,8 @@ export type LedColours = (typeof LedColours)[keyof typeof LedColours];
 export const Takeover = { None: 0, Pickup: 1 } as const;
 export type Takeover = (typeof Takeover)[keyof typeof Takeover];
 
-/** An encoder's `mode` (§4.6.1): `encoder.mode`, or 3 for a Mackie Control V-Pot. */
-export const EncoderMode = { Absolute: 0, RelativeTwos: 1, RelativeOffset: 2, McuVpot: 3 } as const;
+/** An encoder's `mode` (§4.6.1): `encoder.mode` 0..2, 3 for a Mackie Control V-Pot, 4 sign-magnitude. */
+export const EncoderMode = { Absolute: 0, RelativeTwos: 1, RelativeOffset: 2, McuVpot: 3, RelativeSign: 4 } as const;
 export type EncoderMode = (typeof EncoderMode)[keyof typeof EncoderMode];
 
 /** An LED's `owner` (§4.6.1): who drives it. */

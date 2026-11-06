@@ -143,6 +143,7 @@ export const ENCODER_MODE_NAMES: Readonly<Record<number, string>> = Object.freez
   [EncoderMode.RelativeTwos]: "relative (two's complement)",
   [EncoderMode.RelativeOffset]: 'relative (offset 64)',
   [EncoderMode.McuVpot]: 'Mackie V-Pot',
+  [EncoderMode.RelativeSign]: 'relative (sign-magnitude)',
 });
 
 /** A reader's name for each LED `owner`. */

@@ -2,6 +2,17 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.36.0](https://github.com/cubicecho/gemifi/compare/v0.35.0...v0.36.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** layout: in the device YAML schema; unknown layout ids warn ([7f08171](https://github.com/cubicecho/gemifi/commit/7f08171259e167cd03f5f7a1d447c61742e82819))
+* **core:** device layout from the YAML, and the raw readings stream ([11d28c5](https://github.com/cubicecho/gemifi/commit/11d28c597a74f1600edafb9ff57a78a58979cf71))
+* **host:** gemifi.py layout and monitor ([d6a9c63](https://github.com/cubicecho/gemifi/commit/d6a9c63403480b4936089cd483f8e4f1846c01f7))
+* **protocol:** GET_LAYOUT, MONITOR and RAW for drawing and testing a device ([9dd56d9](https://github.com/cubicecho/gemifi/commit/9dd56d94df26983812832fe486f24e66bf9aa490))
+* **web:** device drawing, Tester view and MIDI learn ([e10b987](https://github.com/cubicecho/gemifi/commit/e10b987df71a15cd66fff4e85529ed950ca78529))
+
 # [0.35.0](https://github.com/cubicecho/gemifi/compare/v0.34.0...v0.35.0) (2026-11-06)
 
 

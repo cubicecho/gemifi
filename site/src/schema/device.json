@@ -925,7 +925,11 @@
                       "preset_next",
                       "preset_prev",
                       "preset_select",
-                      "mcu"
+                      "mcu",
+                      "program",
+                      "panic",
+                      "mmc",
+                      "sysex"
                     ]
                   },
                   {
@@ -984,6 +988,143 @@
               },
               "daw": {
                 "type": "string"
+              },
+              "program": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "mmc": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "stop",
+                          "play",
+                          "deferred_play",
+                          "fast_forward",
+                          "rewind",
+                          "record",
+                          "record_exit",
+                          "record_pause",
+                          "pause",
+                          "eject",
+                          "chase",
+                          "reset"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 127
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sysex": {
+                "type": "string",
+                "description": "the id of a midi_messages.sysex string"
+              },
+              "bank": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16383
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "msb": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "lsb": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "channel": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "min": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "max": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -1184,7 +1325,13 @@
                     "enum": [
                       "cc",
                       "pitch_bend",
-                      "channel_pressure"
+                      "channel_pressure",
+                      "cc14",
+                      "nrpn",
+                      "nrpn14",
+                      "rpn",
+                      "rpn14",
+                      "sysex"
                     ]
                   },
                   {
@@ -1247,6 +1394,70 @@
               },
               "daw": {
                 "type": "string"
+              },
+              "nrpn": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "rpn": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "sysex": {
+                "type": "string",
+                "description": "the id of a midi_messages.sysex string"
+              },
+              "channel": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "min": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "max": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -1372,6 +1583,86 @@
                       }
                     },
                     "additionalProperties": false
+                  }
+                ]
+              },
+              "mode": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "absolute",
+                      "relative_twos",
+                      "relative_offset",
+                      "relative_sign",
+                      "cc14",
+                      "nrpn",
+                      "nrpn14",
+                      "rpn",
+                      "rpn14"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "nrpn": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "rpn": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "channel": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "min": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "max": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16383
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
                   }
                 ]
               }
@@ -1802,6 +2093,52 @@
                       }
                     ]
                   },
+                  "bank": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 16383
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "msb": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          },
+                          "lsb": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
                   "midi": {
                     "type": "object",
                     "properties": {
@@ -1964,7 +2301,11 @@
                                 "preset_next",
                                 "preset_prev",
                                 "preset_select",
-                                "mcu"
+                                "mcu",
+                                "program",
+                                "panic",
+                                "mmc",
+                                "sysex"
                               ]
                             },
                             {
@@ -2016,6 +2357,61 @@
                         },
                         "mcu": {
                           "type": "string"
+                        },
+                        "program": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 127
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        "mmc": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "stop",
+                                    "play",
+                                    "deferred_play",
+                                    "fast_forward",
+                                    "rewind",
+                                    "record",
+                                    "record_exit",
+                                    "record_pause",
+                                    "pause",
+                                    "eject",
+                                    "chase",
+                                    "reset"
+                                  ]
+                                },
+                                {
+                                  "$ref": "#/definitions/substitution"
+                                }
+                              ]
+                            },
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 127
+                                },
+                                {
+                                  "$ref": "#/definitions/substitution"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        "sysex": {
+                          "type": "string",
+                          "description": "the id of a midi_messages.sysex string"
                         }
                       },
                       "additionalProperties": false
@@ -2045,13 +2441,47 @@
                               "enum": [
                                 "cc",
                                 "pitch_bend",
-                                "channel_pressure"
+                                "channel_pressure",
+                                "cc14",
+                                "nrpn",
+                                "nrpn14",
+                                "rpn",
+                                "rpn14",
+                                "sysex"
                               ]
                             },
                             {
                               "$ref": "#/definitions/substitution"
                             }
                           ]
+                        },
+                        "nrpn": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16383
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        "rpn": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16383
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        "sysex": {
+                          "type": "string",
+                          "description": "the id of a midi_messages.sysex string"
                         }
                       },
                       "additionalProperties": false
@@ -2081,8 +2511,38 @@
                               "enum": [
                                 "absolute",
                                 "relative_twos",
-                                "relative_offset"
+                                "relative_offset",
+                                "relative_sign",
+                                "cc14",
+                                "nrpn",
+                                "nrpn14",
+                                "rpn",
+                                "rpn14"
                               ]
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        "nrpn": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16383
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        "rpn": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 16383
                             },
                             {
                               "$ref": "#/definitions/substitution"
@@ -2256,7 +2716,11 @@
                             "preset_next",
                             "preset_prev",
                             "preset_select",
-                            "mcu"
+                            "mcu",
+                            "program",
+                            "panic",
+                            "mmc",
+                            "sysex"
                           ]
                         },
                         {
@@ -2300,6 +2764,45 @@
                       ],
                       "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
                     },
+                    "mmc": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "stop",
+                                "play",
+                                "deferred_play",
+                                "fast_forward",
+                                "rewind",
+                                "record",
+                                "record_exit",
+                                "record_pause",
+                                "pause",
+                                "eject",
+                                "chase",
+                                "reset"
+                              ]
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 127
+                            },
+                            {
+                              "$ref": "#/definitions/substitution"
+                            }
+                          ]
+                        }
+                      ]
+                    },
                     "name": {
                       "type": "string"
                     },
@@ -2332,6 +2835,22 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ]
+                    },
+                    "program": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ]
+                    },
+                    "sysex": {
+                      "type": "string",
+                      "description": "the id of a midi_messages.sysex string"
                     }
                   },
                   "additionalProperties": false
@@ -2390,7 +2909,11 @@
                                   "preset_next",
                                   "preset_prev",
                                   "preset_select",
-                                  "mcu"
+                                  "mcu",
+                                  "program",
+                                  "panic",
+                                  "mmc",
+                                  "sysex"
                                 ]
                               },
                               {
@@ -2434,6 +2957,45 @@
                             ],
                             "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
                           },
+                          "mmc": {
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "stop",
+                                      "play",
+                                      "deferred_play",
+                                      "fast_forward",
+                                      "rewind",
+                                      "record",
+                                      "record_exit",
+                                      "record_pause",
+                                      "pause",
+                                      "eject",
+                                      "chase",
+                                      "reset"
+                                    ]
+                                  },
+                                  {
+                                    "$ref": "#/definitions/substitution"
+                                  }
+                                ]
+                              },
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 127
+                                  },
+                                  {
+                                    "$ref": "#/definitions/substitution"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
                           "name": {
                             "type": "string"
                           },
@@ -2466,6 +3028,22 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ]
+                          },
+                          "program": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          },
+                          "sysex": {
+                            "type": "string",
+                            "description": "the id of a midi_messages.sysex string"
                           }
                         },
                         "additionalProperties": false
@@ -2638,6 +3216,80 @@
             }
           },
           "additionalProperties": false
+        }
+      ]
+    },
+    "midi_messages": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "cc14",
+                      "nrpn",
+                      "program",
+                      "panic",
+                      "mmc",
+                      "rpn",
+                      "bank_select"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              }
+            },
+            "null_rpn": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "$ref": "#/definitions/substitution"
+                }
+              ]
+            },
+            "mmc_device_id": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 127
+                },
+                {
+                  "$ref": "#/definitions/substitution"
+                }
+              ]
+            },
+            "sysex": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/id"
+                  },
+                  "data": {
+                    "type": "string",
+                    "description": "hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false,
+          "description": "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
         }
       ]
     }

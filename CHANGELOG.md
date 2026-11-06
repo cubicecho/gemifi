@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.34.0](https://github.com/cubicecho/gemifi/compare/v0.33.1...v0.34.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** device YAML packages, substitutions, config hash and JSON schema ([0641d1b](https://github.com/cubicecho/gemifi/commit/0641d1b7e7c673d9b0d8f5926ac9d51a157fe593))
+
 ## [0.33.1](https://github.com/cubicecho/gemifi/compare/v0.33.0...v0.33.1) (2026-11-05)
 
 

@@ -36,4 +36,9 @@ describe('formatDeviceMessage', () => {
       '              BOOTED device 0.1.5',
     );
   });
+
+  it('formats UNLOCKED (§4.7)', () => {
+    expect(formatDeviceMessage({ kind: 'unlocked', isUnlocked: true })).toBe('              UNLOCKED unlocked');
+    expect(formatDeviceMessage({ kind: 'unlocked', isUnlocked: false })).toBe('              UNLOCKED locked');
+  });
 });

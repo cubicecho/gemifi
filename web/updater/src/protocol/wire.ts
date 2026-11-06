@@ -61,6 +61,8 @@ export const Command = {
   GetComponent: 0x11,
   PresetDelete: 0x12,
   PresetMove: 0x13,
+  /** Physical unlock (§4.7), on a device with caps bit 10: what to ask the user, and optionally open the window. */
+  Unlock: 0x16,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,
@@ -89,6 +91,8 @@ export const Unsolicited = {
   PresetChanged: 0x63,
   /** HELLO's fields without the status, sent once after boot by a device with caps bit 6 (§4.6.3). */
   Booted: 0x64,
+  /** The device was unlocked (1), or locked again / its unlock window closed (0) (§4.7). */
+  Unlocked: 0x66,
 } as const;
 export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
 
@@ -106,6 +110,8 @@ export const Status = {
   Busy: 9,
   BadParam: 10,
   BadValue: 11,
+  /** Needs the user's OK on the device first (§4.7): the device has opened its unlock window. */
+  Locked: 12,
 } as const;
 export type Status = (typeof Status)[keyof typeof Status];
 
@@ -123,6 +129,7 @@ export const STATUS_NAMES: Readonly<Record<number, string>> = Object.freeze({
   9: 'BUSY',
   10: 'BAD_PARAM',
   11: 'BAD_VALUE',
+  12: 'LOCKED',
 });
 
 /** What each status code means, in a reader's words (§3). */
@@ -139,6 +146,7 @@ export const STATUS_MEANINGS: Readonly<Record<number, string>> = Object.freeze({
   9: 'the device is busy',
   10: 'the param is unknown, the index is out of range, or the param is read-only',
   11: "the value is outside the param's range",
+  12: 'the device must be unlocked on the device itself first',
 });
 
 /** The role a device answers HELLO with (§4). */
@@ -168,6 +176,8 @@ export const Capability = {
   Feedback: 1 << 6,
   /** REBOOT(1) leads to a gemifi bootloader, on a board that may also have a vendor one (Code 61). */
   GemifiBoot: 1 << 7,
+  /** Physical unlock (§4.7): FW_BEGIN, REBOOT(1) and FACTORY_RESET may answer LOCKED; UNLOCK and UNLOCKED exist. */
+  Unlock: 1 << 10,
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
 
@@ -277,6 +287,34 @@ export type PresetFlag = (typeof PresetFlag)[keyof typeof PresetFlag];
 /** The preset params (§4.5): the active slot, its Program Change, its dirty flag. */
 export const PresetParam = { Active: 17, Program: 18, Dirty: 19, Count: 33 } as const;
 export type PresetParam = (typeof PresetParam)[keyof typeof PresetParam];
+
+/** UNLOCK's `state` and UNLOCKED's (§4.7). */
+export const UnlockState = { Locked: 0, Unlocked: 1 } as const;
+export type UnlockState = (typeof UnlockState)[keyof typeof UnlockState];
+
+/** UNLOCK's `open` (§4.7): only report, or also open (or restart) the unlock window. */
+export const UnlockOpen = { Report: 0, Open: 1 } as const;
+export type UnlockOpen = (typeof UnlockOpen)[keyof typeof UnlockOpen];
+
+/** How long a LOCKED reply opens the unlock window for (§4.7). */
+export const UNLOCK_WINDOW_SECONDS = 30;
+
+/** The diagnostics params (§4.8): read-only, VOLATILE, in the group "Debug". */
+export const DiagParam = {
+  ResetReason: 65,
+  BootLoop: 66,
+  Settings: 67,
+  ScanMax: 68,
+  LoopMax: 69,
+  ScanPeriod: 70,
+  Uptime: 71,
+} as const;
+export type DiagParam = (typeof DiagParam)[keyof typeof DiagParam];
+
+/** The first id kept for diagnostics (§4.8). */
+export const DIAG_PARAM_FIRST = 65;
+/** The last id kept for diagnostics (§4.8): 65–71 are in use, 72–74 kept for more. */
+export const DIAG_PARAM_LAST = 74;
 
 /** Longest preset name, in characters (§2, string). */
 export const PRESET_NAME_MAX = 16;

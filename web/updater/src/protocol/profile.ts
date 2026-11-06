@@ -6,6 +6,7 @@
 
 import { describeStatus, RequestError, RequestFailure, type RequestOptions, type SysexClient } from './client.ts';
 import { type ParamValues, valueKey, writeParamValues } from './config.ts';
+import { isDiagnostic } from './diagnostics.ts';
 import type { ParamValue } from './messages.ts';
 import { isReadOnly, type ParamSpec, type Schema } from './schema.ts';
 import { S32_MAX, S32_MIN } from './wire.ts';
@@ -19,7 +20,8 @@ export interface ProfileJson {
 }
 
 /**
- * Builds the JSON for the values shown.
+ * Builds the JSON for the values shown. The diagnostics (§4.8) are left out: they are facts about
+ * this start of the device, not settings.
  *
  * @param schema - The device's schema.
  * @param values - Its values.
@@ -32,7 +34,7 @@ export function exportProfile(
   device: { boardId: number; fwVersion: number },
 ): ProfileJson {
   const out: Record<string, number | number[]> = {};
-  for (const param of schema.params) {
+  for (const param of schema.params.filter((p) => isDiagnostic(p) === false)) {
     const read = Array.from(
       { length: param.count },
       (_, i) => values.get(valueKey(param.id, i)) ?? param.defaults[i] ?? 0,

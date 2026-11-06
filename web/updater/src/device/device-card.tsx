@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { DescriptionList, PropertyRow } from '@/components/description-list';
+import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,12 +14,16 @@ import { toHex } from '../protocol/encoding.ts';
 import { reboot } from '../protocol/flash.ts';
 import { capabilityNames, formatVersion, type HelloInfo } from '../protocol/messages.ts';
 import { RebootMode, Role } from '../protocol/wire.ts';
+import type { DiagnosticsState } from './use-diagnostics.ts';
 import type { HelloState } from './use-hello.ts';
 
 /** Props of {@link DeviceCard}. */
 export interface DeviceCardProps {
   client: SysexClient | null;
   hello: HelloState;
+  /** The diagnostics (§4.8) of a device with config; `none` otherwise. */
+  diagnostics: DiagnosticsState;
+  /** Asks HELLO again and reads the diagnostics again. */
   onRefresh: () => void;
   /** An upload is running, so reboot buttons are held. */
   isBusy: boolean;
@@ -100,12 +105,44 @@ function HelloFacts({ info }: { info: HelloInfo }) {
 }
 
 /**
+ * The diagnostics the device reports (§4.8): why it started, scan timings, uptime. Those it does
+ * not report are left out, and so is the section when it reports none.
+ *
+ * @param props - The reading.
+ * @returns The section, a line while it is read, or nothing.
+ */
+function DiagnosticsFacts({ state }: { state: DiagnosticsState }) {
+  if (state.kind === 'loading') {
+    return <p className="text-foreground/60 text-sm">Reading the diagnostics…</p>;
+  }
+  if (state.kind === 'error') {
+    return <Alert variant="warning" title="The diagnostics could not be read" description={state.message} />;
+  }
+  if (state.kind === 'none' || state.diagnostics.length === 0) {
+    return null;
+  }
+  return (
+    <Section
+      title="Diagnostics"
+      level={4}
+      contentSlot={
+        <DescriptionList
+          contentSlot={state.diagnostics.map(({ param, text }) => (
+            <PropertyRow key={param.id} label={param.label} value={text} />
+          ))}
+        />
+      }
+    />
+  );
+}
+
+/**
  * What the connected device says about itself, and the reboot buttons.
  *
  * @param props - The client, its HELLO answer and handlers.
  * @returns The card.
  */
-export function DeviceCard({ client, hello, onRefresh, isBusy, deviceFiles }: DeviceCardProps) {
+export function DeviceCard({ client, hello, diagnostics, onRefresh, isBusy, deviceFiles }: DeviceCardProps) {
   const [rebootError, setRebootError] = useState<string | null>(null);
   const [pending, setPending] = useState<RebootMode | null>(null);
   const role = hello.kind === 'ok' ? hello.info.role : null;
@@ -147,6 +184,7 @@ export function DeviceCard({ client, hello, onRefresh, isBusy, deviceFiles }: De
       contentSlot={
         <>
           {hello.kind === 'ok' ? <HelloFacts info={hello.info} /> : null}
+          {hello.kind === 'ok' ? <DiagnosticsFacts state={diagnostics} /> : null}
           {hello.kind === 'ok' && hello.info.nodeName !== null && deviceFiles !== null ? (
             <MatchingFiles nodeName={hello.info.nodeName} files={deviceFiles} />
           ) : null}

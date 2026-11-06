@@ -20,9 +20,11 @@ import { LogCard } from './device/log-card.tsx';
 import type { PickedImage } from './device/picked-image.ts';
 import { isWindows } from './device/platform.ts';
 import { hasUnsavedSettings, SettingsSaveBar, SettingsView } from './device/settings-view.tsx';
+import { UnlockDialog } from './device/unlock-dialog.tsx';
 import { offersConfig, useConfig } from './device/use-config.ts';
 import { useConnection } from './device/use-connection.ts';
 import { useDeviceLog } from './device/use-device-log.ts';
+import { useDiagnostics } from './device/use-diagnostics.ts';
 import { offersFeedback } from './device/use-feedback.ts';
 import { useHello } from './device/use-hello.ts';
 import { usePendingUpload } from './device/use-pending-upload.ts';
@@ -146,6 +148,12 @@ export function App() {
   const settingsClient = hasConfig && isBusy === false ? client : null;
   const config = useConfig(settingsClient, settingsClient === null ? null : info);
   const presets = usePresets(settingsClient, info !== null && offersPresets(info), config.refreshValues);
+  const diagnostics = useDiagnostics(settingsClient, config.state.kind === 'ready' ? config.state.schema : null);
+  const refreshDiagnostics = diagnostics.refresh;
+  const refreshDevice = () => {
+    refresh();
+    refreshDiagnostics();
+  };
   const hasUnsaved = settingsClient !== null && hasUnsavedSettings(config, presets);
   // An upload stored before the Code 61 went into update mode: offered once its bootloader is here.
   const bootloaderPair = midi.snapshot.pairs.find((pair) => isMaudioBootloaderName(pair.name)) ?? null;
@@ -217,7 +225,14 @@ export function App() {
         </Suspense>
       ) : null}
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <DeviceCard client={client} hello={hello} onRefresh={refresh} isBusy={isBusy} deviceFiles={deviceFiles} />
+        <DeviceCard
+          client={client}
+          hello={hello}
+          diagnostics={diagnostics.state}
+          onRefresh={refreshDevice}
+          isBusy={isBusy}
+          deviceFiles={deviceFiles}
+        />
         <FlashCard
           link={link}
           image={flashImage}
@@ -320,6 +335,8 @@ export function App() {
       <div hidden={view !== AppView.Feedback} className="flex min-w-0 flex-col gap-4">
         {feedbackCards}
       </div>
+      {/* Whichever view started it: a reboot, an upload or a factory reset waiting for the user's OK on the device. */}
+      <UnlockDialog client={client} />
     </>
   );
 

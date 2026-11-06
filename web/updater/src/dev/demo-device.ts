@@ -1,10 +1,13 @@
 /**
  * A pretend Code 61 for `npm run dev` with `?demo` in the URL: HELLO, the config (§4.3) and the
- * presets (§4.5), in memory, so the Presets view can be worked on without a keyboard. It is never
- * part of a production build (see `useDemoClient`).
+ * presets (§4.5), in memory, so the Presets view can be worked on without a keyboard. It has the
+ * physical unlock (§4.7): FACTORY_RESET and REBOOT(1) answer LOCKED, and the pretend user holds
+ * the combo a few seconds later. It reports the diagnostics (§4.8) too. It is never part of a
+ * production build (see `useDemoClient`).
  */
 
 import { SysexClient, type Transport } from '../protocol/client.ts';
+import { isDiagnostic } from '../protocol/diagnostics.ts';
 import {
   encodeLstring,
   encodeS32,
@@ -21,6 +24,7 @@ import {
   Capability,
   Command,
   ComponentKind,
+  DiagParam,
   LedColours,
   LedOwner,
   NOTIFICATION_FIRST,
@@ -31,6 +35,8 @@ import {
   PresetParam,
   Role,
   Status,
+  UNLOCK_WINDOW_SECONDS,
+  UnlockState,
   Unsolicited,
 } from '../protocol/wire.ts';
 
@@ -50,6 +56,24 @@ const DEMO_LEDS: readonly { id: string; name: string; colours: number }[] = [
   ...Array.from({ length: 16 }, (_, i) => ({ id: `pad${i + 1}_led`, name: `Pad ${i + 1}`, colours: LedColours.Rgb })),
 ];
 const DEMO_DISPLAY_COLS = 6;
+
+/** The unlock combo (§4.7): the Code 61's boot combo, held for 2 s. */
+const UNLOCK_BUTTONS = ['Up', 'Down'];
+const UNLOCK_HOLD_MS = 2000;
+/** How long after a LOCKED reply the pretend user has held the combo. */
+const DEMO_UNLOCK_AFTER_MS = 4000;
+/** An unlocked device locks again after this long without a request (§4.7). */
+const RELOCK_IDLE_MS = 5 * 60 * 1000;
+/** How long the pretend reboot takes before BOOTED. */
+const DEMO_REBOOT_MS = 1500;
+const MS_PER_SECOND = 1000;
+
+/** The diagnostics (§4.8), read-only and VOLATILE in the Debug group. */
+const DIAG = ParamFlag.ReadOnly | ParamFlag.Volatile;
+const RESET_REASONS = ['unknown', 'power-on', 'reset pin', 'software', 'watchdog', 'brown-out', 'crash', 'low-power'];
+const SETTINGS_STATES = ['loaded', 'none stored', 'some reset', 'ignored (safe mode)', 'wiped'];
+/** A reset_reason of software, for after a pretend reboot. */
+const RESET_SOFTWARE = 3;
 
 /** Roughly the Code 61's groups and params, with the per-preset ones flagged. */
 const GROUPS = ['MIDI', 'Velocity', 'Buttons', 'Analog', 'Pads', 'Presets', 'Debug'];
@@ -191,6 +215,75 @@ const PARAMS: ParamSpec[] = [
     max: 1,
     flags: ParamFlag.Volatile,
   }),
+  makeParam({
+    id: DiagParam.ResetReason,
+    name: 'diag.reset_reason',
+    label: 'Reset reason',
+    group: 6,
+    type: ParamType.Enum,
+    max: RESET_REASONS.length - 1,
+    defaults: [1],
+    options: RESET_REASONS,
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.BootLoop,
+    name: 'diag.boot_loop',
+    label: 'Boot-loop fallback',
+    group: 6,
+    type: ParamType.Bool,
+    max: 1,
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.Settings,
+    name: 'diag.settings',
+    label: 'Settings at power-up',
+    group: 6,
+    type: ParamType.Enum,
+    max: SETTINGS_STATES.length - 1,
+    options: SETTINGS_STATES,
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.ScanMax,
+    name: 'diag.scan_max',
+    label: 'Longest scan',
+    group: 6,
+    max: 0x7fff_ffff,
+    defaults: [212],
+    unit: 'µs',
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.LoopMax,
+    name: 'diag.loop_max',
+    label: 'Longest main loop',
+    group: 6,
+    max: 0x7fff_ffff,
+    defaults: [1840],
+    unit: 'µs',
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.ScanPeriod,
+    name: 'diag.scan_period',
+    label: 'Scan period',
+    group: 6,
+    max: 0x7fff_ffff,
+    defaults: [1000],
+    unit: 'µs',
+    flags: DIAG,
+  }),
+  makeParam({
+    id: DiagParam.Uptime,
+    name: 'diag.uptime',
+    label: 'Uptime',
+    group: 6,
+    max: 0x7fff_ffff,
+    unit: 's',
+    flags: DIAG,
+  }),
 ];
 const SLOTS = 3;
 /** Slot 1 is the device file's; the others start as copies of it. */
@@ -221,6 +314,13 @@ class DemoDevice {
   /** Presets in use: slots 1..used; the rest are free (§4.5). */
   #used = 2;
   #listeners = new Set<(bytes: Uint8Array) => void>();
+  /** Physical unlock (§4.7). */
+  #isUnlocked = false;
+  /** When the unlock window closes, as a `Date.now()` time; 0 when it is closed. */
+  #windowEndsAt = 0;
+  #unlockTimer: ReturnType<typeof setTimeout> | undefined;
+  #relockTimer: ReturnType<typeof setTimeout> | undefined;
+  #startedAt = Date.now();
 
   constructor() {
     for (const { key, param, index } of keysOf(() => true)) {
@@ -286,6 +386,86 @@ class DemoDevice {
     }
   }
 
+  /** Opens (or restarts) the unlock window; the pretend user holds the combo a little later. */
+  #openWindow(): void {
+    this.#windowEndsAt = Date.now() + UNLOCK_WINDOW_SECONDS * MS_PER_SECOND;
+    clearTimeout(this.#unlockTimer);
+    this.#unlockTimer = setTimeout(() => {
+      this.#isUnlocked = true;
+      this.#windowEndsAt = 0;
+      this.#emit(encodeFrame(Unsolicited.Unlocked, 0, [UnlockState.Unlocked]));
+      this.#keepUnlocked();
+    }, DEMO_UNLOCK_AFTER_MS);
+  }
+
+  /** Locks again after five minutes without a request (§4.7). */
+  #keepUnlocked(): void {
+    clearTimeout(this.#relockTimer);
+    if (this.#isUnlocked === false) {
+      return;
+    }
+    this.#relockTimer = setTimeout(() => this.#lock(), RELOCK_IDLE_MS);
+  }
+
+  #lock(): void {
+    clearTimeout(this.#unlockTimer);
+    clearTimeout(this.#relockTimer);
+    const wasUnlocked = this.#isUnlocked;
+    this.#isUnlocked = false;
+    this.#windowEndsAt = 0;
+    if (wasUnlocked) {
+      this.#emit(encodeFrame(Unsolicited.Unlocked, 0, [UnlockState.Locked]));
+    }
+  }
+
+  /** @returns Seconds left in the unlock window, 0 when it is closed. */
+  #windowSeconds(): number {
+    return Math.max(0, Math.ceil((this.#windowEndsAt - Date.now()) / MS_PER_SECOND));
+  }
+
+  /** @returns The UNLOCK reply's fields (§4.7). */
+  #unlockFields(): number[] {
+    return [
+      this.#isUnlocked ? UnlockState.Unlocked : UnlockState.Locked,
+      this.#windowSeconds(),
+      ...encodeU14(UNLOCK_HOLD_MS),
+      UNLOCK_BUTTONS.length,
+      ...UNLOCK_BUTTONS.flatMap(encodeLstring),
+    ];
+  }
+
+  /** @returns HELLO's fields after the status, which BOOTED repeats (§4.6.3). */
+  #helloFields(): number[] {
+    return [
+      Role.App,
+      ...encodeU14(2),
+      ...encodeU32(0x0002_003e),
+      0x01,
+      ...encodeU14(256),
+      ...encodeU14(
+        Capability.Config |
+          Capability.Log |
+          Capability.Event |
+          Capability.Presets |
+          Capability.Feedback |
+          Capability.Unlock,
+      ),
+      ...pack([0xde, 0x70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      14,
+      ...Array.from('m-audio-code61', (c) => c.charCodeAt(0)),
+    ];
+  }
+
+  /** A pretend restart: locked again, a fresh uptime, then BOOTED. */
+  #restart(): void {
+    this.#lock();
+    setTimeout(() => {
+      this.#startedAt = Date.now();
+      this.#live.set(`${DiagParam.ResetReason}:0`, RESET_SOFTWARE);
+      this.#emit(encodeFrame(Unsolicited.Booted, 0, this.#helloFields()));
+    }, DEMO_REBOOT_MS);
+  }
+
   #changed(): void {
     this.#emit(encodeFrame(Unsolicited.PresetChanged, 0, [...encodeU14(this.#active), this.#dirty ? 1 : 0]));
   }
@@ -335,21 +515,37 @@ class DemoDevice {
     if (isNotification) {
       return; // FB_*: never answered; the demo has no LEDs to light
     }
+    this.#keepUnlocked();
+    // FACTORY_RESET and REBOOT(1) need the user's OK on the device first (§4.7).
+    const isGuarded = cmd === Command.FactoryReset || (cmd === Command.Reboot && payload[0] === 1);
+    if (isGuarded && this.#isUnlocked === false) {
+      this.#openWindow();
+      reply(Status.Locked);
+      return;
+    }
     switch (cmd) {
       case Command.Hello:
-        reply(Status.Ok, [
-          Role.App,
-          ...encodeU14(2),
-          ...encodeU32(0x0002_003e),
-          0x01,
-          ...encodeU14(256),
-          ...encodeU14(
-            Capability.Config | Capability.Log | Capability.Event | Capability.Presets | Capability.Feedback,
-          ),
-          ...pack([0xde, 0x70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-          14,
-          ...Array.from('m-audio-code61', (c) => c.charCodeAt(0)),
-        ]);
+        reply(Status.Ok, this.#helloFields());
+        return;
+      case Command.Unlock: {
+        const open = payload[0];
+        if (payload.length !== 1) {
+          reply(Status.BadLen);
+          return;
+        }
+        if (open !== 0 && open !== 1) {
+          reply(Status.BadCmd);
+          return;
+        }
+        if (open === 1 && this.#isUnlocked === false) {
+          this.#openWindow();
+        }
+        reply(Status.Ok, this.#unlockFields());
+        return;
+      }
+      case Command.Reboot:
+        reply(Status.Ok);
+        this.#restart();
         return;
       case Command.GetSchema: {
         const offset = reader.u28();
@@ -370,7 +566,11 @@ class DemoDevice {
         const key = `${id}:${index}`;
         if (cmd === Command.SetParam) {
           const value = reader.s32();
-          if (value < param.min || value > param.max || (param.flags & ParamFlag.ReadOnly) !== 0) {
+          if ((param.flags & ParamFlag.ReadOnly) !== 0) {
+            reply(Status.BadParam);
+            return;
+          }
+          if (value < param.min || value > param.max) {
             reply(Status.BadValue);
             return;
           }
@@ -395,7 +595,9 @@ class DemoDevice {
             ? Number(this.#dirty)
             : id === PresetParam.Count
               ? this.#used
-              : (this.#live.get(key) ?? 0);
+              : id === DiagParam.Uptime
+                ? Math.floor((Date.now() - this.#startedAt) / MS_PER_SECOND)
+                : (this.#live.get(key) ?? 0);
         reply(Status.Ok, [...encodeU14(id), ...encodeU14(index), ...encodeS32(now)]);
         return;
       }
@@ -503,7 +705,7 @@ class DemoDevice {
       case Command.FactoryReset:
         this.#stored.clear();
         this.#used = YAML_NAMES.length;
-        for (const { key, param, index } of keysOf(() => true)) {
+        for (const { key, param, index } of keysOf((p) => isDiagnostic(p) === false)) {
           this.#live.set(key, param.defaults[index] ?? 0);
         }
         this.#load(1);

@@ -29,7 +29,7 @@ function timeColumn(tMs: number): string {
 }
 
 /**
- * One LOG, EVENT, PARAM_CHANGED, BOOTED or PRESET_CHANGED as a line of text.
+ * One LOG, EVENT, PARAM_CHANGED, BOOTED, PRESET_CHANGED or UNLOCKED as a line of text.
  *
  * @param message - The message.
  * @returns E.g. `[    1234 ms] INFO  oct- down`.
@@ -47,6 +47,10 @@ export function formatDeviceMessage(message: DeviceMessage): string {
   if (message.kind === 'preset') {
     const blank = ' '.repeat(timeColumn(0).length);
     return `${blank} PRESET ${message.slot}${message.dirty ? ' (unsaved edits)' : ''}`;
+  }
+  if (message.kind === 'unlocked') {
+    const blank = ' '.repeat(timeColumn(0).length);
+    return `${blank} UNLOCKED ${message.isUnlocked ? 'unlocked' : 'locked'}`;
   }
   const time = timeColumn(message.tMs);
   if (message.kind === 'log') {

@@ -5,7 +5,7 @@
 
 import { encodeS32, encodeU14, encodeU28, encodeU32, PayloadReader, pack } from './encoding.ts';
 import type { Frame } from './frame.ts';
-import { Capability, type RebootMode, Role, UID_BYTES, Unsolicited } from './wire.ts';
+import { Capability, type RebootMode, Role, UID_BYTES, UnlockOpen, UnlockState, Unsolicited } from './wire.ts';
 
 /** What HELLO tells about a device. */
 export interface HelloInfo {
@@ -78,8 +78,82 @@ export interface PresetChangedMessage {
   dirty: boolean;
 }
 
+/** An UNLOCKED message (0x66, §4.7): the device was unlocked, or locked again. */
+export interface UnlockedMessage {
+  kind: 'unlocked';
+  /** True: unlocked. False: locked again, or the unlock window closed without an unlock. */
+  isUnlocked: boolean;
+}
+
 /** Any unsolicited message this module understands. */
-export type DeviceMessage = LogMessage | EventMessage | ParamChangedMessage | BootedMessage | PresetChangedMessage;
+export type DeviceMessage =
+  | LogMessage
+  | EventMessage
+  | ParamChangedMessage
+  | BootedMessage
+  | PresetChangedMessage
+  | UnlockedMessage;
+
+/** What UNLOCK tells (§4.7): the lock's state and what to ask the user. */
+export interface UnlockInfo {
+  /** The device is unlocked now. */
+  isUnlocked: boolean;
+  /** Seconds left in the unlock window; 0 when it is closed. */
+  windowSeconds: number;
+  /** How long the combo must be held, in ms; 0 when a press is enough. */
+  holdMs: number;
+  /** The combo's buttons, by their display names. */
+  buttons: string[];
+}
+
+/**
+ * The UNLOCK request payload: `open` (1 byte).
+ *
+ * @param open - Also open (or restart) the unlock window when the device is locked.
+ * @returns The payload.
+ */
+export function unlockPayload(open: boolean): number[] {
+  return [open ? UnlockOpen.Open : UnlockOpen.Report];
+}
+
+/** Milliseconds in a second. */
+const MS_PER_SECOND = 1000;
+
+/**
+ * What to ask the user to do on the device (§4.7).
+ *
+ * @param buttons - The combo's buttons, by their display names; empty when the device did not say.
+ * @param holdMs - How long to hold them; 0 for a press; null when the device did not say.
+ * @returns E.g. `Hold Pitch down + Pitch up on the device for 2 s.`
+ */
+export function unlockInstruction(buttons: readonly string[], holdMs: number | null): string {
+  if (buttons.length === 0) {
+    return 'Unlock it on the device: hold its unlock buttons.';
+  }
+  const combo = buttons.join(' + ');
+  if (holdMs === 0) {
+    return `Press ${combo} on the device.`;
+  }
+  if (holdMs === null) {
+    return `Hold ${combo} on the device.`;
+  }
+  return `Hold ${combo} on the device for ${holdMs / MS_PER_SECOND} s.`;
+}
+
+/**
+ * Parses UNLOCK's reply fields: `state`, `window`, `hold` u14, `n`, then `n` lstrings.
+ *
+ * @param body - The reply payload without its status byte.
+ * @returns The lock's state and the combo.
+ */
+export function parseUnlock(body: ArrayLike<number>): UnlockInfo {
+  const reader = new PayloadReader(body);
+  const isUnlocked = reader.byte() === UnlockState.Unlocked;
+  const windowSeconds = reader.byte();
+  const holdMs = reader.u14();
+  const n = reader.byte();
+  return { isUnlocked, windowSeconds, holdMs, buttons: Array.from({ length: n }, () => reader.lstring()) };
+}
 
 /**
  * The REBOOT request payload.
@@ -346,6 +420,9 @@ export function parseDeviceMessage(frame: Frame): DeviceMessage | null {
     const reader = new PayloadReader(frame.payload);
     return { kind: 'preset', slot: reader.u14(), dirty: reader.byte() !== 0 };
   }
+  if (frame.cmd === Unsolicited.Unlocked) {
+    return { kind: 'unlocked', isUnlocked: new PayloadReader(frame.payload).byte() === UnlockState.Unlocked };
+  }
   return null;
 }
 
@@ -370,6 +447,7 @@ const CAPABILITY_NAMES: ReadonlyArray<readonly [number, string]> = [
   [Capability.Log, 'log'],
   [Capability.Event, 'events'],
   [Capability.Feedback, 'feedback'],
+  [Capability.Unlock, 'physical unlock'],
 ];
 
 /**

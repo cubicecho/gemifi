@@ -27,10 +27,18 @@ $B validate devices/keystation-mini32-mk3.yaml       # check it, print errors as
 $B validate devices/*.yaml                           # several at once (exit 1 if any fails)
 $B generate devices/keystation-mini32-mk3.yaml -o /tmp/cfg   # write gm_device_config.h/.c only
 $B build    devices/keystation-mini32-mk3.yaml       # validate + generate + firmware build
+$B build    mine.yaml -s node my-keys -s base_cc 20  # set substitutions (${node}, ${base_cc})
 $B presets                                           # list presets in devices/
-$B new my-keys --preset keystation-mini32-mk3        # copy it to ~/gemifi-devices/my-keys.yaml
+$B new my-keys --preset keystation-mini32-mk3        # ~/gemifi-devices/my-keys.yaml, using the preset as a package
+$B schema -o device.json                             # the JSON schema of the device YAML, for editors
 $B dashboard                                         # web UI on http://127.0.0.1:6055/ (flags below)
 ```
+
+**Packages and substitutions** (core/README.md "Packages and substitutions"): before validating, the builder merges a file's `packages:`, puts in its `!include` files, applies `!extend` / `!remove` and replaces `${name}` from `substitutions:` and `-s NAME VALUE` (on `validate`, `generate` and `build`; `-s` wins). It refuses a file whose `min_version:` is newer than the builder (`VERSION` in `gemifi_device.py`). A problem in a package or an included file is reported at that file's line. The code is `gemifi_yaml.py`; it works on the loader's tree, whose line numbers carry their file (`gemifi_device.Line`).
+
+**Config hash.** `build` prints the hash of the resolved config (`config hash: 09754273`), bakes it into the image (`GM_CONFIG_HASH`, param `config.hash`) and writes it to `<out>/config.hash`. core/README.md "Config hash" says what is hashed.
+
+**schema** prints a JSON schema of the device YAML (`-o` writes a file; `--check FILE` exits 1 if FILE isn't current). It is built from the validator's key lists in `gemifi_device.py` (`TOP_KEYS`, `BUTTON_KEYS`, `HUB_KEYS`, ...), so a new key goes in those lists and the schema follows. `site/src/schema/device.json` is the published copy (https://cubicecho.github.io/gemifi/schema/device.json, and a release asset): CI fails when it is out of date, so regenerate it with `$B schema -o site/src/schema/device.json` after changing the validator. `tests/test_packages.py` checks every file in `devices/` against it, and that its keys are the ones the validator accepts.
 
 **validate** reports errors (which stop a build) and warnings (strapping/flash pins, ADC2, I2C-polled encoders and so on), each with `file:line` and the YAML path:
 
@@ -86,7 +94,7 @@ Flash the image with the **web updater** (`cd web/updater && npm run dev`) or `t
 
 ## Presets
 
-A preset is any `devices/*.yaml`. `presets` lists them with their `platform` and top-level `description:`. `new <name> --preset <preset>` copies one to `~/gemifi-devices/<name>.yaml` (`--dir` picks another directory, `--force` overwrites) for you to edit; when `<name>` is a valid node name (lowercase, digits, `-`) it also becomes the copy's `name:`. To add a preset, put a valid YAML with a `description:` line in `devices/`. `tests/test_builder.py` checks that every preset validates and compiles.
+A preset is any `devices/*.yaml`. `presets` lists them with their `platform` and top-level `description:`. `new <name> --preset <preset>` writes `~/gemifi-devices/<name>.yaml` (`--dir` picks another directory, `--force` overwrites): a short file that uses the preset as a package (`packages: { base: preset:<preset> }`), so it gets the preset's later fixes, with comments on how to change, drop or add a component. When `<name>` is a valid node name (lowercase, digits, `-`) it also becomes the file's `name:`. `--copy` copies the whole preset instead. To add a preset, put a valid YAML with a `description:` line in `devices/`. `tests/test_builder.py` checks that every preset validates and compiles.
 
 ## Dashboard
 
@@ -118,12 +126,12 @@ Everything is under `/api/`. Errors are `{"error": "<message>"}` with a 4xx stat
 | Request | Response |
 |---|---|
 | `GET /api/info` | `{"name": "gemifi builder", "version": "0.1.0", "user_dir", "toolchains": {"nuvoton-nuc1xx": bool, "stm32f1": bool, "esp": bool}}`: NUC and STM32F1 = `arm-none-eabi-gcc` and `make` found, ESP = `pio` found |
-| `GET /api/devices` | `{"devices": [{"id", "root": "presets"\|"mine", "file", "name", "platform", "description", "images": [str], "writable": bool}], "user_dir"}`; `images` = the `.gfw`/`.bin` files at the top of that device's output dir |
+| `GET /api/devices` | `{"devices": [{"id", "root": "presets"\|"mine", "file", "name", "node_name", "platform", "description", "images": [str], "stale": bool, "writable": bool, "config_hash": int \| null, "built_config_hash": int \| null}], "user_dir"}`; `images` = the `.gfw`/`.bin` files at the top of that device's output dir; `stale`: built, but the file or one of its packages changed since; `config_hash`: the file's config hash now (null when it doesn't resolve), `built_config_hash`: its last build's. Packages and substitutions are applied for `platform`, `name` and the rest. |
 | `GET /api/presets` | `{"presets": [{"name", "platform", "description"}]}` |
 | `GET /api/file?id=` | `{"id", "text"}` |
-| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "diags": [{"level": "error"\|"warning", "path", "line", "msg"}], "presets": {"slots": [{"slot", "name", "program", "changes", "listed"}], "revision", "given", "storage": {...the budget numbers}} \| null, "dma": {"channels": [{"channel", "request", "user"}], "free": [int], "text"} \| null (stm32f1 only), "din_midi": {"mode", "midi_in", "thru", "controller_out", "usb_to_din", "dma"} \| null, "midi_ports": [{"cable", "name", "role": "daw"\|"din"}]}` (`midi_ports`: the USB-MIDI ports besides the device's own) |
+| `POST /api/validate {"id"?, "text"}` | `{"ok", "summary", "config_hash": int \| null, "diags": [{"level": "error"\|"warning", "path", "line", "file"?, "msg"}], "presets": {"slots": [{"slot", "name", "program", "changes", "listed"}], "revision", "given", "storage": {...the budget numbers}} \| null, "dma": {"channels": [{"channel", "request", "user"}], "free": [int], "text"} \| null (stm32f1 only), "din_midi": {"mode", "midi_in", "thru", "controller_out", "usb_to_din", "dma"} \| null, "midi_ports": [{"cable", "name", "role": "daw"\|"din"}]}` (`midi_ports`: the USB-MIDI ports besides the device's own). `id` places the text, so its packages and `!include` files are found next to it; a diag in one of those has `file` (`presets/x.yaml`, or a path relative to the device file) and that file's `line`. |
 | `POST /api/save {"id", "text"}` | `{"ok": true}`; 403 on a read-only preset |
-| `POST /api/new {"name", "preset"}` | `{"id"}` (`mine/<name>.yaml`); 400 if it exists or the name is bad |
+| `POST /api/new {"name", "preset"}` | `{"id"}` (`mine/<name>.yaml`, a short file using the preset as a package); 400 if it exists or the name is bad |
 | `POST /api/delete {"id"}` | `{"ok": true}`; `mine/` only (403 for presets), also removes its build outputs; 409 during a build |
 | `POST /api/build {"id"}` | `text/plain`, the build log streamed line by line, last line `[exit N]` (0 = OK); 409 JSON if a build is running |
 | `GET /api/image?id=&file=` | `application/octet-stream` with `Content-Disposition: attachment`, one of the names in `images` (`/download` is an alias) |
@@ -214,4 +222,5 @@ What the tests check:
 - `generate` leaves unchanged files alone (same mtime), so `make` doesn't rebuild when the YAML hasn't changed.
 - every generated `.c` (the Keystation, every preset, `tests/fixtures/everything-esp32s3.yaml` with all hub types and components, and an empty device) compiles with `gcc -std=c11 -Wall -Wextra -Werror`. The `core/src/*.c` files are compiled against each one, and `settings.c` + `params.c` are linked against it.
 - the stm32f1 DMA allocator (`test_dma_*`): the Code 61's map, `auto` moving the scans for `din_midi dma: true`, explicit timers and their errors, and (with `arm-none-eabi-gcc`) the platform's static checks in `scan_dma.c`, `adc_dma.c`, `hal.c` and `main.c` against several allocator outputs.
+- `tests/test_packages.py`: packages, `!include`, `!extend` / `!remove`, substitutions and `-s`, `min_version:`, errors at the right file and line, the config hash, `new` writing a package file, the dashboard's hashes and file names, and the JSON schema (current in `site/`, every preset and example passes it, its keys are the validator's).
 - validation errors (file, line, path, message), the CLI, and the dashboard: every API endpoint, per-id output dirs, read-only presets, static serving and traversal, Basic auth, the Host-header rules, the `GEMIFI_*` env vars, and (with `arm-none-eabi-gcc`) a real NUC build through `/api/build`.

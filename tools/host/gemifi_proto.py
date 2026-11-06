@@ -732,9 +732,9 @@ COLOURS = {1: "single", 2: "bicolour", 3: "RGB"}
 # Fields added after the first F3 firmware (sysex.md 4.6.1 "Added fields"); None in a Component = not reported.
 TAKEOVER_NONE, TAKEOVER_PICKUP = 0, 1
 TAKEOVERS = {TAKEOVER_NONE: "none", TAKEOVER_PICKUP: "pickup"}
-ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU = 0, 1, 2, 3
+ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET, ENC_MCU, ENC_REL_SIGN = 0, 1, 2, 3, 4
 ENC_MODES = {ENC_ABSOLUTE: "absolute", ENC_REL_TWOS: "relative_twos", ENC_REL_OFFSET: "relative_offset",
-             ENC_MCU: "mcu_vpot"}
+             ENC_MCU: "mcu_vpot", ENC_REL_SIGN: "relative_sign"}
 OWNER_HOST_THEN_LOCAL, OWNER_HOST, OWNER_LOCAL = 0, 1, 2
 OWNERS = {OWNER_HOST_THEN_LOCAL: "host_then_local", OWNER_HOST: "host", OWNER_LOCAL: "local"}
 DISPLAY_TYPES = {1: "characters", 2: "segments"}
@@ -1348,7 +1348,7 @@ def parse_value(p, text, check_range=True):
         t = t[:-len(p.unit)].strip()          # "80ms" / "80 ms" for a param with unit "ms"
     v = None
     if p.type == T_ENUM:
-        hits = [i for i, o in enumerate(p.options) if o.lower() == t.lower()]
+        hits = [i for i, o in enumerate(p.options) if o and o.lower() == t.lower()]   # "": left out
         if hits:
             v = p.min + hits[0]
     elif p.type == T_NOTE:
@@ -1364,7 +1364,7 @@ def parse_value(p, text, check_range=True):
         except ValueError:
             hint = ""
             if p.type == T_ENUM:
-                hint = " (options: " + ", ".join(p.options) + ")"
+                hint = " (options: " + ", ".join(o for o in p.options if o) + ")"
             elif p.type == T_NOTE:
                 hint = " (a number or a note name like C4; 60 = C4)"
             raise ValueError(f"{p.name}: can't read {text!r}{hint}") from None

@@ -160,7 +160,7 @@ Every component has an `id` (what the rest of the file uses to refer to it) and/
 | encoder | `id`/`name`, `pin_a`, `pin_b`, `steps_per_detent`, default `cc`, optional `mcu:`, `ring:`, `acceleration:` (the default in the top-level `encoder_settings:`; "Encoder acceleration" below) | `encoder.cc`, `encoder.mode` |
 | key matrix (at most one) | `rows`, `columns`, `type` (`switch` / `velocity`), `keys`, `first_note`, `settle` (time after driving a row, default 1us), and for `type: velocity` optional default key times `velocity: { fast, slow }` (time between the two contacts for velocity 127 and 1; default 1.2ms and 120ms) | the velocity params if `type: velocity` |
 
-Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`. The list with ids is in `src/settings.c`; ids never change meaning.
+Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`, `bend.glide`, `ramp.time`, `debug.events`, `debug.log_level`, and the read-only `config.hash` ("Config hash" below). The list with ids is in `src/settings.c`; ids never change meaning.
 
 **Key matrix.** One row is driven at a time (to the active level: high, or low with `inverted`), the columns are read, then the row is released. `type: switch`: key = row + rows × column. `type: velocity`: two contacts per key; key k is on row k % rows and columns 2p, 2p+1 with p = k / rows. Whichever contact closes first starts the timer, the second sends Note On with a velocity from the time between them, and the key is released when both are open. Put diodes on the matrix if more than one key can be held.
 
@@ -528,6 +528,50 @@ write_to_flash:
 - **Tests:** `core/test` `test_controller` (the Keystation, off: a switch never writes, a boot ignores a stored `preset.active`) and `test_controller_wtf` (the same YAML with `last_preset: true`: the delay, keys and buttons held, a knob turned, ADC noise, COMMIT), and the NUC host-sim `run_presets.py` (on, with the real journal and reboots).
 
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
+
+**Editors.** The builder makes a JSON schema of this format (`gemifi_build.py schema`), published at https://cubicecho.github.io/gemifi/schema/device.json and with each release. With VS Code's YAML extension, a first line of `# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json` (the files in `devices/` have it) gives completion and marks unknown keys and wrong types. The builder still has the last word: the schema doesn't know which pins a chip has, which ids exist or what a platform can do. For the tags below, add `"yaml.customTags": ["!include scalar", "!include mapping", "!extend scalar", "!remove scalar"]` to the VS Code settings.
+
+### Packages and substitutions
+
+A device file can be built from other files, as in ESPHome. It all happens in the builder (`tools/builder/gemifi_yaml.py`), before validation, so the firmware is the same as if the file had been written out in full.
+
+```yaml
+substitutions:
+  node: my-keys
+  base_cc: 20
+packages:
+  keys: preset:keystation-mini32-mk3   # devices/keystation-mini32-mk3.yaml
+  pads: pads.yaml                      # next to this file
+  leds: !include { file: leds.yaml, vars: { first: 4 } }
+min_version: 0.34.0
+name: ${node}
+buttons:
+  - id: !extend sustain                # change one of the package's buttons
+    cc: ${base_cc}
+  - id: !remove oct_up                 # drop one
+  - id: extra                          # add one
+    pin: PB9
+    action: cc_toggle
+    cc: 21
+scan_interval: !remove                 # drop a key a package set (back to the default)
+```
+
+- **`packages:`** is a mapping of name: package, or a list of packages. A package is a part of a device file, merged under this one. It is a file name (relative to the file that names it), `preset:<name>` (`devices/<name>.yaml`), an `!include`, or a mapping written in place. Packages can have packages of their own. Remote packages (`github://...`) aren't supported yet.
+- **Merging.** Packages merge in order, then the device file goes on top. Mappings merge key by key. A list whose items all have an id (or a `name:` the id comes from) merges by id: an item with the same id as a package's replaces it in place, other items are added at the end. Any other list replaces the package's. A scalar replaces the package's. Key order is kept (it matters for hubs: their order is the file's).
+- **`- id: !extend <id>`** merges the item's other keys into the package's item with that id, instead of replacing it. **`- id: !remove <id>`** drops that item. Both are errors when no package brought that id in. **`key: !remove`** drops a key a package set.
+- **`!include file.yaml`** puts that file's content in place of the value, anywhere. `!include { file: f.yaml, vars: { name: value } }` also sets substitutions for that file only.
+- **`substitutions:`** is a mapping of name: value (text or a number). `${name}` is replaced in every string value. A value that is only `${name}` takes the substitution's type, so `cc: ${base_cc}` is a number. Substitutions can use other substitutions. Packages can bring substitutions; the device file's win, and `gemifi_build.py validate|generate|build ... -s NAME VALUE` wins over both. An unknown `${name}` is an error. Inside `{ ... }`, quote a value that has `${` in it: `{ cc: "${base_cc}" }` (YAML reads the braces otherwise). Keys and ids from a package are matched before substitutions are made, so `!extend` an id as the package writes it (or give the package's ids through `vars:`).
+- **`min_version: x.y.z`** in any of the files: the builder refuses to build with an older version, and says which one is needed. The builder's version is `VERSION` in `tools/builder/gemifi_device.py` (set at each release).
+- **Errors** in a package or an included file give that file and its line (`pads.yaml:12: error: ...`). The dashboard shows them with the file's name and doesn't jump to them.
+- **The dashboard's "new device from a preset"** (and `gemifi_build.py new`) writes a short file that uses the preset as a package, so it follows the preset when gemifi updates it. `gemifi_build.py new --copy` copies the preset instead.
+
+### Config hash
+
+The builder hashes the resolved config (after packages, includes and substitutions) and bakes it into the firmware as `GM_CONFIG_HASH` in `gm_device_config.h`. The device reports it as the read-only param `config.hash` (id 39, protocol/sysex.md §4.4), so a host can tell which config a device runs. The web page shows it in the device info. With the dashboard, it also says whether the device runs the config of each file with its node name: this config, the file's last build (the file has changed since), or a different config.
+
+- **What is hashed:** the resolved tree as one line of JSON (UTF-8, no spaces): mappings in file order, lists in order, every scalar as `"<type>:<text>"`, e.g. `"int:0x40"`, `"str:Sustain"`, `"bool:true"` (the text as written, after substitutions). Comments, layout, `substitutions:`, `packages:`, `min_version:` and how the config is split into files don't count; two files hash the same when they read the same, key order included. The value is the first 4 bytes of the SHA-256, big-endian, with the top bit cleared (0..0x7FFFFFFF).
+- `gemifi_build.py build` prints it (`config hash: 09754273`) and leaves it in `<out>/config.hash`.
+- It costs about 80 bytes of flash and 4 of RAM. Firmware built before it has no `config.hash`.
 
 ## Presets
 

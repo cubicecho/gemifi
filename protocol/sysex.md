@@ -193,6 +193,8 @@ Unknown `type` values must be shown as plain ints, and unknown `flags` bits igno
 
 The schema for each firmware is listed in its README (`firmware/<family>/<app>/README.md`).
 
+**Config hash.** Firmware made by the gemifi builder has the param `config.hash` (id 39, group "Debug"): int 0..0x7FFFFFFF, READ_ONLY and VOLATILE, whose value (and default) is the builder's hash of the device YAML it was built from (`core/README.md` "Config hash"). A host compares it with a file's hash to tell whether the device runs that file's config. Firmware built before it has no such param: that means "unknown", not "different". Profiles list it like any read-only param, and an import skips it.
+
 ### 4.5 Presets (app)
 
 A **preset** is a named set of values for what the controls do: which CC or note they send, on which channel, with which curve. A device with presets sets HELLO caps bit 5. Design background: `research/core/presets-design.md`.

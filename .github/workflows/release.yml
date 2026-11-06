@@ -3,10 +3,12 @@
 # Versions come from Conventional Commits: `fix:` -> patch, `feat:` -> minor, `!` or a
 # `BREAKING CHANGE:` footer -> major. Any other type (docs, chore, ci, refactor, test, ...)
 # releases nothing. A release:
-#   - bumps package.json, the dashboard's VERSION and the web updater (tools/release/set-version.mjs)
+#   - bumps package.json, the builder's VERSION and the web updater (tools/release/set-version.mjs)
 #   - prepends the notes to CHANGELOG.md and commits it as `chore(release): x.y.z [skip ci]`
-#   - tags vx.y.z and opens a GitHub release with the same notes
-#   - builds the Docker image for the tag, and redeploys the site (its /changelog/ page)
+#   - tags vx.y.z and opens a GitHub release with the same notes, and the device YAML's JSON
+#     schema (site/src/schema/device.json) as gemifi-device.schema.json
+#   - builds the Docker image for the tag, and redeploys the site (its /changelog/ page and
+#     /schema/device.json, the latest schema)
 #
 # semantic-release pushes as the cubicecho-release GitHub App (org variable RELEASE_APP_ID,
 # org secret RELEASE_APP_PRIVATE_KEY), not as GITHUB_TOKEN, so the push still lands once main

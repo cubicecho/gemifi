@@ -21,6 +21,9 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
              "or `python3 -m venv tools/builder/.venv && tools/builder/.venv/bin/pip install pyyaml`)")
 
 FORMAT_VERSION = 2
+# The builder's version: min_version: is checked against it, and /api/info sends it.
+# tools/release/set-version.mjs sets it at each release.
+VERSION = "0.33.1"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section.
@@ -102,6 +105,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("layer.button.number", 36, GLOBAL, lambda d: _twins(d.buttons)),
     ("layer.encoder.cc", 37, GLOBAL, lambda d: _twins(d.encoders)),
     ("layer.encoder.mode", 38, GLOBAL, lambda d: _twins(d.encoders)),
+    ("config.hash", 39, VOLATILE, lambda d: 1),     # read-only: the resolved YAML's hash (gemifi_yaml.py)
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
@@ -330,6 +334,27 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
             "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
+# The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
+# these lists, so a new key goes here.
+MIDI_KEYS = ["transport"]
+USB_KEYS = ["vid", "pid", "daw_port"]
+I2C_KEYS = ["sda", "scl"]
+PROJECT_KEYS = ["version"]
+FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
+MCU_KEYS = ["extender"]
+DIN_KEYS = ["tx_pin", "rx_pin", "mode", "port_name", "thru", "controller_out", "usb_to_din", "dma"]
+HW_SCAN_KEYS = ["matrix", "analog"]
+HW_SCAN_MATRIX_KEYS = ["row_time", "settle", "precharge", "timer"]
+HW_SCAN_ANALOG_KEYS = ["timer"]
+LED_DEFAULTS_KEYS = ["idle", "active"]
+LED_KEYS = ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback", "owner", "timeout", "daw"]
+BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw"]
+ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw"]
+ENCODER_KEYS = ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
+                "acceleration"]
+MATRIX_KEYS = ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle", "velocity", "daw"]
+VELOCITY_KEYS = ["fast", "slow"]
+DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
 # ESPHome pin modes (esphome.io "Pin Schema"): a string shorthand or a mapping of flags.
@@ -407,8 +432,12 @@ TIME_UNIT_US = {"ns": 0.001, "us": 1, "µs": 1, "ms": 1000, "s": 1000000, "min":
 # diagnostics
 
 class Diag:
-    def __init__(self, level, path, line, msg, file=None):
+    """One problem. `src` is the file it is in when that isn't the device file itself (a package or
+    an !include file): the line then counts in that file. It comes with the line (Line.file)."""
+
+    def __init__(self, level, path, line, msg, file=None, src=None):
         self.level, self.path, self.line, self.msg, self.file = level, path, line, msg, file
+        self.src = src or getattr(line, "file", None)
 
     def __str__(self):
         loc = self.file or "<device>"
@@ -418,7 +447,10 @@ class Diag:
         return f"{loc}: {self.level}: {where}{self.msg}"
 
     def as_dict(self):
-        return {"level": self.level, "path": self.path, "line": self.line, "msg": self.msg}
+        d = {"level": self.level, "path": self.path, "line": self.line, "msg": self.msg}
+        if self.src:
+            d["file"] = self.src
+        return d
 
 
 def errors(diags):
@@ -467,8 +499,35 @@ class YamlLoadError(Exception):
         self.line, self.msg = line, msg
 
 
-def load_yaml(text):
-    """Parse one YAML document into LDict / LList / plain scalars. Raises YamlLoadError."""
+class Line(int):
+    """A 1-based line number that knows its file: set for the files a device file pulls in
+    (packages, !include), None for the device file itself. Diag takes the file from it."""
+    file = None
+
+    def __new__(cls, n, file=None):
+        x = super().__new__(cls, n)
+        x.file = file
+        return x
+
+
+class Tagged:
+    """A value written with one of gemifi's YAML tags (gemifi_yaml.py resolves them):
+    `!include file` / `!include { file, vars }` (tag "include"), `!extend id`, `!remove id`."""
+
+    def __init__(self, tag, value, line):
+        self.tag, self.value, self.line = tag, value, line
+
+    def __repr__(self):
+        return f"!{self.tag} {self.value!r}"
+
+
+TAGS = ("include", "extend", "remove")
+
+
+def load_yaml(text, file=None):
+    """Parse one YAML document into LDict / LList / plain scalars (and Tagged for gemifi's tags).
+    file: the path to give the lines (Line.file), for a file other than the device file.
+    Raises YamlLoadError."""
     if yaml is None:
         raise YamlLoadError(0, YAML_HINT)
     try:
@@ -477,24 +536,42 @@ def load_yaml(text):
         mark = getattr(e, "problem_mark", None) or getattr(e, "context_mark", None)
         line = mark.line + 1 if mark else 0
         msg = " ".join(str(x) for x in (getattr(e, "context", None), getattr(e, "problem", None)) if x)
-        raise YamlLoadError(line, f"YAML syntax: {msg or e}")
+        raise YamlLoadError(Line(line, file), f"YAML syntax: {msg or e}")
     if node is None:
-        raise YamlLoadError(1, "the file is empty")
+        raise YamlLoadError(Line(1, file), "the file is empty")
     ctor = yaml.SafeLoader("")
     active = set()
 
+    def ln(n):
+        return Line(n.start_mark.line + 1, file) if file else n.start_mark.line + 1
+
+    def tagged(n):
+        tag = n.tag[1:]
+        if tag not in TAGS:
+            raise YamlLoadError(ln(n), f"unknown tag {n.tag} (gemifi knows {', '.join('!' + t for t in TAGS)})")
+        if isinstance(n, yaml.SequenceNode) or (tag != "include" and not isinstance(n, yaml.ScalarNode)):
+            want = "a file name or { file: ..., vars: ... }" if tag == "include" else "an id"
+            raise YamlLoadError(ln(n), f"{n.tag} takes {want}")
+        val = n.value if isinstance(n, yaml.ScalarNode) else None
+        if isinstance(n, yaml.MappingNode):
+            n.tag = "tag:yaml.org,2002:map"
+            val = conv(n)
+        return Tagged(tag, val, ln(n))
+
     def conv(n):
         if id(n) in active:
-            raise YamlLoadError(n.start_mark.line + 1, "recursive YAML alias")
+            raise YamlLoadError(ln(n), "recursive YAML alias")
+        if n.tag.startswith("!") and not n.tag.startswith("!!"):
+            return tagged(n)
         if isinstance(n, yaml.MappingNode):
             active.add(id(n))
             ctor.flatten_mapping(n)
             d = LDict()
-            d.line = n.start_mark.line + 1
+            d.line = ln(n)
             for kn, vn in n.value:
                 k = conv(kn)
-                kl = kn.start_mark.line + 1
-                if isinstance(k, (dict, list)):
+                kl = ln(kn)
+                if isinstance(k, (dict, list, Tagged)):
                     raise YamlLoadError(kl, "a mapping key must be a plain value")
                 if k in d:
                     raise YamlLoadError(kl, f"duplicate key '{k}' (first on line {d.key_lines[k]})")
@@ -507,17 +584,17 @@ def load_yaml(text):
         if isinstance(n, yaml.SequenceNode):
             active.add(id(n))
             lst = LList()
-            lst.line = n.start_mark.line + 1
+            lst.line = ln(n)
             for item in n.value:
                 lst.append(conv(item))
-                lst.item_lines.append(item.start_mark.line + 1)
+                lst.item_lines.append(ln(item))
                 lst.item_raw.append(item.value if isinstance(item, yaml.ScalarNode) else None)
             active.discard(id(n))
             return lst
         try:
             return ctor.construct_object(n, deep=True)
         except yaml.YAMLError as e:
-            raise YamlLoadError(n.start_mark.line + 1, f"bad value: {e}")
+            raise YamlLoadError(ln(n), f"bad value: {e}")
 
     return conv(node)
 
@@ -790,6 +867,8 @@ class Device:
         self.hw_timer = {}           # scan -> (timer n or None = auto, path, line)
         self.dma_map = []            # allocate_dma: [(channel, request, user)]
         self.scan_timers = {}        # allocate_dma: scan -> (timer n, {role: request}); 'tick' -> n
+        self.config_hash = None      # load_device: the resolved YAML's hash (param config.hash)
+        self.sources = []            # load_device: the files a package or !include pulled in
 
 
 class Use:
@@ -1189,7 +1268,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "hardware_scan" not in data:
         return
     line = data.line_of("hardware_scan")
-    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, ["matrix", "analog"])
+    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, HW_SCAN_KEYS)
     if hs is None:
         return
     if plat.name not in HW_SCAN_PLATFORMS:
@@ -1199,7 +1278,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "analog" in hs:
         a = hs["analog"]
         if isinstance(a, dict):         # `analog: { timer: tim3 }`
-            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), ["timer"]) is not None:
+            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), HW_SCAN_ANALOG_KEYS) is not None:
                 dev.hw_adc = True
                 hw_timer(v, dev, a, "analog")
         else:
@@ -1210,7 +1289,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "matrix" not in hs:
         return
     path, mline = "hardware_scan.matrix", hs.line_of("matrix")
-    mx = v.mapping(hs["matrix"], path, mline, ["row_time", "settle", "precharge", "timer"])
+    mx = v.mapping(hs["matrix"], path, mline, HW_SCAN_MATRIX_KEYS)
     if mx is None:
         return
     hw_timer(v, dev, mx, "matrix")
@@ -1391,7 +1470,7 @@ def validate(data, file=None):
 
     # midi
     midi = data.get("midi") or LDict()
-    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), ["transport"]) is None:
+    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), MIDI_KEYS) is None:
         midi = LDict()
     tr = midi.get("transport", plat.default_transport)
     if tr not in plat.transports:
@@ -1404,7 +1483,7 @@ def validate(data, file=None):
     dev.usb = (0, 0)
     daw_port = None
     if "usb" in data:
-        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), ["vid", "pid", "daw_port"])
+        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), USB_KEYS)
         if usb is not None:
             dev.usb = (v.integer(usb, "vid", "usb", 0, 0xFFFF, required=True) or 0,
                        v.integer(usb, "pid", "usb", 0, 0xFFFF, required=True) or 0)
@@ -1435,7 +1514,7 @@ def validate(data, file=None):
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
     if "i2c" in data:
-        i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), ["sda", "scl"])
+        i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
         if i2c is not None:
             sda = v.pin(i2c.get("sda"), "i2c.sda", i2c.line_of("sda"), "out", allow_hub=False)
             scl = v.pin(i2c.get("scl"), "i2c.scl", i2c.line_of("scl"), "out", allow_hub=False)
@@ -1700,8 +1779,7 @@ def validate_feedback(v, dev, data):
     port, and (script) the DAW-script messages of sysex.md 4.6."""
     if data.get("feedback") is None:
         return
-    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"),
-                   ["enabled", "script", "led_owner", "led_timeout"])
+    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), FEEDBACK_KEYS)
     if fb is None:
         return
     dev.feedback = v.boolean(fb, "enabled", "feedback", default=True)
@@ -1727,8 +1805,7 @@ def validate_din(v, dev, data, tr, plat):
     if "din_midi" not in data:
         return
     line = data.line_of("din_midi")
-    d = v.mapping(data["din_midi"], "din_midi", line, ["tx_pin", "rx_pin", "mode", "port_name", "thru",
-                                                         "controller_out", "usb_to_din", "dma"])
+    d = v.mapping(data["din_midi"], "din_midi", line, DIN_KEYS)
     if d is None:
         return
     tx = v.pin(d.get("tx_pin"), "din_midi.tx_pin", d.line_of("tx_pin") if "tx_pin" in d else d.line, "out",
@@ -1781,7 +1858,7 @@ def validate_mcu(v, dev, data, tr, daw_port):
         if m is None:
             m = LDict()
             m.line = data.line_of("mcu")
-        m = v.mapping(m, "mcu", data.line_of("mcu"), ["extender"])
+        m = v.mapping(m, "mcu", data.line_of("mcu"), MCU_KEYS)
         if m is not None:
             ext = v.boolean(m, "extender", "mcu")
             dev.mcu = Hub(extender=ext, cable=0, line=data.line_of("mcu"))
@@ -1853,7 +1930,7 @@ def validate_led_defaults(v, data):
     out = {}
     if data.get("led_defaults") is None:
         return out
-    d = v.mapping(data["led_defaults"], "led_defaults", data.line_of("led_defaults"), ["idle", "active"])
+    d = v.mapping(data["led_defaults"], "led_defaults", data.line_of("led_defaults"), LED_DEFAULTS_KEYS)
     if d is None:
         return out
     for key in ("idle", "active"):
@@ -1923,9 +2000,7 @@ def validate_components(v, dev, data):
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
     for i, d in enumerate(leds):
         p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback",
-                                                     "owner", "timeout", "daw"],
-                      renamed=RENAMED_ID)
+        d = v.mapping(d, p, leds.line_of(i), LED_KEYS, renamed=RENAMED_ID)
         if d is None:
             continue
         ident = v.ident(d, p, "LED", len(dev.leds))
@@ -1950,9 +2025,7 @@ def validate_components(v, dev, data):
     buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
     for i, d in enumerate(buttons):
         p = f"buttons[{i}]"
-        d = v.mapping(d, p, buttons.line_of(i), ["id", "name", "pin", "action", "cc", "note", "preset", "led",
-                                                 "mcu", "daw"],
-                      renamed=RENAMED_BUTTON)
+        d = v.mapping(d, p, buttons.line_of(i), BUTTON_KEYS, renamed=RENAMED_BUTTON)
         if d is None:
             continue
         ident = v.ident(d, p, "button", len(dev.buttons))
@@ -1976,8 +2049,7 @@ def validate_components(v, dev, data):
     analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
     for i, d in enumerate(analogs):
         p = f"analog[{i}]"
-        d = v.mapping(d, p, analogs.line_of(i), ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max",
-                                                 "takeover", "touch", "mcu", "daw"], renamed=RENAMED_ANALOG)
+        d = v.mapping(d, p, analogs.line_of(i), ANALOG_KEYS, renamed=RENAMED_ANALOG)
         if d is None:
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
@@ -2009,9 +2081,7 @@ def validate_components(v, dev, data):
     accel_default = encoder_settings(v, dev, data)
     for i, d in enumerate(encs):
         p = f"encoders[{i}]"
-        d = v.mapping(d, p, encs.line_of(i), ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
-                                              "ring", "ring_center", "daw", "acceleration"],
-                      renamed=RENAMED_ENCODER)
+        d = v.mapping(d, p, encs.line_of(i), ENCODER_KEYS, renamed=RENAMED_ENCODER)
         if d is None:
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
@@ -2519,7 +2589,7 @@ def matrix_rows(v, d, path, hubs, why, role="out"):
     line = d.line_of("rows") if "rows" in d else d.line
     p = f"{path}.rows"
     if isinstance(rows, dict) and "decoder" in rows and "number" not in rows:
-        m = v.mapping(rows, p, line, ["decoder", "first", "count"])
+        m = v.mapping(rows, p, line, DECODER_ROWS_KEYS)
         if m is None:
             return []
         hub = v.hub_by_id.get(m.get("decoder")) if isinstance(m.get("decoder"), str) else None
@@ -2586,7 +2656,7 @@ def validate_version(v, data):
     is used). Packed as major << 24 | minor << 16 | patch, so major and minor 0..255, patch 0..65535."""
     if data.get("project") is None:
         return None
-    proj = v.mapping(data["project"], "project", data.line_of("project"), ["version"])
+    proj = v.mapping(data["project"], "project", data.line_of("project"), PROJECT_KEYS)
     if proj is None or proj.get("version") is None:
         return None
     x = proj["version"]
@@ -2605,8 +2675,7 @@ def validate_version(v, data):
 
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
-    d = v.mapping(d, p, line, ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle",
-                               "velocity", "daw"], renamed=RENAMED_MATRIX)
+    d = v.mapping(d, p, line, MATRIX_KEYS, renamed=RENAMED_MATRIX)
     if d is None:
         return
     kind = d.get("type")
@@ -2721,7 +2790,7 @@ VEL_SLOW_RANGE = (20, 2000)
 def validate_velocity(v, d, path, kind):
     """key_matrix.velocity: { fast, slow } (time periods) -> (fast, slow) in 0.1 ms, None where not given."""
     p = f"{path}.velocity"
-    vd = v.mapping(d.get("velocity"), p, d.line_of("velocity"), ["fast", "slow"],
+    vd = v.mapping(d.get("velocity"), p, d.line_of("velocity"), VELOCITY_KEYS,
                    renamed=RENAMED_VELOCITY) if "velocity" in d else None
     if vd is None:
         return None, None
@@ -4069,8 +4138,10 @@ def check_budget(v, dev, data):
                            f"fit; {bd['max_slots_calm']} or fewer stay under {int(BUDGET_WARN * 100)}%")
 
 
-def load_device(path, text=None):
-    """Load and validate a device YAML. Returns (Device or None, [Diag])."""
+def load_device(path, text=None, subs=None, preset_dir=None):
+    """Load, resolve (packages, !include, substitutions: gemifi_yaml.py) and validate a device YAML.
+    subs: {name: text} that override substitutions: (the CLI's -s). Returns (Device or None, [Diag])."""
+    import gemifi_yaml      # it builds on this module's loader
     try:
         if text is None:
             with open(path, encoding="utf-8") as f:
@@ -4082,7 +4153,19 @@ def load_device(path, text=None):
         return None, [Diag("error", "", 0, "not UTF-8 text", path)]
     except YamlLoadError as e:
         return None, [Diag("error", "", e.line, e.msg, path)]
-    return validate(data, path)
+    res = gemifi_yaml.resolve(data, path, subs=subs, preset_dir=preset_dir)
+    diags = res.diags
+    dev = None
+    if not errors(diags):
+        digest = gemifi_yaml.config_hash(res.data)     # before validate(), which may add to the tree
+        dev, more = validate(res.data, path)
+        diags += more
+    for d in diags:
+        d.file = d.src or path          # a problem in a package or !include names that file
+    if dev is not None:
+        dev.config_hash = digest
+        dev.sources = res.files
+    return dev, diags
 
 
 # ---------------------------------------------------------------------------------------------
@@ -4118,6 +4201,8 @@ def generate(dev, source="device.yaml"):
          *([f"#define GM_FW_VERSION 0x{dev.version[0] << 24 | dev.version[1] << 16 | dev.version[2]:08X}u",
             f"#define GM_FW_VERSION_STR \"{'.'.join(map(str, dev.version))}\""] if dev.version else []),
          f"#define GM_PLATFORM {c_str(dev.platform.name)}",
+         *([f"#define GM_CONFIG_HASH 0x{dev.config_hash:08X}   /* config.hash: the resolved YAML's "
+            "(core/README.md \"Config hash\") */"] if dev.config_hash is not None else []),
          f"#define GM_USB_VID 0x{dev.usb[0]:04X}",
          f"#define GM_USB_PID 0x{dev.usb[1]:04X}",
          f"#define GM_N_HUBS {len(dev.hubs)}",

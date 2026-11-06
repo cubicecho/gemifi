@@ -108,6 +108,12 @@ static const char *const enc_mode_opts[] = {
 };
 #endif
 
+#ifdef GM_CONFIG_HASH
+/* The resolved YAML's hash (core/README.md "Config hash"): the builder's, so
+ * an editor can tell which device file this firmware was built from. */
+static int32_t config_hash = GM_CONFIG_HASH;
+#endif
+
 static const param_def_t params[] = {
     { .id = P_CHANNEL, .flags = PF_PRESET, .type = PT_INT, .group = G_MIDI, .count = 1,
       .min = 1, .max = 16, .def = 1,
@@ -193,6 +199,11 @@ static const param_def_t params[] = {
     { .id = P_LOG_LEVEL, .type = PT_ENUM, .group = G_DEBUG, .count = 1,
       .min = 0, .max = 4, .def = 3, .options = log_opts, .option_count = 5,
       .name = "debug.log_level", .label = "Log level", .values = &gm_cfg.log_level },
+#ifdef GM_CONFIG_HASH
+    { .id = P_CONFIG_HASH, .flags = PF_READ_ONLY | PF_VOLATILE, .type = PT_INT, .group = G_DEBUG, .count = 1,
+      .min = 0, .max = 0x7FFFFFFF, .def = GM_CONFIG_HASH,
+      .name = "config.hash", .label = "Config hash", .values = &config_hash },
+#endif
 
     { .id = P_PRESET_ACTIVE, .type = PT_INT, .group = G_PRESETS, .count = 1,
       .min = 1, .max = GM_N_PRESETS, .def = 1,

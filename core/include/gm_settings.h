@@ -58,6 +58,9 @@ enum {
     P_LAYER_BTN_NUMBER = 36,
     P_LAYER_ENC_CC = 37,             /* per encoder twin (GM_ENC_TWINS); -1 = none */
     P_LAYER_ENC_MODE = 38,
+    /* read-only: the hash of the YAML the firmware was built from (GM_CONFIG_HASH,
+     * core/README.md "Config hash") */
+    P_CONFIG_HASH = 39,
 };
 
 #ifndef GM_N_PADS

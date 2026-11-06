@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """gemifi builder: device YAML -> generated C tables -> firmware image (ESPHome style).
 
-  gemifi_build.py validate <device.yaml> [<device.yaml> ...]
-  gemifi_build.py generate <device.yaml> -o <dir>
-  gemifi_build.py build <device.yaml> [-o <out dir>]     (default build/devices/<name>/)
+  gemifi_build.py validate <device.yaml> [<device.yaml> ...] [-s NAME VALUE ...]
+  gemifi_build.py generate <device.yaml> -o <dir> [-s NAME VALUE ...]
+  gemifi_build.py build <device.yaml> [-o <out dir>] [-s NAME VALUE ...]   (default build/devices/<name>/)
   gemifi_build.py presets
-  gemifi_build.py new <name> --preset <preset> [--dir ~/gemifi-devices]
+  gemifi_build.py new <name> --preset <preset> [--dir ~/gemifi-devices] [--copy]
+  gemifi_build.py schema [-o <file>] [--check <file>]   (JSON schema of the device YAML)
   gemifi_build.py dashboard [--host H] [--port 6055] [--web DIR] [--config-dir DIR] [--build-dir DIR]
                             [--allowed-host H ...] [--tls-cert F --tls-key F]
                             (each also a GEMIFI_* env var; GEMIFI_PASSWORD turns on Basic auth)
@@ -25,8 +26,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gemifi_device as gd  # noqa: E402
+import gemifi_schema as gs  # noqa: E402
+import gemifi_yaml as gy  # noqa: E402
 
-PRESET_DIR = os.path.join(REPO, "devices")
+PRESET_DIR = gy.PRESET_DIR
 USER_DIR = os.path.expanduser("~/gemifi-devices")
 NUC_PROJECT = os.path.join(REPO, "firmware", "nuvoton-nuc1xx", "midi-controller")
 # Bare-metal platforms built with make + arm-none-eabi-gcc: platform name -> project dir.
@@ -53,13 +56,14 @@ def need_yaml():
         sys.exit(2)
 
 
-def check(path, quiet=False, out=None):
-    """Validate; print diagnostics (errors to stderr unless out is given). Returns Device or None."""
-    dev, diags = gd.load_device(path)
+def check(path, quiet=False, out=None, subs=None):
+    """Validate; print diagnostics (errors to stderr unless out is given). Returns Device or None.
+    subs: {name: value} overriding the file's substitutions: (-s)."""
+    dev, diags = gd.load_device(path, subs=subs)
     info = out or sys.stdout
     bad = out or sys.stderr
     for d in diags:
-        d.file = rel(path)
+        d.file = rel(d.src or path)       # a problem inside a package or !include names that file
         print(d, file=info if d.level == "warning" else bad)
     if dev is None:
         n = len(gd.errors(diags))
@@ -197,13 +201,24 @@ def platform_build(dev, config_dir, out_dir, out=None):
 SOURCE_HASH_FILE = "source.sha256"
 
 
-def source_hash(path):
-    """SHA-256 of a device file, or None if it can't be read."""
-    try:
-        with open(path, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
-    except OSError:
+def source_hash(path, files=None, preset_dir=None):
+    """SHA-256 of a device file, or None if it can't be read. With packages or !include, of the
+    file's hash and each other file's (files: those, else found by resolving the file), so an
+    edit to a package counts as a change too."""
+    def one(p):
+        try:
+            with open(p, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            return None
+    main = one(path)
+    if main is None:
         return None
+    if files is None:
+        files = gy.resolve_file(path, preset_dir=preset_dir).files
+    if not files:
+        return main
+    return hashlib.sha256("\n".join([main] + [f"{one(p)} {p}" for p in files]).encode()).hexdigest()
 
 
 def built_hash(out_dir):
@@ -215,17 +230,30 @@ def built_hash(out_dir):
         return None
 
 
-def do_build(path, out_dir=None, out=None):
+CONFIG_HASH_FILE = "config.hash"
+
+
+def built_config_hash(out_dir):
+    """The config hash (param config.hash) of the last successful build in out_dir, or None."""
+    try:
+        with open(os.path.join(out_dir, CONFIG_HASH_FILE)) as f:
+            return int(f.read().strip(), 16)
+    except (OSError, ValueError):
+        return None
+
+
+def do_build(path, out_dir=None, out=None, subs=None):
     """validate + generate + platform build. Returns 0 on success.
 
     On success the YAML's hash goes in <out_dir>/source.sha256, so the dashboard can tell
     when the images no longer match the file (hashed before the build, so an edit made
-    during the build still counts as a change)."""
+    during the build still counts as a change), and the config hash in <out_dir>/config.hash."""
     out = out or sys.stdout
     digest = source_hash(path)
-    dev = check(path, out=out)
+    dev = check(path, out=out, subs=subs)
     if dev is None:
         return 1
+    print(f"config hash: {dev.config_hash:08x} (param config.hash)", file=out)
     out_dir = os.path.abspath(out_dir or os.path.join(REPO, "build", "devices", device_stem(path)))
     config_dir = os.path.join(out_dir, "config")
     for f in gd.write_generated(dev, config_dir, rel(path)):
@@ -237,6 +265,8 @@ def do_build(path, out_dir=None, out=None):
     if digest is not None:
         with open(os.path.join(out_dir, SOURCE_HASH_FILE), "w") as f:
             f.write(digest + "\n")
+    with open(os.path.join(out_dir, CONFIG_HASH_FILE), "w") as f:
+        f.write(f"{dev.config_hash:08x}\n")
     print("BUILD OK:", file=out)
     for f in imgs:
         print(f"  {rel(f)} ({os.path.getsize(f)} bytes)", file=out)
@@ -266,11 +296,14 @@ def peek(path):
     return peek_info(path)[:3]
 
 
-def peek_info(path):
-    """peek(), plus the node name ("" when name: isn't a valid one): what a device reports in HELLO."""
+def peek_info(path, preset_dir=None):
+    """peek(), plus the node name ("" when name: isn't a valid one): what a device reports in HELLO.
+    Packages and substitutions are applied when they resolve; otherwise the file is read as it is."""
     try:
-        with open(path, encoding="utf-8") as f:
-            data = gd.load_yaml(f.read())
+        data = gy.resolve_file(path, preset_dir=preset_dir).data
+        if data is None:
+            with open(path, encoding="utf-8") as f:
+                data = gd.load_yaml(f.read())
         if isinstance(data, dict):
             node = data.get("name")
             return (str(data.get("platform", "?")), str(data.get("description", "") or ""),
@@ -281,8 +314,9 @@ def peek_info(path):
     return ("?", "(unreadable)", "", "")
 
 
-def new_device(name, preset, directory, force=False):
-    """Copy preset to <directory>/<name>.yaml. Returns the path; raises ValueError."""
+def new_device(name, preset, directory, force=False, copy=False):
+    """Start <directory>/<name>.yaml from a preset: a short file that uses the preset as a package
+    (copy: a copy of the preset instead). Returns the path; raises ValueError."""
     name = re.sub(r"\.ya?ml$", "", name)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
         raise ValueError(f"'{name}' isn't a valid device name (letters, digits, . _ -)")
@@ -293,10 +327,28 @@ def new_device(name, preset, directory, force=False):
     dst = os.path.join(directory, name + ".yaml")
     if os.path.exists(dst) and not force:
         raise ValueError(f"{dst} already exists (use --force to overwrite)")
-    with open(presets[preset], encoding="utf-8") as f:
-        text = f.read()
     # the node name follows the file name (as ESPHome's does), when it can be one
     node = name.lower()
+    if not copy:
+        base = os.path.basename(presets[preset])
+        text = "\n".join([
+            f"# yaml-language-server: $schema={gs.SCHEMA_URL}",
+            f"# Based on preset {preset} (devices/{base}), used as a package: what this file",
+            "# doesn't set comes from there, and follows it when gemifi updates it.",
+            "#   change one of its components:  buttons: [{ id: !extend some_id, cc: 20 }]",
+            "#   drop one:                       buttons: [{ id: !remove some_id }]",
+            "#   add one:                        buttons: [{ id: my_button, pin: ..., ... }]",
+            "# Format: core/README.md \"Device YAML\" and \"Packages and substitutions\".",
+            "gemifi: 2",
+            "packages:",
+            f"  base: {gy.PRESET_PREFIX}{preset}",
+            *([f"name: {node}"] if gd.NODE_NAME_RE.fullmatch(node) else []),
+            ""])
+        with open(dst, "w", encoding="utf-8") as f:
+            f.write(text)
+        return dst
+    with open(presets[preset], encoding="utf-8") as f:
+        text = f.read()
     if gd.NODE_NAME_RE.fullmatch(node):
         text = re.sub(r"^name:[^#\n]*?(\s*#.*)?$", lambda m: f"name: {node}{m.group(1) or ''}", text,
                       count=1, flags=re.M)
@@ -310,20 +362,31 @@ def new_device(name, preset, directory, force=False):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    def subs_arg(s):
+        s.add_argument("-s", "--substitution", nargs=2, action="append", metavar=("NAME", "VALUE"),
+                       dest="subs", help="set substitution NAME (${NAME}) to VALUE; wins over substitutions:")
     s = sub.add_parser("validate", help="check device YAMLs")
     s.add_argument("device", nargs="+")
+    subs_arg(s)
     s = sub.add_parser("generate", help="write gm_device_config.h/.c")
     s.add_argument("device")
     s.add_argument("-o", "--out", required=True, help="output directory")
+    subs_arg(s)
     s = sub.add_parser("build", help="validate, generate and build the firmware")
     s.add_argument("device")
     s.add_argument("-o", "--out", help="output directory (default build/devices/<name>/)")
+    subs_arg(s)
     sub.add_parser("presets", help="list the presets in devices/")
     s = sub.add_parser("new", help="start a device YAML from a preset")
     s.add_argument("name")
     s.add_argument("--preset", required=True)
     s.add_argument("--dir", default=USER_DIR, help=f"where to put it (default {USER_DIR})")
     s.add_argument("--force", action="store_true", help="overwrite an existing file")
+    s.add_argument("--copy", action="store_true", help="copy the preset instead of using it as a package")
+    s = sub.add_parser("schema", help="print the JSON schema of the device YAML (for editors)")
+    s.add_argument("-o", "--out", help="write it to this file instead")
+    s.add_argument("--check", metavar="FILE", help="exit 1 if FILE isn't the current schema")
     env = os.environ.get
     s = sub.add_parser("dashboard", help="web dashboard (default 127.0.0.1:6055)",
                        description="Web dashboard. Every flag has a GEMIFI_* env var; GEMIFI_PASSWORD "
@@ -347,18 +410,40 @@ def main(argv=None):
     a = ap.parse_args(argv)
     need_yaml()
 
+    subs = dict(a.subs or []) if hasattr(a, "subs") else None
     if a.cmd == "validate":
-        bad = [p for p in a.device if check(p) is None]
+        bad = [p for p in a.device if check(p, subs=subs) is None]
         return 1 if bad else 0
     if a.cmd == "generate":
-        dev = check(a.device)
+        dev = check(a.device, subs=subs)
         if dev is None:
             return 1
         for f in gd.write_generated(dev, a.out, rel(a.device)):
             print(f"wrote {f}")
         return 0
     if a.cmd == "build":
-        return do_build(a.device, a.out)
+        return do_build(a.device, a.out, subs=subs)
+    if a.cmd == "schema":
+        text = gs.schema_text()
+        if a.check:
+            try:
+                with open(a.check, encoding="utf-8") as f:
+                    same = f.read() == text
+            except OSError:
+                same = False
+            if not same:
+                print(f"{a.check} is out of date: run `python3 tools/builder/gemifi_build.py schema -o "
+                      f"{a.check}`", file=sys.stderr)
+                return 1
+            print(f"{a.check}: up to date")
+            return 0
+        if a.out:
+            with open(a.out, "w", encoding="utf-8") as f:
+                f.write(text)
+            print(f"wrote {a.out}")
+        else:
+            sys.stdout.write(text)
+        return 0
     if a.cmd == "presets":
         rows = list_presets()
         if not rows:
@@ -369,7 +454,7 @@ def main(argv=None):
         return 0
     if a.cmd == "new":
         try:
-            p = new_device(a.name, a.preset, os.path.expanduser(a.dir), a.force)
+            p = new_device(a.name, a.preset, os.path.expanduser(a.dir), a.force, a.copy)
         except (ValueError, OSError) as e:
             print(f"gemifi_build: {e}", file=sys.stderr)
             return 1

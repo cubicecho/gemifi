@@ -2,14 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { layoutSchema } from '../protocol/schema.ts';
 import { makeParam } from '../protocol/test-support.ts';
 import { ParamFlag, ParamType, PresetParam } from '../protocol/wire.ts';
-import { enumOptions, splitByScope } from './settings-view.tsx';
+import { enumOptions, settingsSections, splitByScope } from './settings-view.tsx';
 
 const P = ParamFlag.Preset;
 
 describe('enumOptions', () => {
   it('leaves out the options the firmware has no label for', () => {
-    const param = makeParam({ id: 9, name: 'button.action', label: 'Action', type: ParamType.Enum, min: 0, max: 3,
-                              options: ['None', '', 'Panic', 'MMC'] });
+    const param = makeParam({
+      id: 9,
+      name: 'button.action',
+      label: 'Action',
+      type: ParamType.Enum,
+      min: 0,
+      max: 3,
+      options: ['None', '', 'Panic', 'MMC'],
+    });
     expect(enumOptions(param)).toEqual([
       { value: '0', label: 'None' },
       { value: '2', label: 'Panic' },
@@ -52,6 +59,30 @@ describe('splitByScope', () => {
     expect(ids(shared)).toEqual([
       ['MIDI', [30]],
       ['Velocity', [6, 29]],
+    ]);
+  });
+});
+
+describe('settingsSections', () => {
+  it('leaves the diagnostics (§4.10) to the Device card, and keeps the rest of Debug', () => {
+    const RO = ParamFlag.ReadOnly | ParamFlag.Volatile;
+    const schema = {
+      version: 1,
+      groups: ['MIDI', 'Debug', 'Stats'],
+      params: [
+        makeParam({ id: 1, name: 'midi.channel', label: 'MIDI channel', group: 0 }),
+        makeParam({ id: 13, name: 'debug.events', label: 'Send events', group: 1, flags: ParamFlag.Volatile }),
+        makeParam({ id: 65, name: 'diag.reset_reason', label: 'Reset reason', group: 1, flags: RO }),
+        makeParam({ id: 71, name: 'diag.uptime', label: 'Uptime', group: 2, flags: RO }),
+      ],
+    };
+    const titles = settingsSections(layoutSchema(schema)).map((section) => [
+      section.title,
+      section.items.flatMap((item) => (item.kind === 'param' ? [item.param.id] : item.params.map((p) => p.id))),
+    ]);
+    expect(titles).toEqual([
+      ['MIDI', [1]],
+      ['Debug', [13]],
     ]);
   });
 });

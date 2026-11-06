@@ -486,6 +486,9 @@ hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer +
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
 midi_messages: { enable: [cc14] }   # 14-bit CC, NRPN, bank select, panic, MMC, SysEx ("MIDI messages")
 boot_combo: [pitch_down, pitch_up]  # button ids
+factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")
+status_led: edit_led           # blink codes ("Status LED")
 write_to_flash: false          # what the device stores on its own (below); host saves always work
 layout: { controls: { volume: [1, 1] } }   # where the controls are, for drawing the device ("Layout")
 
@@ -602,6 +605,60 @@ write_to_flash:
 - **Generated code:** `GM_WRITE_LAST_PRESET` (0/1), `GM_WRITE_DELAY_MS` and `GM_WRITE_IDLE_MS` in `gm_device_config.h`. With `GM_WRITE_LAST_PRESET` 0 the timer and the idle tracking are left out; with 1 the controller keeps a last-input time and a count of keys held (5 bytes of RAM, `gm_idle_ms()`). New items go next to `last_preset` and share `delay` and `idle`.
 - **Tests:** `core/test` `test_controller` (the Keystation, off: a switch never writes, a boot ignores a stored `preset.active`) and `test_controller_wtf` (the same YAML with `last_preset: true`: the delay, keys and buttons held, a knob turned, ADC noise, COMMIT), and the NUC host-sim `run_presets.py` (on, with the real journal and reboots).
 
+### Recovery and safety
+
+Three keys, each left out of the firmware when it isn't used.
+
+#### Factory-reset combo
+
+`factory_reset_combo:` lists buttons that, held at power-up, wipe the stored settings: every preset, its name and the globals, as FACTORY_RESET over SysEx does. The firmware and the device ID stay.
+
+```yaml
+factory_reset_combo: [oct_down, oct_up]                    # held 5 s (the default)
+factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
+```
+
+- The combo counts if every button of it is down within 1.5 s of the start, and stays down for `hold`. Letting go earlier cancels it: nothing is wiped.
+- Meanwhile the status LED blinks at 2 Hz and a display shows `RESET?`. Once wiped, the status LED flashes fast for 1.5 s, a display shows `RESET`, `diag.settings` reads 4, and the device carries on with the defaults (no reboot).
+- Those buttons do nothing else during the first 1.5 s, or until they are let go when the combo was held. Later on they are ordinary buttons.
+- It must differ from `boot_combo`: neither may contain the other, or holding one at power-up would also set off the other (the builder refuses it). Sharing a button is fine. On the Code 61, Up + Down at power-up is the bootloader's, and the YAML's combo uses Octave - + Octave + instead.
+- Generated code: `GM_RESET_COMBO` (a button mask, 0 = none) and `GM_RESET_HOLD_MS`.
+
+#### Physical unlock
+
+Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.9). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
+
+```yaml
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # hold: 0s (a press) .. 10s, default 2s
+unlock: { hold: 3s }       # the combo defaults to boot_combo
+unlock: true               # boot_combo, 2 s
+unlock: false              # off, the same as leaving it out
+```
+
+- **Off unless the YAML sets it**, even on a device with a `boot_combo`; it is then compiled out (`GM_UNLOCK 0`). `unlock: true` and `unlock: { hold }` take the `boot_combo` buttons, and are an error on a device without one. The shipped Keystation and Code 61 YAMLs leave it off, with a commented-out `# unlock: { combo: [...] }` line to turn it on.
+- While the window is open, the status LED blinks at 4 Hz and a display shows `HOLD` and the buttons (scrolling). The combo's buttons do nothing else then: no MIDI, no action, and their release is silent too. Outside the window they are ordinary buttons.
+- Once unlocked (the status LED lit for 1 s, `UNLOCKED` on a display), the device stays unlocked until it reboots or no request has come for 5 minutes.
+- The bootloader has no lock: entering it takes the boot combo, an unlocked REBOOT, or the boot-loop guard, which only trips when the app keeps failing.
+- At most 8 buttons. Generated code: `GM_UNLOCK` (0/1), `GM_UNLOCK_COMBO`, `GM_UNLOCK_N`, `GM_UNLOCK_HOLD_MS` and `GM_UNLOCK_REPLY` (the UNLOCK reply's size, which sizes the reply buffer).
+
+#### Status LED
+
+`status_led: <led id>` picks the LED that shows the blink codes. Without it there are none. While a code shows, it takes over the LED; then the LED goes back to what it showed.
+
+| Pattern | Meaning |
+|---|---|
+| Fast blink, 4 Hz | The unlock window is open: hold the unlock combo |
+| Lit for 1 s | Unlocked |
+| Blink, 2 Hz | The factory-reset combo is held; keep holding to wipe the settings |
+| Very fast, 10 Hz for 1.5 s | Settings wiped by the factory-reset combo |
+| 2 flashes, pause, again | Stored settings were refused at power-up (out of range for this firmware, or a component that is gone): those settings are back at their defaults. Saving once clears it |
+| 3 flashes, pause, again | Started after the boot-loop fallback: the bootloader had stopped the app because it kept failing (protocol/sysex.md §6) |
+| 4 flashes, pause, again | Started after a watchdog reset or a crash |
+
+The flash codes show for the first 10 s after power-up (200 ms on, 300 ms off per flash, then 1.2 s dark), the most serious one if there are several (3, then 4, then 2). The diagnostics params (`diag.*`, protocol/sysex.md §4.10) say the same, and more, to a host.
+
+Generated code: `GM_STATUS_LED` (the LED index, -1 = none). Tests: `core/test` `test_controller` (the Keystation plus `unlock: true`: unlock, the window, the idle relock, the factory-reset combo, blink code 2, `diag.*`), `test_controller_wtf` (the Keystation as shipped: unlock compiled out, nothing replies LOCKED) and the NUC host-sim `run_presets.py` (its Makefile adds `unlock: true`; FACTORY_RESET locked, then unlocked, also through `gemifi.py`).
+
 **Format 1** files (`gemifi: 1`) are refused with one error per old key, at its line, saying what replaced it (`label:` → `id:`/`name:`, `pin: { pin: PA1 }` → `{ number: PA1 }`, `hubs:` + `type:` → per-chip lists, `pullup: true` → `mode: INPUT_PULLUP`, `shared: true` → `allow_other_uses: true`, `scan_us: 125` → `scan_interval: 125us`, and so on).
 
 **Editors.** The builder makes a JSON schema of this format (`gemifi_build.py schema`), published at https://cubicecho.github.io/gemifi/schema/device.json and with each release. With VS Code's YAML extension, a first line of `# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json` (the files in `devices/` have it) gives completion and marks unknown keys and wrong types. The builder still has the last word: the schema doesn't know which pins a chip has, which ids exist or what a platform can do. For the tags below, add `"yaml.customTags": ["!include scalar", "!include mapping", "!extend scalar", "!remove scalar"]` to the VS Code settings.
@@ -629,6 +686,7 @@ buttons:
     action: cc_toggle
     cc: 21
 scan_interval: !remove                 # drop a key a package set (back to the default)
+factory_reset_combo: [oct_down, mod]   # the package's combo named oct_up: a key here replaces it
 ```
 
 - **`packages:`** is a mapping of name: package, or a list of packages. A package is a part of a device file, merged under this one. It is a file name (relative to the file that names it), `preset:<name>` (`devices/<name>.yaml`), an `!include`, or a mapping written in place. Packages can have packages of their own. Remote packages (`github://...`) aren't supported yet.
@@ -985,6 +1043,14 @@ encoders:
 #define GM_WRITE_LAST_PRESET 0            /* 1: store preset.active on its own once quiet */
 #define GM_WRITE_DELAY_MS 10000u          /* write_to_flash.delay */
 #define GM_WRITE_IDLE_MS 3000u            /* write_to_flash.idle */
+#define GM_UNLOCK 1                       /* physical unlock (unlock:, opt-in; here unlock: true) */
+#define GM_UNLOCK_COMBO 0x30u             /* pitch_down + pitch_up (bit = button index) */
+#define GM_UNLOCK_N 2
+#define GM_UNLOCK_HOLD_MS 2000
+#define GM_UNLOCK_REPLY 25                /* UNLOCK reply payload bytes */
+#define GM_RESET_COMBO 0xCu               /* factory_reset_combo: oct_down + oct_up; 0 = none */
+#define GM_RESET_HOLD_MS 5000
+#define GM_STATUS_LED 1                   /* status_led: edit_led; (-1) = none */
 /* ESP only: */
 #define GM_MIDI_TRANSPORT GM_MIDI_USB     /* GM_MIDI_USB / _SERIAL / _BLE, values in gm_hal.h */
 #define GM_I2C_SDA 8                      /* GPIO numbers, when i2c: is given; */

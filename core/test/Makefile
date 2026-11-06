@@ -4,9 +4,10 @@
 #                the Python parser (tools/host/gemifi_proto.py)
 #
 # test_controller: the Keystation config (devices/keystation-mini32-mk3.yaml),
-#                  with its presets
-# test_controller_wtf: the same with write_to_flash: { last_preset: true }
-#                  (the YAML plus that line, written into the build dir)
+#                  with its presets, plus `unlock: true` (the physical unlock
+#                  is opt-in; written into the build dir)
+# test_controller_wtf: the Keystation as shipped (unlock off, compiled out)
+#                  with write_to_flash: { last_preset: true }
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
@@ -33,7 +34,8 @@ BUILD ?= build
 CC    ?= gcc
 # Device configs, generated from their YAML by tools/builder (only
 # rewritten when they change).
-DEVICE := $(ROOT)/devices/keystation-mini32-mk3.yaml
+KS_YAML := $(ROOT)/devices/keystation-mini32-mk3.yaml
+DEVICE := $(BUILD)/keystation-unlock.yaml
 DEV    := $(BUILD)/device
 FB_DEVICE := feedback-test.yaml
 FB_DEV    := $(BUILD)/device-feedback
@@ -63,7 +65,9 @@ MSG_DEVICE := msg-test.yaml
 MSG_DEV    := $(BUILD)/device-msg
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
-GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'unlock: true'; } > $(DEVICE).new && \
+                     { cmp -s $(DEVICE).new $(DEVICE) || mv $(DEVICE).new $(DEVICE); } && rm -f $(DEVICE).new && \
+                     python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
@@ -100,7 +104,7 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DINM
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DINM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
-GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(DEVICE); echo 'write_to_flash: { last_preset: true }'; } > $(WTF_DEVICE).new && \
+GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'write_to_flash: { last_preset: true }'; } > $(WTF_DEVICE).new && \
                      { cmp -s $(WTF_DEVICE).new $(WTF_DEVICE) || mv $(WTF_DEVICE).new $(WTF_DEVICE); } && rm -f $(WTF_DEVICE).new && \
                      python3 $(ROOT)/tools/builder/gemifi_build.py generate $(WTF_DEVICE) -o $(WTF_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
@@ -132,7 +136,7 @@ CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
 
 CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/app_proto.c \
              $(ROOT)/core/src/settings.c $(ROOT)/core/src/vpin.c $(ROOT)/core/src/display.c $(ROOT)/core/src/din.c $(ROOT)/core/src/controller.c \
-             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c \
+             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c $(ROOT)/core/src/safety.c \
              fake_config_store.c
 
 SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c

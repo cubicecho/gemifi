@@ -26,7 +26,7 @@ The linker checks that the image starts at 0x08002400, that the header sits at 0
 - **Recovery combo**, in `src/recovery.c`: runs first in `Reset_Handler`, before `.data`/`.bss`, VTOR, clocks or USB. If the board's `BOARD_RECOVERY_*` buttons are held, it writes the same flag and resets. It uses only registers and its own flash routines.
   - **Code 61**: JTAG off (SWD kept), PB3–PB7 driven low (decoder row 16), PB8–PB15 pulled up, recovery when PB8 and PB9 both read low in 8 samples over ~20 ms: **Up + Down** (verified on hardware 2026-11-03). The pins are then put back to input floating. The gemifi bootloader checks the same combo itself, so it works even with a broken app.
 - **IWDG**: about 1 s (PR 3, RLR 0x4E2). Apps start it first thing and kick it in the main loop, so a hang becomes a reset.
-- There is no SRAM mailbox or boot-loop guard as on the NUC: the STM32F1 bootloader doesn't have one yet (`bootloader/README.md`).
+- **SRAM mailbox and boot-loop guard** (`protocol/sysex.md` §6), with the gemifi bootloader from 0.1.2: 16 bytes at 0x2000_4FF0, above the stack top (`include/sys.h`). The bootloader counts hand-offs of a gemifi image and stays in update mode after the third without a clear (`reason` 2); a POR or low-power reset zeroes the count; M-Audio's app isn't counted. It also leaves `RCC_CSR` there and clears it. The app (`hal_boot_capture`, `src/hal.c`) reads the reset reason and `reason` from it, clears `boot_count` after 5 s and sets `reason` 1 on REBOOT(1). Under M-Audio's bootloader, or a gemifi one before 0.1.2, the app ignores the mailbox and reads `RCC_CSR` itself. Host test: `test/boot-sim` (`make -C platform/stm32f1/test/boot-sim test`).
 
 ## Files
 

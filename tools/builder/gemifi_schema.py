@@ -208,6 +208,15 @@ def device_schema():
             "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),
             "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS))}),
         "boot_combo": lst(ID_REF),
+        # safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED")
+        "factory_reset_combo": one_of(
+            lst(ID_REF, "buttons held at power-up to wipe the settings (5 s)"),
+            obj(gd.COMBO_KEYS, {"combo": lst(ID_REF), "hold": PERIOD}, "combo, and hold: 1s..30s (default 5s)")),
+        "unlock": one_of(
+            {"type": "boolean", "description": "true: the boot_combo buttons, 2 s; false/left out: off"},
+            obj(gd.COMBO_KEYS, {"combo": lst(ID_REF), "hold": PERIOD},
+                "opt-in physical unlock: combo (default boot_combo), hold: 0s..10s (default 2s)")),
+        "status_led": ID_REF,
         "feedback": one_of(BOOL, obj(gd.FEEDBACK_KEYS, {"enabled": BOOL, "script": BOOL,
                                                         "led_owner": enum(gd.LED_OWNERS),
                                                         "led_timeout": one_of(PERIOD, {"const": "never"})})),

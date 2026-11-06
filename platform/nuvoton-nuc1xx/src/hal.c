@@ -9,6 +9,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "gm_hal.h"
+#include "gm_safety.h"
 #include "gsx.h"
 #include "nuc1xx.h"
 #include "sys.h"
@@ -266,6 +267,37 @@ void hal_reboot(int to_bootloader)
     usbd_disconnect();
     sys_delay_ms(10);
     sys_reset_to(1);                /* via LDROM; it starts the app unless asked */
+}
+
+/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.10) ----
+ * GCR_RSTSRC only shows the bootloader's hand-off (CPU_RST): the gemifi
+ * bootloader leaves the flags it found in the mailbox's magic_inv (sysex.md
+ * 6). Under a bootloader that doesn't (older ones write 0, the stock LDROM
+ * leaves RSTSRC alone), RSTSRC itself or "unknown". */
+static uint8_t rst_reason, boot_loop;
+
+void hal_boot_capture(void)
+{
+    uint32_t r = GCR_RSTSRC;
+    GCR_RSTSRC = r;                 /* write 1 to clear: the next start reads fresh flags */
+    boot_loop = MAILBOX->reason == MAILBOX_REASON_BOOT_LOOP;
+    if (!(r & ~RSTSRC_CPU) && MAILBOX->magic == 0 && !(MAILBOX->magic_inv & ~0xFFu))
+        r = MAILBOX->magic_inv;
+    rst_reason = (uint8_t)(r & RSTSRC_POR ? GM_RESET_POWER_ON :
+                           r & (RSTSRC_LVR | RSTSRC_BOD) ? GM_RESET_BROWN_OUT :
+                           r & RSTSRC_WDT ? GM_RESET_WATCHDOG :
+                           r & (RSTSRC_SYS | RSTSRC_CPU) ? GM_RESET_SOFTWARE :
+                           r & RSTSRC_RESET ? GM_RESET_PIN : GM_RESET_UNKNOWN);
+}
+
+uint32_t hal_reset_reason(void)
+{
+    return rst_reason;
+}
+
+int hal_boot_loop(void)
+{
+    return boot_loop;
 }
 
 const hal_fw_ops_t *hal_fw_ops(void)

@@ -18,7 +18,12 @@ feedback (sysex.md 4.6): HELLO caps bit 6, GET_COMPONENT per kind (BAD_PARAM pas
 and FB_* notifications (0x20-0x3F) are never answered: each one goes into `notifications` as
 (gemifi_proto.Notification, seq), a malformed one into `dropped`; `send_booted()` queues the BOOTED a rebooted
 device sends (sysex.md 4.6.3). Without `components` it behaves like older firmware: BAD_CMD as cmd | 0x40, which
-lands in the unsolicited range."""
+lands in the unsolicited range.
+With `unlock` (a gemifi_proto.UnlockInfo: the combo's names and hold; state/window are kept by the sim) it has
+physical unlock (sysex.md 4.9): caps bit 10, FW_BEGIN / REBOOT(1) / FACTORY_RESET reply LOCKED (not cached as
+the completed request) while locked, and UNLOCK reports. `user` is what the simulated user does once the host
+has asked UNLOCK while the window is open: "unlock" (UNLOCKED 1, unlocked), "close" (UNLOCKED 0: the window
+ran out) or None (nothing comes)."""
 import dataclasses
 import os
 import zlib
@@ -49,7 +54,7 @@ class SimDevice:
     def __init__(self, role=gp.ROLE_BOOT, board_id=1, max_chunk=256, drop_replies=(), drop_requests=(),
                  busy_on=(), schema=None, bulk=True, ab=False, fw_version=0x00010000, presets=None, slots=None,
                  revision=0, next_revision=None, components=None, flash_size=gp.APROM_SIZE, extra_caps=0,
-                 layout=None, raw=None):
+                 layout=None, raw=None, unlock=None, user="unlock"):
         self.ab = ab
         self.flash_size, self.extra_caps = flash_size, extra_caps   # a Code 61: its app area, caps bit 7
         if ab:
@@ -93,6 +98,12 @@ class SimDevice:
         self.monitor_kinds = []   # the kinds of every MONITOR received
         self.notifications = []   # (Notification, seq) of every FB_* received, in order
         self.dropped = []         # malformed or unknown notifications (raw frames), dropped without a reply
+        self.unlock, self.user = unlock, user
+        self.locked = unlock is not None
+        self.window = 0           # seconds left in the unlock window (the sim doesn't count down)
+        self.locked_replies = []  # cmd of every request answered LOCKED
+        self.unlock_opens = []    # the `open` byte of every UNLOCK
+        self.later = []           # unsolicited frames SimPort delivers on a recv() with nothing else to give
 
     # -- transport side --
     def handle(self, msg):
@@ -117,7 +128,8 @@ class SimDevice:
                 return gp.build_frame(f.cmd | gp.REPLY, f.seq, bytes([gp.BUSY]))
             payload = self.dispatch(f)
             reply = gp.build_frame(f.cmd | gp.REPLY, f.seq, payload)
-            self.last = (bytes(msg), reply)
+            if payload[:1] != bytes([gp.LOCKED]):    # LOCKED doesn't complete a request (sysex.md 1)
+                self.last = (bytes(msg), reply)
         self.n_reply += 1
         if self.n_reply in self.drop_replies:
             return None
@@ -127,7 +139,8 @@ class SimDevice:
         app_caps = (gp.CAP_LOG | gp.CAP_EVENT | (gp.CAP_CONFIG if self.schema else 0) | (gp.CAP_FW if self.ab else 0)
                     | (gp.CAP_PRESETS if self.presets is not None else 0)
                     | (gp.CAP_FEEDBACK if self.components is not None else 0) | self.extra_caps
-                    | (gp.CAP_LAYOUT if self.layout is not None else 0) | (gp.CAP_MONITOR if self.raw is not None else 0))
+                    | (gp.CAP_LAYOUT if self.layout is not None else 0) | (gp.CAP_MONITOR if self.raw is not None else 0)
+                    | (gp.CAP_UNLOCK if self.unlock is not None else 0))
         return gp.Hello(self.role, self.board_id, self.fw_version, 1,
                         self.max_chunk if self.role == gp.ROLE_BOOT or self.ab else 0,
                         gp.CAP_FW if self.role == gp.ROLE_BOOT else app_caps, bytes(range(12)),
@@ -149,6 +162,15 @@ class SimDevice:
         p = f.payload
         if f.cmd == gp.HELLO:
             return gp.build_hello_reply(self.hello())
+        if self.role == gp.ROLE_APP and self.unlock is not None:
+            if f.cmd == gp.UNLOCK:
+                return self.unlock_cmd(p)
+            if self.locked and gp.needs_unlock(f.cmd, p):
+                self.window = gp.UNLOCK_WINDOW_S
+                self.locked_replies.append(f.cmd)
+                return bytes([gp.LOCKED])
+        elif f.cmd == gp.UNLOCK:
+            return bytes([gp.BAD_CMD])
         if f.cmd in (gp.GET_SCHEMA, gp.GET_PARAM, gp.SET_PARAM, gp.GET_PARAMS, gp.SET_PARAMS, gp.COMMIT,
                      gp.FACTORY_RESET):
             if self.role != gp.ROLE_APP or not self.schema:
@@ -625,6 +647,29 @@ class SimDevice:
         self.write_state()
         return gp.OK
 
+    def unlock_cmd(self, p):
+        if len(p) != 1:
+            return bytes([gp.BAD_LEN])
+        if p[0] > 1:
+            return bytes([gp.BAD_CMD])
+        self.unlock_opens.append(p[0])
+        if p[0] == 1 and self.locked:
+            self.window = gp.UNLOCK_WINDOW_S
+        reply = gp.build_unlock_reply(gp.UnlockInfo(0 if self.locked else 1, self.window if self.locked else 0,
+                                                    self.unlock.hold, self.unlock.names))
+        if self.locked and self.window and self.user:
+            self.useq = (self.useq + 1) & 0x7F
+            state = 1 if self.user == "unlock" else 0
+            self.later.append(gp.build_frame(gp.UNLOCKED, self.useq, gp.build_unlocked(state)))
+            self.locked, self.window = state == 0, 0
+        return reply
+
+    def relock(self):
+        """No request for 5 minutes: locked again (the UNLOCKED 0 it sends is queued)."""
+        self.locked = True
+        self.useq = (self.useq + 1) & 0x7F
+        self.outbox.append(gp.build_frame(gp.UNLOCKED, self.useq, gp.build_unlocked(0)))
+
     def erase(self, off):
         self.flash[off:off + PAGE] = b"\xff" * PAGE
 
@@ -694,6 +739,8 @@ class SimPort:
 
     def recv(self, timeout):
         out, self.q = self.q, []
+        if not out and self.dev.later:
+            out, self.dev.later = self.dev.later, []
         return out
 
     def close(self):

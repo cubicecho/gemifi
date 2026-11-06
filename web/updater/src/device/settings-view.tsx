@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { type ParamValues, valueKey } from '../protocol/config.ts';
+import { isDiagnostic } from '../protocol/diagnostics.ts';
 import type { HelloInfo } from '../protocol/messages.ts';
 import {
   isPreset,
@@ -361,6 +362,17 @@ function filterSections(sections: SchemaSection[], keep: (param: ParamSpec) => b
 }
 
 /**
+ * The schema's groups as the settings form draws them: without the diagnostics (§4.10), which the
+ * Device card shows as facts rather than as settings to change.
+ *
+ * @param sections - From `layoutSchema`.
+ * @returns The sections without the diagnostics, empty ones left out.
+ */
+export function settingsSections(sections: SchemaSection[]): SchemaSection[] {
+  return filterSections(sections, (param) => isDiagnostic(param) === false);
+}
+
+/**
  * Splits the schema's groups by scope, on a device with presets: what each preset has its own of,
  * and what is the same in every preset. The params the Presets card stands for are left out.
  *
@@ -493,8 +505,8 @@ function BackupCard({ config, presets, device }: SettingsProps) {
           }
           confirmLabel="Reset to defaults"
           onConfirm={() => {
-            config.reset();
-            presets.reload();
+            // After the reset, which may first wait for the user to unlock the device (§4.9).
+            void config.reset().then(presets.reload);
           }}
         />
       }
@@ -559,7 +571,7 @@ export function SettingsView({ config, presets, device, learning }: SettingsProp
       />
     );
   } else if (state.kind === 'ready') {
-    const sections = layoutSchema(state.schema);
+    const sections = settingsSections(layoutSchema(state.schema));
     const cards = (list: SchemaSection[]) =>
       list.map((section) => <GroupCard key={section.title} section={section} values={state.values} config={config} />);
     if (hasPresets) {

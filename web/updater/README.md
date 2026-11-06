@@ -71,8 +71,9 @@ active preset with the shared settings.
 connects a pretend Code 61 (`src/dev/demo-device.ts`): HELLO, the config and the presets in
 memory, for working on those views without a keyboard. It also has a layout, streams pretend raw
 readings and EVENTs while a pretend player moves a control every second or so
-(`src/dev/demo-tools.ts`), and offers a pretend synth to learn from. It is not part of a
-production build.
+(`src/dev/demo-tools.ts`), and offers a pretend synth to learn from. It reports diagnostics, and it
+answers LOCKED to Reset to defaults and Reboot to bootloader; the pretend user unlocks it 4 s later.
+It is not part of a production build.
 
 Web MIDI only works in a **secure context**: HTTPS, or `localhost`. Opening `dist/index.html` from
 `file://` does not work; use `npm run preview` to serve a build.
@@ -117,7 +118,19 @@ the GitHub Pages address) gets its own add-on.
    "gemifi boot (…)" in the bootloader and "gemifi (…)" in the app, and is a different port after
    every reboot; the page follows it.
 2. **Device** asks HELLO on every (re)connection: role, board, firmware and protocol versions,
-   max chunk, capabilities and UID. The two buttons send REBOOT(1) and REBOOT(0).
+   max chunk, capabilities and UID. The two buttons send REBOOT(1) and REBOOT(0). On a device
+   with settings it also shows the diagnostics (`protocol/sysex.md` §4.10): why the app started,
+   whether the boot-loop guard tripped, how the settings loaded, the longest scan and main-loop
+   pass, the scan period and the uptime. They are read again with the refresh button. A
+   diagnostic the device does not report is left out. They are not in the settings form.
+
+   **Physical unlock** (HELLO caps bit 10, §4.9). Such a device answers LOCKED to REBOOT(1),
+   FW_BEGIN and FACTORY_RESET until the user agrees on the device. The page then shows what to
+   do, for example "Hold Up + Down on the device for 2 s", with the time left and a Cancel
+   button. When the device reports UNLOCKED, the page sends the request again by itself. If the
+   window closes, or nothing comes within its time plus 5 s, the request fails with "The device
+   wasn't unlocked". This covers Reboot to bootloader, Flash and Reset to defaults. `SysexClient`
+   does it for every request, so the call sites need nothing.
 3. **Firmware.** Choose a `.gfw`. The page checks the header (magic, header and protocol versions,
    board id against the connected device, size against the board's APROM), the CRC-32 over
    `[0, size)` with the header's crc field taken as 0, and the vector table the bootloader checks
@@ -225,8 +238,9 @@ src/
     image.ts           .gfw header, CRC-32, validateImage, planChunks (upload order)
     ab-image.ts        A/B (ESP) images: padding, CRC, version parsing, planLinearChunks, isAbDevice
     stream.ts          SysexStreamParser: whole SysEx messages out of a raw byte stream (serial)
-    client.ts          SysexClient: stop-and-wait requests over any Transport
+    client.ts          SysexClient: stop-and-wait requests over any Transport; LOCKED → UNLOCK → retry (§4.9)
     config.ts          GET_SCHEMA, GET/SET_PARAM(S), COMMIT, FACTORY_RESET
+    diagnostics.ts     the read-only diag.* params (§4.10): which ids, reading them, their values in words
     presets.ts         PRESET_INFO / SAVE / RESET / NAME and selecting a preset (§4.5)
     layout.ts          GET_LAYOUT, the layout blob and the keys' drawing rule (§4.7)
     monitor.ts         MONITOR and RAW: the raw readings (§4.8)

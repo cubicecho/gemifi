@@ -27,7 +27,8 @@ Every byte between `F0` and `F7` is 7-bit.
 
 **Retries:**
 - On a timeout, BAD_CHECKSUM or BUSY, the host resends the same request with the **same** `seq`, up to 5 resends (6 sends in total).
-- The device only counts a request as *completed* (and so a same-`seq` repeat as a duplicate) after it has replied OK or a final error. A BUSY or BAD_CHECKSUM reply doesn't complete it.
+- The device only counts a request as *completed* (and so a same-`seq` repeat as a duplicate) after it has replied OK or a final error. A BUSY, BAD_CHECKSUM or LOCKED reply doesn't complete it.
+- **LOCKED** is not resent at once: the host waits for the user to unlock the device (§4.9), then sends the request again.
 - **Timeouts:** 200 ms for most requests, **2000 ms for FW_BEGIN, FW_END, COMMIT, FACTORY_RESET, PRESET_SAVE, PRESET_RESET, PRESET_NAME, PRESET_DELETE and PRESET_MOVE** (page erases, read-back and CRC). A device that needs longer may reply BUSY, and the host resends.
 - **REBOOT:** the reply may be lost as the device resets. Hosts treat a REBOOT timeout as success and then wait for the port to reappear.
 
@@ -62,6 +63,7 @@ A reply's payload always starts with a status byte. **If the status isn't OK, no
 | 9 | BUSY | Try again |
 | 10 | BAD_PARAM | Unknown param `id`, `index` out of range, or the param is read-only (§4.3) |
 | 11 | BAD_VALUE | Value outside the param's `min..max` (§4.3) |
+| 12 | LOCKED | Needs the user's OK on the device first (§4.9): the device has opened its unlock window |
 
 Specific cases:
 - An unknown protocol `ver`, or a REBOOT `mode` above 1 → BAD_CMD.
@@ -96,9 +98,10 @@ Specific cases:
 | 0x11 | GET_COMPONENT | feedback | – | `kind` (1 byte), `index` u14 | the component's description (§4.6.1) |
 | 0x14 | GET_LAYOUT | layout | – | `offset` u28, `max` u14 (unpacked bytes wanted, 1..64) | `total` u28 (layout size in bytes), `offset` u28 (echo), data (packed, 0..`max` bytes; fewer only at the end) (§4.7) |
 | 0x15 | MONITOR | monitor | – | `kinds` (1 byte, bit flags; 0 = stop) | `kinds` (1 byte: the ones it will send), `interval_ms` u14, `timeout_ms` u14 (§4.8) |
+| 0x16 | UNLOCK | unlock | – | `open` (1 byte: 0 = only report, 1 = also open the unlock window) | `state` (1 byte), `window` (1 byte), `hold` u14, `n` (1 byte), then `n` × lstring (§4.9) |
 | 0x05, 0x06, 0x0F | GET_BLOB, SET_BLOB, LOG_LEVEL | reserved | – | see `research/core/bootloader-design.md` §6 | |
 
-"presets" = only in an app with HELLO caps bit 5; "feedback" = only with caps bit 6; "layout" = only with caps bit 8; "monitor" = only with caps bit 9. Any other device replies BAD_CMD.
+"presets" = only in an app with HELLO caps bit 5; "feedback" = only with caps bit 6; "layout" = only with caps bit 8; "monitor" = only with caps bit 9; "unlock" = only with caps bit 10. Any other device replies BAD_CMD.
 
 Unsolicited device → host messages (no reply expected):
 
@@ -110,6 +113,7 @@ Unsolicited device → host messages (no reply expected):
 | 0x63 | PRESET_CHANGED | `slot` u14 (the active preset), `dirty` (1 byte: 1 = unsaved edits, 0 = none). Sent each time the active preset or its dirty flag changes, whoever caused it (§4.5). |
 | 0x64 | BOOTED | The fields of a HELLO reply without its status byte: `role`, `board_id` u14, `fw_version` u32, `proto_version`, `max_chunk` u14, `caps` u14, `uid` (packed, 14 bytes), then `node` when the app has one (§4.1.1). Sent once, about 1.5 s after the app starts (once USB is normally up), and only by an app with caps bit 6 (§4.6.3). A host can treat it exactly like a HELLO reply. |
 | 0x65 | RAW | `kind`, then the raw readings of that kind (§4.8). Sent only while a host keeps MONITOR running. |
+| 0x66 | UNLOCKED | `state` (1 byte, as in UNLOCK: 1 = unlocked; 0 = locked again, or the unlock window closed without an unlock). Only from an app with caps bit 10 (§4.9). |
 
 The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a standard Identity Reply, so generic tools can find it.
 
@@ -123,6 +127,7 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 7: gemifi bootloader: REBOOT(1) leads to a gemifi bootloader (role 1). Only meaningful on boards that may instead carry a vendor bootloader (the Code 61: M-Audio's, with its own update protocol). An app sets it when it finds the gemifi bootloader's marker; without it, hosts use the board's vendor path.
 - bit 8: physical layout (§4.7: GET_LAYOUT). Only in an app built from a YAML with `layout:`.
 - bit 9: raw readings (§4.8: MONITOR and RAW).
+- bit 10: physical unlock (§4.9): FW_BEGIN, REBOOT(1) and FACTORY_RESET may reply LOCKED; UNLOCK and UNLOCKED exist.
 
 ### 4.1.1 HELLO `node` (node name)
 
@@ -476,6 +481,68 @@ For calibrating and porting: the readings as the scan sees them, before debounce
 
 Only the components with pins are sent: no layer twins. A key matrix's rows and columns are its YAML `rows:` and `columns:`, in order; a velocity keybed has two contacts per key (`key_matrix:` in `core/README.md` "Device YAML"). A contact reads 1 when closed, `inverted:` already applied. Hosts ignore a `kind` they don't know, and bytes after the fields they know.
 
+### 4.9 Physical unlock (app)
+
+Chrome asks for SysEx permission once per site, so any page that was allowed once could flash or wipe a device. With physical unlock (HELLO caps bit 10), the requests that can replace the firmware or lose the settings need the user's OK on the device first, as in Vial and ZMK Studio:
+
+- FW_BEGIN (in an A/B app, §4.1.1),
+- REBOOT with `mode` 1 (to the bootloader),
+- FACTORY_RESET.
+
+Every other request works as before, REBOOT(0) included.
+
+**Flow.**
+1. While the device is locked, those requests reply LOCKED (12) and do nothing else. The LOCKED reply opens the device's **unlock window** for 30 s (or restarts it, if it is already open).
+2. The device shows the window: its status LED blinks fast (`core/README.md` "Status LED"), and a display shows `HOLD` and the combo's buttons.
+3. The user holds the **unlock combo** (YAML `unlock: { combo }`; `unlock: true` takes the `boot_combo` buttons) for its `hold` time (default 2 s) while the window is open. While the window is open, those buttons do nothing else: no MIDI, no action.
+4. The device sends UNLOCKED (0x66) with `state` 1. It stays unlocked until it reboots, or until no request has come for 5 minutes; then it sends UNLOCKED with `state` 0.
+5. The host sends the request again. A LOCKED reply doesn't complete a request (§1), so the same `seq` and a new one both work.
+
+If the window closes without an unlock, the device sends UNLOCKED with `state` 0, and the host stops waiting and reports that the device wasn't unlocked.
+
+**UNLOCK (0x16)** tells a host what to ask the user. Request: `open` (1 byte): 0 only reports; 1 also opens the window (or restarts it) when the device is locked, for a host that wants the unlock before it starts. Reply, after the status:
+
+| Field | Meaning |
+|---|---|
+| `state` | 0 locked, 1 unlocked |
+| `window` | seconds left in the unlock window, 0 = closed (1..30 while open) |
+| `hold` u14 | ms the combo must be held; 0 = a press is enough |
+| `n` | buttons in the combo, 1..8 |
+| `n` × lstring | the buttons' display names (YAML `name:`, or from the id) |
+
+A request that isn't 1 byte → BAD_LEN; an `open` other than 0 or 1 → BAD_CMD. A host shows, for example, "Hold Pitch down + Pitch up on the device for 2 s".
+
+**A host's side.** On LOCKED: send UNLOCK (`open` 0) for the prompt, show it, and wait for UNLOCKED: `state` 1 → resend the request; `state` 0, or no UNLOCKED within `window` + 5 s → give up. A host that doesn't know LOCKED shows it as an error, so an old host fails safe. `tools/host/gemifi.py` and `web/updater` do this.
+
+**The bootloader has no lock.** Getting into it already takes the boot combo at power-up, an unlocked REBOOT(1), or the boot-loop guard (§6). The guard needs no host: it trips only when the app keeps failing, so it can't be used to flash a working device.
+
+**Opt-in.** The lock is off unless the device's YAML sets `unlock:` (`true`, or `{ combo, hold }`). Off, the feature is left out: caps bit 10 is clear, nothing replies LOCKED and UNLOCK → BAD_CMD. A host checks caps bit 10 (or just handles LOCKED when it comes) rather than assuming either.
+
+### 4.10 Diagnostics (app)
+
+Read-only, VOLATILE params in the group "Debug", for a host to show (`web/updater` shows them with the device info). Every app built from a device YAML has them (firmware from 2026-11-05 on); a host treats a missing one as "not reported". SET_PARAM on them → BAD_PARAM.
+
+| id | Name | Type | Meaning |
+|---|---|---|---|
+| 65 | `diag.reset_reason` | enum | Why the app started: 0 unknown, 1 power-on, 2 reset pin, 3 software (REBOOT, an update), 4 watchdog, 5 brown-out, 6 crash (a CPU fault or panic, where the chip tells it apart), 7 low-power |
+| 66 | `diag.boot_loop` | bool | 1: before this start, the bootloader's boot-loop guard (§6) had stopped the app (it came back 3 times without running 5 s) |
+| 67 | `diag.settings` | enum | The stored settings at power-up: 0 loaded, 1 none stored (defaults), 2 some stored values were refused and reset to their defaults, 3 ignored (boot combo held: safe mode), 4 wiped by the factory-reset combo |
+| 68 | `diag.scan_max` | int, µs | The longest scan (the timer tick: key matrix, switch matrices, encoders) since power-up; 0 where the platform can't time it |
+| 69 | `diag.loop_max` | int, µs | The longest main-loop pass since power-up |
+| 70 | `diag.scan_period` | int, µs | The scan period in use: the YAML's `scan_interval`, or more if a scan ran over it |
+| 71 | `diag.uptime` | int, s | Seconds since power-up |
+
+Ids 72–74 are kept for more diagnostics.
+
+What each platform can tell apart:
+
+| Platform | `diag.reset_reason` | `diag.boot_loop` |
+|---|---|---|
+| NUC1xx | power-on (POR), brown-out (BOD, LVR), watchdog, software (SYSRESETREQ, CPU reset), pin. Passed on by the gemifi bootloader (§6); 0 under a bootloader from before 2026-11-05 | yes |
+| STM32F1 | power-on (POR/PDR; the chip reports a brown-out as a power-on), low-power, watchdog (IWDG, WWDG), software, pin. Passed on by the gemifi bootloader (§6); under M-Audio's bootloader, RCC_CSR as it finds it | yes, under the gemifi bootloader |
+| ESP32 | `esp_reset_reason()`: power-on, pin, software, watchdog, brown-out, crash (panic), low-power (deep-sleep wake) | no (0) |
+| ESP8266 | `rst_info`: power-on, pin, software, watchdog, crash (exception), low-power (deep-sleep wake) | no (0) |
+
 ## 5. Image format (`.gfw`)
 
 A `.gfw` file is the raw app binary, exactly `image_size` bytes long (padded with 0xFF to a multiple of 4), with a 32-byte header right after the vector table. `tools/host/mkimage.py` fills the header after linking. Where the header sits depends on the platform (§8):
@@ -504,21 +571,29 @@ The bootloader starts the app only if all of these hold: the magic matches, the 
 
 On the Code 61 there is no gemifi bootloader. M-Audio's bootloader stays, and it checks its own image checksum instead (§8). The host tools still check the `.gfw` header before they send anything.
 
-## 6. Boot handoff and mailbox (NUC1xx)
+## 6. Boot handoff and mailbox (NUC1xx, STM32F1)
 
-- **SRAM mailbox:** 16 bytes at `0x2000_0FF0` that neither side initialises: `magic` u32, `magic_inv` u32 (= ~magic), `boot_count` u32, `reason` u32. `reason` values: 0 = none, 1 = REBOOT to bootloader requested over SysEx, 2 = the bootloader stayed because of the boot-loop guard; others are reserved. The bootloader doesn't act on `reason`; it's for logging. After a cold start (GCR_RSTSRC POR, LVR or BOD) the bootloader zeroes `boot_count` and `reason`, because SRAM is random then. Both the bootloader and the app put their stack top at `0x2000_0FF0`.
+- **SRAM mailbox:** 16 bytes that neither side initialises: `magic` u32, `magic_inv` u32, `boot_count` u32, `reason` u32.
+  - NUC1xx: at `0x2000_0FF0`. Both the bootloader and the app put their stack top there.
+  - STM32F1: at `0x2000_4FF0`, the top 16 bytes of the 20 KB SRAM, above the stack top (`0x2000_4F00`).
+  - `reason` values: 0 = none, 1 = REBOOT to bootloader requested over SysEx, 2 = the bootloader stayed because of the boot-loop guard; others are reserved. The bootloader doesn't act on `reason`. The app reads 2 as "started after the boot-loop fallback" (`diag.boot_loop`, §4.8).
+  - After a cold start the bootloader zeroes `boot_count` and `reason`, because SRAM is random then. Cold: GCR_RSTSRC POR, LVR or BOD (NUC1xx); RCC_CSR PORRSTF or LPWRRSTF (STM32F1).
+  - **Reset flags.** Once it has decided, the bootloader writes 0 to `magic` and the chip's reset flags to `magic_inv`: GCR_RSTSRC (NUC1xx) or RCC_CSR (STM32F1), as it read them before clearing them. The app reads them there for `diag.reset_reason`, since the chip's own register then only shows the hand-off. Bootloaders from before 2026-11-05 write 0 there (unknown).
 - **App "reboot to bootloader":**
-  1. Send the REBOOT reply and wait about 50 ms.
-  2. Set magic = `'BOOT'` (0x544F4F42) and magic_inv.
-  3. Disconnect USB (DRVSE0, about 10 ms).
-  4. Unlock REGWRPROT, set ISPCON.BS = 1, then IPRSTC1.CPU_RST.
+  - NUC1xx:
+    1. Send the REBOOT reply and wait about 50 ms.
+    2. Set magic = `'BOOT'` (0x544F4F42) and magic_inv = ~magic.
+    3. Disconnect USB (DRVSE0, about 10 ms).
+    4. Unlock REGWRPROT, set ISPCON.BS = 1, then IPRSTC1.CPU_RST.
+  - STM32F1: the update-flag page at 0x0801FC00 (§8), then SYSRESETREQ. The mailbox `magic` isn't used.
 - **The bootloader stays in update mode if any of these is true:**
-  - the mailbox magic is `'BOOT'` with a matching inverse;
-  - the **Pitch▼ + Pitch▲** buttons are held at reset (Keystation; active-low, sampled 3 times over about 20 ms);
+  - the app asked for it (NUC1xx: the mailbox magic is `'BOOT'` with a matching inverse; STM32F1: the update flag);
+  - the board's button combo is held at reset (Keystation: **Pitch▼ + Pitch▲**; Code 61: **Up + Down**; active-low, sampled 3 times over about 20 ms);
   - `boot_count` ≥ 3: the app came back to the bootloader 3 times in a row without clearing it (boot-loop guard; it sets `reason` = 2);
   - the app is invalid (§5).
 
-  It clears the magic either way. To start the app: `boot_count`++, unlock, ISPCON.BS = 0, IPRSTC1.CPU_RST. When it stays, it sets `boot_count` to 0.
+  On NUC1xx it clears the magic either way. To start the app: `boot_count`++, then the hand-off (NUC1xx: unlock, ISPCON.BS = 0, IPRSTC1.CPU_RST; STM32F1: MSP and a jump to the app's reset vector). When it stays, it sets `boot_count` to 0.
+- **STM32F1, a non-gemifi app.** The STM32F1 bootloader also starts an app without a gemifi header (M-Audio's stock firmware, §8). It never counts those: they don't clear `boot_count`.
 - **App side of the guard:** set `boot_count` = 0 after running normally for about 5 s.
 
 ## 7. IDs

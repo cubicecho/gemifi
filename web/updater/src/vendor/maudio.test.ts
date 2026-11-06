@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { Transport } from '../protocol/client.ts';
+import { RequestError, RequestFailure, type Transport } from '../protocol/client.ts';
+import { Status } from '../protocol/wire.ts';
 import {
   APP_BASE,
   appAreaWithChecksum,
@@ -383,5 +384,17 @@ describe('update mode on Windows and after a reload', () => {
     });
     expect(outcome.kind).toBe('done');
     expect(log.some((line) => line.includes('quota'))).toBe(true);
+  });
+  it('stops when the app answered LOCKED and was not unlocked (§4.9)', async () => {
+    const ports: ProbePort[] = [{ id: 'gemifi', name: 'gemifi (code61)', selected: true, transport: new FakePort() }];
+    const run = vendorUpdate({
+      records,
+      ports: () => ports,
+      settings: FAST,
+      request: async () => {
+        throw new RequestError(RequestFailure.Locked, "The device wasn't unlocked.", Status.Locked);
+      },
+    });
+    await expect(run).rejects.toThrow(/wasn't unlocked/);
   });
 });

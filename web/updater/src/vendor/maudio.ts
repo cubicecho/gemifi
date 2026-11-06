@@ -19,7 +19,7 @@
  * Framework-free, no DOM types: any {@link Transport} will do.
  */
 
-import type { Transport } from '../protocol/client.ts';
+import { RequestError, RequestFailure, type Transport } from '../protocol/client.ts';
 import { toHex } from '../protocol/encoding.ts';
 import { HEX_RADIX, SYSEX_END, SYSEX_START } from '../protocol/wire.ts';
 
@@ -686,7 +686,11 @@ export async function vendorUpdate(options: VendorUpdateOptions): Promise<Vendor
     try {
       await options.request();
     } catch (error) {
-      if (signal?.aborted === true) {
+      // A locked app that was not unlocked (§4.9) set no update request: a power cycle would not help.
+      const isNotUnlocked =
+        error instanceof RequestError &&
+        (error.failure === RequestFailure.Locked || error.failure === RequestFailure.Aborted);
+      if (signal?.aborted === true || isNotUnlocked) {
         throw error;
       }
       onLog?.(`Update request: ${error instanceof Error ? error.message : String(error)}`);

@@ -63,6 +63,14 @@ enum {
     P_CONFIG_HASH = 39,
     /* MIDI messages (core/README.md "MIDI messages"): 41-59 */
     P_PRESET_BANK = 41,              /* -1 none, 0..16383 (GM_PRESET_BANK) */
+    /* diagnostics (sysex.md 4.10): READ_ONLY, VOLATILE; 72-74 kept for more */
+    P_DIAG_RESET = 65,
+    P_DIAG_BOOT_LOOP = 66,
+    P_DIAG_SETTINGS = 67,
+    P_DIAG_SCAN_MAX = 68,
+    P_DIAG_LOOP_MAX = 69,
+    P_DIAG_SCAN_PERIOD = 70,
+    P_DIAG_UPTIME = 71,
 };
 
 #ifndef GM_N_PADS

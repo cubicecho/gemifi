@@ -69,16 +69,17 @@ $(BUILD)/midi_test0: $(MIDI_SRCS) | $(BUILD)
 # The midi-controller's protocol side (core/src, presets included) with the
 # generated Keystation device config and the real config_store.c. The YAML
 # gets write_to_flash: { last_preset: true }, so the device stores the active
-# preset on its own and reboots into it (run_presets.py relies on that).
+# preset on its own and reboots into it (run_presets.py relies on that), and
+# unlock: true (opt-in), so run_presets.py can test the physical unlock.
 YAML    := $(ROOT)/devices/keystation-mini32-mk3.yaml
 DEVICE  := $(BUILD)/keystation-write-to-flash.yaml
 DEV_DIR := $(BUILD)/device
 CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
-            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c din.c midi_in.c mcu.c presets.c) \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
             $(DEV_DIR)/gm_device_config.c
 
 $(DEVICE): $(YAML) | $(BUILD)
-	{ cat $(YAML); echo 'write_to_flash: { last_preset: true }'; } > $@
+	{ cat $(YAML); echo 'write_to_flash: { last_preset: true }'; echo 'unlock: true'; } > $@
 
 $(DEV_DIR)/gm_device_config.c: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py) | $(BUILD)
 	$(PYTHON) $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV_DIR) >/dev/null

@@ -41,6 +41,9 @@ typedef struct {
  * write_to_flash.last_preset (GM_WRITE_LAST_PRESET), else slot 1. safe =
  * ignore the store when loading (it is still written by COMMIT). */
 void presets_boot(int safe);
+/* How presets_boot found the stored settings: a GM_SETTINGS_* value
+ * (gm_safety.h, diag.settings). */
+int presets_boot_state(void);
 
 /* gm_poll. With write_to_flash.last_preset: writes preset.active once the
  * switch is GM_WRITE_DELAY_MS old and gm_idle_ms() >= GM_WRITE_IDLE_MS.

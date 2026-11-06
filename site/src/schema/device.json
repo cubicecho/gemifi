@@ -288,6 +288,64 @@
         }
       ]
     },
+    "factory_reset_combo": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "the id of another component"
+          },
+          "description": "buttons held at power-up to wipe the settings (5 s)"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "combo": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "the id of another component"
+              }
+            },
+            "hold": {
+              "$ref": "#/definitions/period"
+            }
+          },
+          "additionalProperties": false,
+          "description": "combo, and hold: 1s..30s (default 5s)"
+        }
+      ]
+    },
+    "unlock": {
+      "anyOf": [
+        {
+          "type": "boolean",
+          "description": "true: the boot_combo buttons, 2 s; false/left out: off"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "combo": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "the id of another component"
+              }
+            },
+            "hold": {
+              "$ref": "#/definitions/period"
+            }
+          },
+          "additionalProperties": false,
+          "description": "opt-in physical unlock: combo (default boot_combo), hold: 0s..10s (default 2s)"
+        }
+      ]
+    },
+    "status_led": {
+      "type": "string",
+      "description": "the id of another component"
+    },
     "feedback": {
       "anyOf": [
         {

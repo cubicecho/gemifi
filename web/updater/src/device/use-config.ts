@@ -63,7 +63,8 @@ export interface ConfigController {
   /** Reads every value again, keeping the schema and the form on screen (another preset loaded). */
   refreshValues: () => void;
   save: () => void;
-  reset: () => void;
+  /** FACTORY_RESET, then a reload. Resolves when it has finished, whether or not it worked. */
+  reset: () => Promise<void>;
   importText: (text: string) => void;
   /** The shown values as profile JSON, or null before they load. */
   exportJson: () => string | null;
@@ -220,10 +221,10 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
     [client, countsAsEdit],
   );
 
-  const run = useCallback((name: ConfigAction, work: () => Promise<void>) => {
+  const run = useCallback((name: ConfigAction, work: () => Promise<void>): Promise<void> => {
     setAction(name);
     setActionError(null);
-    work()
+    return work()
       .catch((error: unknown) => setActionError(messageOf(error)))
       .finally(() => setAction(null));
   }, []);
@@ -256,11 +257,11 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
     });
   }, [client, run]);
 
-  const reset = useCallback(() => {
+  const reset = useCallback(async () => {
     if (client === null) {
       return;
     }
-    run('reset', async () => {
+    await run('reset', async () => {
       await factoryReset(client);
       setIsDirty(false);
       setImportReport(null);

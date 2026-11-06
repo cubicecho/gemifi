@@ -26,7 +26,7 @@ make CROSS=/opt/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi/bin/arm-none-ea
 
 | Build | Size | Headroom |
 |---|---|---|
-| `gemifi-boot.bin` | 4080 B | 16 B |
+| `gemifi-boot.bin` | 4084 B | 12 B |
 | `gemifi-boot-test.bin` | 3988 B | 108 B |
 
 Headroom is tight. Before adding anything, see "Size notes" below.
@@ -40,7 +40,7 @@ Headroom is tight. Before adding anything, see "Size notes" below.
 | Data flash | 0x0001_F000, 4 KB | owned by the app: settings journal in 0x1F000–0x1FDFF, device ID in the last page (0x1FE00, chips without a UID). This bootloader never writes it (only the test build's uploads do). If the chip has no UID, it reads the device ID record for its serial (see "Update mode") |
 | CONFIG0/1 | 0x0030_0000 | never written; keep CBS = 0 so LDROM always runs first |
 | SRAM | 0x2000_0000 – 0x2000_0FEF | `.bss` (~880 B) and the stack; the stack starts at 0x2000_0FF0 |
-| Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`. Random after power-on: the bootloader zeroes `boot_count` and `reason` after a cold start (see "Boot flow") |
+| Mailbox | 0x2000_0FF0 – 0x2000_0FFF | `magic`, `magic_inv`, `boot_count`, `reason`. Random after power-on: the bootloader zeroes `boot_count` and `reason` after a cold start (see "Boot flow"). After its decision, `magic_inv` holds the `GCR_RSTSRC` flags it read (for the app's `diag.reset_reason`) |
 
 ## Boot flow
 
@@ -52,7 +52,7 @@ Headroom is tight. Before adding anything, see "Size notes" below.
    - **Pitch▼ + Pitch▲** (PA5 + PA6) are held, sampled 3 times over about 20 ms;
    - the boot-loop guard trips: `boot_count` ≥ 3 (see below);
    - the app is invalid. Checks: magic, `hdr_version`, `board_id`, size, initial SP in SRAM, reset vector odd and inside the image, and the CRC-32 over `[0, size)` with the crc field taken as 0.
-5. The mailbox magic is cleared either way.
+5. The mailbox magic is cleared either way, and `magic_inv` gets the `GCR_RSTSRC` flags from step 3 (version 0.1.1 on; before, 0). The app reads its reset reason there, since `GCR_RSTSRC` only shows the hand-off's CPU reset by then.
 6. Otherwise it hands off: `boot_count++`, unlock REGWRPROT, `ISPCON.BS = 0`, `IPRSTC1.CPU_RST`. USB was never started on this path.
 7. If it stays, it zeroes `boot_count`. The next hand-off (after `REBOOT(0)` or a reset) gets 3 fresh tries.
 
@@ -124,7 +124,7 @@ CONFIG is never written; CBS = 0 (boot from LDROM) must stay as it is. With the 
 - `fmc_read_uid()` fills three words, not 12 bytes. The bootloader's `uid[]` is those words, which also keeps the stored-ID copy small.
 - One `flash_crc()` helper does the CRC for both the image check and the device ID record.
 - `handle_frame()` builds frame-error replies and normal replies through the same `gsx_tx_begin()`/`gsx_tx_end()` calls.
-- Size history: 4044 B before the boot-loop guard and the stored-ID serial (issues #1 and #2). Those two features cost about 160 B, and the savings above brought it back to 4080 B (16 B free). What's left to try, if needed: the USB-MIDI TX path (`send()` and `midi_tx_flush()`, about 270 B) and the USB control code.
+- Size history: 4044 B before the boot-loop guard and the stored-ID serial (issues #1 and #2). Those two features cost about 160 B, and the savings above brought it back to 4080 B (16 B free). The reset flags in the mailbox (#93, 0.1.1) took 4 B more: 4084 B (12 B free). What's left to try, if needed: the USB-MIDI TX path (`send()` and `midi_tx_flush()`, about 270 B) and the USB control code.
 
 ## Files
 

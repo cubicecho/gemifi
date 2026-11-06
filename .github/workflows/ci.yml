@@ -64,6 +64,9 @@ jobs:
       - name: STM32F1 config store (simulated flash)
         run: make -C platform/stm32f1/test/cs-test test
 
+      - name: STM32F1 bootloader boot decision (boot-loop guard)
+        run: make -C platform/stm32f1/test/boot-sim test
+
       - name: NUC host-sim (bootloader, app, end to end)
         run: make -C platform/nuvoton-nuc1xx/test/host-sim test
 

@@ -29,6 +29,7 @@
 #include "gm_mcu.h"
 #include "gm_display.h"
 #include "gm_din.h"
+#include "gm_safety.h"
 
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
@@ -48,6 +49,9 @@
 #define NE GM_ARR(GM_N_ENCODERS)
 #define NK GM_ARR(GM_MATRIX_KEYS)
 
+#ifndef GM_STATUS_LED
+#define GM_STATUS_LED (-1)              /* status_led: (gm_safety.h) */
+#endif
 #ifndef GM_N_MODES
 #define GM_N_MODES 0                /* a config generated before modes */
 #endif
@@ -1636,6 +1640,8 @@ static void buttons_sample(void)
             if (!((diff >> i) & 1u))
                 continue;
             int down = (s >> i) & 1u;
+            if (gm_safety_button(i, down))
+                continue;                     /* an unlock / factory-reset combo's (gm_safety.h) */
             if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
             if (down)
@@ -2499,6 +2505,12 @@ static void led_set(uint32_t i, uint32_t level, int blink_on)
     if (led_dead[i])
         return;                     /* its twin has the pins */
 #endif
+#if GM_STATUS_LED >= 0
+    if (i == (uint32_t)GM_STATUS_LED && gm_status_level() >= 0) {
+        level = (uint32_t)gm_status_level();    /* a blink code (gm_safety.h) */
+        blink_on = 0;
+    }
+#endif
     /* The blink phase is only part of the key for a blinking level: a
      * steady LED isn't written again every 500 ms. */
     int ph = led_blinks(&gm_device.leds[i], level) && blink_on;
@@ -2656,6 +2668,18 @@ static void leds_update(uint32_t now)
     return;
 #endif
     int blink_on = (now / 500u) & 1u;
+#if GM_STATUS_LED >= 0
+    /* A blink code on the status LED (gm_safety.h): drawn every update;
+     * once it ends, the LED's own level is drawn again. */
+    static uint8_t status_was;
+    if (GM_STATUS_LED < (int)gm_device.n_leds) {
+        if (gm_status_active())
+            led_set(GM_STATUS_LED, 0, blink_on);
+        else if (status_was)
+            led_shown[GM_STATUS_LED] = 0xFFFFu;
+        status_was = (uint8_t)gm_status_active();
+    }
+#endif
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
         local[i] = has_local[i] = 0;
@@ -3278,6 +3302,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 
     gm_settings_init();
     presets_boot(safe);
+    gm_safety_init(presets_boot_state());
 #if GM_N_CYCLES
     for (uint32_t g = 0; g < GM_N_CYCLES; g++)
         cyc_cur[g] = (uint8_t)cycle_after(g + 1u, GM_MODE_NONE);   /* the first enabled step */
@@ -3508,6 +3533,11 @@ void gm_poll(void)
     poll_part_done(1, &tc);
 
     app_proto_poll();
+#if GM_N_BUTTONS > 0
+    gm_safety_poll(now, btn_stable);   /* the combos, the status LED, diag.* (gm_safety.h) */
+#else
+    gm_safety_poll(now, 0);
+#endif
 #if GM_LAYER_PARAMS
     if (report_due) {               /* debug.events set to 1: every mode that is on */
         report_due = 0;

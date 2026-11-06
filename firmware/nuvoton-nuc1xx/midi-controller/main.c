@@ -23,6 +23,7 @@
 #include "gm_device_config.h"
 #include "app_proto.h"
 #include "gm_feedback.h"
+#include "gm_safety.h"
 
 #define FW_VERSION GEMIFI_VERSION(FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH)
 
@@ -48,11 +49,13 @@ static const usbd_desc_t usb_desc = {
  * the main loop, and with it USB). */
 static volatile uint32_t scan_max;
 static volatile uint8_t scan_slowed;
+static volatile uint32_t scan_ticks;    /* timer periods since the start: the main loop's clock */
 #define SCAN_MAX_US 4000u
 
 void TMR0_IRQHandler(void)
 {
     TMR0_TISR = TISR_TIF;
+    scan_ticks++;
     gm_scan_tick();
     uint32_t used = TMR0_TDR;           /* counts up from 0 at each tick */
     if (used > scan_max)
@@ -98,6 +101,18 @@ static void report_scan(void)
                 fmt_num(b, "", period / 12u, " us"));
 }
 
+/* Timer counts (12 per us) since the start, from scan_ticks and the count
+ * within the period: wall time, the scan interrupt included. */
+static uint32_t timer_now(void)
+{
+    uint32_t t, c;
+    do {
+        t = scan_ticks;
+        c = TMR0_TDR;
+    } while (t != scan_ticks);
+    return t * TMR0_TCMPR + c;
+}
+
 static void scan_timer_start(uint32_t period_us)
 {
     if (period_us < 50u)
@@ -114,6 +129,7 @@ static void scan_timer_start(uint32_t period_us)
 
 int main(void)
 {
+    hal_boot_capture();                    /* diag.reset_reason, diag.boot_loop */
     MAILBOX->reason = 0;
 
     sys_clock_init();
@@ -139,14 +155,28 @@ int main(void)
     scan_timer_start(gm_device.scan_us);
 
     int cleared = 0, reported = 0;
+    uint32_t seen_scan = 0, loop_max = 0, t_last = timer_now();
     for (;;) {
         usbd_poll();
         midi_rx_drain(gm_midi_rx_usb);
         gm_poll();
+        /* diag.scan_max, diag.loop_max (gm_safety.h): converted only when
+         * they grow (no divider on the M0). */
+        uint32_t t_now = timer_now(), dt = t_now - t_last;
+        t_last = t_now;
+        if (dt > loop_max) {
+            loop_max = dt;
+            gm_diag_loop_us(dt / 12u);
+        }
+        if (scan_max != seen_scan) {
+            seen_scan = scan_max;
+            gm_diag_scan_us(seen_scan / 12u);
+        }
         /* Boot-loop guard (bootloader-design.md 3.6): we ran for 5 s. */
         if (!reported && sys_tick_ms() >= 2500u) {
             reported = 1;
             report_scan();
+            t_last = timer_now();          /* the report's own sending isn't a pass */
         }
         if (!cleared && sys_tick_ms() >= 5000u) {
             cleared = 1;

@@ -14,12 +14,20 @@
  *     sets the same flag when its updater asks. The flag is cleared here;
  *   - the entry combo is held at reset: UP + DOWN (the two leftmost top-row
  *     buttons; matrix row 16, PB8 + PB9, verified on hardware 2026-11-03);
+ *   - the boot-loop guard trips (sysex.md 6, as on the NUC): a gemifi image
+ *     came back here MAILBOX_BOOT_TRIES times in a row without clearing the
+ *     SRAM mailbox's boot_count (it does after running 5 s). A cold start
+ *     (power-on, low-power reset) zeroes the count;
  *   - there is no app to start (below).
  * Otherwise it starts the app: a valid gemifi image (header, vectors, CRC),
  * or, when there is no gemifi header at all, an image whose vectors look
  * sane (SP in RAM, reset vector inside the app area): a non-gemifi app such
  * as M-Audio's stock firmware. A gemifi header that fails its check is
- * never started.
+ * never started. Non-gemifi apps don't take part in the boot-loop guard
+ * (they never clear the count).
+ *
+ * Every reset, the mailbox gets the reset flags (RCC_CSR, then cleared) in
+ * its second word, for the app's diag.reset_reason (sysex.md 4.10).
  *
  * In update mode, holding the power button for 2 s switches the board off.
  *
@@ -165,14 +173,6 @@ static int image_valid(uint32_t want_size, uint32_t want_crc, uint32_t want_ver)
     if (!vectors_sane(size))
         return 0;
     return flash_crc(TARGET_BASE, size, TARGET_BASE + GEMIFI_IMG_CRC_OFFSET) == crc;
-}
-
-/* Something to start: a valid gemifi image, or a non-gemifi app. */
-static int app_startable(void)
-{
-    if (target_read(GEMIFI_IMG_HDR_OFFSET) == GEMIFI_IMG_MAGIC)
-        return image_valid(0, 0, 0);
-    return vectors_sane(TARGET_SIZE);
 }
 
 /* ---- protocol --------------------------------------------------------- */
@@ -363,12 +363,7 @@ static void make_serial(void)
 __attribute__((noreturn)) static void start_app(void)
 {
     SYST_CSR = 0;
-    uint32_t sp = target_read(0), pc = target_read(4);
-    __asm__ volatile (
-        "msr msp, %0\n\t"
-        "bx %1\n\t"
-        :: "r" (sp), "r" (pc) : "memory");
-    __builtin_unreachable();
+    sys_jump(target_read(0), target_read(4));
 }
 
 __attribute__((noreturn)) static void do_reboot(void)
@@ -425,6 +420,17 @@ int main(void)
      * on the 8 MHz HSI is enough for the decision. */
     sys_tick_init();
 
+    /* The reset flags, for the app (sysex.md 6); SRAM is random after a
+     * cold start, so the guard counts from then. */
+    uint32_t csr = RCC_CSR;
+    RCC_CSR = csr | RCC_CSR_RMVF;
+    if (csr & RCC_CSR_COLD) {
+        MAILBOX->boot_count = 0;
+        MAILBOX->reason = 0;
+    }
+    MAILBOX->magic = 0;
+    MAILBOX->rst_flags = csr;
+
     int stay = 0;
     if (recovery_update_requested()) {
         stay = 1;
@@ -434,7 +440,18 @@ int main(void)
     }
     if (combo_held())
         stay = 1;
-    if (!stay && app_startable())
-        start_app();
+    if (!stay) {
+        if (target_read(GEMIFI_IMG_HDR_OFFSET) != GEMIFI_IMG_MAGIC) {
+            if (vectors_sane(TARGET_SIZE))
+                start_app();                     /* a non-gemifi app: not counted */
+        } else if (MAILBOX->boot_count >= MAILBOX_BOOT_TRIES) {
+            MAILBOX->reason = MAILBOX_REASON_BOOT_LOOP;
+        } else if (image_valid(0, 0, 0)) {
+            MAILBOX->boot_count++;
+            start_app();
+        }
+    }
+    /* Staying: the next hand-off (REBOOT(0) or a reset) gets fresh tries. */
+    MAILBOX->boot_count = 0;
     update_mode();
 }

@@ -262,7 +262,7 @@ Safety built in:
 python3 tools/host/mkimage.py in.bin out.gfw --board 1 --version 0.1.0   # used by the firmware Makefiles
 python3 tools/host/mkimage.py --check out.gfw [--board 1]
 python3 tools/host/gemifi.py flash app.gfw | restore-stock FirmwareFile.hex.txt    # Code 61, see below
-python3 tools/host/gemifi.py ports | hello | log | reboot app|boot [--wait 5]
+python3 tools/host/gemifi.py ports | hello [--diag] | log | reboot app|boot [--wait 5] | unlock
 python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-port NAME]
 python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
@@ -288,6 +288,8 @@ How `gemifi.py flash` uploads (`protocol/sysex.md` §4.2):
 On a device with presets it also backs up before step 2 and checks the presets after step 5 ("Presets and firmware updates" below).
 
 It picks the path from HELLO: a device whose **app** answers with role 0, caps bit 0 (firmware upload) and a non-zero `max_chunk` takes the upload itself (A/B slots, below), and is never rebooted into a bootloader.
+
+**Physical unlock** (HELLO caps bit 10, `protocol/sysex.md` §4.9). Opt-in: only a device whose YAML sets `unlock:` has it (the shipped device files leave it off). On such a device, REBOOT(1) (`reboot boot`, and step 2 of a flash), an A/B FW_BEGIN and FACTORY_RESET first reply LOCKED. The tool then prints what to do, for example `Hold Pitch down + Pitch up on the device for 2 s`, and waits (the unlock window, 30 s, plus 5 s). Once you hold the combo, the device sends UNLOCKED and the tool sends the request again. If the window closes first, it stops with "device not unlocked". `gemifi.py unlock` does the unlock on its own, before a flash or a reset. The device locks again after 5 minutes without a request, and on a reboot. `gemifi.py hello --diag` shows why the app last started (reset reason, boot-loop guard, settings) and its scan timings (§4.10).
 
 ### ESP32 / ESP8266
 
@@ -357,7 +359,7 @@ gemifi.py get                         # every value of every param, by group; en
 gemifi.py get midi.channel 9:3 button.action:Sustain
 gemifi.py set midi.transpose=-5 "button.action:Oct +=cc toggle" --commit
 gemifi.py commit                      # store the live values in flash
-gemifi.py factory-reset [--yes]       # defaults + erase the stored profile (asks first)
+gemifi.py factory-reset [--yes]       # defaults + erase the stored profile (asks first; may ask for the unlock combo)
 gemifi.py backup kms32.json           # {"board_id", "fw_version", "values": {name: value or [values]}}
 gemifi.py restore kms32.json [--commit]
 gemifi.py log --names                 # LOG/EVENT/PARAM_CHANGED, with param names from the schema

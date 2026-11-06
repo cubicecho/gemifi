@@ -3,9 +3,10 @@
  *
  * Handles HELLO, REBOOT (via the SRAM mailbox), the Universal Identity
  * Request, the config commands (GET_SCHEMA, GET/SET_PARAM(S), COMMIT,
- * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h) and answers FW_*
- * with BAD_STATE. Sends LOG, EVENT, PARAM_CHANGED, PRESET_CHANGED and,
- * with host feedback, BOOTED (once, 1.5 s after app_proto_init).
+ * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h), UNLOCK (with
+ * physical unlock, gm_safety.h) and answers FW_* with BAD_STATE. Sends
+ * LOG, EVENT, PARAM_CHANGED, PRESET_CHANGED, UNLOCKED and, with host
+ * feedback, BOOTED (once, 1.5 s after app_proto_init).
  *
  * Platform independent: it talks to the chip only through gm_hal.h (and
  * the store through gm_presets.h). FW_* go to hal_fw_ops() when the platform has one (A/B
@@ -59,6 +60,9 @@ void app_param_changed(uint16_t id, uint16_t index);
 /* Unsolicited PRESET_CHANGED (slot u14, dirty byte). */
 void app_preset_changed(uint32_t slot, uint32_t dirty);
 
+/* Unsolicited UNLOCKED (sysex.md 4.9): 1 unlocked, 0 locked again or the
+ * unlock window closed. */
+void app_unlocked(uint8_t state);
 /* An unsolicited message (cmd 0x60-0x7F) with a payload of 7-bit bytes,
  * framed with the running device seq. */
 void app_send_unsolicited(uint8_t cmd, const uint8_t *payload, uint32_t n);

@@ -1,4 +1,4 @@
-import { DescriptionList, PropertyRow } from '@/components/description-list';
+import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { type DinMidiSummary, DinMode, type DmaMap, type MidiPort, type ValidationResult } from './api.ts';
@@ -92,7 +92,7 @@ export function ValidationFacts({ result }: ValidationFactsProps) {
   return (
     <>
       {rows.length === 0 ? null : (
-        <Section title="What the builder read" level={4} contentSlot={<DescriptionList contentSlot={rows} />} />
+        <Section title="What the builder read" level={4} contentSlot={<PropertyList contentSlot={rows} />} />
       )}
       {dma === null ? null : (
         <Section

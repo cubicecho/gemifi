@@ -2,8 +2,8 @@ import { useId, useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { Combobox } from '@/components/combobox';
 import { ConfirmButton } from '@/components/confirm-button';
-import { DescriptionList, PropertyRow } from '@/components/description-list';
 import { FormField } from '@/components/form-field';
+import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Alert } from '@/components/ui/alert';
 import { CodeBlock } from '@/components/ui/code';
 import { FilePicker, FilePickerButton } from '@/components/ui/file-picker';
@@ -68,7 +68,7 @@ function PlanFacts({ files }: { files: readonly PickedBytes[] }) {
   }
   if (plan.kind === 'merged') {
     return (
-      <DescriptionList
+      <PropertyList
         contentSlot={[
           <PropertyRow key="file" label="File" value={plan.part.name} valueClassName="font-mono break-all" />,
           <PropertyRow key="at" label="Written at" value="0x0 (a merged factory image)" />,
@@ -79,7 +79,7 @@ function PlanFacts({ files }: { files: readonly PickedBytes[] }) {
   }
   const { manifest } = plan;
   return (
-    <DescriptionList
+    <PropertyList
       contentSlot={[
         <PropertyRow
           key="name"

@@ -1,7 +1,7 @@
 import { type Ref, useCallback, useEffect, useRef, useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
-import { QueryError, RowSkeleton } from '@/components/query-state';
+import { LoadError, RowSkeleton } from '@/components/load-state';
 import { SidebarLayout } from '@/components/split-layout';
 import { Alert } from '@/components/ui/alert';
 import { FileText } from '@/components/ui/icons';
@@ -106,7 +106,7 @@ function DeviceDetail(props: DeviceDetailProps) {
     <CardLayout title={deviceTitle(device)} iconSlot={<FileText />} contentSlot={<RowSkeleton rows={6} />} />
   );
   if (file.isError) {
-    editor = <QueryError error={file.error} onRetry={file.refetch} what="this device file" />;
+    editor = <LoadError error={file.error} onRetry={file.refetch} what="this device file" />;
   } else if (file.data !== undefined) {
     editor = (
       <DeviceEditorCard

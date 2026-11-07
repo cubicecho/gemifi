@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
-import { DescriptionList, PropertyRow } from '@/components/description-list';
+import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -103,7 +103,7 @@ function MatchingFiles({
 function HelloFacts({ info, configHash }: { info: HelloInfo; configHash: number | null }) {
   const caps = capabilityNames(info.caps);
   return (
-    <DescriptionList
+    <PropertyList
       contentSlot={[
         <PropertyRow key="role" label="Role" value={info.role === Role.Boot ? 'Bootloader' : 'App'} />,
         ...(info.nodeName === null
@@ -161,7 +161,7 @@ function DiagnosticsFacts({ state }: { state: DiagnosticsState }) {
       title="Diagnostics"
       level={4}
       contentSlot={
-        <DescriptionList
+        <PropertyList
           contentSlot={state.diagnostics.map(({ param, text }) => (
             <PropertyRow key={param.id} label={param.label} value={text} />
           ))}

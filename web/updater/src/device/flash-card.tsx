@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
-import { DescriptionList, PropertyRow } from '@/components/description-list';
 import { FormField } from '@/components/form-field';
+import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
@@ -329,7 +329,7 @@ function GfwFacts(props: { name: string; source: string | undefined; result: Ima
   return (
     <>
       {header === null ? null : (
-        <DescriptionList
+        <PropertyList
           contentSlot={[
             <PropertyRow key="file" label="File" value={name} valueClassName="font-mono break-all" />,
             ...sourceRow(source),
@@ -381,7 +381,7 @@ function AbFacts(props: {
           />
         }
       />
-      <DescriptionList
+      <PropertyList
         contentSlot={[
           <PropertyRow key="file" label="File" value={name} valueClassName="font-mono break-all" />,
           ...sourceRow(source),
@@ -429,7 +429,7 @@ function StockFacts(props: {
   const problems = [...(result.ok ? [] : [result.problem]), ...extra];
   return (
     <>
-      <DescriptionList
+      <PropertyList
         contentSlot={[
           <PropertyRow key="file" label="File" value={name} valueClassName="font-mono break-all" />,
           <PropertyRow key="kind" label="Kind" value="M-Audio update file, sent as it is (restores stock firmware)" />,

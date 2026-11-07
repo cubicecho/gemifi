@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/** A request's state, in the shape `QueryState` takes. */
+/** A request's state, in the shape `LoadState` takes. */
 export interface RequestState<T> {
   data: T | undefined;
   isPending: boolean;

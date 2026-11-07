@@ -10,6 +10,7 @@ import {
   SELECT_TRIGGER_CLASS,
   SELECT_TRIGGER_TEXT_CLASS,
 } from "@/components/ui/select-base";
+import { FrameFocusGuard } from "@/lib/frame-focus-guard";
 import { cn } from "@/lib/utils";
 import { Check, ChevronDown, ChevronUp } from "@/components/ui/icons";
 
@@ -125,6 +126,8 @@ function SelectContent({
           {children}
         </SelectPrimitive.Viewport>
         <SelectScrollDownButton />
+        {/* A framed app focusing itself would blur the window, which closes the list at once. */}
+        <FrameFocusGuard />
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );
@@ -139,7 +142,9 @@ function SelectItem({ className, children, ...props }: Props<typeof SelectPrimit
       className={cn(
         SELECT_ITEM_CLASS,
         SELECT_ITEM_TEXT_CLASS,
-        "focus:bg-hover focus:text-foreground relative flex cursor-default select-none outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        // The chosen option is the chosen tint, a step further when highlighted: radix highlights
+        // the option under the pointer by focusing it.
+        "focus:bg-hover focus:text-foreground data-[state=checked]:bg-active/40 data-[state=checked]:focus:bg-active/60 relative flex cursor-default select-none outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
     >

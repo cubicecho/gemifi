@@ -2,7 +2,7 @@ import { Children, Fragment, isValidElement, type ReactElement } from "react";
 import { cn, type SlotNode } from "@/lib/utils";
 
 /**
- * A row's cell. The padding is the list's and not the row's, so a `ListItem`, a `DisclosureRow` and
+ * A row's cell. The padding is the list's and not the row's, so a `ListItem`, a `CollapsibleRow` and
  * a row an app wrote itself sit the same distance from the rule above them.
  */
 const ROW = "min-w-0 py-1";
@@ -27,7 +27,7 @@ function step(depth: number): number {
 }
 
 type ListRowProps = {
-  /** The row: a `ListItem`, a `DisclosureRow`, a row of your own. */
+  /** The row: a `ListItem`, a `CollapsibleRow`, a row of your own. */
   children: ReactElement;
   /**
    * How far down the tree the row is: 0 at the top, 1 under a row at 0, and so on. The list
@@ -46,7 +46,7 @@ function ListRow({ children }: ListRowProps) {
 
 type ListProps = {
   /**
-   * The rows: `ListItem`s, `DisclosureRow`s, an array of them or a fragment. One cell each. Wrap a
+   * The rows: `ListItem`s, `CollapsibleRow`s, an array of them or a fragment. One cell each. Wrap a
    * row in `ListRow` to give it a `depth`.
    */
   contentSlot?: SlotNode;
@@ -66,7 +66,7 @@ type ListProps = {
  * - The rule between rows and the padding around each are the list's. A row brings neither.
  * - A row in a `ListRow` with a `depth` is indented that many steps, with a guide rule, and its
  *   item carries `aria-level` (the depth plus one), so a step under a decision is read as nested.
- * - It has no empty and no loading state: those rungs are `QueryState`'s, above the list, and a
+ * - It has no empty and no loading state: those rungs are `LoadState`'s, above the list, and a
  *   list of no rows is not drawn at all rather than announced as "list, 0 items".
  */
 function List({ contentSlot, label, divided = true, className }: ListProps) {

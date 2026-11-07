@@ -13,7 +13,7 @@ export function segmentedItemClass(active: boolean, className?: string) {
   return cn(
     "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
     active
-      ? "bg-active text-active-foreground"
+      ? "bg-active/40 text-foreground hover:bg-active/60"
       : "text-foreground/60 hover:bg-hover hover:text-foreground",
     className,
   );
@@ -28,9 +28,7 @@ export function segmentedItemClass(active: boolean, className?: string) {
 export function segmentedTextClass(active: boolean, className?: string) {
   return cn(
     "text-sm font-semibold",
-    active
-      ? "text-active-foreground group-focus-visible/pill:text-foreground"
-      : ["text-foreground/60", HOVER_INK],
+    active ? "text-foreground" : ["text-foreground/60", HOVER_INK],
     className,
   );
 }
@@ -232,10 +230,8 @@ const SegmentedButton = React.forwardRef<HTMLButtonElement, SegmentedButtonProps
   ({ active, value, iconSlot, className, children, onClick: onPress, ...props }, ref) => {
     const group = React.useContext(SegmentedGroupContext);
     const current = active ?? (group !== null && value !== undefined && group.value === value);
-    // The pill's own ink, for the container and the icon. A `group-*/pill` variant selects what is
-    // inside the pill, so on the pill itself it would never apply: the container turns its own ink
-    // with `focus-visible:`, and only the label takes the group variant.
-    const ink = current ? "text-active-foreground" : "text-foreground/60";
+    // The pill's own ink, for the container and the icon.
+    const ink = current ? "text-foreground" : "text-foreground/60";
     // Only a pill with an icon has something left to draw once its label is gone.
     const labelHideBelow = iconSlot ? group?.labelHideBelow : undefined;
     const iconOnlyHeight = group?.framed ? "min-h-7" : "min-h-8";
@@ -268,9 +264,9 @@ const SegmentedButton = React.forwardRef<HTMLButtonElement, SegmentedButtonProps
           // Inside the frame, `rounded-sm`: the radius nested in the frame's, as a tab's is.
           "cube-rn-view cube-rn-pressable",
           group?.framed ? "rounded-sm px-3 py-1" : "rounded-md px-3 py-1.5",
-          // Focused, the current pill looks hovered, as every focused thing does.
+          // The current pill is the chosen tint, a step further under the pointer and focused.
           current
-            ? "group/pill bg-active focus-visible:bg-hover focus-visible:text-foreground"
+            ? "bg-active/40 hover:bg-active/60 focus-visible:bg-active/60"
             : "group hover:bg-hover",
           // The label colour on the container too, which native ignores and web
           // reads: an element child passes through untouched below, so on web its

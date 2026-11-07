@@ -49,7 +49,7 @@ type ListItemProps = {
    */
   linkSlot?: ReactElement | undefined;
   /**
-   * The chosen row: the one open beside the list. Tinted in `active`, it stays that under the
+   * The chosen row: the one open beside the list. Tinted in `active`, a step further under the
    * pointer, and a pressable row says so with `aria-current`.
    */
   selected?: boolean | undefined;
@@ -71,57 +71,85 @@ function asText(node: ReactNode, className: string, testID?: string) {
   );
 }
 
+/**
+ * A row's fill for its state, for `ListItem` and `FileTree`. Chosen is the `active` tint, and the
+ * pointer over a pressable row is `hover`, or over a chosen one the tint a step further. Focused,
+ * a row looks hovered: `hover` if it is not chosen, the `/60` step if it is.
+ */
+export function rowFillClass(selected: boolean, pressable: boolean) {
+  const pointer = selected
+    ? "transition-colors hover:bg-active/60 has-[:focus-visible]:bg-active/60"
+    : "transition-colors hover:bg-hover has-[:focus-visible]:bg-hover";
+  return cn(selected && "bg-active/40", pressable && pointer);
+}
+
 /** The pressed part of a row, whichever of a button or a link it is. */
 const BODY_CLASS = cn(
   "min-w-0 flex-1 flex-row items-center gap-3 rounded-sm",
   "text-left focus-visible:outline-none",
 );
 
+type RowLinkOptions = {
+  /** The pressed part's `testID` on device and `data-slot` on the web: `list-item-body`. */
+  slot: string;
+  /** The pressed part's classes, laid under any the caller's link carries. */
+  className: string;
+  /** The chosen row: `aria-current="page"` on the web, `selected` on device. */
+  selected: boolean;
+  /** A style the row sets itself, such as a tree's indent. Left out, the link keeps its own. */
+  style?: { paddingLeft: number } | undefined;
+  /** Further props for the web's link only, such as what lets the row be dragged. */
+  webProps?: object | undefined;
+};
+
 /**
- * The middle as the router's link. On the web the caller's element *is* the middle — cloned with
- * its classes and what is inside it, so it stays the router's own `<a>`. On device a link is
- * expo-router's, which takes the middle the other way round: given `asChild`, it wraps the
- * `Pressable`.
+ * A row's pressed part as the router's link, for `ListItem` and `FileTree`. On the web the
+ * caller's element *is* the pressed part — cloned with the row's classes and what is inside it,
+ * so it stays the router's own `<a>`. On device a link is expo-router's, which takes the row the
+ * other way round: given `asChild`, it wraps the `Pressable`.
  */
-function bodyLink(link: ReactElement, selected: boolean, body: ReactNode) {
+export function rowLink(
+  link: ReactElement,
+  { slot, className, selected, style, webProps }: RowLinkOptions,
+  inside: ReactNode,
+) {
   const element = link as ReactElement<Record<string, unknown>>;
   return cloneElement(
     element,
     {
-      "data-slot": "list-item-body",
-      className: cn("flex", BODY_CLASS, element.props.className as string | undefined),
+      "data-slot": slot,
+      className: cn("flex", className, element.props.className as string | undefined),
+      ...(style ? { style } : {}),
       "aria-current": selected ? "page" : undefined,
+      ...webProps,
     },
-    body,
+    inside,
   );
 }
 
+/** A row's box: its padding, its corners and the line its parts sit on. */
+export const LIST_ITEM_CLASS = "min-w-0 flex-row items-center gap-3 rounded-md px-3 py-2";
+
+type ListItemTextProps = Pick<
+  ListItemProps,
+  "title" | "description" | "meta" | "selected" | "titleClassName"
+>;
+
 /**
- * One row of a list: something at the start, a title with a line under it, small facts and
- * buttons at the far end. It draws no surface; the list, card or section around it owns the
- * border.
- *
- * The pressed area is the middle and only the middle, so the row is three siblings
- * (`leadingSlot`, the middle, `actionSlot`) and no button wraps another. `href` or `linkSlot`
- * makes the middle a link, and `onPress` alone keeps it a button.
+ * A row's words as `ListItem` draws them: the title over its description, then `meta`. For a
+ * row that is a `ListItem` with a press of its own, as `CollapsibleRow` is.
  */
-export function ListItem({
+export function ListItemText({
   title,
   description,
-  leadingSlot,
   meta,
-  actionSlot,
-  onClick: onPress,
-  href,
-  linkSlot,
   selected = false,
-  className,
   titleClassName,
-}: ListItemProps) {
+}: ListItemTextProps) {
   // The muted grey is measured against the page. On the selected row's tint it falls short of
   // 4.5:1 at this size, so there the small lines are drawn in the full colour.
   const muted = selected ? "text-foreground" : "text-foreground/60";
-  const body = (
+  return (
     <>
       <div className="cube-rn-view min-w-0 flex-1 gap-0.5">
         {asText(
@@ -149,11 +177,44 @@ export function ListItem({
       ) : null}
     </>
   );
+}
+
+/**
+ * One row of a list: something at the start, a title with a line under it, small facts and
+ * buttons at the far end. It draws no surface; the list, card or section around it owns the
+ * border.
+ *
+ * The pressed area is the middle and only the middle, so the row is three siblings
+ * (`leadingSlot`, the middle, `actionSlot`) and no button wraps another. `href` or `linkSlot`
+ * makes the middle a link, and `onPress` alone keeps it a button.
+ */
+export function ListItem({
+  title,
+  description,
+  leadingSlot,
+  meta,
+  actionSlot,
+  onClick: onPress,
+  href,
+  linkSlot,
+  selected = false,
+  className,
+  titleClassName,
+}: ListItemProps) {
+  const body = (
+    <ListItemText
+      title={title}
+      description={description}
+      meta={meta}
+      selected={selected}
+      titleClassName={titleClassName}
+    />
+  );
 
   // The body in the one form its props ask for: the caller's link, a link, a button, or plain.
   const pressableBody = () => {
     if (linkSlot) {
-      return bodyLink(linkSlot, selected, body);
+      return rowLink(linkSlot, { slot: "list-item-body", className: BODY_CLASS, selected }, body);
     }
     if (href !== undefined) {
       return (
@@ -197,11 +258,11 @@ export function ListItem({
       data-slot="list-item"
       className={cn(
         "cube-rn-view",
-        "min-w-0 flex-row items-center gap-3 rounded-md px-3 py-2",
-        selected
-          ? "bg-active/40"
-          : (onPress || href !== undefined || linkSlot) &&
-              "transition-colors hover:bg-hover has-[:focus-visible]:bg-hover",
+        LIST_ITEM_CLASS,
+        rowFillClass(
+          selected,
+          onPress !== undefined || href !== undefined || linkSlot !== undefined,
+        ),
         className,
       )}
     >

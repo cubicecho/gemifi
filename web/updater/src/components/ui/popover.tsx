@@ -14,6 +14,7 @@ import {
   POPOVER_HEADER_CLASS,
   POPOVER_TITLE_CLASS,
 } from "@/components/ui/popover-base";
+import { FrameFocusGuard } from "@/lib/frame-focus-guard";
 import { bridgePress, cn } from "@/lib/utils";
 
 /** The shared contract, widened to what the radix part (or element) underneath accepts. */
@@ -58,6 +59,7 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  children,
   ...props
 }: Wide<PopoverContentProps, React.ComponentProps<typeof PopoverPrimitive.Content>>) {
   return (
@@ -72,7 +74,11 @@ function PopoverContent({
           className,
         )}
         {...props}
-      />
+      >
+        {children}
+        {/* A framed app focusing itself would take the focus out of the popover's search or field. */}
+        <FrameFocusGuard />
+      </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   );
 }

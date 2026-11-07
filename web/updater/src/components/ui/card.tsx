@@ -27,8 +27,7 @@ type CardProps = ViewProps & {
 
 /**
  * The card's surface: its edge, fill and ink. Exported for a component that is a card but must
- * render its own element — `Section`'s `surface="card"` is a `<section>` — so it wears this rather
- * than a copy of it that drifts.
+ * render its own element, so it wears this rather than a copy of it that drifts.
  */
 const CARD_SURFACE_CLASS = "rounded-lg border border-foreground/10 bg-secondary text-foreground";
 

@@ -18,6 +18,7 @@ import {
   DIALOG_HEADER_CLASS,
   DIALOG_TITLE_CLASS,
 } from "@/components/ui/dialog-base";
+import { FrameFocusGuard } from "@/lib/frame-focus-guard";
 import { bridgePress, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { X } from "@/components/ui/icons";
@@ -107,7 +108,6 @@ function DialogContent({
   showCloseButton = true,
   onEscapeKeyDown,
   onInteractOutside,
-  "aria-describedby": describedBy,
   role,
   children,
   ...props
@@ -117,13 +117,14 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // `aria-describedby` stays in `props`, so it is spread only when the caller wrote it: radix
+        // links its own `DialogDescription`, and an `undefined` written here would unlink it.
         {...props}
         {...(onEscapeKeyDown === undefined ? {} : { onEscapeKeyDown })}
         {...(onInteractOutside === undefined ? {} : { onInteractOutside })}
         // Spread only when given: radix sets its own `role="dialog"` and an explicit `undefined`
         // would land after it and take the role away.
         {...(role === undefined ? {} : { role })}
-        aria-describedby={describedBy}
         className={cn(
           DIALOG_CONTENT_CLASS,
           // Native gets its gutter from the backdrop's padding; here the card is fixed in the
@@ -134,6 +135,8 @@ function DialogContent({
         )}
       >
         {children}
+        {/* A framed app focusing itself would take the focus, and the typing, out of the dialog. */}
+        <FrameFocusGuard />
         {showCloseButton ? (
           <DialogPrimitive.Close
             data-slot="dialog-close"

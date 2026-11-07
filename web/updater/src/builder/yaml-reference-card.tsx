@@ -1,5 +1,5 @@
 import { CardLayout } from '@/components/card-layout';
-import { Disclosure } from '@/components/disclosure';
+import { Collapsible } from '@/components/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -52,7 +52,7 @@ export function YamlReferenceCard() {
       contentSlot={
         <div className="flex min-w-0 flex-col gap-4">
           {YAML_REFERENCE.map((entry) => (
-            <Disclosure
+            <Collapsible
               key={entry.id}
               title={entry.title}
               titleClassName="text-foreground"

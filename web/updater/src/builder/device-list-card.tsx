@@ -3,7 +3,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { QueryState } from '@/components/query-state';
+import { LoadState } from '@/components/load-state';
 import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -115,7 +115,7 @@ export function DeviceListCard(props: DeviceListCardProps) {
       actionSlot={<Button variant="info" size="sm" iconSlot={<Plus />} content="New device" onClick={onNew} />}
       contentSlot={
         <>
-          <QueryState query={devices} what="the device list" count={all.length} />
+          <LoadState query={devices} what="the device list" count={all.length} />
           {deleteFailure === null ? null : (
             <Alert variant="destructive" title="The device was not deleted" description={deleteFailure} />
           )}

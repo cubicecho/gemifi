@@ -272,6 +272,8 @@ src/
 ## cubeui
 
 Installed from the cubeui registry (`components.json` points `@cubeui` at it):
-`page-layout`, `card-layout`, `description-list`, `button`, `confirm-button`, `progress`,
-`alert`, `badge`, `code`, `file-picker`, `combobox`, `switch-field`, `segmented` and `tokens`. Re-add an item to
-update it; don't edit files under `src/components` or `src/lib` by hand.
+`page-layout`, `card-layout`, `section`, `split-layout`, `property-list`, `load-state`, `collapsible`,
+`dialog-layout`, `list`, `list-item`, `empty-state`, `unsaved-changes-guard`, `app-form`, `form-field`, `button`, `confirm-button`, `copy-button`,
+`download-button`, `progress`, `alert`, `badge`, `code`, `file-picker`, `combobox`, `switch-field`,
+`segmented`, `table`, `menu` and `tokens`, with what they pull in. Re-add an item to update it
+(`npx shadcn add @cubeui/<item> --overwrite`); don't edit files under `src/components` or `src/lib` by hand.

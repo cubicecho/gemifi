@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { cn, type SlotNode } from "@/lib/utils";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CardLayout, type FloatingSurface, FloatingSurfaceContext } from "@/components/card-layout";
+import { ConfirmDialog, DISCARD_QUESTION } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -30,37 +30,56 @@ const SIZES = {
  */
 const COLUMN = "flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden";
 
-/**
- * The chassis inside it. `flex-1` on the web, where it sizes from content in a box of no set
- * height; Yoga's `flex: 1` starts from nothing, so on device it starts from its content and
- * shrinks under the cap instead.
- */
-const CHASSIS = "min-h-0 flex-1 gap-4";
-
-/**
- * What `wrapperSlot`'s element takes so it stands where the chassis stood: the same share of the
- * dialog's height, passed on to the chassis inside it. Without it the wrapper is a box of its
- * content's height and the body stops scrolling.
- */
-const WRAPPER = "flex min-h-0 flex-1 flex-col";
-
 /** Off the screen and still read. `sr-only` is a clip, which the device does not have. */
 const SR_ONLY = "sr-only";
 
 /**
- * The `footerActionsSlot` row: shrinks to the footer and wraps, right-aligned, rather than running
- * its buttons past the dialog's edge on a narrow screen — the same row `CardLayout` draws.
+ * The chassis on the panel. `flex-1` on the web, where it sizes from content in a box of no set
+ * height; Yoga's `flex: 1` starts from nothing, so on device it starts from its content and
+ * shrinks under the panel's cap instead.
  */
-const ACTIONS = "min-w-0 shrink flex-row flex-wrap items-center justify-end gap-2";
+const CHASSIS = "min-h-0 flex-1 gap-4";
 
 /**
- * The `footerSlot` row, grouped for the reason `CardLayout`'s is: with `footerActionsSlot` beside
- * it the footer is `justify-between` from `sm` up, and that spread every element of a fragment
- * across the footer instead of keeping them together at its start. Below `sm` it stacks as
- * `DialogFooter` does, at the same `gap-2`, so a phone draws what it drew before.
+ * What `wrapperSlot`'s element takes on the panel, so it stands where the chassis stood: the same
+ * share of the panel's height, passed on to the chassis inside it. Without it the wrapper is a box
+ * of its content's height and the body stops scrolling.
  */
-const FOOTER_START =
-  "flex-col-reverse gap-2 sm:min-w-0 sm:shrink sm:flex-row sm:flex-wrap sm:items-center";
+const WRAPPER = "flex min-h-0 flex-1 flex-col";
+
+/**
+ * The dialog's parts, handed to the `CardLayout` on its panel: the title names the dialog, the
+ * description describes it, the body is the one part that scrolls, and the footer stacks below
+ * `sm`. They live here rather than in the card so that a card installed alone carries no dialog.
+ */
+const DIALOG_SURFACE: FloatingSurface = {
+  drawTitle: (title, className) => <DialogTitle className={className}>{title}</DialogTitle>,
+  drawDescription: (description) => <DialogDescription>{description}</DialogDescription>,
+  drawParts: ({
+    headerSlot,
+    contentSlot,
+    contentClassName,
+    footerSlot,
+    footerClassName,
+    wrapperSlot,
+  }) => {
+    const chassis = (
+      <HeaderContentFooter
+        scroll
+        className={CHASSIS}
+        headerSlot={headerSlot}
+        // Four pixels of room either side, given back as padding: a focus ring is drawn outside
+        // the element that owns it, and a scroll container clips at its edge.
+        contentClassName={cn("-mx-1 min-w-0 px-1", contentClassName)}
+        contentSlot={contentSlot}
+        footerSlot={
+          footerSlot ? <DialogFooter className={footerClassName}>{footerSlot}</DialogFooter> : null
+        }
+      />
+    );
+    return wrapperSlot ? wrapperSlot(chassis, { className: WRAPPER }) : chassis;
+  },
+};
 
 export type DialogLayoutProps = {
   /** The body. It is the only part that scrolls. */
@@ -74,6 +93,23 @@ export type DialogLayoutProps = {
   description?: ReactNode | undefined;
   /** Keeps the title for assistive technology and takes it off the screen. */
   hideTitle?: boolean | undefined;
+  /**
+   * Sits before the title. On the web it is sized to the text — pass a bare `<Plus />`. On device
+   * an icon cannot be sized from outside it, so pass it at the size you want.
+   */
+  iconSlot?: SlotNode | undefined;
+  /** The header's far end, clear of the close button: a menu, a status badge, a switch. */
+  actionSlot?: SlotNode | undefined;
+  /**
+   * Shown instead of `contentSlot` when there is nothing in it: no element, or a `List` with no
+   * rows — `CardLayout`'s rule.
+   */
+  emptySlot?: SlotNode | undefined;
+  /**
+   * Whether the body is still being fetched. On, a skeleton stands in for it and `emptySlot` is
+   * not consulted. The title and the footer stay.
+   */
+  loading?: boolean | undefined;
   /**
    * What opens it, wrapped in `DialogTrigger asChild` — pass a `<Button>`, not a bare string.
    * With a trigger and no `open`, the dialog owns its own state and the caller holds none.
@@ -162,11 +198,16 @@ export type DialogLayoutProps = {
    * form identical to how it opened.
    */
   hasUnsavedChanges?: boolean | (() => boolean) | undefined;
-  /** The question that asks. Defaulted, because this one really is the same everywhere. */
+  /**
+   * The question that asks: "Discard your changes?". Defaulted, because this one really is the
+   * same everywhere.
+   */
   discardTitle?: ReactNode | undefined;
+  /** The line under it: "What you have typed here will not be saved." */
   discardDescription?: ReactNode | undefined;
-  /** The verb that throws the work away, and the one that goes back to it. */
+  /** The verb that throws the work away: "Discard". */
   discardLabel?: ReactNode | undefined;
+  /** The verb that goes back to it: "Keep editing". Also what Escape answers. */
   keepLabel?: ReactNode | undefined;
   showCloseButton?: boolean | undefined;
   className?: string | undefined;
@@ -177,7 +218,8 @@ export type DialogLayoutProps = {
 
 /**
  * A dialog with its slots already placed, and a body that scrolls under a header and above a
- * footer that do not. The scrolling shape is {@link HeaderContentFooter}'s, composed here.
+ * footer that do not. The parts are a {@link CardLayout} on the dialog's panel: the panel draws
+ * the border, fill, shadow and inset, and the card draws no surface of its own.
  *
  * `hasUnsavedChanges` is a prop and not a hook, because a hook is a thing a caller can forget to
  * wire into closing. Padding stays with `DialogContent`, which differs between shadcn styles, so
@@ -188,6 +230,10 @@ export function DialogLayout({
   title,
   description,
   hideTitle = false,
+  iconSlot,
+  actionSlot,
+  emptySlot,
+  loading = false,
   triggerSlot,
   open,
   onOpenChange,
@@ -197,10 +243,10 @@ export function DialogLayout({
   wrapperSlot,
   dismissible = true,
   hasUnsavedChanges = false,
-  discardTitle = "Discard your changes?",
-  discardDescription = "What you have typed here will not be saved.",
-  discardLabel = "Discard",
-  keepLabel = "Keep editing",
+  discardTitle = DISCARD_QUESTION.title,
+  discardDescription = DISCARD_QUESTION.description,
+  discardLabel = DISCARD_QUESTION.discardLabel,
+  keepLabel = DISCARD_QUESTION.keepLabel,
   showCloseButton = true,
   className,
   headerClassName,
@@ -251,41 +297,29 @@ export function DialogLayout({
       ? footerActionsSlot(closeFromFooter)
       : footerActionsSlot;
 
-  // Asked of what the footer actually rendered: a function that returns nothing should leave the
-  // dialog with no footer, not with an empty one taking up a row.
-  const hasFooter = Boolean(footerSlot || actions);
-
-  const parts = (
-    <HeaderContentFooter
-      scroll
-      className={CHASSIS}
-      headerSlot={
-        <DialogHeader
-          // The close button is positioned against the dialog, not the header, so a long
-          // title runs under it without this.
-          className={cn(showCloseButton && "pr-6", headerClassName)}
-        >
-          <DialogTitle className={cn(hideTitle && SR_ONLY)}>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
-        </DialogHeader>
-      }
-      // Four pixels of room either side, given back as padding: a focus ring is drawn
-      // outside the element that owns it, and a scroll container clips at its edge.
-      contentClassName={cn("-mx-1 px-1", contentClassName)}
-      contentSlot={contentSlot}
-      footerSlot={
-        hasFooter ? (
-          <DialogFooter
-            className={cn(footerSlot && footerActionsSlot && "sm:justify-between", footerClassName)}
-          >
-            {footerSlot ? (
-              <div className={cn("cube-rn-view", FOOTER_START)}>{footerSlot}</div>
-            ) : null}
-            {actions ? <div className={cn("cube-rn-view", ACTIONS)}>{actions}</div> : null}
-          </DialogFooter>
-        ) : null
-      }
-    />
+  // The card draws on the panel: `DialogContent` is the surface, and the card's parts sit at its
+  // inset. A function `footerActionsSlot` that returns nothing leaves the card with no footer.
+  const card = (
+    <FloatingSurfaceContext.Provider value={DIALOG_SURFACE}>
+      <CardLayout
+        title={title}
+        description={description}
+        iconSlot={iconSlot}
+        actionSlot={actionSlot}
+        contentSlot={contentSlot}
+        emptySlot={emptySlot}
+        loading={loading}
+        footerSlot={footerSlot}
+        footerActionsSlot={actions}
+        wrapperSlot={wrapperSlot}
+        // The close button is positioned against the dialog, not the header, so a long title or
+        // a header action runs under it without this.
+        headerClassName={cn(showCloseButton && "pr-6", headerClassName)}
+        titleClassName={cn(hideTitle && SR_ONLY)}
+        contentClassName={contentClassName}
+        footerClassName={footerClassName}
+      />
+    </FloatingSurfaceContext.Provider>
   );
 
   // ConfirmDialog holds the overlay click (it does not answer "discard?") and puts the safe
@@ -317,9 +351,9 @@ export function DialogLayout({
           {...(description ? {} : { "aria-describedby": undefined })}
           className={cn(COLUMN, SIZES[size], className)}
         >
-          {/* Inside `DialogContent`, so the wrapper is in the dialog's focus trap and under its
+          {/* Inside `DialogContent`, so a wrapper is in the dialog's focus trap and under its
               role, and the close button stays outside it. */}
-          {wrapperSlot ? wrapperSlot(parts, { className: WRAPPER }) : parts}
+          {card}
 
           {/* On device the question is a `Modal` presented over this one, and iOS presents a
               second modal only from inside the first. */}

@@ -45,7 +45,13 @@ export type SwitchProps = {
 export const SWITCH_TRACK_CLASS =
   "h-5 w-9 shrink-0 flex-row items-center rounded-full border-2 border-transparent";
 /**
- * The switch's thumb: the circle that slides along the track. The one part laid over another, so
- * the smallest shadow — not a dialog's `shadow-lg`.
+ * An on switch's track: the chosen tint, edged in `active` because the tint is not 3:1 from the
+ * surface, and a step further under the pointer.
  */
-export const SWITCH_THUMB_CLASS = "h-4 w-4 rounded-full bg-background shadow-sm";
+export const SWITCH_TRACK_ON_CLASS = "border-active bg-active/40 hover:bg-active/60";
+/**
+ * The switch's thumb: the circle that slides along the track. The one part laid over another, so
+ * the smallest shadow — not a dialog's `shadow-lg`. Off, it is `background` on the `/50` track; on,
+ * it is `foreground`, as a chosen thing's mark is, because `background` on the tint is under 3:1.
+ */
+export const SWITCH_THUMB_CLASS = "h-4 w-4 rounded-full shadow-sm";

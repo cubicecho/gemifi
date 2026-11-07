@@ -19,6 +19,7 @@ import {
   type MenuSeparatorProps,
   type MenuTriggerProps,
 } from "@/components/ui/menu-base";
+import { FrameFocusGuard } from "@/lib/frame-focus-guard";
 import { cn } from "@/lib/utils";
 import { Check } from "@/components/ui/icons";
 
@@ -80,6 +81,7 @@ function MenuContent({
   align = "center",
   sideOffset = 4,
   onCloseAutoFocus,
+  children,
   ...props
 }: Wide<MenuContentProps, React.ComponentProps<typeof MenuPrimitive.Content>>) {
   const { skipReturnRef } = useContext(MenuContext);
@@ -104,7 +106,11 @@ function MenuContent({
           }
           skipReturnRef.current = false;
         }}
-      />
+      >
+        {children}
+        {/* A framed app focusing itself would blur the window, which closes a menu at once. */}
+        <FrameFocusGuard />
+      </MenuPrimitive.Content>
     </MenuPrimitive.Portal>
   );
 }
@@ -202,7 +208,9 @@ function MenuSeparator({
 
 /**
  * A toggle row's inside: `MenuItem`'s icon, label and trailing node, then the ✓ slot at the far
- * edge. `ItemIndicator` renders only while its row is on; the slot around it stays.
+ * edge. `ItemIndicator` renders only while its row is on; the slot around it stays. On a row that
+ * is on, the quiet icon and trailing text turn `foreground`: muted on the chosen tint is under
+ * 4.5:1.
  */
 function ToggleRowBody({
   iconSlot,
@@ -211,10 +219,12 @@ function ToggleRowBody({
 }: Pick<MenuCheckboxItemProps, "iconSlot" | "label" | "trailing">) {
   return (
     <>
-      {iconSlot ? <span className="flex shrink-0 text-foreground/60">{iconSlot}</span> : null}
+      {iconSlot ? (
+        <span className={cn("flex shrink-0 text-foreground/60", ON_CHECKED_INK)}>{iconSlot}</span>
+      ) : null}
       <span className={cn(MENU_ITEM_TEXT_CLASS, "truncate")}>{label}</span>
       {typeof trailing === "string" ? (
-        <span className={MENU_TRAILING_CLASS}>{trailing}</span>
+        <span className={cn(MENU_TRAILING_CLASS, ON_CHECKED_INK)}>{trailing}</span>
       ) : (
         trailing
       )}
@@ -227,7 +237,17 @@ function ToggleRowBody({
   );
 }
 
-const TOGGLE_ROW_CLASS = cn(MENU_ITEM_CLASS, MENU_ITEM_WEB_CLASS, "text-foreground focus:bg-hover");
+/**
+ * A toggle row is `MenuItem`'s row, and while it is on, the chosen tint, a step further when
+ * highlighted — radix highlights the row under the pointer by focusing it.
+ */
+const TOGGLE_ROW_CLASS = cn(
+  MENU_ITEM_CLASS,
+  MENU_ITEM_WEB_CLASS,
+  "group/toggle text-foreground focus:bg-hover data-[state=checked]:bg-active/40 data-[state=checked]:focus:bg-active/60",
+);
+/** The quiet ink inside a toggle row, lifted to `foreground` while the row is on. */
+const ON_CHECKED_INK = "group-data-[state=checked]/toggle:text-foreground";
 
 /** A row that is checked or not, and toggles when chosen. */
 function MenuCheckboxItem({

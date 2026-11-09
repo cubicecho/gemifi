@@ -125,7 +125,9 @@ export function hitSlopFor({
  * with room around it — a checkbox, a dismiss ✕ — and a row, or anything stacked against the next
  * one, takes {@link touchRowClass} instead.
  */
-// biome-ignore lint/correctness/noUnusedFunctionParameters: the web keeps the drawn size
+// `_drawn`: the web build keeps only the web branch, which never reads it, and an app compiled with
+// `noUnusedParameters` refused the parameter there (TS6133). The underscore is what both tsc and
+// Biome take as "unused on purpose".
 export function touchTarget(_drawn: DrawnSize): TouchTargetProps {
   return {};
 }

@@ -48,7 +48,7 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
+| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
@@ -120,14 +120,21 @@ With `rx_pin`, the core listens to the board, which answers each LED message wit
 
 ```yaml
 rgb_serial:
-  - { id: pad_leds, tx_pin: PA2, rx_pin: PA3, count: 16 }   # dma: false sends from the interrupt ("DMA channels")
+  - { id: pad_leds, tx_pin: PA2, rx_pin: PA3, count: 16, gamma: 2.2, white: [255, 200, 220] }   # dma: false sends from the interrupt ("DMA channels")
 leds:
   - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
 pads:
   - { id: pad_1, pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36, led: pad_1_led }   # lit while held
 ```
 
-Colours are on or off for now: an RGB LED shows its active look (white unless `active:` says otherwise, "LED looks") from its pad or button, or the colour a DAW script picks (FB_LED_RGB).
+Each colour is a byte (0 off to 255 full). An RGB LED on the hub (`pin`, `pin2`, `pin3` = one LED's red, green and blue: numbers LED × 3, + 1, + 2) shows any colour: a full-colour look (`idle: blue 20%`, "LED looks") or the colour a DAW script picks (FB_LED_RGB, 0..127 per channel, sent as 0..255). Anything that only switches pins on or off (a plain on, a mode's colour) sends 0 or 255 per colour.
+
+Two settings calibrate what goes on the wire, so colours look right:
+
+- **`gamma:`** eyes see brightness on a curve: a quarter of the power looks about half as bright. Each colour goes through 255 × (v / 255) ^ gamma first, so `blue 50%` looks half as bright as `blue`. Default 1 (straight). About 2.2 suits most LEDs; anything above 0 stays above 0.
+- **`white:`** what full red, green and blue send, to balance the LEDs: `[255, 200, 220]` takes some green and blue out where 255/255/255 looks green. Default `[255, 255, 255]`.
+
+To find them: show a ramp (255, 64, 16, 4) and see whether 64 looks about half as bright (gamma near 2.2), then show a grid of whites and pick the most neutral. The Code 61's values (`gamma: 2.2`, `white: [255, 200, 220]`) came from that.
 
 ### XY pads
 
@@ -263,13 +270,14 @@ leds:
 | single colour (`pin`) | `off`, `on` | off / on |
 | bicolour (`pin2`) | `off`, `colour1` (`pin`), `colour2` (`pin2`), `both`; `on` = colour1 | off / colour1 |
 | RGB (`pin3`) | `off`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `white`; `on` = white | off / white |
+| RGB on an `rgb_serial` hub | any colour too: `"#rrggbb"` (quoted: `#` starts a YAML comment), or a colour name with a brightness, `blue 20%` | off / white |
 
 - `on` and `off` work with or without quotes.
 - **`active:` left out** with an `idle:` that matches the default active look: active is `off`. So `idle: on` on a single-colour LED means lit until pressed, then dark. Giving both the same look is a warning: the LED would never show its state.
 - **`led_defaults:`** takes any look of any kind of LED, and each LED shows the nearest it can: the same pins where it has them (yellow = red + green = `both` on a bicolour LED), else its first colour. A single-colour LED is `on` for anything but `off`, and then dark when active if the two come out the same. An LED's own `idle:` / `active:` win over the defaults.
 - **What follows the looks:** off (0) shows idle and a plain on shows active, from every source: buttons, pads, modes, plain host feedback and Mackie Control. A blink alternates active and idle. A bicolour LED's other levels keep their meaning (octave +2 both colours, +3 colour 2, +4 colour 2 blinking against idle), and so does a colour a DAW script picks (FB_LED_RGB). The lamp test at start and the LED walk light every pin whatever the looks.
-- The TM1628 and the MCU pins are on or off, so idle can't be a dim version of active: pick a different colour, or `on` / `off`.
-- **Generated:** `gm_led_t.looks` = `GM_LED_LOOKS(idle, active)`, each a pin mask (bit 0 `pin`, 1 `pin2`, 2 `pin3`), or 0 for the defaults.
+- The TM1628 and the MCU pins are on or off, so idle can't be a dim version of active there: pick a different colour, or `on` / `off`. Only an `rgb_serial` LED takes full colours (`idle: blue 20%`, `active: "#ff8000"`); elsewhere they are an error. Brightness in a full colour is as seen: the hub's `gamma:` turns it into power.
+- **Generated:** `gm_led_t.looks` = `GM_LED_LOOKS(idle, active)`, each a pin mask (bit 0 `pin`, 1 `pin2`, 2 `pin3`), or 0 for the defaults; `gm_led_t.rgb` = the full colours, `GM_LED_RGB(0xRRGGBB)` each, or 0. A full-colour look's mask is its nearest on/off colour.
 
 ### Pitch wheels and aftertouch
 
@@ -932,7 +940,7 @@ analog:
   - { id: volume, pin: PA0, cc: 7, takeover: pickup }   # none (default) | pickup
 ```
 
-LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour, and set an RGB LED's colour (FB_LED_RGB). An RGB LED (`pin3:`) shows its active look (white unless `active:` says otherwise) for any level from its button, plain feedback, Mackie Control or FB_LED, and its idle look for 0 ("LED looks"); only FB_LED_RGB picks a colour, with each channel on or off (on if it is at least half the brightest channel: 127/60/0 is red and green).
+LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour, and set an RGB LED's colour (FB_LED_RGB). An RGB LED (`pin3:`) shows its active look (white unless `active:` says otherwise) for any level from its button, plain feedback, Mackie Control or FB_LED, and its idle look for 0 ("LED looks"); only FB_LED_RGB picks a colour: an `rgb_serial` LED shows it as given (each channel 0..127 sent as 0..255), any other RGB LED with each channel on or off (on if it is at least half the brightest channel: 127/60/0 is red and green).
 
 ### LED ownership
 

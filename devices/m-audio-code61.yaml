@@ -38,7 +38,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.94
+  version: 0.2.97
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -144,6 +144,11 @@ rgb_serial:
   - id: pad_leds
     tx_pin: PA2
     rx_pin: PA3
+    # Calibrated by eye on the Code 61 (2026-11-09, test builds 98-99): the
+    # LEDs dim smoothly (8-bit PWM), a 64 looks about half of 255 (gamma),
+    # and 255/255/255 looks green: 255/200/220 looks white.
+    gamma: 2.2
+    white: [255, 200, 220]
     count: 16
 
 # The rear 5-pin MIDI jacks [sure pins, hw-map.md: USART1 at 31250 baud, TX

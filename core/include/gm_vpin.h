@@ -82,6 +82,10 @@ void vpin_poll_tm1628(void);
 /* RGB_SERIAL hubs: send one changed LED (at most every 5 ms) and the
  * keepalive (every 50 ms). Call it on every main-loop pass. */
 void vpin_poll_rgb_serial(uint32_t now_ms);
+/* Set a whole colour (0xRRGGBB, 8 bits a colour) on the LED whose red pin
+ * is p, if p is the red pin of an RGB_SERIAL hub's LED (number LED * 3):
+ * 1, else 0 (the caller shows it with vpin_write). */
+int vpin_rgb(gm_pin_t p, uint32_t rgb);
 
 #ifdef __cplusplus
 }

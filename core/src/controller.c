@@ -382,9 +382,16 @@ static void layers_update(void);
 #endif
 
 /* LED levels (see led_show below): LV_BLINK | level blinks it; LV_RGB | m
- * lights the pins in mask m (an RGB colour, or a cycle step's colour). */
+ * lights the pins in mask m (an RGB colour, or a cycle step's colour);
+ * LV_RGB | LV_COLOUR | m shows led_colour[] (a DAW's colour, FB_LED_RGB) on
+ * an LED that can show any colour (rgb_serial), else mask m. */
 #define LV_BLINK 0x80u
 #define LV_RGB 0x40u
+#define LV_COLOUR 0x20u
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* defined with leds_update() */
+#if GM_HOST_FB
+static uint32_t led_colour[GM_ARR(GM_N_LEDS)];  /* 0xRRGGBB, 8 bits a colour */
+#endif
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
@@ -2356,6 +2363,16 @@ static uint32_t led_look(const gm_led_t *l, int active)
     return active ? (l->looks >> 3) & 7u : l->looks & 7u;
 }
 
+#if GM_HOST_FB
+/* An RGB LED whose pins are one rgb_serial LED (red, green, blue in a row):
+ * it can show any colour (vpin_rgb). */
+static int led_full_colour(const gm_led_t *l)
+{
+    return l->pin.hub && l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
+           l->pin2.num == l->pin.num + 1u && l->pin3.num == l->pin.num + 2u;
+}
+#endif
+
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
 #if GM_HOST_LEDS
@@ -2363,16 +2380,24 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
         level = blink_on ? level & ~LV_BLINK : 0;
 #endif
     uint32_t m;
+    int look = -1;                  /* 0 idle, 1 active: m is that look */
     if (level == 0)
-        m = led_look(l, 0);
-    else if (level & LV_RGB)
+        m = led_look(l, look = 0);
+    else if (level & LV_RGB) {
+#if GM_HOST_FB
+        if ((level & LV_COLOUR) && led_full_colour(l) &&
+            vpin_rgb(l->pin, led_colour[(uint32_t)(l - gm_device.leds)]))
+            return;
+#endif
         m = level & 7u;             /* these pins, whatever the kind */
-    else if (!vpin_is_none(l->pin3))
-        m = led_look(l, 1);
+    } else if (!vpin_is_none(l->pin3))
+        m = led_look(l, look = 1);
     else if (vpin_is_none(l->pin2) || level == 1)
-        m = led_look(l, 1);
+        m = led_look(l, look = 1);
     else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
-        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, 0);
+        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, look = 0);
+    if (look >= 0 && l->rgb[look] && vpin_rgb(l->pin, l->rgb[look]))
+        return;                     /* a full-colour look (rgb_serial LEDs) */
     led_pins(l, m);
 }
 
@@ -2427,9 +2452,19 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
     if (b > m)
         m = b;
     if (!vpin_is_none(gm_device.leds[led].pin3)) {
-        /* on/off per channel: lit if at least half the brightest one */
-        if (m)
+        /* on/off per channel: lit if at least half the brightest one; an
+         * LED that can show any colour gets the colour itself (0..127 per
+         * channel to 0..255) */
+        if (m) {
             lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
+            if (led_full_colour(&gm_device.leds[led])) {
+                uint32_t c = (r * 2u + (r >> 6)) << 16 | (g * 2u + (g >> 6)) << 8 | (b * 2u + (b >> 6));
+                if (c != led_colour[led])
+                    led_shown[led] = 0xFFFFu;       /* a new colour at the same level: draw it */
+                led_colour[led] = c;
+                lv |= LV_COLOUR;
+            }
+        }
     } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
@@ -2483,7 +2518,7 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
 /* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
  * (start, after the lamp test). leds_update() runs every 10 ms over every
  * LED; an LED whose level and phase didn't change isn't written again. */
-static uint16_t led_shown[GM_ARR(GM_N_LEDS)];
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* (declared above) */
 
 /* Whether level shows differently in the two blink phases (led_show). */
 static int led_blinks(const gm_led_t *l, uint32_t level)

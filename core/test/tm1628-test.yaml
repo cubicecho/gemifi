@@ -38,10 +38,11 @@ leds:
     pin: { tm1628: leds_a, number: 104 }
     pin2: { tm1628: leds_a, number: 105 }
     pin3: { tm1628: leds_a, number: 106 }
-  - id: pad_led                # LED 2 of the serial board
+  - id: pad_led                # LED 2 of the serial board: any colour
     pin: { rgb_serial: pads, number: 6 }
     pin2: { rgb_serial: pads, number: 7 }
     pin3: { rgb_serial: pads, number: 8 }
+    idle: "#000010"            # dim blue when off
 
 # An analog input only because a device with host feedback and no analog
 # inputs doesn't link yet (gm_analog_host is under GM_N_ANALOGS > 0).

@@ -98,7 +98,7 @@ typedef struct {
     uint8_t n_rows;
     uint8_t n_cols;
     uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16);
-                             RGB_SERIAL: bytes of LED bits (3 per LED)     */
+                             RGB_SERIAL: 3 per LED, a byte per colour     */
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
     uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
@@ -107,6 +107,11 @@ typedef struct {
      * touch: both readings within touch_min..touch_max. */
     uint16_t touch_min, touch_max;
     uint8_t dma;          /* RGB_SERIAL: send by DMA (rgb_serial dma:), else interrupt */
+    /* RGB_SERIAL: what full red, green and blue send (rgb_serial white:,
+     * the white balance; 0 = 255), and the brightness curve applied first
+     * (rgb_serial gamma:; 256 entries, 0 = straight). */
+    uint8_t rgb_white[3];
+    const uint8_t *rgb_curve;
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */
@@ -142,7 +147,11 @@ typedef struct {
     uint8_t looks;        /* GM_LED_LOOKS(idle, active), 0 = defaults */
     uint8_t layer;        /* a layer twin of leds[base] (as gm_button_t), 0 = none */
     uint8_t base;
+    /* Full-colour idle and active looks (idle: "#RRGGBB" on an LED of an
+     * rgb_serial hub): GM_LED_RGB(colour), 0 = the looks mask above. */
+    uint32_t rgb[2];
 } gm_led_t;
+#define GM_LED_RGB(c) (0x1000000u | ((c) & 0xFFFFFFu))
 
 typedef struct {
     gm_pin_t pin;         /* MCU ADC pin, or a MUX hub channel             */

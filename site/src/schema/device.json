@@ -881,7 +881,9 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
-              }
+              },
+              "gamma": {},
+              "white": {}
             },
             "additionalProperties": false
           },

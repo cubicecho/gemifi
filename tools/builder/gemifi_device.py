@@ -354,7 +354,7 @@ HUB_KEYS = {
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
-    "rgb_serial": ["id", "tx_pin", "rx_pin", "count", "dma"],
+    "rgb_serial": ["id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white"],
     "xy_pad": ["id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
@@ -1975,6 +1975,71 @@ LED_LOOKS = {
 }
 LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
 LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
+# Full-colour looks, for LEDs that can show any colour (an rgb_serial hub's): "#rrggbb", or an RGB look name
+# with a brightness, "blue 25%".
+RGB_LOOK_COLOURS = {"red": 0xFF0000, "green": 0x00FF00, "yellow": 0xFFFF00, "blue": 0x0000FF,
+                    "magenta": 0xFF00FF, "cyan": 0x00FFFF, "white": 0xFFFFFF}
+RGB_LOOK_RE = re.compile(r"^#([0-9a-f]{6})$|^([a-z]+)\s+(\d{1,3})\s*%$")
+
+
+def colour_look(word):
+    """'#rrggbb' or '<colour> <n>%' -> 0xRRGGBB, else None."""
+    m = RGB_LOOK_RE.match(word)
+    if not m:
+        return None
+    if m.group(1):
+        return int(m.group(1), 16)
+    base, pct = RGB_LOOK_COLOURS.get(m.group(2)), int(m.group(3))
+    if base is None or pct > 100:
+        return None
+    return sum((((base >> sh) & 0xFF) * pct + 50) // 100 << sh for sh in (16, 8, 0))
+
+
+def colour_mask(c):
+    """The pins an on/off RGB LED lights for colour c: those at least half the brightest (as FB_LED_RGB)."""
+    ch = [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF]
+    top = max(ch)
+    return sum(1 << k for k in range(3) if top and 2 * ch[k] >= top)
+
+
+def led_full_colour(dev, pin, pin2, pin3):
+    """The LED's pins are one rgb_serial LED (red, green, blue in a row): it can show any colour."""
+    if pin in (None, NO_PIN) or pin.hub in (0, 0xFF) or pin.hub > len(dev.hubs):
+        return False
+    return (dev.hubs[pin.hub - 1].type == "rgb_serial" and pin.num % 3 == 0 and
+            pin2 is not None and pin2.hub == pin.hub and pin2.num == pin.num + 1 and
+            pin3 is not None and pin3.hub == pin.hub and pin3.num == pin.num + 2)
+
+
+COLOUR_LOOK_NEEDS = ("needs an LED that can show any colour: an RGB LED whose pin, pin2 and pin3 are one "
+                     "rgb_serial LED (number LED * 3, + 1, + 2)")
+
+
+def validate_rgb_calibration(v, h, p):
+    """rgb_serial gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (1..255 each, default 255s)."""
+    gamma = 1.0
+    if h.get("gamma") is not None:
+        g = h["gamma"]
+        if isinstance(g, bool) or not isinstance(g, (int, float)) or not 1.0 <= float(g) <= 3.0:
+            v.err(f"{p}.gamma", h.line_of("gamma"), f"must be a number from 1.0 to 3.0 (1 = straight; LEDs "
+                                                    f"usually look right at about 2.2), not {g!r}")
+        else:
+            gamma = float(g)
+    white = [255, 255, 255]
+    if h.get("white") is not None:
+        w = h["white"]
+        if (not isinstance(w, list) or len(w) != 3 or
+                any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 255 for x in w)):
+            v.err(f"{p}.white", h.line_of("white"), "must be [red, green, blue], each 1..255: what full white "
+                                                    "sends, e.g. [255, 200, 220] to take some green and blue out")
+        else:
+            white = list(w)
+    return gamma, white
+
+
+def rgb_curve(gamma):
+    """256 entries: value v (as seen) to the LED's PWM, 255 * (v / 255) ^ gamma; above 0 stays above 0."""
+    return [0] + [max(1, round(255 * (k / 255) ** gamma)) for k in range(1, 256)]
 
 
 def led_kind(pin2, pin3):
@@ -2020,14 +2085,26 @@ def resolve_led_default(kind, word):
     return (want & has) or 1
 
 
-def validate_led_looks(v, d, p, kind, defaults):
-    """(idle, active) pin masks for one LED, or None for the defaults (generated as 0)."""
+def validate_led_looks(v, d, p, kind, defaults, full=False):
+    """((idle, active) pin masks, or None for the defaults (generated as 0); (idle, active) full colours,
+    None each for none). full: the LED can show any colour (led_full_colour)."""
     looks = list(LED_DEFAULT_LOOK[kind])
+    rgb = [None, None]
     given = False
     set_active = False
     for k, key in enumerate(("idle", "active")):
         if d.get(key) is not None:
             w = look_word(d, key)
+            col = colour_look(w) if kind == "rgb" and w not in LED_LOOKS[kind] else None
+            if col is not None:
+                if not full:
+                    v.err(f"{p}.{key}", d.line_of(key), f"'{w}' {COLOUR_LOOK_NEEDS}; this one takes "
+                                                          f"{', '.join(LED_LOOKS[kind])}")
+                    continue
+                looks[k], rgb[k] = colour_mask(col), col
+                given = True
+                set_active = set_active or k == 1
+                continue
             if w not in LED_LOOKS[kind]:
                 other = [x for x in ("rgb", "bicolour") if w in LED_LOOKS[x]]
                 what = {"single": "a single-colour LED (pin only)", "bicolour": "a bicolour LED (pin, pin2)",
@@ -2047,13 +2124,13 @@ def validate_led_looks(v, d, p, kind, defaults):
             looks[k] = resolve_led_default(kind, defaults[key])
             given = True
     if not given:
-        return None
-    if looks[0] == looks[1]:
+        return None, None
+    if looks[0] == looks[1] and rgb[0] == rgb[1]:
         if not set_active:
             looks[1] = 0            # lit when idle and no active: of its own: dark when active
         else:
             v.warn(p, d.line, "idle and active look the same: the LED never shows its state")
-    return tuple(looks)
+    return tuple(looks), (tuple(rgb) if any(c is not None for c in rgb) else None)
 
 
 def validate_components(v, dev, data):
@@ -2073,7 +2150,8 @@ def validate_components(v, dev, data):
         pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
         if d.get("pin3") is not None and d.get("pin2") is None:
             v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
-        looks = validate_led_looks(v, d, p, led_kind(pin2 or NO_PIN, pin3 or NO_PIN), led_defaults)
+        looks, rgb = validate_led_looks(v, d, p, led_kind(pin2 or NO_PIN, pin3 or NO_PIN), led_defaults,
+                                        led_full_colour(dev, pin, pin2, pin3))
         src = validate_led_source(v, dev, d, p)
         owner = validate_owner(v, d, p)
         timeout = validate_timeout(v, d, "timeout", p, None)
@@ -2081,7 +2159,7 @@ def validate_components(v, dev, data):
             v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
         led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
         dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
-                            pin3=pin3 or NO_PIN, looks=looks, source=src,
+                            pin3=pin3 or NO_PIN, looks=looks, rgb=rgb, source=src,
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
                             daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
@@ -2541,7 +2619,8 @@ def validate_hub(v, dev, h, typ, p, line):
     elif typ == "rgb_serial":
         hub.chain = v.integer(h, "count", p, 1, RGB_SERIAL_MAX, default=16)
         hub.n_pins = 3 * hub.chain
-        hub.ram_bytes = (hub.n_pins + 7) // 8
+        hub.ram_bytes = hub.n_pins                       # a byte per colour
+        hub.gamma, hub.white = validate_rgb_calibration(v, h, p)
         hub.data = ctl("tx_pin", "out")
         hub.latch = ctl("rx_pin", "in", required=False)     # optional: the board's answers (acks)
         hub.dma = v.boolean(h, "dma", p, default=True)
@@ -4584,10 +4663,11 @@ def layer_led(v, dev, m, base_led, e, path, line, use, what):
     if led > 127:
         v.err(path, line, "LED index over 127 can't be referenced: too many LEDs for another twin")
         return None
-    looks = layer_led_looks(v, e, path, led_kind(bl.pin2, bl.pin3), bl.looks)
+    looks, rgb = layer_led_looks(v, e, path, led_kind(bl.pin2, bl.pin3), bl.looks, getattr(bl, "rgb", None),
+                                 led_full_colour(dev, bl.pin, bl.pin2, bl.pin3))
     lid = v.register(f"{bl.id}_{m.id}", path, line, "LED", led) or f"{bl.id}_{m.id}"
     dev.leds.append(Hub(id=lid, name=f"{bl.name} {m.id}", pin=bl.pin, pin2=bl.pin2, pin3=bl.pin3,
-                        looks=looks, source=None, owner=bl.owner, timeout=bl.timeout, path=path,
+                        looks=looks, rgb=rgb, source=None, owner=bl.owner, timeout=bl.timeout, path=path,
                         line=line, used_by=[use], daw=None, local_line=None,
                         layer=m.index + 1, base=base_led))
     return led
@@ -4627,27 +4707,37 @@ def layer_encoder(v, dev, m, idx, e, path, line):
                             daw=daw_role(v, dev, e, path), layer=m.index + 1, base=idx, mode=0, ctl=x.ctl))
 
 
-def layer_led_looks(v, e, p, kind, base_looks):
-    """A twin LED's (idle, active): the button LED's, with the twin's idle: / active: in their place."""
+def layer_led_looks(v, e, p, kind, base_looks, base_rgb=None, full=False):
+    """A twin LED's ((idle, active), full colours): the button LED's, with the twin's idle: / active: in
+    their place."""
     looks = list(base_looks or LED_DEFAULT_LOOK[kind])
+    rgb = list(base_rgb or (None, None))
     given = False
     for k, key in enumerate(("idle", "active")):
         if e.get(key) is None:
             continue
         w = look_word(e, key)
+        col = colour_look(w) if kind == "rgb" and w not in LED_LOOKS[kind] else None
+        if col is not None:
+            if not full:
+                v.err(f"{p}.{key}", e.line_of(key), f"'{w}' {COLOUR_LOOK_NEEDS}")
+                continue
+            looks[k], rgb[k] = colour_mask(col), col
+            given = True
+            continue
         if w not in LED_LOOKS[kind]:
             close = difflib.get_close_matches(w, list(LED_LOOKS[kind]), 1)
             hint = f"did you mean '{close[0]}'? " if close else ""
             v.err(f"{p}.{key}", e.line_of(key), f"unknown look '{w}' for this LED ({hint}valid: "
                                                 f"{', '.join(LED_LOOKS[kind])})")
             continue
-        looks[k] = LED_LOOKS[kind][w]
+        looks[k], rgb[k] = LED_LOOKS[kind][w], None
         given = True
     if not given:
-        return base_looks
-    if looks[0] == looks[1]:
+        return base_looks, base_rgb
+    if looks[0] == looks[1] and rgb[0] == rgb[1]:
         v.warn(p, e.line, "idle and active look the same: the LED never shows its state")
-    return tuple(looks)
+    return tuple(looks), (tuple(rgb) if any(c is not None for c in rgb) else None)
 
 
 def mode_show(v, dev, m, d, p):
@@ -5051,6 +5141,12 @@ def generate(dev, source="device.yaml"):
                 c.append(f"static const gm_pin_t hub{hb.index + 1}_{nm}[{len(lst)}] = {{")
                 c += [f"    {x.c()}, /* {_comment(x.desc)} */" for x in lst]
                 c += ["};"]
+        for hb in dev.hubs:
+            if hb.type == "rgb_serial" and hb.gamma != 1:
+                t = rgb_curve(hb.gamma)
+                c += [f"/* {_comment(hb.id)}: gamma {hb.gamma:g} (rgb_serial gamma:) */",
+                      f"static const uint8_t rgb_curve_{hb.index + 1}[256] = {{",
+                      *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
         c.append("static const gm_hub_t hubs[GM_N_HUBS] = {")
         for hb in dev.hubs:
             sel = [s.c() for s in hb.sel] + ["GM_NO_PIN"] * (4 - len(hb.sel))
@@ -5074,7 +5170,9 @@ def generate(dev, source="device.yaml"):
                   *extra,
                   *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
                      f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
-                  *([f"        .ram_bytes = {hb.ram_bytes}, .dma = {1 if hb.dma else 0},"]
+                  *([f"        .ram_bytes = {hb.ram_bytes}, .dma = {1 if hb.dma else 0},",
+                     f"        .rgb_white = {{ {', '.join(str(x) for x in hb.white)} }}, "
+                     f".rgb_curve = {f'rgb_curve_{hb.index + 1}' if hb.gamma != 1 else '0'},"]
                     if hb.type == "rgb_serial" else []),
                   *([f"        .touch_min = {hb.touch_min}, .touch_max = {hb.touch_max},"]
                     if hb.type in XY_HUBS else []),
@@ -5087,7 +5185,7 @@ def generate(dev, source="device.yaml"):
         c += ["};", ""]
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
-        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)}{twin_c(x)} }}, "
+        c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)}{twin_c(x)}{led_rgb_c(x)} }}, "
               f"/* {_comment(x.id)}: {_comment(x.pin.desc)} */" for x in dev.leds]
         c += ["};", ""]
     if dev.analogs:
@@ -5295,6 +5393,14 @@ def twin_c(x):
     """gm_button_t / gm_led_t / gm_encoder_t .layer, .base for a layer twin (mode index + 1, the component
     it is a twin of); 0, 0 for the others."""
     return f", {x.layer}, {x.base}" if getattr(x, "layer", 0) else ", 0, 0"
+
+
+def led_rgb_c(x):
+    """gm_led_t.rgb: full-colour idle / active looks, 0 each for none."""
+    rgb = getattr(x, "rgb", None)
+    if not rgb or not any(c is not None for c in rgb):
+        return ", { 0, 0 }"
+    return ", { " + ", ".join("0" if c is None else f"GM_LED_RGB(0x{c:06X})" for c in rgb) + " }"
 
 
 def led_looks_c(x):

@@ -97,7 +97,7 @@ function NewDeviceForm({ onOpenChange, presets, initialPreset, onCreated }: Omit
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
           <form.AppForm>
-            <form.SubmitButton variant="info" content="Create device" pendingLabel="Creating…" />
+            <form.SubmitButton createLabel="Create device" loadingLabel="Creating…" />
           </form.AppForm>
         </>
       )}

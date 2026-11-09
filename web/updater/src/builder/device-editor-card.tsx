@@ -313,7 +313,7 @@ export function DeviceEditorCard(props: DeviceEditorCardProps) {
         <>
           {isWritable ? (
             <form.AppForm>
-              <form.SubmitButton variant="positive-outline" requireChanges content="Save" />
+              <form.SubmitButton variant="positive-outline" requireChanges />
             </form.AppForm>
           ) : null}
           <Button

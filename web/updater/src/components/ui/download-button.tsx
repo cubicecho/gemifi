@@ -2,7 +2,6 @@ import {
   type DownloadButtonProps,
   type DownloadContent,
   type DownloadDestination,
-  isIconSize,
   useDownload,
 } from "@/components/ui/download-button-base";
 /**
@@ -14,7 +13,7 @@ import {
  * and `expo-sharing`, which the compiler has no DOM translation for — and a DOM app should not
  * install an Expo module to click a link.
  */
-import { Button } from "@/components/ui/button";
+import { Button, isIconSize } from "@/components/ui/button";
 import { Download } from "@/components/ui/icons";
 
 export type { DownloadButtonProps, DownloadContent, DownloadDestination };
@@ -67,6 +66,8 @@ export function DownloadButton({
   variant = "outline",
   size = "icon-sm",
   disabled,
+  hint,
+  tooltip,
   onDownloaded,
   onError,
   className,
@@ -82,6 +83,8 @@ export function DownloadButton({
       {...(isIconSize(size) ? {} : { content: label })}
       loading={pending}
       disabled={disabled}
+      hint={hint}
+      tooltip={tooltip}
       className={className}
       onClick={() =>
         void download({

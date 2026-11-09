@@ -178,6 +178,13 @@ function useFilePick({ onPick, onPickMany, accept, multiple, read, directory }: 
   return { trigger, input, dragging };
 }
 
+/**
+ * A file held over the zone or the button: the chosen tint inside an `active` edge, with full ink,
+ * because a button's own label colour is under 4.5:1 on the tint. One look for both, not a ring on
+ * one and a fill on the other.
+ */
+const DROP_LOOK = "border-active bg-active/40 text-foreground";
+
 /** A drop zone that picks a file and hands its contents to the caller. */
 export function FilePicker({ label, hint, ...options }: FilePickerProps) {
   const { trigger, input, dragging } = useFilePick(options);
@@ -188,8 +195,12 @@ export function FilePicker({ label, hint, ...options }: FilePickerProps) {
         {...trigger}
         className={cn(
           FILE_PICKER_ZONE_CLASS,
-          "flex text-center transition-colors focus-visible:bg-hover focus-visible:outline-none",
-          dragging ? "border-active bg-active/40" : "hover:border-foreground/60",
+          "flex text-center transition-colors focus-visible:outline-none",
+          // Under the pointer as focused: the edge darkens and the zone fills, as an outline
+          // button's does. A file held over it is the drop look `FilePickerButton` shares.
+          dragging
+            ? DROP_LOOK
+            : "hover:border-foreground/60 hover:bg-hover focus-visible:border-foreground/60 focus-visible:bg-hover",
         )}
       >
         {/* On the drop tint the muted grey is under 4.5:1, so the hint and icon take full ink. */}
@@ -225,7 +236,15 @@ export function FilePickerButton({
     content = (
       <>
         {iconSlot}
-        <span className={cn("cube-rn-text", buttonTextVariants({ variant, size }))}>{label}</span>
+        <span
+          className={cn(
+            "cube-rn-text",
+            buttonTextVariants({ variant, size }),
+            dragging && "text-foreground",
+          )}
+        >
+          {label}
+        </span>
       </>
     );
   }
@@ -237,11 +256,7 @@ export function FilePickerButton({
       <button
         {...trigger}
         aria-label={label}
-        className={cn(
-          buttonVariants({ variant, size }),
-          dragging && "ring-2 ring-active ring-offset-2 ring-offset-background",
-          className,
-        )}
+        className={cn(buttonVariants({ variant, size }), dragging && DROP_LOOK, className)}
       >
         {content}
       </button>

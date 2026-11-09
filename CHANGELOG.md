@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.37.1](https://github.com/cubicecho/gemifi/compare/v0.37.0...v0.37.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **web:** reinstall cubeui segmented for the 40px strip, and drop the touchTarget workaround ([05ee278](https://github.com/cubicecho/gemifi/commit/05ee278ed1125777745c47dd66366df427ea85b6)), closes [cubeui#540](https://github.com/cubeui/issues/540) [cubeui#541](https://github.com/cubeui/issues/541)
+
 # [0.37.0](https://github.com/cubicecho/gemifi/compare/v0.36.0...v0.37.0) (2026-11-06)
 
 

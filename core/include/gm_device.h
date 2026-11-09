@@ -80,7 +80,7 @@ typedef struct {
     gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO, RGB_SERIAL TX */
     gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK, TM1628 CLK            */
     gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low),
-                             TM1628 STB                                    */
+                             TM1628 STB, RGB_SERIAL RX (optional: acks)    */
     gm_pin_t sel[4];      /* MUX S0..S3                                    */
     gm_pin_t common;      /* MUX common pin (an MCU pin; ADC for analog)   */
     gm_pin_t enable;      /* MUX /E, HC595 /OE (optional)                  */

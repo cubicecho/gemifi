@@ -366,10 +366,22 @@ const hal_fw_ops_t *hal_fw_ops(void)
 static uint8_t serial_buf[16];
 static uint8_t serial_open, serial_dma;
 static volatile uint8_t serial_at, serial_n;   /* interrupt mode: next byte, bytes */
+/* HAL_UART_RX: bytes received on PA3, by the USART2 interrupt. */
+static volatile uint8_t serial_rx[16];
+static volatile uint8_t serial_rx_in, serial_rx_out;
 
 void USART2_IRQHandler(void)
 {
-    if (!(USART2_SR & USART_SR_TXE))
+    uint32_t sr = USART2_SR;
+    if (sr & (USART_SR_RXNE | USART_SR_ORE)) {
+        uint8_t b = (uint8_t)USART2_DR;     /* SR then DR clears RXNE and the error flags */
+        uint8_t in = serial_rx_in;
+        if ((uint8_t)(in - serial_rx_out) < sizeof serial_rx) {     /* full: dropped */
+            serial_rx[in % sizeof serial_rx] = b;
+            serial_rx_in = (uint8_t)(in + 1u);
+        }
+    }
+    if (!(sr & USART_SR_TXE) || !(USART2_CR1 & USART_CR1_TXEIE))
         return;
     uint8_t i = serial_at;
     if (i < serial_n) {
@@ -398,13 +410,32 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
     } else {
         USART2_CR3 = 0;
         serial_at = serial_n = 0;
+    }
+    uint32_t cr1 = USART_CR1_UE | USART_CR1_TE;
+    if (flags & HAL_UART_RX) {
+        GPIO_CRL(0) = (GPIO_CRL(0) & ~(0xFu << 12)) | (0x8u << 12);   /* PA3: input, pull-up */
+        GPIO_BSRR(0) = 1u << 3;
+        serial_rx_in = serial_rx_out = 0;
+        cr1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+    }
+    if (!serial_dma || (flags & HAL_UART_RX)) {
         NVIC_IPR8(IRQ_USART2) = 0x40;       /* a byte per 87 us at 115200: below USART1, with USB */
         NVIC_ICPR(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
         NVIC_ISER(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
     }
-    USART2_CR1 = USART_CR1_UE | USART_CR1_TE;
+    USART2_CR1 = cr1;
     serial_open = 1;
     return 1;
+}
+
+int hal_serial_read(uint16_t tx_pin)
+{
+    uint8_t out = serial_rx_out;
+    if (tx_pin != SERIAL_TX_PIN || out == serial_rx_in)
+        return -1;
+    int b = serial_rx[out % sizeof serial_rx];
+    serial_rx_out = (uint8_t)(out + 1u);
+    return b;
 }
 
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)

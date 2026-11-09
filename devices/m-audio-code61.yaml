@@ -38,7 +38,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.92
+  version: 0.2.94
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -137,10 +137,13 @@ tm1628:
 # 2026-11-03]: one message per LED, 02, 0x80 + LED, R, G, B, 03, and an A5
 # keepalive (core/README.md "RGB serial LEDs"). Its LED index counts from the
 # top row, like the pad mux slots: pad k (1 = bottom left) is LED
-# (3 - (k-1) / 4) * 4 + (k-1) % 4.
+# (3 - (k-1) / 4) * 4 + (k-1) % 4. The board answers each LED message with
+# 0x40 + LED on PA3 [sure, logged on hardware 2026-11-09]: rx_pin lets the
+# core resend what wasn't answered and repaint once the board is up.
 rgb_serial:
   - id: pad_leds
     tx_pin: PA2
+    rx_pin: PA3
     count: 16
 
 # The rear 5-pin MIDI jacks [sure pins, hw-map.md: USART1 at 31250 baud, TX

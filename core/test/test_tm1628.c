@@ -278,6 +278,15 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
     return 1;
 }
 
+#ifdef RGB_ACK_TEST
+/* The simulated pad board: answers each LED message with 0x40 + LED once it
+ * is up (BOARD_UP_MS), unless told to lose the next one. */
+#define BOARD_UP_MS 300u
+static int board_drop;              /* lose this many LED messages */
+static uint8_t ack_q[64];
+static int ack_in, ack_out;
+#endif
+
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
 {
     work();
@@ -289,7 +298,25 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
         memcpy(ser_log[ser_n].b, b, n);
         ser_n++;
     }
+#ifdef RGB_ACK_TEST
+    if (n == 6 && now_ms >= BOARD_UP_MS) {
+        if (board_drop)
+            board_drop--;
+        else if (ack_in - ack_out < (int)sizeof ack_q)
+            ack_q[ack_in++ % (int)sizeof ack_q] = (uint8_t)(0x40u + (b[1] - 0x80u));
+    }
+#endif
     return 1;
+}
+
+int hal_serial_read(uint16_t tx_pin)
+{
+#ifdef RGB_ACK_TEST
+    if (tx_pin == ser_pin && ack_out < ack_in)
+        return ack_q[ack_out++ % (int)sizeof ack_q];
+#endif
+    (void)tx_pin;
+    return -1;
 }
 
 /* Messages (not keepalives) since index from, and the smallest gap between
@@ -477,7 +504,11 @@ int main(void)
     /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
      * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */
     CHECK(ser_pin == 2 && ser_baud == 115200u, "serial opened on PA2 at 115200 (%u, %u)", ser_pin, ser_baud);
+#ifdef RGB_ACK_TEST
+    CHECK(ser_flags == (HAL_UART_DMA | HAL_UART_RX), "rgb_serial: by DMA, receiving (rx_pin)");
+#else
     CHECK(ser_flags == HAL_UART_DMA, "rgb_serial: by DMA (the default)");
+#endif
     uint32_t gap;
     int n0 = ser_msgs(0, &gap);
     CHECK(n0 >= 4, "every LED sent at start (%d messages)", n0);
@@ -492,6 +523,36 @@ int main(void)
             ka++;
         }
     CHECK(ka >= 10 && ka_gap <= 55u, "A5 keepalive every 50 ms (%d, max gap %u)", ka, ka_gap);
+#ifdef RGB_ACK_TEST
+    /* rx_pin: before the board answers, unanswered LEDs are sent again with
+     * a growing pause (little traffic while it starts); its first answer
+     * (BOARD_UP_MS) means it's up: every LED is sent again then, not at 2 s. */
+    if (now_ms < 2100u)
+        run_ms(2100u - now_ms);
+    int early = 0, rep = 0, seen[4] = { 0 };
+    uint32_t first_up = 0xFFFFFFFFu;
+    for (int i = 0; i < ser_n; i++) {
+        if (ser_log[i].n != 6)
+            continue;
+        if (ser_log[i].t < BOARD_UP_MS)
+            early++;
+        else if (first_up == 0xFFFFFFFFu)
+            first_up = ser_log[i].t;
+        if (ser_log[i].t >= BOARD_UP_MS && ser_log[i].t < 1000u && ser_log[i].b[1] >= 0x80 &&
+            ser_log[i].b[1] < 0x84 && !seen[ser_log[i].b[1] - 0x80]++)
+            rep++;
+    }
+    CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+    CHECK(early >= 1 && early <= 5, "before the board is up: a few tries only (%d LED messages)", early);
+    CHECK(first_up < BOARD_UP_MS + 400u, "tried again soon after it's up (%u ms)", first_up);
+    CHECK(rep == 4, "every LED sent once the board answers, before 1 s (%d of 4)", rep);
+    {
+        int late = 0;
+        for (int i = 0; i < ser_n; i++)
+            late += ser_log[i].n == 6 && ser_log[i].t >= 1000u && ser_log[i].t < 2100u;
+        CHECK(late == 0, "all answered: nothing more, no 2 s repaint (%d)", late);
+    }
+#else
     /* The first colours are lost at power-on, so every LED goes out once
      * more at 2 s; nothing else is resent (a steady resend left the Code 61
      * pad board deaf after a cold start). */
@@ -504,6 +565,7 @@ int main(void)
             rep++;
     CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
     CHECK(rep == 4, "every LED sent once more at 2 s (%d of 4)", rep);
+#endif
     int from = ser_n;
     run_ms(1000);
     CHECK(ser_msgs(from, 0) == 0, "nothing changes: nothing sent again (%d in 1 s)", ser_msgs(from, 0));
@@ -522,6 +584,23 @@ int main(void)
     ser_busy = 0;
     run_ms(20);
     CHECK(ser_last_is(2, 0, 0, 0), "serial LED 2 off once the UART is free");
+#ifdef RGB_ACK_TEST
+    /* A lost message isn't answered: it goes out again. */
+    {
+        run_ms(100);
+        int lost_from = ser_n;
+        board_drop = 1;
+        gm_led_script(4, 127);
+        run_ms(150);
+        int twice = 0;
+        for (int i = lost_from; i < ser_n; i++)
+            twice += ser_log[i].n == 6 && ser_log[i].b[1] == 0x82 && ser_log[i].b[2] == 0xFF;
+        CHECK(twice == 2, "lost, not answered: sent again (%d times)", twice);
+        int idle_from = ser_n;
+        run_ms(500);
+        CHECK(ser_msgs(idle_from, 0) == 0, "answered: nothing more (%d)", ser_msgs(idle_from, 0));
+    }
+#endif
     /* The board loses a write right after another, an A5 included. A stall
      * (here the busy UART; on the Code 61 the start-up) leaves the A5 and an
      * LED both due: they must not go out back to back, nor stay 50 ms

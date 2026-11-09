@@ -326,6 +326,15 @@ class TestValidation(unittest.TestCase):
         self.assertIn("#define GM_TM1628_RAM 6 ", files["gm_device_config.h"])
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
         self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
+        self.assertIn(".latch = GM_NO_PIN,", files["gm_device_config.c"])     # no rx_pin: no answers
+        # rx_pin: the board's answers, on USART2 RX (PA3) only
+        self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
+        self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA4, count: 4"), r"rx_pin on stm32f1 is PA3",
+                         path="rgb_serial[0].rx_pin")
+        self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA1, count: 4"), r"PA1")     # PA1 is the test's analog
+        dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        self.assertIn(".latch = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
     def test_analog_mode(self):
         base = MINIMAL_NUC + "analog:\n"

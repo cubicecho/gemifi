@@ -43,77 +43,127 @@ typedef struct {
 #define GM_PIN_OPEN_DRAIN (1u << 3)  /* MCU outputs: open-drain (TM1628 DIO)     */
 #define GM_NO_PIN       { GM_HUB_NONE, 0, 0 }
 
-/* ---- hubs (pin expanders) --------------------------------------------- */
+/* ---- hubs (pin expanders) ---------------------------------------------
+ * A hub is its type (which driver runs it: core/src/vpin.c, gm_hub.h) and
+ * that type's config, the gm_hub_t union member named with each below. */
 enum {
-    GM_HUB_HC595 = 1,     /* serial-in shift register: outputs           */
-    GM_HUB_HC165 = 2,     /* parallel-in shift register: inputs          */
-    GM_HUB_MUX = 3,       /* 74HC4051 (3 select) / 4067 (4 select): one
-                             common pin routed to channel 0..7 / 0..15;
-                             analog or digital, input only                 */
-    GM_HUB_MCP23017 = 4,  /* I2C, 16 GPIO                                */
-    GM_HUB_PCF8574 = 5,   /* I2C, 8 quasi-bidirectional GPIO             */
-    GM_HUB_DECODER = 6,   /* 74HC138-style one-of-N select: outputs only, and
-                             only as matrix rows. Output n "on" = address
-                             lines = n % 2^n_sel, enable lines = group
-                             n / 2^n_sel's levels. "Off" leaves it as is: the
-                             next row's select replaces it                 */
-    GM_HUB_TM1628 = 7,    /* TM1628-class LED driver: display RAM bits,
-                             outputs; written from the main loop          */
-    GM_HUB_SWMATRIX = 8,  /* switch matrix scanned from the scan interrupt:
-                             inputs only. Pin n = row n / n_cols, column
-                             n % n_cols; reads 1 = closed                   */
-    GM_HUB_RGB_SERIAL = 9, /* RGB LEDs behind a serial link (the M-Audio Code
-                             pad LED board, 115200 baud on `data`): outputs
-                             only, pin n = LED n / 3, colour n % 3 (0 red,
-                             1 green, 2 blue); sent from the main loop     */
-    GM_HUB_XY = 10,       /* 4-wire resistive XY pad: analog only, channel 0
-                             = X, 1 = Y. Read in software (vpin.c), one axis
-                             per ms in turn                                 */
+    GM_HUB_HC595 = 1,     /* serial-in shift register: outputs (.sr)      */
+    GM_HUB_HC165 = 2,     /* parallel-in shift register: inputs (.sr)     */
+    GM_HUB_MUX = 3,       /* 74HC4051 / 4067 multiplexer (.mux)           */
+    GM_HUB_MCP23017 = 4,  /* I2C, 16 GPIO (.i2c)                          */
+    GM_HUB_PCF8574 = 5,   /* I2C, 8 quasi-bidirectional GPIO (.i2c)       */
+    GM_HUB_DECODER = 6,   /* 74HC138-style one-of-N select (.dec)         */
+    GM_HUB_TM1628 = 7,    /* TM1628-class LED driver (.tm)                */
+    GM_HUB_SWMATRIX = 8,  /* switch matrix, scanned by the scan tick (.sm) */
+    GM_HUB_RGB_SERIAL = 9, /* the M-Audio Code pad LED board (.rgb)       */
+    GM_HUB_XY = 10,       /* 4-wire resistive XY pad (.xy)                */
+    GM_HUB_N_TYPES        /* (one more than the last)                     */
 };
 
+/* .sr: HC595 / HC165, a chain of chips, 8 pins each (chained chips go on:
+ * 8..15 = the 2nd). */
 typedef struct {
-    uint8_t type;
-    uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
-                             RGB_SERIAL: LEDs                              */
-    uint8_t n_sel;        /* MUX: select lines (3 = 4051, 4 = 4067)        */
-    uint8_t i2c_addr;     /* MCP23017 / PCF8574                            */
-    gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO, RGB_SERIAL TX */
-    gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK, TM1628 CLK            */
-    gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low),
-                             TM1628 STB, RGB_SERIAL RX (optional: acks)    */
-    gm_pin_t sel[4];      /* MUX S0..S3                                    */
-    gm_pin_t common;      /* MUX common pin (an MCU pin; ADC for analog)   */
-    gm_pin_t enable;      /* MUX /E, HC595 /OE (optional)                  */
-    uint16_t settle_us;   /* MUX: wait after switching channel; SWMATRIX:
-                             after driving a row                            */
-    /* DECODER: sel[0..n_sel-1] are the address lines (A0 first). */
-    gm_pin_t en[3];       /* DECODER: group enable lines                   */
+    gm_pin_t data;        /* HC595 SER, HC165 QH                           */
+    gm_pin_t clock;       /* SRCLK / CLK                                   */
+    gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low)       */
+    gm_pin_t oe;          /* HC595 /OE, driven low (optional)              */
+    uint8_t chain;        /* chips, 1..4                                    */
+} gm_hub_sr_t;
+
+/* .mux: 74HC4051 (3 select lines) / 4067 (4): the common pin routed to
+ * channel 0..7 / 0..15; analog or digital, inputs only. */
+typedef struct {
+    gm_pin_t sel[4];      /* S0..S3                                        */
+    gm_pin_t common;      /* an MCU pin (an ADC pin for analog)            */
+    gm_pin_t enable;      /* /E, driven low (optional)                     */
+    uint16_t settle_us;   /* wait after switching channel, 0 = 2 us        */
+    uint8_t n_sel;        /* select lines, 3 or 4                          */
+} gm_hub_mux_t;
+
+/* .i2c: MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional GPIO) on the
+ * I2C bus (GM_I2C_SDA / _SCL). */
+typedef struct {
+    uint8_t addr;         /* 7-bit I2C address                             */
+} gm_hub_i2c_t;
+
+/* .dec: a 74HC138-style one-of-N decoder: outputs only, and only as matrix
+ * rows. Output n "on" = address lines = n % 2^n_addr, enable lines = group
+ * n / 2^n_addr's levels. "Off" leaves it as is: the next row's select
+ * replaces it. */
+typedef struct {
+    gm_pin_t addr[4];     /* address lines, A0 first                       */
+    gm_pin_t en[3];       /* group enable lines                            */
+    uint8_t n_addr;
     uint8_t n_en;
-    uint8_t n_groups;     /* DECODER: groups of 2^n_sel outputs            */
-    uint8_t group_lv[4];  /* DECODER: bit e = level of en[e] for group g    */
-    /* SWMATRIX: rows (any output pin, usually a DECODER's) and columns
-     * (MCU inputs; "closed" level = not INVERT). n_rows * n_cols <= 32. */
+    uint8_t n_groups;     /* groups of 2^n_addr outputs                     */
+    uint8_t group_lv[4];  /* bit e = level of en[e] for group g            */
+} gm_hub_decoder_t;
+
+/* .sm: a switch matrix scanned from the scan interrupt: inputs only. Pin n
+ * = row n / n_cols, column n % n_cols; reads 1 = closed. Rows: any output
+ * pin, usually a decoder's ("active" level = not INVERT); columns: MCU
+ * inputs ("closed" level = not INVERT). n_rows * n_cols <= 32. */
+typedef struct {
     const gm_pin_t *rows;
     const gm_pin_t *cols;
     uint8_t n_rows;
     uint8_t n_cols;
-    uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16);
-                             RGB_SERIAL: 3 per LED, a byte per colour     */
-    uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
-    uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
-    uint8_t fade;         /* TM1628: the chip's brightness follows the host
-                             colours of the RGB LEDs on it (tm1628 fade:) */
-    uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
-    /* XY: sel[0..3] = X+, X-, Y+, Y- (MCU pins); data = the Y-plate pin X
-     * is read on, clock = the X-plate pin Y is read on (both ADC pins). A
-     * touch: both readings within touch_min..touch_max. */
+    uint8_t settle_us;    /* wait after driving a row                      */
+    uint8_t rows_per_scan; /* rows read per scan, in turn; 0 = all         */
+} gm_hub_swmatrix_t;
+
+/* .tm: a TM1628-class LED driver, bit-banged from the main loop: outputs,
+ * pin = display RAM bit, byte * 8 + bit. Chips may share CLK and DIO, each
+ * has its own STB. */
+typedef struct {
+    gm_pin_t clk;
+    gm_pin_t dio;         /* open-drain on the Code 61                     */
+    gm_pin_t stb;
+    uint8_t ram_bytes;    /* display RAM bytes written (1..16)             */
+    uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
+    uint8_t grids;        /* display mode 4..7 grids, 0 = not sent         */
+    uint8_t fade;         /* the chip's brightness follows the host colours
+                             of the RGB LEDs on it (tm1628 fade:)          */
+} gm_hub_tm1628_t;
+
+/* .rgb: RGB LEDs behind a serial link, the M-Audio Code pad LED board
+ * (115200 baud on tx): outputs only, pin n = LED n / 3, colour n % 3 (0 red,
+ * 1 green, 2 blue); sent from the main loop, a byte per colour in the hub
+ * RAM. */
+typedef struct {
+    gm_pin_t tx;
+    gm_pin_t rx;          /* the board's answers (acks), optional          */
+    /* the brightness curve applied first (rgb_serial gamma:; 256 entries,
+     * 0 = straight) */
+    const uint8_t *curve;
+    uint8_t count;        /* LEDs                                          */
+    uint8_t dma;          /* send by DMA (rgb_serial dma:), else interrupt */
+    uint8_t white[3];     /* what full red, green and blue send (rgb_serial
+                             white:, the white balance; 0 = 255)          */
+} gm_hub_rgb_serial_t;
+
+/* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
+ * software (vpin.c), one axis per ms in turn. A touch: both readings within
+ * touch_min..touch_max. */
+typedef struct {
+    gm_pin_t drive[4];    /* X+, X-, Y+, Y- (MCU pins)                     */
+    gm_pin_t sense[2];    /* the pins X and Y are read on: a Y-plate and an
+                             X-plate pin (ADC pins)                        */
     uint16_t touch_min, touch_max;
-    uint8_t dma;          /* RGB_SERIAL: send by DMA (rgb_serial dma:), else interrupt */
-    /* RGB_SERIAL: what full red, green and blue send (rgb_serial white:,
-     * the white balance; 0 = 255), and the brightness curve applied first
-     * (rgb_serial gamma:; 256 entries, 0 = straight). */
-    uint8_t rgb_white[3];
-    const uint8_t *rgb_curve;
+} gm_hub_xy_t;
+
+typedef struct {
+    uint8_t type;         /* GM_HUB_*                                      */
+    union {
+        gm_hub_sr_t sr;           /* GM_HUB_HC595, GM_HUB_HC165 */
+        gm_hub_mux_t mux;         /* GM_HUB_MUX */
+        gm_hub_i2c_t i2c;         /* GM_HUB_MCP23017, GM_HUB_PCF8574 */
+        gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
+        gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
+        gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
+        gm_hub_rgb_serial_t rgb;  /* GM_HUB_RGB_SERIAL */
+        gm_hub_xy_t xy;           /* GM_HUB_XY */
+    };
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */

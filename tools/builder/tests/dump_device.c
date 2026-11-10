@@ -17,6 +17,73 @@ static void str(const char *what, const char *s)
     printf("  %s=%s\n", what, s ? s : "(null)");
 }
 
+/* A hub's config as the flat fields it once had (the checks in test_builder.py name them). */
+typedef struct {
+    unsigned chain, n_sel, addr, settle, ram, bright, grids;
+    gm_pin_t data, clock, latch, sel[4], common, enable;
+} flat_t;
+
+static void hub(unsigned i, const gm_hub_t *h)
+{
+    static const gm_pin_t none = GM_NO_PIN;
+    flat_t f = { 0, 0, 0, 0, 0, 0, 0, none, none, none, { none, none, none, none }, none, none };
+    unsigned j;
+    switch (h->type) {
+    case GM_HUB_HC595:
+    case GM_HUB_HC165:
+        f.chain = h->sr.chain;
+        f.data = h->sr.data;
+        f.clock = h->sr.clock;
+        f.latch = h->sr.latch;
+        f.enable = h->sr.oe;
+        break;
+    case GM_HUB_MUX:
+        f.n_sel = h->mux.n_sel;
+        f.settle = h->mux.settle_us;
+        for (j = 0; j < 4; j++) f.sel[j] = h->mux.sel[j];
+        f.common = h->mux.common;
+        f.enable = h->mux.enable;
+        break;
+    case GM_HUB_MCP23017:
+    case GM_HUB_PCF8574:
+        f.addr = h->i2c.addr;
+        break;
+    case GM_HUB_DECODER:
+        f.n_sel = h->dec.n_addr;
+        for (j = 0; j < 4; j++) f.sel[j] = h->dec.addr[j];
+        break;
+    case GM_HUB_SWMATRIX:
+        f.settle = h->sm.settle_us;
+        break;
+    case GM_HUB_TM1628:
+        f.ram = h->tm.ram_bytes;
+        f.bright = h->tm.brightness;
+        f.grids = h->tm.grids;
+        f.data = h->tm.dio;
+        f.clock = h->tm.clk;
+        f.latch = h->tm.stb;
+        break;
+    case GM_HUB_RGB_SERIAL:
+        f.chain = h->rgb.count;
+        f.ram = 3u * h->rgb.count;
+        f.data = h->rgb.tx;
+        f.latch = h->rgb.rx;
+        break;
+    case GM_HUB_XY:
+        for (j = 0; j < 4; j++) f.sel[j] = h->xy.drive[j];
+        f.data = h->xy.sense[0];
+        f.clock = h->xy.sense[1];
+        break;
+    default:
+        break;
+    }
+    printf(" hub %u type=%u chain=%u n_sel=%u addr=0x%02x settle=%u ram=%u bright=%u grids=%u\n", i,
+           h->type, f.chain, f.n_sel, f.addr, f.settle, f.ram, f.bright, f.grids);
+    pin("data", f.data); pin("clock", f.clock); pin("latch", f.latch);
+    for (j = 0; j < 4; j++) pin("sel", f.sel[j]);
+    pin("common", f.common); pin("enable", f.enable);
+}
+
 int main(void)
 {
     const gm_device_t *d = &gm_device;
@@ -29,14 +96,8 @@ int main(void)
            GM_DEVICE_NAME, GM_BOARD_ID, GM_USB_VID, GM_USB_PID, GM_N_HUBS, GM_N_BUTTONS, GM_N_LEDS,
            GM_N_ANALOGS, GM_N_ENCODERS, GM_HAS_MATRIX, GM_MATRIX_KEYS, GM_MATRIX_VELOCITY, GM_HAS_I2C);
     printf("hubs=%u (%s)\n", d->n_hubs, d->hubs ? "ptr" : "null");
-    for (i = 0; i < d->n_hubs; i++) {
-        const gm_hub_t *h = &d->hubs[i];
-        printf(" hub %u type=%u chain=%u n_sel=%u addr=0x%02x settle=%u ram=%u bright=%u grids=%u\n", i,
-               h->type, h->chain, h->n_sel, h->i2c_addr, h->settle_us, h->ram_bytes, h->brightness, h->grids);
-        pin("data", h->data); pin("clock", h->clock); pin("latch", h->latch);
-        for (j = 0; j < 4; j++) pin("sel", h->sel[j]);
-        pin("common", h->common); pin("enable", h->enable);
-    }
+    for (i = 0; i < d->n_hubs; i++)
+        hub(i, &d->hubs[i]);
     printf("buttons=%u (%s)\n", d->n_buttons, d->buttons ? "ptr" : "null");
     for (i = 0; i < d->n_buttons; i++) {
         pin("pin", d->buttons[i].pin); str("name", d->buttons[i].name);

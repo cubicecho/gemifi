@@ -123,9 +123,9 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
     sm_reg[i] = 0;
     const volatile uint32_t *reg = 0;
     uint32_t inv = 0;
-    for (uint32_t c = 0; c < h->n_cols; c++) {
+    for (uint32_t c = 0; c < h->sm.n_cols; c++) {
         uint32_t mask = 0;
-        const volatile uint32_t *r = h->cols[c].hub ? 0 : hal_pin_in_reg(h->cols[c].num, &mask);
+        const volatile uint32_t *r = h->sm.cols[c].hub ? 0 : hal_pin_in_reg(h->sm.cols[c].num, &mask);
         if (!r || !mask || (mask & (mask - 1u)))
             return;
         uint32_t bit = (uint32_t)__builtin_ctz(mask);
@@ -135,10 +135,10 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
         } else if (r != reg || bit != sm_shift[i] + c) {
             return;
         }
-        if (h->cols[c].flags & GM_PIN_INVERT)
+        if (h->sm.cols[c].flags & GM_PIN_INVERT)
             inv |= 1u << c;
     }
-    if (h->n_cols == 0 || sm_shift[i] + h->n_cols > 32u)
+    if (h->sm.n_cols == 0 || sm_shift[i] + h->sm.n_cols > 32u)
         return;
     sm_inv[i] = inv;
     sm_reg[i] = reg;
@@ -992,10 +992,10 @@ int32_t vpin_analog(gm_pin_t p)
 
 static void swmatrix_init(const gm_hub_t *h, hub_state_t *s)
 {
-    for (uint32_t c = 0; c < h->n_cols; c++)
-        vpin_input(h->cols[c]);
-    for (uint32_t r = 0; r < h->n_rows; r++)
-        vpin_output(h->rows[r]);
+    for (uint32_t c = 0; c < h->sm.n_cols; c++)
+        vpin_input(h->sm.cols[c]);
+    for (uint32_t r = 0; r < h->sm.n_rows; r++)
+        vpin_output(h->sm.rows[r]);
     sm_fast_init((uint32_t)(s - hs), h);
 }
 
@@ -1049,28 +1049,28 @@ void vpin_scan_matrices(void)
             break;                      /* every switch matrix is fed by frames */
         hub_state_t *s = &hs[i];
         uint32_t v = s->in;
-        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
+        uint32_t all = h->sm.n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->sm.n_cols) - 1u;
         /* rows_per_scan rows per call, in turn (the cursor lives in .channel,
          * unused by switch matrices); the other rows keep their last reading. */
-        uint32_t n = h->rows_per_scan && h->rows_per_scan < h->n_rows ? h->rows_per_scan : h->n_rows;
-        uint32_t r = (s->channel >= 0 && (uint32_t)s->channel < h->n_rows) ? (uint32_t)s->channel : 0;
-        for (uint32_t k = 0; k < n; k++, r = r + 1u < h->n_rows ? r + 1u : 0) {
-            uint32_t bit = r * h->n_cols;
+        uint32_t n = h->sm.rows_per_scan && h->sm.rows_per_scan < h->sm.n_rows ? h->sm.rows_per_scan : h->sm.n_rows;
+        uint32_t r = (s->channel >= 0 && (uint32_t)s->channel < h->sm.n_rows) ? (uint32_t)s->channel : 0;
+        for (uint32_t k = 0; k < n; k++, r = r + 1u < h->sm.n_rows ? r + 1u : 0) {
+            uint32_t bit = r * h->sm.n_cols;
             if (bit >= 32u)
                 continue;
-            vpin_write(h->rows[r], 1);
-            hal_delay_us(h->settle_us ? h->settle_us : 1);
+            vpin_write(h->sm.rows[r], 1);
+            hal_delay_us(h->sm.settle_us ? h->sm.settle_us : 1);
             uint32_t row = 0;
             if (sm_reg[i]) {
                 row = ((*sm_reg[i] >> sm_shift[i]) & all) ^ sm_inv[i];
             } else {
-                for (uint32_t c = 0; c < h->n_cols && bit + c < 32u; c++)
-                    if (vpin_read(h->cols[c]))
+                for (uint32_t c = 0; c < h->sm.n_cols && bit + c < 32u; c++)
+                    if (vpin_read(h->sm.cols[c]))
                         row |= 1u << c;
             }
             v = (v & ~(all << bit)) | (row << bit);
-            if (!vpin_is_decoder(h->rows[r]))
-                vpin_write(h->rows[r], 0);
+            if (!vpin_is_decoder(h->sm.rows[r]))
+                vpin_write(h->sm.rows[r], 0);
         }
         s->channel = (int8_t)r;
         s->in = v;
@@ -1092,14 +1092,14 @@ int vpin_scan_plan(volatile uint32_t **sel_reg, uint32_t *sel_word, uint32_t *n_
         if (!sm_reg[i] || (ireg && sm_reg[i] != ireg))
             return 0;                   /* columns not one load of the plan's register */
         ireg = sm_reg[i];
-        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
+        uint32_t all = h->sm.n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->sm.n_cols) - 1u;
         mask |= all << sm_shift[i];
-        for (uint32_t r = 0; r < h->n_rows; r++) {
-            if (r * h->n_cols >= 32u)
+        for (uint32_t r = 0; r < h->sm.n_rows; r++) {
+            if (r * h->sm.n_cols >= 32u)
                 break;                  /* beyond the 32-bit cache, as vpin_scan_matrices */
             volatile uint32_t *reg = 0;
             uint32_t word = 0, k;
-            if (!vpin_select_word(h->rows[r], &reg, &word) || (sreg && reg != sreg))
+            if (!vpin_select_word(h->sm.rows[r], &reg, &word) || (sreg && reg != sreg))
                 return 0;
             sreg = reg;
             for (k = 0; k < n && sel_word[k] != word; k++) {
@@ -1137,8 +1137,8 @@ void vpin_scan_feed(const uint16_t *frame)
     for (uint32_t f = 0; f < n_fed; f++) {
         uint32_t i = fed_hub[f];
         const gm_hub_t *h = &gm_device.hubs[i];
-        uint32_t all = h->n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->n_cols) - 1u;
-        uint32_t bit = fed_row[f] * h->n_cols;
+        uint32_t all = h->sm.n_cols >= 32u ? 0xFFFFFFFFu : (1u << h->sm.n_cols) - 1u;
+        uint32_t bit = fed_row[f] * h->sm.n_cols;
         uint32_t row = (((uint32_t)frame[fed_slot[f]] >> sm_shift[i]) & all) ^ sm_inv[i];
         uint32_t v = (hs[i].in & ~(all << bit)) | (row << bit);
         hs[i].in = v;

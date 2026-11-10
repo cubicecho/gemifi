@@ -512,12 +512,13 @@ class SwitchMatrix(HubType):
             c += ["};"]
         return c
 
-    def c_extra(self, hub):
+    def c_fields(self, hub):
         if not hub.rows or not hub.cols:
-            return []
+            return [f"        .sm = {{ .settle_us = {hub.settle_us} }},"]
         n = hub.index + 1
-        return [f"        .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hub.rows)}, "
-                f".n_cols = {len(hub.cols)}, .rows_per_scan = {hub.rows_per_scan or 0},"]
+        return [f"        .sm = {{ .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hub.rows)}, "
+                f".n_cols = {len(hub.cols)},",
+                f"                .settle_us = {hub.settle_us}, .rows_per_scan = {hub.rows_per_scan or 0} }},"]
 
 
 # TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.

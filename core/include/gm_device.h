@@ -112,6 +112,19 @@ typedef struct {
     uint8_t group_lv[4];  /* bit e = level of en[e] for group g            */
 } gm_hub_decoder_t;
 
+/* .sm: a switch matrix scanned from the scan interrupt: inputs only. Pin n
+ * = row n / n_cols, column n % n_cols; reads 1 = closed. Rows: any output
+ * pin, usually a decoder's ("active" level = not INVERT); columns: MCU
+ * inputs ("closed" level = not INVERT). n_rows * n_cols <= 32. */
+typedef struct {
+    const gm_pin_t *rows;
+    const gm_pin_t *cols;
+    uint8_t n_rows;
+    uint8_t n_cols;
+    uint8_t settle_us;    /* wait after driving a row                      */
+    uint8_t rows_per_scan; /* rows read per scan, in turn; 0 = all         */
+} gm_hub_swmatrix_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -161,6 +174,7 @@ typedef struct {
         gm_hub_mux_t mux;         /* GM_HUB_MUX */
         gm_hub_i2c_t i2c;         /* GM_HUB_MCP23017, GM_HUB_PCF8574 */
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
+        gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
     };
 } gm_hub_t;
 

@@ -53,6 +53,11 @@ static void hub(unsigned i, const gm_hub_t *h)
         for (j = 0; j < 4; j++) f.sel[j] = h->dec.addr[j];
         f.data = f.clock = f.latch = f.common = f.enable = none;
         break;
+    case GM_HUB_SWMATRIX:
+        f.settle = h->sm.settle_us;
+        f.data = f.clock = f.latch = f.common = f.enable = none;
+        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
+        break;
     case GM_HUB_MCP23017:
     case GM_HUB_PCF8574:
         f.addr = h->i2c.addr;

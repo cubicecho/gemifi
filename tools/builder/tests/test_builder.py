@@ -1139,7 +1139,7 @@ class TestValidation(unittest.TestCase):
                        "    rows: { decoder: dec, first: 16, count: 2 }\n    rows_per_scan: 1\n")
         self.assertClean(t2)
         dev2, _ = load(t2)
-        self.assertIn(".rows_per_scan = 1,", gd.generate(dev2, "x.yaml")["gm_device_config.c"])
+        self.assertIn(".rows_per_scan = 1 }", gd.generate(dev2, "x.yaml")["gm_device_config.c"])
         self.assertError(t2.replace("rows_per_scan: 1", "rows_per_scan: 0"), r"out of range \(1\.\.32\)")
         self.assertTrue(any("every row is read" in w.msg
                             for w in self.errs(t2.replace("rows_per_scan: 1", "rows_per_scan: 2"), level="warning")))

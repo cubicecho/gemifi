@@ -98,20 +98,29 @@ export interface DemoCanvas {
 /** One effect, running: call it with the effect's time in ms (it only moves forward). */
 export type EffectRun = (timeMs: number) => DemoFrame;
 
+/** What the reader picked, read on every frame so a change shows at once. */
+export interface EffectOptions {
+  /** The colour picked, for an effect with `picksColour`. */
+  colour: () => LedColour;
+}
+
 /** An effect the demo offers. */
 export interface DemoEffect {
   id: string;
   name: string;
   /** One sentence for the reader. */
   description: string;
+  /** It shows the colour the reader picks (EffectOptions.colour). */
+  picksColour?: boolean;
   /**
    * Starts the effect.
    *
    * @param canvas - The LEDs and displays.
    * @param random - A source of numbers in 0..1 (Math.random, or a seeded one in tests).
+   * @param options - What the reader picked; blue if left out.
    * @returns The running effect.
    */
-  start(canvas: DemoCanvas, random: () => number): EffectRun;
+  start(canvas: DemoCanvas, random: () => number, options?: EffectOptions): EffectRun;
 }
 
 /** Breathing colours, one per breath. */
@@ -427,22 +436,69 @@ const rainbow: DemoEffect = {
   },
 };
 
-/** Breathe: one breath takes this long; past this much of a breath the display shows '='. */
+/** A breath takes this long; past this much of a breath the display shows '='. */
 const BREATH_MS = 4000;
 const BREATH_DEEP = 0.6;
-/** The LEDs start fading in, one after another, over this much of the in-breath. */
+/** Waves: the LEDs start fading in, one after another, over this much of the in-breath. */
 const BREATH_STAGGER = 0.6;
 
-/** Breathe: the LEDs fade in one after another and out again, a new colour each breath. */
+/**
+ * @param t - The effect's time.
+ * @returns How far into the breath, 0 (out) to 1 (in), on a smooth curve.
+ */
+function breathPhase(t: number): number {
+  return (1 - Math.cos((2 * Math.PI * (t % BREATH_MS)) / BREATH_MS)) / 2;
+}
+
+/**
+ * @param displays - Each display's width.
+ * @param phase - How far into the breath.
+ * @returns A bar from the middle of each display, as wide as the breath is deep.
+ */
+function breathRows(displays: readonly number[], phase: number): string[] {
+  return displays.map((cols) => {
+    const row = blankRow(cols);
+    const width = Math.round(phase * cols);
+    const from = Math.floor((cols - width) / 2);
+    for (let c = from; c < from + width; c++) {
+      put(row, c, phase > BREATH_DEEP ? '=' : '-');
+    }
+    return row.join('');
+  });
+}
+
+/** The least of the picked colour's brightest channel sent (8 bits): 1 of FB_LED_RGB's 127. */
+const BREATHE_LEAST = 3;
+
+/** Breathe: every LED in the picked colour, fading up and down together. */
 const breathe: DemoEffect = {
   id: 'breathe',
   name: 'Breathe',
-  description: 'A slow breath: the LEDs fade in one after another, then fade out again, in a new colour each time.',
+  description:
+    'Every LED in the colour you pick, fading up and down together. It never quite goes out, so an LED with an idle look keeps the colour; an on/off LED stays lit.',
+  picksColour: true,
+  start({ leds, displays }, _random, options) {
+    return (t) => {
+      const colour = options?.colour() ?? Colour.Blue;
+      const top = Math.max(...channels(colour));
+      const phase = breathPhase(t);
+      const least = top === 0 ? 0 : Math.min(1, BREATHE_LEAST / top);
+      const lit = dim(colour, least + (1 - least) * phase);
+      return { leds: Array.from({ length: leds }, () => lit), texts: breathRows(displays, phase) };
+    };
+  },
+};
+
+/** Waves: the LEDs fade in one after another and out again, a new colour each breath. */
+const waves: DemoEffect = {
+  id: 'waves',
+  name: 'Waves',
+  description: 'The LEDs fade in one after another, then fade out again, in a new colour each time.',
   start({ leds, displays }, random) {
     const order = shuffled(leds, random);
     return (t) => {
       const breath = Math.floor(t / BREATH_MS);
-      const phase = (1 - Math.cos((2 * Math.PI * (t % BREATH_MS)) / BREATH_MS)) / 2;
+      const phase = breathPhase(t);
       const colour = BREATH_COLOURS[breath % BREATH_COLOURS.length] ?? Colour.Blue;
       const out: LedColour[] = Array.from({ length: leds }, () => Colour.Off);
       // The k-th LED in the order starts at its own point and is full at the top of the breath, so
@@ -451,22 +507,13 @@ const breathe: DemoEffect = {
         const from = (BREATH_STAGGER * k) / Math.max(1, leds);
         out[order[k] ?? 0] = dim(colour, (phase - from) / (1 - from));
       }
-      const texts = displays.map((cols) => {
-        const row = blankRow(cols);
-        const width = Math.round(phase * cols);
-        const from = Math.floor((cols - width) / 2);
-        for (let c = from; c < from + width; c++) {
-          put(row, c, phase > BREATH_DEEP ? '=' : '-');
-        }
-        return row.join('');
-      });
-      return { leds: out, texts };
+      return { leds: out, texts: breathRows(displays, phase) };
     };
   },
 };
 
 /** Every effect, noisy ones first. */
-export const DEMO_EFFECTS: readonly DemoEffect[] = [fireworks, fire, scanner, rainbow, breathe];
+export const DEMO_EFFECTS: readonly DemoEffect[] = [fireworks, fire, scanner, rainbow, waves, breathe];
 
 /**
  * A seeded random source (mulberry32), for tests and repeatable runs.
@@ -485,6 +532,26 @@ export function seededRandom(seed: number): () => number {
     x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
     return ((x ^ (x >>> 14)) >>> 0) / RANGE;
   };
+}
+
+const HEX = 16;
+const HEX_DIGITS = 6;
+
+/**
+ * @param colour - A colour.
+ * @returns It as "#rrggbb" (a colour input's value).
+ */
+export function colourToHex(colour: LedColour): string {
+  return `#${colour.toString(HEX).padStart(HEX_DIGITS, '0')}`;
+}
+
+/**
+ * @param hex - "#rrggbb".
+ * @returns The colour, or off if it isn't one.
+ */
+export function hexToColour(hex: string): LedColour {
+  const isHex = /^#[0-9a-f]{6}$/i.test(hex);
+  return isHex ? Number.parseInt(hex.slice(1), HEX) : Colour.Off;
 }
 
 /** FB_LED_RGB's largest channel value. */

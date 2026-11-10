@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   Colour,
   channels,
+  colourToHex,
   colourToRgb,
   DEMO_EFFECTS,
   type DemoFrame,
   frameChanges,
+  hexToColour,
   previewCss,
   seededRandom,
 } from './effects.ts';
@@ -59,9 +61,9 @@ function run(id: string, ms: number, canvas = CANVAS): DemoFrame[] {
 }
 
 describe('demo effects', () => {
-  it('offers five effects with distinct ids', () => {
-    expect(DEMO_EFFECTS).toHaveLength(5);
-    expect(new Set(DEMO_EFFECTS.map((e) => e.id)).size).toBe(5);
+  it('offers six effects with distinct ids', () => {
+    expect(DEMO_EFFECTS).toHaveLength(6);
+    expect(new Set(DEMO_EFFECTS.map((e) => e.id)).size).toBe(6);
   });
 
   for (const effect of DEMO_EFFECTS) {
@@ -101,8 +103,8 @@ describe('demo effects', () => {
     expect(Math.max(...eyes)).toBe(31);
   });
 
-  it('breathe: from none lit to all lit at full and back, in one colour at a time', () => {
-    const frames = run('breathe', 4000);
+  it('waves: from none lit to all lit at full and back, in one colour at a time', () => {
+    const frames = run('waves', 4000);
     const lit = frames.map((f) => f.leds.filter((c) => c !== Colour.Off).length);
     expect(Math.min(...lit)).toBe(0);
     expect(Math.max(...lit)).toBe(32);
@@ -110,11 +112,26 @@ describe('demo effects', () => {
     expect(frames.every((f) => new Set(f.leds.filter((c) => c !== Colour.Off).map(onOff)).size <= 1)).toBe(true);
   });
 
-  it('breathe: fades (dim LEDs), and on/off LEDs still light one by one', () => {
-    const frames = run('breathe', 4000);
+  it('waves: fades (dim LEDs), and on/off LEDs still light one by one', () => {
+    const frames = run('waves', 4000);
     expect(frames.some((f) => f.leds.some(isDim))).toBe(true);
     const lit = new Set(frames.map((f) => f.leds.filter((c) => c !== Colour.Off).length));
     expect(lit.size).toBeGreaterThan(8);
+  });
+
+  it('breathe: every LED the picked colour, fading together from just lit to full', () => {
+    const effect = DEMO_EFFECTS.find((e) => e.id === 'breathe');
+    expect(effect?.picksColour).toBe(true);
+    let picked = 0xff8000;
+    const step = effect?.start(CANVAS, seededRandom(7), { colour: () => picked });
+    const frames = Array.from({ length: 101 }, (_, i) => step?.(i * 40));
+    expect(frames.every((f) => new Set(f?.leds).size === 1)).toBe(true);
+    const sent = frames.map((f) => colourToRgb(f?.leds[0] ?? 0));
+    expect(Math.min(...sent.map((c) => c.r))).toBe(1); // never off
+    expect(Math.max(...sent.map((c) => c.r))).toBe(127);
+    expect(sent.every((c) => c.b === 0 && 2 * c.g >= c.r - 1 && 2 * c.g <= c.r + 1)).toBe(true); // orange
+    picked = Colour.Green;
+    expect(onOff(step?.(4040).leds[0] ?? 0)).toBe(2); // a new pick shows at once
   });
 
   it('rainbow: every LED lit, neighbours differ, and it moves smoothly', () => {
@@ -148,6 +165,14 @@ describe('colourToRgb', () => {
     expect(colourToRgb(Colour.Yellow)).toEqual({ r: 127, g: 127, b: 0 });
     expect(colourToRgb(Colour.White)).toEqual({ r: 127, g: 127, b: 127 });
     expect(colourToRgb(0x804002)).toEqual({ r: 64, g: 32, b: 1 });
+  });
+});
+
+describe('colourToHex / hexToColour', () => {
+  it('round-trips a colour input value', () => {
+    expect(colourToHex(0x0040ff)).toBe('#0040ff');
+    expect(hexToColour('#FF8000')).toBe(0xff8000);
+    expect(hexToColour('nope')).toBe(Colour.Off);
   });
 });
 

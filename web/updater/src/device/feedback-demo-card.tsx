@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ColorDot } from '@/components/ui/color-dot';
 import { Play, Square } from '@/components/ui/icons';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
-import { DEMO_EFFECTS, previewCss } from '../demo/effects.ts';
+import { colourToHex, DEMO_EFFECTS, hexToColour, previewCss } from '../demo/effects.ts';
 import type { SysexClient } from '../protocol/client.ts';
 import { hostDrives } from '../protocol/feedback.ts';
 import type { FeedbackController } from './use-feedback.ts';
@@ -63,7 +63,7 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
           {state.kind === 'ready' && hasTargets ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-3">
-                {/* On a narrow screen the five effects scroll sideways rather than run off the card. */}
+                {/* On a narrow screen the effects scroll sideways rather than run off the card. */}
                 <div className="min-w-0 max-w-full overflow-x-auto">
                   <SegmentedGroup aria-label="Effect" value={picked} onValueChange={pick}>
                     {DEMO_EFFECTS.map((e) => (
@@ -85,6 +85,17 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
                   ))}
                 </SegmentedGroup>
               </div>
+              {effect?.picksColour ? (
+                <label className="flex w-fit items-center gap-2 text-sm">
+                  Colour
+                  <input
+                    type="color"
+                    className="h-8 w-12 cursor-pointer rounded border border-foreground/20 bg-transparent"
+                    value={colourToHex(demo.colour)}
+                    onChange={(e) => demo.setColour(hexToColour(e.target.value))}
+                  />
+                </label>
+              ) : null}
               <p className="text-foreground/70 text-sm">{effect?.description}</p>
               <p className="text-foreground/60 text-xs">
                 {`${ledCount} LED${ledCount === 1 ? '' : 's'}`}

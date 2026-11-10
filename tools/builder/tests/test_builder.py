@@ -1219,6 +1219,35 @@ class TestValidation(unittest.TestCase):
         self.assertClean(t)
         self.assertError(t.replace("count: 32", "count: 33"), r"33 rows: at most 32")
 
+    def test_board_pins(self):
+        """#115: pins the board itself uses (Platform.board_pins)."""
+        def diags(base, extra, level):
+            return [d.msg for d in self.errs(base + extra, level=level)]
+        btn = "  - {{ id: x, pin: {pin}, action: cc_momentary, cc: 2 }}\n"
+        # STM32F1 (Code 61 board): USB pull-up and soft power are errors, whatever the use
+        for pin, what in (("PA8", "USB D\\+ pull-up"), ("PC13", "soft power button"), ("PC15", "power latch")):
+            self.assertError(STM32_BASE + btn.format(pin=pin), rf"{pin} is the board's {what}.*"
+                             r"board m-audio-code61: platform/stm32f1/boards/m-audio-code61\.h")
+            self.assertError(STM32_BASE + f"leds: [{{ id: l, pin: {pin} }}]\n", rf"{pin} is the board's")
+        # the recovery combo's pins: inputs (to GND) and outputs are the board's use, pull-downs warn
+        for pin in ("PB3", "PB7", "PB8", "PB9"):
+            self.assertEqual(diags(STM32_BASE, btn.format(pin=f"{{ number: {pin}, mode: INPUT_PULLUP }}"),
+                                   "warning"), [])
+            self.assertEqual(diags(STM32_BASE, f"leds: [{{ id: l, pin: {pin} }}]\n", "warning"), [])
+            w = diags(STM32_BASE, btn.format(pin=f"{{ number: {pin}, mode: INPUT_PULLDOWN }}"), "warning")
+            self.assertEqual(len(w), 1, w)
+            self.assertRegex(w[0], rf"^{pin} is (driven low|read) at reset by the recovery combo")
+        self.assertEqual(diags(STM32_BASE, btn.format(pin="{ number: PB10, mode: INPUT_PULLDOWN }"), "warning"), [])
+        # NUC (Keystation board): the bootloader combo's buttons are fine, a pot on them warns
+        self.assertEqual(diags(MINIMAL_NUC, btn.format(pin="PA5"), "warning"), [])
+        w = diags(MINIMAL_NUC, "analog: [{ id: k, pin: PA6, cc: 7 }]\n", "warning")
+        self.assertTrue(any(m.startswith("PA6 is read at reset by the bootloader (BOARD_BOOT_COMBO") for m in w), w)
+        # the table is data: every entry names its board's header
+        for plat in (gd.PLATFORMS["stm32f1"], gd.PLATFORMS["nuvoton-nuc1xx"]):
+            self.assertTrue(os.path.exists(os.path.join(REPO, "platform", plat.name, "boards", plat.board + ".h")))
+            for bp in plat.board_pins.values():
+                self.assertIn(bp.level, ("error", "warning"))
+
     def test_unknown_hub_key_in_pin(self):
         """#115: a pin naming a hub type gemifi lacks is reported once, not as an MCU pin too."""
         es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { ws2812: strip, number: 0 } }]\n")

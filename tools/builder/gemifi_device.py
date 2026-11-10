@@ -655,8 +655,25 @@ def _ranges(nums, fmt):
     return ", ".join(out)
 
 
+class BoardPin:
+    """A pin the board itself uses (Platform.board_pins). why: what for, as 'the ...' (the message is
+    '<pin> is <why>'). ok: the uses that match the board's, so they get no message: 'in', 'out',
+    'analog' ('in_pulldown' etc. with a pull-down). level: 'error' or 'warning' for any other use."""
+
+    def __init__(self, level, why, ok=()):
+        self.level, self.why, self.ok = level, why, frozenset(ok)
+
+
+def _board_pins(pins, level, why, ok=()):
+    return {n: BoardPin(level, why, ok) for n in pins}
+
+
 class Platform:
     name = ""
+    # The board the platform's firmware is built for (platform/<name>/boards/<board>.h) and the pins it
+    # uses itself: pin number -> BoardPin. One table per platform until board profiles (#116) hold it.
+    board = None
+    board_pins = {}
     native_usb = False
     transports = ("usb",)
     default_transport = "usb"
@@ -674,6 +691,15 @@ class Platform:
     def check(self, num, role, flags, transport):
         """-> list of (level, message) for using pin num as role ('in' | 'out' | 'analog')."""
         return []
+
+    def check_board(self, num, role, flags):
+        """-> list of (level, message) if the board uses pin num itself, other than as role."""
+        bp = self.board_pins.get(num)
+        use = role + ("_pulldown" if flags & PULLDOWN else "")
+        if bp is None or use in bp.ok:
+            return []
+        return [(bp.level, f"{self.pin_name(num)} is {bp.why} (board {self.board}: "
+                           f"platform/{self.name}/boards/{self.board}.h)")]
 
     def serial_tx(self, num):
         """-> None if num can be an rgb_serial tx_pin, else why not."""
@@ -717,6 +743,14 @@ class NucPlatform(Platform):
 
     def adc(self, num):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
+
+    # Keystation Mini 32 MK3: the bootloader reads Pitch down + Pitch up (PA5, PA6, active-low, external
+    # pull-ups) at reset (BOARD_BOOT_COMBO); the app drives no pins of its own. Buttons there (the
+    # Keystation's own) and outputs are fine; an analog input (a pot) can hold the pin low at power-up.
+    board = "keystation-mini32-mk3"
+    board_pins = _board_pins((5, 6), "warning", "read at reset by the bootloader (BOARD_BOOT_COMBO: PA5 and "
+                             "PA6 both low = update mode), so a pot turned down at power-up can start the "
+                             "bootloader", ok=("in", "out"))
 
 
 class Stm32F1Platform(Platform):
@@ -768,6 +802,26 @@ class Stm32F1Platform(Platform):
         if tx != 9 or rx not in (None, 10):
             return "din_midi on stm32f1 is USART1: tx_pin PA9, rx_pin PA10"
         return None
+
+    # M-Audio Code 61: PA8 switches the USB D+ pull-up (usbd.c), PC13 / PC15 are the soft power button
+    # and latch (startup.c, main.c): errors. The recovery combo (recovery.c), before any gemifi code
+    # runs, drives PB3-PB7 low and reads PB8 / PB9 (pulled up; both low = the bootloader). A plain
+    # input or an output there is fine (the Code 61's matrix row selects and columns are wired so);
+    # an input with a pull-down (a button to VCC) is what conflicts: a warning.
+    board = "m-audio-code61"
+    board_pins = {
+        8: BoardPin("error", "the board's USB D+ pull-up switch (BOARD_USB_PULLUP_PIN): the platform drives it"),
+        45: BoardPin("error", "the board's soft power button (BOARD_POWER_BTN_PIN): the firmware reads it "
+                              "(held 2 s = switch off)"),
+        47: BoardPin("error", "the board's power latch (BOARD_POWER_LATCH_PIN): the firmware drives it high "
+                              "to stay on"),
+        **_board_pins(range(19, 24), "warning", "driven low at reset by the recovery combo "
+                      "(BOARD_RECOVERY_DRIVE_MASK, PB3-PB7), so a button to VCC on it shorts the pin while "
+                      "held at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+        **_board_pins((24, 25), "warning", "read at reset by the recovery combo (BOARD_RECOVERY_MASK: PB8 "
+                      "and PB9 both low = the bootloader), so a button to VCC held low by a pull-down "
+                      "starts the bootloader at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+    }
 
 
 class EspPlatform(Platform):
@@ -1227,7 +1281,8 @@ class _V:
                                          f"({adc_text(self.plat)}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
-            for lvl, msg in self.plat.check(num, "in" if role == "common" else role, flags, self.transport):
+            r = "in" if role == "common" else role
+            for lvl, msg in self.plat.check(num, r, flags, self.transport) + self.plat.check_board(num, r, flags):
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
             self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)

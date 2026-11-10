@@ -76,6 +76,9 @@ const param_def_t *params_find(uint16_t id);
  * params_set refuses READ_ONLY params only when from_host is set. */
 int params_get(uint16_t id, uint16_t index, int32_t *out);
 int params_set(uint16_t id, uint16_t index, int32_t value, int from_host);
+/* Whether value is one p takes: in range, and for an enum an option this
+ * firmware has (SET_PARAM and SET_PARAMS check the same). */
+int params_value_ok(const param_def_t *p, int32_t value);
 
 /* Schema blob: total size, and a window of it (returns bytes copied). The
  * size is worked out once: call params_schema_measure() again if the table

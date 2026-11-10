@@ -236,6 +236,7 @@ static int coalesce(const uint8_t *m, uint32_t n)
 static void sysex_done(void)
 {
     sx_owner = SRC_NONE;
+    drain(1);                       /* the slots first, as outside a SysEx: an MSB before its LSB */
     for (uint32_t i = 0; i < pend_n; i++)
         put(pend[i] + 1, pend[i][0] & 3u, q_lim[pend[i][0] >> 2]);
     pend_n = 0;

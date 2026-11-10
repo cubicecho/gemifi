@@ -16,6 +16,7 @@
 #include <string.h>
 #include "gm_hal.h"
 #include "gm_controller.h"
+#include "gm_vpin.h"
 #include "gm_device.h"
 #include "gm_settings.h"
 #include "gm_presets.h"
@@ -306,6 +307,15 @@ int main(void)
     CHECK(!gm_adc_hw(), "off until the platform starts it");
     gm_adc_hw_started();
     CHECK(gm_adc_hw(), "on");
+    /* before the first sweep there is no reading yet, not a 0 (a wheel would
+     * take 0 as its rest and hold a bend) */
+    fader_mux[3] = 2000;
+    CHECK(vpin_analog(gm_device.analogs[0].pin) == -1, "no sweep yet: no reading (%d)",
+          (int)vpin_analog(gm_device.analogs[0].pin));
+    sweep();
+    CHECK(vpin_analog(gm_device.analogs[0].pin) == 2000, "after the first sweep: the reading (%d)",
+          (int)vpin_analog(gm_device.analogs[0].pin));
+    fader_mux[3] = 0;
     adc_reads = 0;
 #endif
     out_n = 0;

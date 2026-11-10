@@ -735,6 +735,57 @@ int main(void)
     CHECK(selects > 0 && selects <= 6 * 5, "one scan pass: %d select-line writes (at most 6 rows x 5)", selects);
 #endif
 
+    /* velocity.fast 34.2 ms and slow 34.3 ms fall in one log step: a key
+     * between them (34.25 ms) must not divide by zero (SIGFPE here, a
+     * fault on ESP) */
+    {
+        int32_t f0 = gm_cfg.vel_fast, s0 = gm_cfg.vel_slow;
+        gm_cfg.vel_fast = 342;
+        gm_cfg.vel_slow = 343;
+        press(0, 2, 34250);
+        CHECK(last_msg(0x90, &d1, &d2) && d2 >= 1 && d2 <= 127, "fast and slow one log step apart: velocity %d",
+              last_msg(0x90, &d1, &d2) ? d2 : -1);
+        release(0, 2);
+        gm_cfg.vel_fast = f0;
+        gm_cfg.vel_slow = s0;
+    }
+
+    /* The main loop stalls while all 8 keys go down and up 3 times: 48
+     * events, more than the queue holds (31). What doesn't fit is seen again
+     * by the next scans, so once the loop runs every note still gets its
+     * Note Off: none stays stuck. */
+    out_n = 0;
+    for (int round = 0; round < 3; round++) {
+        for (int down = 1; down >= 0; down--) {
+            for (int r = 0; r < 4; r++)
+                for (int c = 0; c < 4; c++)
+                    closed[r][c] = down;
+            ticks(2000u * 1000u / tick_ns);     /* 2 ms of scans, no main loop */
+        }
+    }
+    run_ms(30);
+    {
+        int sounding[128] = { 0 }, ons = 0, stuck = 0;
+        for (int i = 0; i + 2 < out_n; i++) {
+            if (out[i] == 0xF0) {
+                while (i < out_n && out[i] != 0xF7)
+                    i++;
+                continue;
+            }
+            if ((out[i] & 0xF0) == 0x90 && out[i + 2]) {
+                sounding[out[i + 1]] = 1;
+                ons++;
+                i += 2;
+            } else if ((out[i] & 0xF0) == 0x80 || ((out[i] & 0xF0) == 0x90 && !out[i + 2])) {
+                sounding[out[i + 1]] = 0;
+                i += 2;
+            }
+        }
+        for (int n = 0; n < 128; n++)
+            stuck += sounding[n];
+        CHECK(ons >= 8 && stuck == 0, "queue full while stalled: %d notes on, %d left sounding", ons, stuck);
+    }
+
     printf("%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

@@ -2464,22 +2464,20 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 #if GM_HOST_LEDS
 #define NL GM_ARR(GM_N_LEDS)
 #define HOST_NONE 0xFFu
-static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
-static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
-#if GM_HOST_FB
-static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout;
-                                       2 = its FB_LED_RGB black (leds_fade) */
-#endif
+/* Level the host set (LV_* bits and 0..7), HOST_NONE = none, with two bits
+ * no level uses: */
+#define HOST_HOLD 0x08u             /* set by a DAW script: no timeout       */
+#define HOST_BLACK 0x10u            /* ... its FB_LED_RGB black (leds_fade)  */
+#define HOST_LEVEL(h) ((h) & ~(HOST_HOLD | HOST_BLACK))
+static uint8_t led_host_lv[NL];
+static uint16_t led_host_t[NL];     /* when: hal_millis() / 10 (the timeouts' unit) */
 
 void gm_led_host(uint32_t led, uint32_t value)
 {
     if (led >= gm_device.n_leds)
         return;
     led_host_lv[led] = (uint8_t)(value == 0 ? 0 : value == 1 ? (LV_BLINK | 1u) : 1u);
-    led_host_t[led] = hal_millis();
-#if GM_HOST_FB
-    led_host_hold[led] = 0;
-#endif
+    led_host_t[led] = (uint16_t)(hal_millis() / 10u);
 }
 
 #if GM_HOST_FB
@@ -2490,9 +2488,8 @@ static int bicolour(uint32_t led)
 
 static void led_script_set(uint32_t led, uint32_t level)
 {
-    led_host_lv[led] = (uint8_t)level;
-    led_host_t[led] = hal_millis();
-    led_host_hold[led] = 1;
+    led_host_lv[led] = (uint8_t)(level | HOST_HOLD);
+    led_host_t[led] = (uint16_t)(hal_millis() / 10u);
 }
 
 /* FB_LED levels (sysex.md 4.6.2): 0 off, 1 blink, 2..127 on; on a bicolour
@@ -2534,9 +2531,8 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
     } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
-    led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
-    if (!lv)
-        led_host_hold[led] = 2;     /* black: a colour at brightness 0 */
+    /* black: a colour at brightness 0 */
+    led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv ? lv : HOST_BLACK);
 }
 #endif
 
@@ -2545,12 +2541,8 @@ void gm_host_release(uint32_t what)
     if (what == 0 || what == 3)
         gm_display_host_release();
     if (what == 0 || what == 1)
-        for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        for (uint32_t i = 0; i < gm_device.n_leds; i++)
             led_host_lv[i] = HOST_NONE;
-#if GM_HOST_FB
-            led_host_hold[i] = 0;
-#endif
-        }
 #if GM_N_ANALOGS > 0 && GM_ANALOG_PICKUP
     if (what == 0 || what == 2)
         for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
@@ -2559,10 +2551,13 @@ void gm_host_release(uint32_t what)
 }
 
 /* Who drives LED i (core/README.md "LED ownership"). local = the device's
- * own state for it (its button's); an LED no button uses has no local
- * state, so the host always drives it. */
-static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t now)
+ * own state for it (its button's), LOCAL_HAS set; an LED no button uses has
+ * no local state, so the host always drives it. now10 = hal_millis() / 10. */
+#define LOCAL_HAS 0x80u
+static uint32_t led_level(uint32_t i, uint32_t local, uint32_t now10)
 {
+    int has_local = (local & LOCAL_HAS) != 0;
+    local &= ~LOCAL_HAS;
 #if GM_LED_FB
     uint32_t owner = gm_led_fb[i].owner, timeout = gm_led_fb[i].timeout;
 #else
@@ -2572,14 +2567,12 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
     if (owner == GM_OWNER_LOCAL)
         return local;
     if (owner == GM_OWNER_HOST || !has_local)
-        return h == HOST_NONE ? 0 : h;
-#if GM_HOST_FB
-    if (led_host_hold[i])
+        return h == HOST_NONE ? 0 : HOST_LEVEL(h);
+    if (h & HOST_HOLD)
         timeout = GM_TIMEOUT_NEVER;         /* a DAW script's state stays until released */
-#endif
-    if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && now - led_host_t[i] >= timeout * 10u)
+    if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && (uint16_t)(now10 - led_host_t[i]) >= timeout)
         led_host_lv[i] = (uint8_t)(h = HOST_NONE);   /* host went quiet: local again */
-    return h == HOST_NONE ? local : h;
+    return h == HOST_NONE ? local : HOST_LEVEL(h);
 }
 #endif
 
@@ -2724,9 +2717,9 @@ void gm_layers_report(void)
  * leds_apply() then shows LED_STEP LEDs per main-loop pass, so no one pass
  * carries all of them. */
 #define LED_STEP 13u
-static uint8_t local[NL], has_local[NL];
+static uint8_t local[NL];           /* level, | LOCAL_HAS: a button or pad has it */
 static uint8_t led_next = 0xFFu;    /* next LED to show, 0xFF = none */
-static uint32_t led_now;
+static uint32_t led_now, led_now10;
 #endif
 
 /* Diagnostic LED walk (GM_LED_WALK_MS, e.g. `make LED_WALK=500`): one LED
@@ -2788,7 +2781,7 @@ static void leds_fade(void)
             v = r > g ? r : g;
             if (b > v)
                 v = b;
-        } else if (level == 0 && led_host_hold[i] == 2u && led_host_lv[i] == 0) {
+        } else if (level == 0 && led_host_lv[i] == (HOST_HOLD | HOST_BLACK)) {
             colour = 1;             /* a host's black: brightness 0, not its idle look */
             v = 0;
         } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
@@ -2823,7 +2816,7 @@ static void leds_update(uint32_t now)
 #endif
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
-        local[i] = has_local[i] = 0;
+        local[i] = 0;
 #endif
     for (uint32_t i = 0; i < gm_device.n_buttons; i++) {
         int8_t li = gm_device.buttons[i].led;
@@ -2859,8 +2852,7 @@ static void leds_update(uint32_t now)
         }
 #endif
 #if GM_HOST_LEDS
-        local[li] = (uint8_t)level;
-        has_local[li] = 1;
+        local[li] = (uint8_t)(level | LOCAL_HAS);
 #else
         led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
@@ -2883,8 +2875,7 @@ static void leds_update(uint32_t now)
         uint32_t level = PAD_OWNER(i) == owner && (pad_state[i] == PAD_ON ||
                          (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS));
 #if GM_HOST_LEDS
-        local[li] = (uint8_t)level;
-        has_local[li] = 1;
+        local[li] = (uint8_t)(level | LOCAL_HAS);
 #else
         led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
@@ -2905,6 +2896,7 @@ static void leds_update(uint32_t now)
 #if GM_HOST_LEDS
     (void)blink_on;                 /* leds_apply() works it out */
     led_now = now;
+    led_now10 = now / 10u;
     led_next = 0;
 #endif
 }
@@ -2919,7 +2911,7 @@ static int leds_apply(void)
     uint32_t now = led_now, end = led_next + LED_STEP;
     int blink_on = (now / 500u) & 1u;
     for (uint32_t i = led_next; i < end && i < gm_device.n_leds; i++)
-        led_set(i, MODE_LED(i, led_level(i, local[i], has_local[i], now), now), blink_on);
+        led_set(i, MODE_LED(i, led_level(i, local[i], led_now10), now), blink_on);
     led_next = end >= gm_device.n_leds ? 0xFFu : (uint8_t)end;
     return 1;
 #else

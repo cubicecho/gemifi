@@ -21,6 +21,7 @@
 #include "usb_midi.h"
 #include "gemifi_image.h"
 #include "gm_controller.h"
+#include "gm_hal.h"
 #include "gm_device.h"
 #include "gm_device_config.h"
 #include "app_proto.h"
@@ -105,12 +106,16 @@ _Static_assert(!GM_HW_SCAN || GM_SCAN_TICK_TIM != GM_HW_SCAN_TIM, "the scan tick
 _Static_assert(!GM_HW_ADC || GM_SCAN_TICK_TIM != GM_HW_ADC_TIM, "the scan tick has the analog scan's timer");
 static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
 /* Main loop passes, wall time in cycles (the scan interrupt included): the
- * slowest one, and how many took over 1 ms / 2 ms. USB is polled once per
- * pass, and the host allows ~2 ms after SET_ADDRESS. */
+ * slowest one, and how many took over 1 ms / 2 ms. USB itself runs from
+ * its interrupt; what the host sends is handled at the top of a pass and
+ * at gm_poll's hal_midi_poll points, and counts in the pass that handles
+ * it ("usb in longest": the slowest such packet, e.g. a schema window). */
 static uint32_t loop_max, loop_over1, loop_over2;
 static volatile uint8_t scan_slowed;
 /* hal.c: MIDI sends that waited over 100 us for the host, and the longest. */
 extern volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;
+/* hal.c: the longest handling of one USB OUT packet (host requests). */
+extern volatile uint32_t hal_midi_rx_max_us;
 static uint8_t hw_scan_failed;          /* hardware_scan.matrix given, but scan_dma refused the plan */
 static uint8_t hw_adc_failed;           /* hardware_scan.analog given, but adc_dma refused it */
 static uint32_t hw_scan_rows;
@@ -192,7 +197,8 @@ static void report_scan(void)
             fmt_num(b, ", led update ", gm_poll_part_max[5] / mhz, " us"));
     app_log(LOG_INFO, fmt_num(a, "poll led writes ", gm_poll_part_max[6] / mhz, " us"),
             fmt_num(b, ", midi out waits ", hal_midi_waits, ""));
-    app_log(LOG_INFO, fmt_num(a, "midi out longest wait ", hal_midi_wait_max_us, " us"), "");
+    app_log(LOG_INFO, fmt_num(a, "midi out longest wait ", hal_midi_wait_max_us, " us"),
+            fmt_num(b, ", usb in longest ", hal_midi_rx_max_us, " us"));
 #if GM_DIN
     {
         extern volatile uint32_t hal_din_overruns;
@@ -307,8 +313,7 @@ int main(void)
     uint32_t mhz = sys_hclk_hz / 1000000u, c_last = DWT_CYCCNT;
     for (;;) {
         sys_iwdg_kick();
-        usbd_poll();
-        midi_rx_drain(gm_midi_rx_usb);
+        hal_midi_poll();                    /* USB OUT in, queued IN out (also within gm_poll) */
         gm_poll();
         uint32_t c_now = DWT_CYCCNT, us = (c_now - c_last) / mhz;
         c_last = c_now;
@@ -335,7 +340,7 @@ int main(void)
                 gm_poll_part_max[i] = 0;
             scan_dma_isr_max_us = 0;        /* the hardware scans' too: steady state at 10 s */
             adc_dma_isr_max_us = 0;
-            hal_midi_waits = hal_midi_wait_max_us = 0;
+            hal_midi_waits = hal_midi_wait_max_us = hal_midi_rx_max_us = 0;
             c_last = DWT_CYCCNT;            /* the report's own sending isn't a pass */
         }
     }

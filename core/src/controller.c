@@ -86,7 +86,7 @@ static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any VPIN_SCAN_IO hub (74HC595/165): refresh in the tick */
 static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
 static uint8_t has_i2c_hubs;        /* any VPIN_BUS_IO hub (I2C): every I2C_MS */
-static uint8_t has_main_hubs;       /* any VPIN_MAIN hub (TM1628, RGB_SERIAL): vpin_poll every pass */
+static uint8_t has_main_hubs;       /* any VPIN_MAIN hub (TM1628, MAUDIO_PADS): vpin_poll every pass */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
@@ -396,7 +396,7 @@ static void layers_update(void);
 /* LED levels (see led_show below): LV_BLINK | level blinks it; LV_RGB | m
  * lights the pins in mask m (an RGB colour, or a cycle step's colour);
  * LV_RGB | LV_COLOUR | m shows led_colour[] (a DAW's colour, FB_LED_RGB) on
- * an LED that can show any colour (rgb_serial), else mask m. */
+ * an LED that can show any colour (maudio_pad_leds), else mask m. */
 #define LV_BLINK 0x80u
 #define LV_RGB 0x40u
 #define LV_COLOUR 0x20u
@@ -2489,7 +2489,7 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
     else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
         m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, look = 0);
     if (look >= 0 && l->rgb[look] && vpin_rgb(l->pin, l->rgb[look]))
-        return;                     /* a full-colour look (rgb_serial LEDs) */
+        return;                     /* a full-colour look (maudio_pad_leds LEDs) */
     led_pins(l, m);
 }
 
@@ -3785,7 +3785,7 @@ void gm_poll(void)
     /* The main-loop hubs: changed TM1628 bytes, a few per pass, and not on
      * the LED update's pass (busy), so the two never add up in one pass.
      * With fade: chips, not while a round is being shown either (leds_fade).
-     * The polls (RGB_SERIAL) run on every pass. */
+     * The polls (MAUDIO_PADS) run on every pass. */
 #if LEDS_FADE
     int round_open = led_next != 0xFFu;
 #else

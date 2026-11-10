@@ -139,7 +139,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("preset.bank", 41, PRESET, lambda d: 1 if d.n_presets > 1 and "program" in getattr(d, "msg", ()) else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
-# them out: the YAML's DMA users (hardware scans, rgb_serial, din_midi dma:) may not share one.
+# them out: the YAML's DMA users (hardware scans, maudio_pad_leds, din_midi dma:) may not share one.
 # Timer requests are TIMn_UP (update) and TIMn_CHk (compare k); TIM3_CH2 and TIM4_CH4 have none.
 STM32F1_DMA = {"ADC1": 1, "USART1_TX": 4, "USART1_RX": 5, "USART2_TX": 7,
                "TIM1_UP": 5, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM1_CH3": 6, "TIM1_CH4": 4,
@@ -330,6 +330,7 @@ COMP_STR_MAX = 31               # sysex.md lstring
 class HubType:
     key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })
     pin_key = None              # ... unless the pin key differs (mcp23017: mcp23xxx)
+    aliases = ()                # older names, still taken as the list key and the pin key
     enum = ""                   # gm_device.h GM_HUB_*
     num = 0                     # ... its value
     keys = ("id",)              # a hub's YAML keys
@@ -550,24 +551,26 @@ class TM1628(HubType):
                 f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
 
 
-# RGB LEDs behind a serial link (the M-Audio Code pad LED board): pin = LED * 3 + colour
-# (0 red, 1 green, 2 blue). Kept in the same RAM as the TM1628s, sent from the main loop.
-RGB_SERIAL_MAX = 32
+# The M-Audio Code pad LED board (maudio_pad_leds, formerly rgb_serial): RGB LEDs behind a serial
+# link, its own protocol (vpin.c). pin = LED * 3 + colour (0 red, 1 green, 2 blue). Kept in the hub
+# RAM, sent from the main loop.
+MAUDIO_PADS_MAX = 32
 
 
-class RgbSerial(HubType):
+class MaudioPadLeds(HubType):
     """The M-Audio Code pad LED board: RGB LEDs behind a serial link, pin = LED * 3 + colour."""
-    key, enum, num = "rgb_serial", "GM_HUB_RGB_SERIAL", 9
+    key, enum, num = "maudio_pad_leds", "GM_HUB_MAUDIO_PADS", 9
+    aliases = ("rgb_serial",)
     keys = ("id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white")
     lines = {"tx_pin": "uart_tx", "rx_pin": "uart_rx"}
     roles = frozenset({"out"})
     ram = True
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        if any(x.type == "rgb_serial" for x in dev.hubs if x is not hub):
+        if any(x.type == self.key for x in dev.hubs if x is not hub):
             # one LED board: its UART is fixed (USART2 on stm32f1)
-            v.err(p, line, "a second rgb_serial hub: the firmware drives one (one LED board)")
-        hub.chain = v.integer(h, "count", p, 1, RGB_SERIAL_MAX, default=16)
+            v.err(p, line, f"a second {self.key} hub: the firmware drives one (one LED board)")
+        hub.chain = v.integer(h, "count", p, 1, MAUDIO_PADS_MAX, default=16)
         hub.n_pins = 3 * hub.chain
         hub.ram_bytes = hub.n_pins                       # a byte per colour
         hub.gamma, hub.white = validate_rgb_calibration(v, h, p)
@@ -590,12 +593,12 @@ class RgbSerial(HubType):
         if hub.gamma == 1:
             return []
         t = rgb_curve(hub.gamma)
-        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} (rgb_serial gamma:) */",
+        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
                 f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
                 *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
 
     def c_fields(self, hub):
-        return [f"        .rgb = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
+        return [f"        .mpads = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
                 f".dma = {1 if hub.dma else 0},",
                 f"                 .white = {{ {', '.join(str(x) for x in hub.white)} }}, "
                 f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
@@ -631,11 +634,13 @@ HUB_DEFS = {t.key: t for t in (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), RgbSerial(), XYPad())}
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad())}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
+# older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
+HUB_ALIAS = {a: k for k, t in HUB_DEFS.items() for a in t.aliases}
 HUB_PIN_KEY = {k: t.pin_key or k for k, t in HUB_DEFS.items()}
-PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
+PIN_KEY_HUB = {**{k: t for t, k in HUB_PIN_KEY.items()}, **HUB_ALIAS}
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, I2CExpander)}
 SHIFT_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, ShiftRegister)}
@@ -654,7 +659,7 @@ CTRL_LINE = {k: kind for t in HUB_DEFS.values() for k, kind in t.lines.items()}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
-            "status_led", "feedback", "mcu", *HUB_TYPES,
+            "status_led", "feedback", "mcu", *HUB_TYPES, *HUB_ALIAS,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
             "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
@@ -989,12 +994,12 @@ class Platform:
                            f"platform/{self.name}/boards/{self.board}.h)")]
 
     def serial_tx(self, num):
-        """-> None if num can be an rgb_serial tx_pin, else why not."""
-        return f"rgb_serial isn't supported on {self.name} yet"
+        """-> None if num can be an maudio_pad_leds tx_pin, else why not."""
+        return f"maudio_pad_leds isn't supported on {self.name} yet"
 
     def serial_rx(self, tx, rx):
-        """-> None if rx can be the rgb_serial rx_pin that goes with tx_pin tx, else why not."""
-        return f"rgb_serial rx_pin isn't supported on {self.name} yet"
+        """-> None if rx can be the maudio_pad_leds rx_pin that goes with tx_pin tx, else why not."""
+        return f"maudio_pad_leds rx_pin isn't supported on {self.name} yet"
 
     def din_uart(self, tx, rx):
         """-> None if tx / rx (None: no MIDI In) can be the DIN MIDI UART, else why not."""
@@ -1079,11 +1084,11 @@ class Stm32F1Platform(Platform):
         return num in self.ADC, None
 
     def serial_tx(self, num):
-        """-> None if num can be an rgb_serial tx_pin, else why not."""
-        return None if num == 2 else "only PA2 (USART2 TX) is supported as an rgb_serial tx_pin on stm32f1"
+        """-> None if num can be an maudio_pad_leds tx_pin, else why not."""
+        return None if num == 2 else "only PA2 (USART2 TX) is supported as an maudio_pad_leds tx_pin on stm32f1"
 
     def serial_rx(self, tx, rx):
-        return None if tx == 2 and rx == 3 else "the rgb_serial rx_pin on stm32f1 is PA3 (USART2 RX, with tx_pin PA2)"
+        return None if tx == 2 and rx == 3 else "the maudio_pad_leds rx_pin on stm32f1 is PA3 (USART2 RX, with tx_pin PA2)"
 
     def din_uart(self, tx, rx):
         if tx != 9 or rx not in (None, 10):
@@ -1596,7 +1601,7 @@ class _V:
             hub = self.hub_by_id.get(hub_id)
             if hub is None:
                 return None
-        if HUB_PIN_KEY[hub.type] != hub_key:
+        if PIN_KEY_HUB[hub_key] != hub.type:
             self.err(path, line, f"hub '{hub.id}' is a {hub.type}: write `{HUB_PIN_KEY[hub.type]}: {hub.id}`, "
                                  f"not `{hub_key}: {hub.id}`")
             return None
@@ -1913,10 +1918,10 @@ def validate(data, file=None):
 
     # hubs (before anything that refers to them), in file order
     for key in data:
-        if key in HUB_ENUM:
+        if key in HUB_ENUM or key in HUB_ALIAS:
             lst = v.seq(data[key], key, data.line_of(key))
             for i, h in enumerate(lst):
-                validate_hub(v, dev, h, key, f"{key}[{i}]", lst.line_of(i))
+                validate_hub(v, dev, h, HUB_ALIAS.get(key, key), f"{key}[{i}]", lst.line_of(i))
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
     resolve_switch_matrices(v, dev)
@@ -2082,9 +2087,9 @@ def allocate_dma(v, dev, data):
         return
     serial = []                         # (user, path, line, requests, how to free it)
     for h in dev.hubs:
-        if h.type == "rgb_serial" and h.dma:
+        if h.type == "maudio_pad_leds" and h.dma:
             line = h.raw.line_of("dma") if "dma" in h.raw else h.line
-            serial.append((f"rgb_serial '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
+            serial.append((f"maudio_pad_leds '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
                            "set dma: false on it (interrupt-driven)"))
     if dev.din is not None and dev.din.dma:
         d = data["din_midi"]
@@ -2395,7 +2400,7 @@ LED_LOOKS = {
 }
 LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
 LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
-# Full-colour looks, for LEDs that can show any colour (an rgb_serial hub's): "#rrggbb", or an RGB look name
+# Full-colour looks, for LEDs that can show any colour (an maudio_pad_leds hub's): "#rrggbb", or an RGB look name
 # with a brightness, "blue 25%".
 RGB_LOOK_COLOURS = {"red": 0xFF0000, "green": 0x00FF00, "yellow": 0xFFFF00, "blue": 0x0000FF,
                     "magenta": 0xFF00FF, "cyan": 0x00FFFF, "white": 0xFFFFFF}
@@ -2423,20 +2428,20 @@ def colour_mask(c):
 
 
 def led_full_colour(dev, pin, pin2, pin3):
-    """The LED's pins are one rgb_serial LED (red, green, blue in a row): it can show any colour."""
+    """The LED's pins are one maudio_pad_leds LED (red, green, blue in a row): it can show any colour."""
     if pin in (None, NO_PIN) or pin.hub in (0, 0xFF) or pin.hub > len(dev.hubs):
         return False
-    return (dev.hubs[pin.hub - 1].type == "rgb_serial" and pin.num % 3 == 0 and
+    return (dev.hubs[pin.hub - 1].type == "maudio_pad_leds" and pin.num % 3 == 0 and
             pin2 is not None and pin2.hub == pin.hub and pin2.num == pin.num + 1 and
             pin3 is not None and pin3.hub == pin.hub and pin3.num == pin.num + 2)
 
 
 COLOUR_LOOK_NEEDS = ("needs an LED that can show any colour: an RGB LED whose pin, pin2 and pin3 are one "
-                     "rgb_serial LED (number LED * 3, + 1, + 2)")
+                     "maudio_pad_leds LED (number LED * 3, + 1, + 2)")
 
 
 def validate_rgb_calibration(v, h, p):
-    """rgb_serial gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (1..255 each, default 255s)."""
+    """maudio_pad_leds gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (1..255 each, default 255s)."""
     gamma = 1.0
     if h.get("gamma") is not None:
         g = h["gamma"]

@@ -4,7 +4,7 @@
  * the effects can be tested without a device.
  *
  * A colour is 8 bits a channel, as eyes see it (the firmware applies the LED's gamma). An LED that
- * can show any colour (an `rgb_serial` one, like the Code 61 pads) shows it as it is; an on/off
+ * can show any colour (a `maudio_pad_leds` one, like the Code 61 pads) shows it as it is; an on/off
  * RGB LED lights each channel that is at least half the brightest (`protocol/sysex.md` §4.6.2), so
  * a dim colour there is the same colour at full. The effects fade where they can and also light
  * fewer LEDs, so they look right either way. The LEDs are a strip in their component order; a

@@ -5,10 +5,10 @@
  * gm_hub_ops_t, in hub_ops[] at the bottom, one section per type above it.
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
- * TM1628 and RGB_SERIAL hubs keep their pins in the hub RAM (hub_ram,
+ * TM1628 and MAUDIO_PADS hubs keep their pins in the hub RAM (hub_ram,
  * GM_HUB_RAM bytes, each hub's back to back from s->ram), since a chip
- * has more than 32 bits: a TM1628's display RAM, an RGB_SERIAL hub's LEDs a
- * byte per colour (pin = LED * 3 + colour: a pin on is 255, off 0;
+ * has more than 32 bits: a TM1628's display RAM, the pad LED board's LEDs
+ * a byte per colour (pin = LED * 3 + colour: a pin on is 255, off 0;
  * vpin_rgb sets any colour).
  *
  * SPDX-License-Identifier: MIT
@@ -1504,7 +1504,7 @@ void vpin_fade_apply(void)
 }
 #endif
 
-/* ---- RGB_SERIAL hubs --------------------------------------------------- */
+/* ---- MAUDIO_PADS hubs (maudio_pad_leds:) --------------------------------------------------- */
 
 /* The M-Audio Code pad LED board (found in the Code 61 v1.2.2 app, 0x080115FC
  * and 0x08013C94): one LED per message, 02, 0x80 + LED, R, G, B, 03, with
@@ -1537,29 +1537,29 @@ void vpin_fade_apply(void)
 #define RGB_ACK_GIVE_UP_MS 3000u
 #define RGB_ACK 0x40u
 
-static void rgb_serial_init(const gm_hub_t *h, hub_state_t *s)
+static void mpads_init(const gm_hub_t *h, hub_state_t *s)
 {
     /* All off; every LED is sent once (ram_sent starts different). */
-    s->ram = ram_alloc(3u * h->rgb.count);
-    for (uint32_t k = 0; k < 3u * h->rgb.count && s->ram + k < GM_HUB_RAM; k++) {
+    s->ram = ram_alloc(3u * h->mpads.count);
+    for (uint32_t k = 0; k < 3u * h->mpads.count && s->ram + k < GM_HUB_RAM; k++) {
         hub_ram[s->ram + k] = 0;
         ram_sent[s->ram + k] = 0xFFu;
     }
-    if (h->rgb.tx.hub == 0)
-        (void)hal_serial_open(h->rgb.tx.num, 115200u, (h->rgb.dma ? HAL_UART_DMA : 0u) |
-                              (vpin_is_none(h->rgb.rx) ? 0u : HAL_UART_RX));
+    if (h->mpads.tx.hub == 0)
+        (void)hal_serial_open(h->mpads.tx.num, 115200u, (h->mpads.dma ? HAL_UART_DMA : 0u) |
+                              (vpin_is_none(h->mpads.rx) ? 0u : HAL_UART_RX));
 }
 
 /* Pin num = LED * 3 + colour: on is 255, off 0. */
-static void rgb_serial_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
+static void mpads_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
-    if (num < 3u * h->rgb.count && s->ram + num < GM_HUB_RAM)
+    if (num < 3u * h->mpads.count && s->ram + num < GM_HUB_RAM)
         hub_ram[s->ram + num] = level ? 0xFFu : 0u;
 }
 
-static int rgb_serial_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
+static int mpads_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
 {
-    if (num % 3u || num + 3u > 3u * h->rgb.count || s->ram + num + 3u > GM_HUB_RAM)
+    if (num % 3u || num + 3u > 3u * h->mpads.count || s->ram + num + 3u > GM_HUB_RAM)
         return 0;
     uint8_t *b = &hub_ram[s->ram + num];
     b[0] = (uint8_t)(rgb >> 16);
@@ -1581,9 +1581,9 @@ static int rgb_differs(const uint8_t *a, const uint8_t *b, uint32_t led)
  * value above 0 stays above 0. */
 static uint8_t rgb_out(const gm_hub_t *h, uint32_t c, uint32_t v)
 {
-    if (h->rgb.curve)
-        v = h->rgb.curve[v];
-    uint32_t w = h->rgb.white[c] ? h->rgb.white[c] : 255u;
+    if (h->mpads.curve)
+        v = h->mpads.curve[v];
+    uint32_t w = h->mpads.white[c] ? h->mpads.white[c] : 255u;
     if (w == 255u || !v)
         return (uint8_t)v;
     v = (v * w + 127u) / 255u;
@@ -1598,73 +1598,73 @@ static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
 }
 
 /* Send one changed LED (at most every RGB_GAP_MS) and the keepalive. */
-static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
+static void mpads_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
 {
-    if (h->rgb.tx.hub != 0 || s->ram + 3u * h->rgb.count > GM_HUB_RAM)
+    if (h->mpads.tx.hub != 0 || s->ram + 3u * h->mpads.count > GM_HUB_RAM)
         return;
-    uint16_t tx = h->rgb.tx.num;
+    uint16_t tx = h->mpads.tx.num;
     const uint8_t *ram = &hub_ram[s->ram];
     uint8_t *sent = &ram_sent[s->ram];
-    int use_acks = !vpin_is_none(h->rgb.rx) && s->u.rgb.acks != 2u;
+    int use_acks = !vpin_is_none(h->mpads.rx) && s->u.mpads.acks != 2u;
     int repaint = 0;
     if (use_acks) {
         for (int b; (b = hal_serial_read(tx)) >= 0;) {
             uint32_t led = (uint32_t)b - RGB_ACK;
-            if (led >= h->rgb.count)
+            if (led >= h->mpads.count)
                 continue;               /* not an answer */
-            if (!s->u.rgb.acks) {
-                s->u.rgb.acks = 1;
-                repaint = !s->u.rgb.repainted;   /* the board is up: everything again */
+            if (!s->u.mpads.acks) {
+                s->u.mpads.acks = 1;
+                repaint = !s->u.mpads.repainted;   /* the board is up: everything again */
             }
-            if (s->u.rgb.wait_led == led + 1u) {
-                s->u.rgb.wait_led = 0;
-                s->u.rgb.misses = 0;
+            if (s->u.mpads.wait_led == led + 1u) {
+                s->u.mpads.wait_led = 0;
+                s->u.mpads.misses = 0;
             }
         }
-        if (s->u.rgb.wait_led && now_ms - s->u.rgb.t_led >= RGB_ACK_MS) {
-            rgb_unsend(ram, sent, s->u.rgb.wait_led - 1u);     /* not answered: again */
-            s->u.rgb.wait_led = 0;
-            if (s->u.rgb.misses < 255u)
-                s->u.rgb.misses++;
+        if (s->u.mpads.wait_led && now_ms - s->u.mpads.t_led >= RGB_ACK_MS) {
+            rgb_unsend(ram, sent, s->u.mpads.wait_led - 1u);     /* not answered: again */
+            s->u.mpads.wait_led = 0;
+            if (s->u.mpads.misses < 255u)
+                s->u.mpads.misses++;
         }
-        if (!s->u.rgb.acks && now_ms >= RGB_ACK_GIVE_UP_MS) {
-            s->u.rgb.acks = 2;          /* never answered: as without rx_pin */
-            s->u.rgb.wait_led = 0;
-            s->u.rgb.misses = 0;
+        if (!s->u.mpads.acks && now_ms >= RGB_ACK_GIVE_UP_MS) {
+            s->u.mpads.acks = 2;          /* never answered: as without rx_pin */
+            s->u.mpads.wait_led = 0;
+            s->u.mpads.misses = 0;
             use_acks = 0;
         }
     }
-    if (!s->u.rgb.repainted && (repaint || (!use_acks && now_ms >= RGB_REPAINT_MS))) {
-        for (uint32_t k = 0; k < 3u * h->rgb.count; k++)
+    if (!s->u.mpads.repainted && (repaint || (!use_acks && now_ms >= RGB_REPAINT_MS))) {
+        for (uint32_t k = 0; k < 3u * h->mpads.count; k++)
             sent[k] = (uint8_t)~ram[k];     /* every LED differs: all sent again */
-        s->u.rgb.repainted = 1;
+        s->u.mpads.repainted = 1;
     }
-    if (now_ms - s->u.rgb.t_any < RGB_GAP_MS)
+    if (now_ms - s->u.mpads.t_any < RGB_GAP_MS)
         return;
-    if (now_ms - s->u.rgb.t_ka >= RGB_KEEPALIVE_MS) {
+    if (now_ms - s->u.mpads.t_ka >= RGB_KEEPALIVE_MS) {
         static const uint8_t ka = 0xA5u;
         if (hal_serial_write(tx, &ka, 1))
-            s->u.rgb.t_ka = s->u.rgb.t_any = now_ms;
+            s->u.mpads.t_ka = s->u.mpads.t_any = now_ms;
         return;
     }
-    if (use_acks && s->u.rgb.wait_led)
+    if (use_acks && s->u.mpads.wait_led)
         return;                         /* the last LED isn't answered yet */
-    if (use_acks && s->u.rgb.misses) {
-        uint32_t pause = RGB_RETRY_MS * s->u.rgb.misses;
-        if (now_ms - s->u.rgb.t_led < (pause < RGB_RETRY_MAX_MS ? pause : RGB_RETRY_MAX_MS))
+    if (use_acks && s->u.mpads.misses) {
+        uint32_t pause = RGB_RETRY_MS * s->u.mpads.misses;
+        if (now_ms - s->u.mpads.t_led < (pause < RGB_RETRY_MAX_MS ? pause : RGB_RETRY_MAX_MS))
             return;
     }
     /* The next changed LED after the last one sent, so one busy LED can't
      * starve the others. */
-    uint32_t todo = h->rgb.count;       /* an LED to send, count = none */
-    for (uint32_t k = 0; k < h->rgb.count; k++) {
-        uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->rgb.count;
+    uint32_t todo = h->mpads.count;       /* an LED to send, count = none */
+    for (uint32_t k = 0; k < h->mpads.count; k++) {
+        uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->mpads.count;
         if (rgb_differs(ram, sent, led)) {
             todo = led;
             break;
         }
     }
-    if (todo == h->rgb.count)
+    if (todo == h->mpads.count)
         return;
     const uint8_t *v = &ram[todo * 3u];
     uint8_t msg[6] = { 0x02u, (uint8_t)(0x80u + todo), rgb_out(h, 0, v[0]),
@@ -1673,9 +1673,9 @@ static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
         for (uint32_t c = 0; c < 3u; c++)
             sent[todo * 3u + c] = v[c];
         s->channel = (int8_t)todo;
-        s->u.rgb.t_any = s->u.rgb.t_led = now_ms;
+        s->u.mpads.t_any = s->u.mpads.t_led = now_ms;
         if (use_acks)
-            s->u.rgb.wait_led = (uint8_t)(todo + 1u);
+            s->u.mpads.wait_led = (uint8_t)(todo + 1u);
     }
 }
 #else
@@ -1806,9 +1806,9 @@ static const gm_hub_ops_t swmatrix_ops = {
 static const gm_hub_ops_t tm1628_ops = {
     .flags = GM_HUBF_NO_READ, .init = tm1628_init, .write = tm1628_write, .send = tm1628_send,
 };
-static const gm_hub_ops_t rgb_serial_ops = {
-    .flags = GM_HUBF_NO_READ, .init = rgb_serial_init, .write = rgb_serial_write, .rgb = rgb_serial_rgb,
-    .poll = rgb_serial_poll,
+static const gm_hub_ops_t mpads_ops = {
+    .flags = GM_HUBF_NO_READ, .init = mpads_init, .write = mpads_write, .rgb = mpads_rgb,
+    .poll = mpads_poll,
 };
 #endif
 static const gm_hub_ops_t xy_ops = {
@@ -1827,7 +1827,7 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_TM1628, tm1628_ops),
-    HUB(GM_HUB_RGB_SERIAL, rgb_serial_ops),
+    HUB(GM_HUB_MAUDIO_PADS, mpads_ops),
 #endif
     HUB(GM_HUB_XY, xy_ops),
 };

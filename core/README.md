@@ -49,7 +49,7 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`). ESP only for now, as `mcp23017` | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
+| `maudio_pad_leds` (was `rgb_serial`, still taken) | `GM_HUB_MAUDIO_PADS` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). The M-Audio Code pad LED board; see "M-Audio pad LEDs" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
@@ -84,10 +84,10 @@ Each hub type is a driver in `src/vpin.c` behind one interface, `gm_hub_ops_t` (
 | `input`, `output` | `vpin_input`, `vpin_output` | start-up: a pin is read / driven (I2C: direction and pull-up bits) |
 | `read`, `write` | `vpin_read`, `vpin_write` | anywhere. Without them: the cached `in` / `out` words |
 | `analog` | `vpin_analog` | the main loop: 0..4095 on a channel (mux, XY pad) |
-| `rgb` | `vpin_rgb` | a whole colour on an LED (rgb_serial); a hub with it can show full-colour looks |
+| `rgb` | `vpin_rgb` | a whole colour on an LED (maudio_pad_leds); a hub with it can show full-colour looks |
 | `refresh`, `flush` | `vpin_refresh` / `vpin_flush` in the scan tick (HC165 / HC595), or with `GM_HUBF_BUS` `vpin_refresh_i2c` / `vpin_flush_i2c` from the main loop (I2C) | inputs into `in`; `out` to the chip if it changed |
 | `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
-| `poll` | `vpin_poll` every main-loop pass | protocol timing (rgb_serial: one LED per 5 ms, the keepalive, acks) |
+| `poll` | `vpin_poll` every main-loop pass | protocol timing (maudio_pad_leds: one LED per 5 ms, the keepalive, acks) |
 
 `flags` say what else the core needs to know: `GM_HUBF_IN_REG` (`in` holds the pins' levels, so a key scan can read a column with one load), `GM_HUBF_NO_READ` (outputs only), `GM_HUBF_BUS`, `GM_HUBF_SELECT` (decoder outputs: "off" does nothing), `GM_HUBF_MATRIX`. The controller asks `vpin_caps()` / `vpin_pin_caps(pin)` (`VPIN_SCAN_IO`, `VPIN_BUS_IO`, `VPIN_MAIN`, `VPIN_MATRIX`, `VPIN_RGB`) which loops to run and what a pin can do, instead of looking at hub types.
 
@@ -140,19 +140,19 @@ leds:
 
 Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
 
-### RGB serial LEDs
+### M-Audio pad LEDs
 
-Some boards drive their RGB LEDs from a second small controller over a serial line. The one supported is the M-Audio Code pad LED board (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
+`maudio_pad_leds` (called `rgb_serial` before; that name still works, as the list key and the pin key, and builds the same firmware) is the M-Audio Code pad LED board: a small controller that drives the pads' RGB LEDs and takes their colours over a serial line, in its own protocol (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
 
 At power-on the board isn't listening for the first ~220 ms, so the first colours are lost. Without `rx_pin`, every LED is sent once more 2 s after start; after that an LED goes out only when it changes. Don't resend LEDs on a timer: resending one every 50 ms left the Code 61's board deaf after a cold start.
 
 With `rx_pin`, the core listens to the board, which answers each LED message with `0x40 + LED` (the keepalive gets no answer). An LED counts as shown only once answered. Without an answer in 20 ms it goes out again, after a pause that grows with each miss in a row (50 ms, 100 ms, ... up to 500 ms), so a board that is still starting gets little traffic. The first answer means the board is up, and every LED is sent again then instead of at 2 s. If nothing answers in the first 3 s, the hub works as without `rx_pin`.
 
 ```yaml
-rgb_serial:
+maudio_pad_leds:
   - { id: pad_leds, tx_pin: PA2, rx_pin: PA3, count: 16, gamma: 2.2, white: [255, 200, 220] }   # dma: false sends from the interrupt ("DMA channels")
 leds:
-  - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
+  - { id: pad_1_led, pin: { maudio_pad_leds: pad_leds, number: 36 }, pin2: { maudio_pad_leds: pad_leds, number: 37 }, pin3: { maudio_pad_leds: pad_leds, number: 38 } }
 pads:
   - { id: pad_1, pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36, led: pad_1_led }   # lit while held
 ```
@@ -394,7 +394,7 @@ The STM32F103 has 7 DMA channels, and each peripheral's DMA request is wired to 
 |---|---|---|
 | `hardware_scan.matrix` | 2 of one timer (select, read); with `precharge` 4 (+ columns in, precharge) | the scan interrupt reads the matrix |
 | `hardware_scan.analog` | ADC1 (channel 1) + 1 of one timer (mux step) | the main loop reads one input per pass |
-| `rgb_serial` (`dma: true`, the default) | USART2_TX (7) | `dma: false`: the USART2 interrupt sends the bytes |
+| `maudio_pad_leds` (`dma: true`, the default) | USART2_TX (7) | `dma: false`: the USART2 interrupt sends the bytes |
 | `din_midi` (`dma: false`, the default) | `dma: true`: USART1_TX (4), USART1_RX (5) | the USART1 interrupt moves the bytes |
 
 The UARTs' channels are fixed. The scans' depend on the timer that paces them, since each timer's update and compare events are wired to their own channels:
@@ -408,14 +408,14 @@ The UARTs' channels are fixed. The scans' depend on the timer that paces them, s
 
 `timer: auto` (the default) tries the matrix on TIM1, TIM3, TIM4, TIM2 and the analog scan on TIM4, TIM3, TIM2, taking the first that leaves the UARTs' channels free. For the Code 61 that is the original map: matrix on TIM1 (select = update, ch5; columns in = CC1, ch2; read = CC2, ch3; precharge = CC3, ch6), analog on TIM4 (mux = CC2, ch4; ADC1 by CC4). Only the select may be the update event; when it is a compare instead, every step of the row comes one timer tick (14 ns) later, which changes nothing else. `timer: tim3` (etc.) fixes the timer, and auto still picks its compares. TIM2 is also the core's scan tick (an interrupt, no DMA): when a scan takes it, the tick moves to TIM3 or TIM4.
 
-When nothing fits, the build stops. The message names both users and says what would fit: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false (...), or turn hardware_scan.analog off; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels instead of 4, and that fits`. An explicit timer that can't run its scan is an error on its `timer:` line, with the timer's requests. The build output and the top of `gm_device_config.h` show the map and the timers, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ... 7 USART2_TX (rgb_serial 'pad_leds'); free: none` and `timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)`.
+When nothing fits, the build stops. The message names both users and says what would fit: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false (...), or turn hardware_scan.analog off; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels instead of 4, and that fits`. An explicit timer that can't run its scan is an error on its `timer:` line, with the timer's requests. The build output and the top of `gm_device_config.h` show the map and the timers, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ... 7 USART2_TX (maudio_pad_leds 'pad_leds'); free: none` and `timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)`.
 
 What fits on the Code 61 (ADC1, the mux step and the matrix leave 7 − 2 − 4 = 1 channel with precharge, 3 without):
 
 | Matrix | Fits with it |
 |---|---|
-| precharge (36 us frames) | `rgb_serial` DMA (the default), DIN by interrupt |
-| no precharge (`row_time: 3.5us, settle: 3us`: 84 us frames) | `rgb_serial` DMA and `din_midi dma: true`: matrix on TIM1 (select CC1 = ch2, read CC2 = ch3), analog on TIM3 (mux CC1 = ch6, ADC1 by TRGO), DIN on 4 and 5 |
+| precharge (36 us frames) | `maudio_pad_leds` DMA (the default), DIN by interrupt |
+| no precharge (`row_time: 3.5us, settle: 3us`: 84 us frames) | `maudio_pad_leds` DMA and `din_midi dma: true`: matrix on TIM1 (select CC1 = ch2, read CC2 = ch3), analog on TIM3 (mux CC1 = ch6, ADC1 by TRGO), DIN on 4 and 5 |
 
 The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and the interrupt for it takes about a microsecond. Spend the channels on the scans, and use DMA for the UARTs on boards that don't scan by hardware.
 

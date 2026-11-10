@@ -388,7 +388,7 @@ const hal_fw_ops_t *hal_fw_ops(void)
     return 0;                       /* the bootloader takes uploads */
 }
 
-/* rgb_serial (core/README.md): USART2 TX on PA2, in the background so the
+/* maudio_pad_leds (core/README.md): USART2 TX on PA2, in the background so the
  * main loop never waits on it: by DMA1 channel 7 (HAL_UART_DMA, the
  * default), or from the USART2 interrupt, which frees the channel. */
 #define SERIAL_TX_PIN 2u                    /* PA2 */

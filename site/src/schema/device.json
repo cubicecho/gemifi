@@ -863,7 +863,7 @@
         }
       ]
     },
-    "rgb_serial": {
+    "maudio_pad_leds": {
       "anyOf": [
         {
           "type": "array",
@@ -905,7 +905,7 @@
             },
             "additionalProperties": false
           },
-          "description": "rgb_serial hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "maudio_pad_leds hubs (core/README.md \"Virtual pins and hubs\")"
         },
         {
           "type": "string",
@@ -963,6 +963,56 @@
             "additionalProperties": false
           },
           "description": "xy_pad hubs (core/README.md \"Virtual pins and hubs\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
+    "rgb_serial": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "tx_pin": {
+                "$ref": "#/definitions/pin"
+              },
+              "rx_pin": {
+                "$ref": "#/definitions/pin"
+              },
+              "count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "dma": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "gamma": {},
+              "white": {}
+            },
+            "additionalProperties": false
+          },
+          "description": "rgb_serial: the old name of maudio_pad_leds (core/README.md \"Virtual pins and hubs\")"
         },
         {
           "type": "string",
@@ -3783,11 +3833,15 @@
               "type": "string",
               "description": "the id of another component"
             },
-            "rgb_serial": {
+            "maudio_pad_leds": {
               "type": "string",
               "description": "the id of another component"
             },
             "xy_pad": {
+              "type": "string",
+              "description": "the id of another component"
+            },
+            "rgb_serial": {
               "type": "string",
               "description": "the id of another component"
             }

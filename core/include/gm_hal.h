@@ -74,10 +74,10 @@ void hal_midi_flush(uint32_t timeout_ms);
 void hal_midi_send_usb(const uint8_t ev[4]);
 
 /* hal_din_open / hal_serial_open flags: move the bytes by DMA rather than
- * from an interrupt (din_midi dma:, rgb_serial dma:; the builder checks the
+ * from an interrupt (din_midi dma:, maudio_pad_leds dma:; the builder checks the
  * channels are free). Platforms without DMA ignore it. */
 #define HAL_UART_DMA 1u
-/* hal_serial_open: also receive, on the pin paired with tx_pin (rgb_serial
+/* hal_serial_open: also receive, on the pin paired with tx_pin (maudio_pad_leds
  * rx_pin:), for hal_serial_read. */
 #define HAL_UART_RX 2u
 
@@ -123,7 +123,7 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
-/* A serial port on tx_pin (8N1), for rgb_serial hubs.
+/* A serial port on tx_pin (8N1), for maudio_pad_leds hubs.
  * hal_serial_open sets it up, by DMA or interrupt per HAL_UART_DMA in flags
  * (0 if tx_pin can't be one), receiving too with HAL_UART_RX; hal_serial_write
  * starts sending n <= 16 bytes in the background, copied, and returns 0

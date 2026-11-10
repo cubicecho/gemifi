@@ -302,35 +302,35 @@ class TestValidation(unittest.TestCase):
                          r"sn74hc595, which can't be an input")
         self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
-    def test_rgb_serial(self):
+    def test_maudio_pad_leds(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 
         def dev(hub="tx_pin: PA2, count: 4", leds=""):
-            return (stm + f"rgb_serial:\n  - {{ id: p, {hub} }}\n"
-                    "leds:\n  - { id: l0, pin: { rgb_serial: p, number: 0 }, pin2: { rgb_serial: p, number: 1 }, "
-                    "pin3: { rgb_serial: p, number: 2 } }\n" + leds)
+            return (stm + f"maudio_pad_leds:\n  - {{ id: p, {hub} }}\n"
+                    "leds:\n  - { id: l0, pin: { maudio_pad_leds: p, number: 0 }, pin2: { maudio_pad_leds: p, number: 1 }, "
+                    "pin3: { maudio_pad_leds: p, number: 2 } }\n" + leds)
 
         self.assertClean(dev())
         # pin = LED * 3 + colour, up to count * 3 - 1
-        self.assertClean(dev(leds="  - { id: l1, pin: { rgb_serial: p, number: 11 } }\n"))
-        self.assertError(dev(leds="  - { id: l1, pin: { rgb_serial: p, number: 12 } }\n"),
-                         r"pin 12 is out of range for hub 'p' \(rgb_serial \(4 LEDs x 3; pin = LED \* 3 \+ colour")
+        self.assertClean(dev(leds="  - { id: l1, pin: { maudio_pad_leds: p, number: 11 } }\n"))
+        self.assertError(dev(leds="  - { id: l1, pin: { maudio_pad_leds: p, number: 12 } }\n"),
+                         r"pin 12 is out of range for hub 'p' \(maudio_pad_leds \(4 LEDs x 3; pin = LED \* 3 \+ colour")
         self.assertError(dev(hub="tx_pin: PA2, count: 33"), r"33 is out of range \(1\.\.32\)")
         self.assertError(dev(hub="tx_pin: PA3"), r"only PA2 \(USART2 TX\) is supported")
-        self.assertError(dev(hub="count: 4"), r"is required", path="rgb_serial[0].tx_pin")
-        self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
-                         r"rgb_serial, which can't be an input")
-        self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
-        # one board: vpin_poll_rgb_serial's state isn't per hub
-        self.assertError(stm + "rgb_serial:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
+        self.assertError(dev(hub="count: 4"), r"is required", path="maudio_pad_leds[0].tx_pin")
+        self.assertError(dev().replace("pin: PA1", "pin: { maudio_pad_leds: p, number: 5 }"),
+                         r"maudio_pad_leds, which can't be an input")
+        self.assertError(MINIMAL_NUC + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
+        # one board: vpin_poll_maudio_pad_leds's state isn't per hub
+        self.assertError(stm + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
                          "  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
-                         r"a second rgb_serial hub", path="rgb_serial[1]")
+                         r"a second maudio_pad_leds hub", path="maudio_pad_leds[1]")
         # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
         self.assertIn("#define GM_HUB_RAM 48 ", files["gm_device_config.h"])
-        self.assertIn(".type = GM_HUB_RGB_SERIAL, .rgb = {", files["gm_device_config.c"])
+        self.assertIn(".type = GM_HUB_MAUDIO_PADS, .mpads = {", files["gm_device_config.c"])
         self.assertIn(".count = 16, .dma = 1,", files["gm_device_config.c"])
         self.assertIn(".white = { 255, 255, 255 }, .curve = 0 }", files["gm_device_config.c"])
         self.assertIn("{ 0, 0 } }, /* l0", files["gm_device_config.c"])         # no full-colour looks
@@ -338,25 +338,49 @@ class TestValidation(unittest.TestCase):
         # rx_pin: the board's answers, on USART2 RX (PA3) only
         self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA4, count: 4"), r"rx_pin on stm32f1 is PA3",
-                         path="rgb_serial[0].rx_pin")
+                         path="maudio_pad_leds[0].rx_pin")
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA1, count: 4"), r"PA1")     # PA1 is the test's analog
         dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         self.assertIn(".rx = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
-    def test_rgb_serial_colours(self):
+    def test_maudio_pad_leds_alias(self):
+        """rgb_serial, its old name, still works as the list key and the pin key; the generated C is the
+        same (only the hub's comment names the type)."""
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(key, pin_key):
+            return (stm + f"{key}:\n  - {{ id: p, tx_pin: PA2, count: 4, gamma: 2.2 }}\n"
+                    f"leds:\n  - {{ id: l0, pin: {{ {pin_key}: p, number: 0 }}, pin2: {{ {pin_key}: p, number: 1 }}, "
+                    f"pin3: {{ {pin_key}: p, number: 2 }}, idle: blue 20% }}\n")
+
+        out = []
+        for key, pin_key in (("maudio_pad_leds", "maudio_pad_leds"), ("rgb_serial", "rgb_serial"),
+                             ("rgb_serial", "maudio_pad_leds"), ("maudio_pad_leds", "rgb_serial")):
+            self.assertClean(dev(key, pin_key))
+            dev_, diags = load(dev(key, pin_key))
+            out.append(gd.generate(dev_, "t.yaml")["gm_device_config.c"])
+        self.assertTrue(all(c == out[0] for c in out))
+        # a wrong pin key still names the right one
+        self.assertError(dev("rgb_serial", "tm1628"), r"hub 'p' is a maudio_pad_leds: write `maudio_pad_leds: p`")
+        # one board, whichever name
+        self.assertError(stm + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
+                         "rgb_serial:\n  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
+                         r"a second maudio_pad_leds hub", path="rgb_serial[0]")
+
+    def test_maudio_pad_leds_colours(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 
         def dev(hub="", look="", pins=(0, 1, 2)):
             a, b, c = pins
-            return (stm + f"rgb_serial:\n  - {{ id: p, tx_pin: PA2, count: 4{hub} }}\n"
-                    f"leds:\n  - {{ id: l0, pin: {{ rgb_serial: p, number: {a} }}, "
-                    f"pin2: {{ rgb_serial: p, number: {b} }}, pin3: {{ rgb_serial: p, number: {c} }}{look} }}\n")
+            return (stm + f"maudio_pad_leds:\n  - {{ id: p, tx_pin: PA2, count: 4{hub} }}\n"
+                    f"leds:\n  - {{ id: l0, pin: {{ maudio_pad_leds: p, number: {a} }}, "
+                    f"pin2: {{ maudio_pad_leds: p, number: {b} }}, pin3: {{ maudio_pad_leds: p, number: {c} }}{look} }}\n")
 
         # gamma: and white: (the calibration)
         self.assertClean(dev(", gamma: 2.2, white: [255, 200, 220]"))
-        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="rgb_serial[0].gamma")
-        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="rgb_serial[0].white")
+        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="maudio_pad_leds[0].gamma")
+        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="maudio_pad_leds[0].white")
         self.assertError(dev(", white: [255, 0, 220]"), r"each 1\.\.255")
         dev_, diags = load(dev(", gamma: 2.2, white: [255, 200, 220]"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
@@ -366,7 +390,7 @@ class TestValidation(unittest.TestCase):
         curve = gd.rgb_curve(2.2)
         self.assertEqual((curve[0], curve[1], curve[255]), (0, 1, 255))     # above 0 stays above 0
         self.assertEqual(curve[128], 56)                                      # half as seen: about 22%
-        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one rgb_serial LED
+        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one maudio_pad_leds LED
         self.assertClean(dev(look=', idle: "#000030", active: white'))
         self.assertClean(dev(look=", idle: blue 20%", pins=(3, 4, 5)))
         dev_, diags = load(dev(look=', idle: "#102030", active: red 50%'))
@@ -426,7 +450,7 @@ class TestValidation(unittest.TestCase):
                                      (4, "TIM4_CH2", "hardware_scan.analog mux step"),
                                      (5, "TIM1_UP", "hardware_scan.matrix select"),
                                      (6, "TIM1_CH3", "hardware_scan.matrix precharge"),
-                                     (7, "USART2_TX", "rgb_serial 'pad_leds'")])
+                                     (7, "USART2_TX", "maudio_pad_leds 'pad_leds'")])
         self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 0, "in": 1, "rd": 2, "pre": 3}),
                                          "analog": (4, {"mux": 2}), "tick": 2})
         self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: none")
@@ -482,7 +506,7 @@ class TestValidation(unittest.TestCase):
                                      (3, "TIM1_CH2", "hardware_scan.matrix read"),
                                      (4, "USART1_TX", "din_midi"), (5, "USART1_RX", "din_midi"),
                                      (6, "TIM3_CH1", "hardware_scan.analog mux step"),
-                                     (7, "USART2_TX", "rgb_serial 'pad_leds'")])
+                                     (7, "USART2_TX", "maudio_pad_leds 'pad_leds'")])
         self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 1, "rd": 2}), "analog": (3, {"mux": 1}),
                                          "tick": 2})
         h = gd.generate(d, "t.yaml")["gm_device_config.h"]
@@ -3305,7 +3329,7 @@ class TestDashboard(unittest.TestCase):
         self.assertTrue(j["ok"], j["diags"])
         self.assertEqual([c["channel"] for c in j["dma"]["channels"]], [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(j["dma"]["free"], [])
-        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "rgb_serial 'pad_leds'"}, j["dma"]["channels"])
+        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "maudio_pad_leds 'pad_leds'"}, j["dma"]["channels"])
         self.assertEqual(j["din_midi"], {"mode": "usb_merge", "midi_in": True, "thru": False,
                                          "controller_out": True, "usb_to_din": True, "dma": False})
         self.assertEqual(j["midi_ports"], [])                     # usb_merge: the main port only

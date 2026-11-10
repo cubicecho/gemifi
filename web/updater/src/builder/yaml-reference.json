@@ -32,13 +32,13 @@
       "title": "DMA switches (stm32f1)",
       "summary": "The STM32F103 has 7 DMA channels and each peripheral request is wired to one of them. The builder gives each DMA user its channels and stops the build on a clash, naming both users.",
       "notes": [
-        "rgb_serial dma: true (the default) sends the LED bytes by DMA1 channel 7 (USART2_TX); dma: false sends them from the USART2 interrupt.",
+        "maudio_pad_leds dma: true (the default) sends the LED bytes by DMA1 channel 7 (USART2_TX); dma: false sends them from the USART2 interrupt.",
         "din_midi dma: false (the default) is interrupt-driven; dma: true needs channels 4 (USART1_TX) and 5 (USART1_RX).",
         "hardware_scan claims its channels first, so a clash is reported on the dma: switch. Validate shows the resulting DMA1 channel map; the build log prints it too.",
         "At 31250 baud a DIN byte takes 320 us and its interrupt about 1 us: spend the channels on the scans."
       ],
       "params": [],
-      "yaml": "rgb_serial:\n  - id: pad_leds\n    tx_pin: PA2\n    count: 16\n    dma: true                  # the default; false: interrupt-driven\nleds:\n  - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 } }\n"
+      "yaml": "maudio_pad_leds:\n  - id: pad_leds\n    tx_pin: PA2\n    count: 16\n    dma: true                  # the default; false: interrupt-driven\nleds:\n  - { id: pad_1_led, pin: { maudio_pad_leds: pad_leds, number: 0 }, pin2: { maudio_pad_leds: pad_leds, number: 1 }, pin3: { maudio_pad_leds: pad_leds, number: 2 } }\n"
     },
     {
       "id": "analog_modes",

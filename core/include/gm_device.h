@@ -55,10 +55,11 @@ enum {
     GM_HUB_DECODER = 6,   /* 74HC138-style one-of-N select (.dec)         */
     GM_HUB_TM1628 = 7,    /* TM1628-class LED driver (.tm)                */
     GM_HUB_SWMATRIX = 8,  /* switch matrix, scanned by the scan tick (.sm) */
-    GM_HUB_RGB_SERIAL = 9, /* the M-Audio Code pad LED board (.rgb)       */
+    GM_HUB_MAUDIO_PADS = 9, /* the M-Audio Code pad LED board (.mpads)    */
     GM_HUB_XY = 10,       /* 4-wire resistive XY pad (.xy)                */
     GM_HUB_N_TYPES        /* (one more than the last)                     */
 };
+#define GM_HUB_RGB_SERIAL GM_HUB_MAUDIO_PADS     /* its old name */
 
 /* .sr: HC595 / HC165, a chain of chips, 8 pins each (chained chips go on:
  * 8..15 = the 2nd). */
@@ -126,21 +127,22 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
-/* .rgb: RGB LEDs behind a serial link, the M-Audio Code pad LED board
- * (115200 baud on tx): outputs only, pin n = LED n / 3, colour n % 3 (0 red,
- * 1 green, 2 blue); sent from the main loop, a byte per colour in the hub
- * RAM. */
+/* .mpads: the M-Audio Code pad LED board (YAML maudio_pad_leds:, formerly
+ * rgb_serial:): RGB LEDs behind a serial link with the board's own protocol
+ * (vpin.c), 115200 baud on tx. Outputs only, pin n = LED n / 3, colour n % 3
+ * (0 red, 1 green, 2 blue); sent from the main loop, a byte per colour in
+ * the hub RAM. */
 typedef struct {
     gm_pin_t tx;
     gm_pin_t rx;          /* the board's answers (acks), optional          */
-    /* the brightness curve applied first (rgb_serial gamma:; 256 entries,
+    /* the brightness curve applied first (gamma:; 256 entries,
      * 0 = straight) */
     const uint8_t *curve;
     uint8_t count;        /* LEDs                                          */
-    uint8_t dma;          /* send by DMA (rgb_serial dma:), else interrupt */
-    uint8_t white[3];     /* what full red, green and blue send (rgb_serial
-                             white:, the white balance; 0 = 255)          */
-} gm_hub_rgb_serial_t;
+    uint8_t dma;          /* send by DMA (dma:), else interrupt            */
+    uint8_t white[3];     /* what full red, green and blue send (white:,
+                             the white balance; 0 = 255)                   */
+} gm_hub_maudio_pads_t;
 
 /* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
  * software (vpin.c), one axis per ms in turn. A touch: both readings within
@@ -161,7 +163,7 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
-        gm_hub_rgb_serial_t rgb;  /* GM_HUB_RGB_SERIAL */
+        gm_hub_maudio_pads_t mpads; /* GM_HUB_MAUDIO_PADS */
         gm_hub_xy_t xy;           /* GM_HUB_XY */
     };
 } gm_hub_t;
@@ -200,7 +202,7 @@ typedef struct {
     uint8_t layer;        /* a layer twin of leds[base] (as gm_button_t), 0 = none */
     uint8_t base;
     /* Full-colour idle and active looks (idle: "#RRGGBB" on an LED of an
-     * rgb_serial hub): GM_LED_RGB(colour), 0 = the looks mask above. */
+     * maudio_pad_leds hub): GM_LED_RGB(colour), 0 = the looks mask above. */
     uint32_t rgb[2];
 } gm_led_t;
 #define GM_LED_RGB(c) (0x1000000u | ((c) & 0xFFFFFFu))

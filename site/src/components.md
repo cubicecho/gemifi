@@ -325,8 +325,8 @@ leds:
 
 An LED can sit on an MCU pin, a 74HC595, an MCP23017 or PCF8574, a
 **TM1628**-family LED driver (and relatives with the same commands), or an
-**`rgb_serial`** LED board (for now only the Code 61's pad LED board, on the
-STM32F1). Levels are worked out every 10 ms and only changes are written:
+**`maudio_pad_leds`** board (the Code 61's pad LED board, on the STM32F1;
+called `rgb_serial` before, which still works). Levels are worked out every 10 ms and only changes are written:
 
 | Where | Cost |
 |---|---|
@@ -334,7 +334,7 @@ STM32F1). Levels are worked out every 10 ms and only changes are written:
 | 74HC595 | the chain is shifted out in the next scan tick |
 | MCP23017 / PCF8574 | one I2C write when it changes, about 80 / 50 µs |
 | TM1628 | at most 9 bus bytes per main-loop pass, about 110 µs; one LED about 40 µs (STM32F1) |
-| `rgb_serial` | one LED every 5 ms: 16 pads all changing take 80 ms |
+| `maudio_pad_leds` | one LED every 5 ms: 16 pads all changing take 80 ms |
 
 **Ownership.** When both the device and the DAW want an LED, `owner:`
 decides: `host_then_local` (the default) shows the DAW's state for 2 s after
@@ -384,7 +384,7 @@ use.
 | `decoder` | 74HC138-style row selects for a matrix | one register write per row on STM32F1 |
 | `switch_matrix` | up to 32 buttons or encoder contacts on a matrix | scanned with the key matrix |
 | `tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
-| `rgb_serial` | RGB LEDs on a serial LED board | see LEDs |
+| `maudio_pad_leds` | the M-Audio Code pad LED board (was `rgb_serial`) | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 
 Inputs on the shift registers and I2C chips are read into a cache (74HC165s

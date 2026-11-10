@@ -833,6 +833,16 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
+              },
+              "fade": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               }
             },
             "additionalProperties": false

@@ -705,6 +705,13 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(extra_a=", intensity: 8"), r"8 is out of range \(0\.\.7\)")
         self.assertError(dev(extra_a=", grids: 3"), r"3 is out of range \(4\.\.7\)")
         self.assertClean(dev(extra_a=", intensity: 0, grids: 7"))
+        # fade: the chip's brightness follows its LEDs' host colours
+        for fade, n in (("", 0), (", fade: true", 1)):
+            dev_, diags = load(dev(extra_a=fade))
+            self.assertIsNotNone(dev_, [str(d) for d in diags])
+            files = gd.generate(dev_, "t.yaml")
+            self.assertIn(f".grids = 0, .fade = {n},", files["gm_device_config.c"])
+            self.assertEqual("#define GM_TM_FADE 1" in files["gm_device_config.h"], n == 1)
         # outputs only
         self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),
                          r"tm1628, which can't be an input")

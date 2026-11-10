@@ -16,6 +16,10 @@
 #include "gm_controller.h"
 #include "app_proto.h"
 
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
+
 #define N_HUBS (GM_N_HUBS > 0 ? GM_N_HUBS : 1)
 #ifndef GM_TM1628_RAM
 #define GM_TM1628_RAM 0             /* no TM1628 / RGB_SERIAL hub */
@@ -34,6 +38,10 @@ typedef struct {
     uint8_t never;        /* outputs never written yet                    */
     int8_t channel;       /* MUX: selected channel, -1 = none             */
     uint8_t tm_dirty;     /* TM1628: RAM changed since the last write     */
+    uint8_t tm_ctl;       /* TM1628: display control wanted (0x88 | step, 0x80
+                             off), 0 = its intensity                       */
+    uint8_t tm_ctl_sent;  /* ... and what the chip has                      */
+    uint16_t tm_peak;     /* TM1628 fade: brightest LED noted + 1, 0 = none */
     uint16_t tm_off;      /* TM1628, RGB_SERIAL: its bytes in tm_ram      */
     uint16_t xy_raw[2];   /* XY: last X / Y reading, 0xFFFF = none        */
     uint8_t xy_touch;     /* XY: readings in a row with both in the window */
@@ -258,6 +266,8 @@ void vpin_init(void)
         s->never = 1;
         s->channel = -1;
         s->tm_dirty = 0;
+        s->tm_ctl = s->tm_ctl_sent = 0;
+        s->tm_peak = 0;
         s->tm_off = 0;
         s->xy_raw[0] = s->xy_raw[1] = 0xFFFFu;
         s->xy_touch = 0;
@@ -1196,6 +1206,12 @@ static void tm_flush(uint32_t budget)
         tm_io_t bus;
         const tm_io_t *io = &bus;
         tm_io_init(&bus, h);
+        uint32_t ctl = s->tm_ctl ? s->tm_ctl : 0x88u | (h->brightness & 7u);
+        if (!s->never && ctl != s->tm_ctl_sent) {      /* a new brightness (fade:) */
+            tm_cmd(&bus, ctl);
+            s->tm_ctl_sent = (uint8_t)ctl;
+            budget--;
+        }
         uint32_t k = 0, open = 0, left = budget;
         if (s->never) {                         /* all of it now, whatever the budget */
             if (h->grids >= 4u && h->grids <= 7u)
@@ -1229,7 +1245,8 @@ static void tm_flush(uint32_t budget)
         }
         s->tm_dirty = k < n;
         if (s->never) {
-            tm_cmd(io, 0x88u | (h->brightness & 7u));
+            tm_cmd(io, ctl);
+            s->tm_ctl_sent = (uint8_t)ctl;
             s->never = 0;
             budget = left > 3u + n ? left - 3u - n : 0u;
         }
@@ -1240,6 +1257,66 @@ void vpin_flush_tm1628(void)
 {
     tm_flush(0xFFFFFFFFu);
 }
+
+#if GM_TM_FADE
+/* How bright each step looks, 0..255: the chip's pulse widths (1, 2, 4,
+ * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
+static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
+
+void vpin_fade(gm_pin_t p, uint32_t v)
+{
+    const gm_hub_t *h = p.hub ? hub_of(p) : 0;
+    if (!h || h->type != GM_HUB_TM1628 || !h->fade)
+        return;
+    hub_state_t *s = &hs[p.hub - 1];
+    if (v > 255u)
+        v = 255u;
+    if (v + 1u > s->tm_peak)
+        s->tm_peak = (uint16_t)(v + 1u);
+}
+
+/* The step that looks most like v of full (the hub's intensity); darker
+ * than half the dimmest step: display off. */
+static uint32_t tm_fade_ctl(const gm_hub_t *h, uint32_t v)
+{
+    uint32_t top = h->brightness & 7u, want = v * tm_seen[top] / 255u, best = 0;
+    if (2u * want < tm_seen[0])
+        return 0x80u;
+    for (uint32_t k = 1; k <= top; k++) {
+        uint32_t d = want > tm_seen[k] ? want - tm_seen[k] : tm_seen[k] - want;
+        uint32_t e = want > tm_seen[best] ? want - tm_seen[best] : tm_seen[best] - want;
+        if (d < e)
+            best = k;
+    }
+    return 0x88u | best;
+}
+
+void vpin_fade_apply(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        hub_state_t *s = &hs[i];
+        if (h->type != GM_HUB_TM1628 || !h->fade || !s->tm_peak)
+            continue;
+        uint32_t ctl = tm_fade_ctl(h, s->tm_peak - 1u);
+        s->tm_peak = 0;
+        if (ctl != (s->tm_ctl ? s->tm_ctl : (0x88u | (h->brightness & 7u)))) {
+            s->tm_ctl = (uint8_t)ctl;
+            s->tm_dirty = 1;
+        }
+    }
+}
+#else
+void vpin_fade(gm_pin_t p, uint32_t v)
+{
+    (void)p;
+    (void)v;
+}
+
+void vpin_fade_apply(void)
+{
+}
+#endif
 
 /* 9 bus bytes: ~110 us at most per main-loop pass on the STM32 (a byte is
  * ~11 us, a command ~3 us more), and a single LED change (3 bytes in two
@@ -1408,6 +1485,16 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
 }
 #else
 void vpin_flush_tm1628(void)
+{
+}
+
+void vpin_fade(gm_pin_t p, uint32_t v)
+{
+    (void)p;
+    (void)v;
+}
+
+void vpin_fade_apply(void)
 {
 }
 

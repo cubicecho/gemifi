@@ -93,7 +93,7 @@ ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(TM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 # The same device with the pad board's answers (rgb_serial rx_pin).
-GEN_OUT := $(shell mkdir -p $(BUILD) && sed 's/{ id: pads, tx_pin: PA2, count: 4 }/{ id: pads, tx_pin: PA2, rx_pin: PA3, count: 4, gamma: 2.2, white: [255, 200, 220] }/' $(TM_DEVICE) > $(TMA_DEVICE) && grep -q 'rx_pin: PA3' $(TMA_DEVICE) && python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TMA_DEVICE) -o $(TMA_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+GEN_OUT := $(shell mkdir -p $(BUILD) && sed -e 's/{ id: pads, tx_pin: PA2, count: 4 }/{ id: pads, tx_pin: PA2, rx_pin: PA3, count: 4, gamma: 2.2, white: [255, 200, 220] }/' -e 's/^    grids: 7$$/    grids: 7\n    fade: true/' $(TM_DEVICE) > $(TMA_DEVICE) && grep -q 'rx_pin: PA3' $(TMA_DEVICE) && grep -q 'fade: true' $(TMA_DEVICE) && python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TMA_DEVICE) -o $(TMA_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(TMA_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif

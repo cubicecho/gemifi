@@ -353,7 +353,7 @@ HUB_KEYS = {
     "pcf8574": ["id", "address"],
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
-    "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
+    "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids", "fade"],
     "rgb_serial": ["id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white"],
     "xy_pad": ["id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max"],
 }
@@ -2585,7 +2585,7 @@ def validate_hub(v, dev, h, typ, p, line):
     hub = Hub(id=hid or f"#{index}", type=typ, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
               common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
-              ram_bytes=0, intensity=0, grids=0, touch_min=0, touch_max=0, dma=False, raw=h)
+              ram_bytes=0, intensity=0, grids=0, fade=False, touch_min=0, touch_max=0, dma=False, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
@@ -2613,6 +2613,7 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.n_pins = 8 * hub.ram_bytes
         hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
         hub.grids = v.integer(h, "grids", p, 4, 7, default=0)   # 0: no display-mode command
+        hub.fade = v.boolean(h, "fade", p, default=False)
         hub.clock = ctl("clk_pin", "out")
         hub.data = ctl("dio_pin", "out", open_drain=True)
         hub.latch = ctl("stb_pin", "out")
@@ -5085,6 +5086,8 @@ def generate(dev, source="device.yaml"):
     tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
         h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
+    if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
+        h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     if m and getattr(m, "vel_fast", None) is not None:
         h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
     if m and getattr(m, "vel_slow", None) is not None:
@@ -5169,7 +5172,7 @@ def generate(dev, source="device.yaml"):
                   f"        .settle_us = {hb.settle_us},",
                   *extra,
                   *([f"        .ram_bytes = {hb.ram_bytes}, .brightness = {hb.intensity}, "
-                     f".grids = {hb.grids},"] if hb.type in TM_HUBS else []),
+                     f".grids = {hb.grids}, .fade = {1 if hb.fade else 0},"] if hb.type in TM_HUBS else []),
                   *([f"        .ram_bytes = {hb.ram_bytes}, .dma = {1 if hb.dma else 0},",
                      f"        .rgb_white = {{ {', '.join(str(x) for x in hb.white)} }}, "
                      f".rgb_curve = {f'rgb_curve_{hb.index + 1}' if hb.gamma != 1 else '0'},"]

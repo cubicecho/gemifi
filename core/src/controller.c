@@ -31,6 +31,10 @@
 #include "gm_din.h"
 #include "gm_safety.h"
 
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
+
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
  * release counts once the button has read released for BTN_STABLE samples in
@@ -2457,7 +2461,8 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
          * channel to 0..255) */
         if (m) {
             lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
-            if (led_full_colour(&gm_device.leds[led])) {
+            /* fade: chips dim with the colour too (leds_fade) */
+            if (led_full_colour(&gm_device.leds[led]) || GM_TM_FADE) {
                 uint32_t c = (r * 2u + (r >> 6)) << 16 | (g * 2u + (g >> 6)) << 8 | (b * 2u + (b >> 6));
                 if (c != led_colour[led])
                     led_shown[led] = 0xFFFFu;       /* a new colour at the same level: draw it */
@@ -2696,12 +2701,45 @@ static void leds_walk(uint32_t now)
 }
 #endif
 
+#if GM_TM_FADE && GM_HOST_FB
+/* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
+ * from led_shown: a DAW's colour at its brightest channel, any other lit
+ * level or look full. */
+static void leds_fade(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        const gm_led_t *l = &gm_device.leds[i];
+        uint32_t key = led_shown[i], level = key >> 1;
+        if (key == 0xFFFFu)
+            continue;
+#if GM_HOST_LEDS
+        if ((level & LV_BLINK) && !(key & 1u))
+            level = 0;              /* a blink's dark half: the idle look */
+        level &= ~LV_BLINK;
+#endif
+        uint32_t v = 255u;
+        if (level & LV_COLOUR) {
+            uint32_t c = led_colour[i], r = c >> 16, g = (c >> 8) & 0xFFu, b = c & 0xFFu;
+            v = r > g ? r : g;
+            if (b > v)
+                v = b;
+        } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
+            continue;               /* dark */
+        vpin_fade(l->pin, v);
+    }
+    vpin_fade_apply();
+}
+#else
+#define leds_fade() ((void)0)
+#endif
+
 static void leds_update(uint32_t now)
 {
 #if GM_LED_WALK_MS
     leds_walk(now);
     return;
 #endif
+    leds_fade();
     int blink_on = (now / 500u) & 1u;
 #if GM_STATUS_LED >= 0
     /* A blink code on the status LED (gm_safety.h): drawn every update;

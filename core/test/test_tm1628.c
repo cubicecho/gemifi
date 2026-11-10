@@ -500,6 +500,34 @@ int main(void)
     gm_led_script(3, 0);
     run_ms(20);
     CHECK(chip[0].ram[13] == 0x00, "FB_LED off");
+#ifdef RGB_ACK_TEST
+    /* fade: (chip A in the ack build): the chip's brightness follows the
+     * brightest LED on it, in its 8 steps up to intensity 3; too dim for
+     * the dimmest step is display off. Chip B has no fade:. */
+    gm_led_script_rgb(3, 127, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: full red, intensity 3 (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 100, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8A && chip[0].ram[13] == 0x01, "fade: 100 of 127, step 2 (%02X %02X)",
+          chip[0].ctl, chip[0].ram[13]);
+    gm_led_script_rgb(3, 61, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x89, "fade: 61 of 127, step 1 (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 40, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x88, "fade: 40 of 127, the dimmest step (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 10, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x80 && chip[0].ram[13] == 0x01, "fade: 10 of 127, display off (%02X %02X)",
+          chip[0].ctl, chip[0].ram[13]);
+    gm_led_script(3, 127);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: FB_LED on, full again (%02X)", chip[0].ctl);
+    CHECK(chip[1].ctl == 0x8F, "no fade: chip B stays at intensity 7 (%02X)", chip[1].ctl);
+    gm_led_script(3, 0);
+    run_ms(20);
+#endif
 
     /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
      * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */

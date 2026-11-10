@@ -38,7 +38,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.97
+  version: 0.2.98
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -132,6 +132,9 @@ tm1628:
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
     ram_bytes: 6
+    # Only the 16 RGB buttons are on this chip, so its brightness (8 steps,
+    # all of them at once) can follow a DAW's colours: fade:. [untested, 2026-11-09]
+    fade: true
 # Pad LEDs: not on the TM1628s but on the pad board, a small controller fed by
 # USART2 TX on PA2 at 115200 baud [sure, found in the stock app and tried
 # 2026-11-03]: one message per LED, 02, 0x80 + LED, R, G, B, 03, and an A5
@@ -204,7 +207,8 @@ displays:
 # LED lit while idle so the panel is easy to see, and changed while active.
 # RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
 # (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
-# LED with idle: / active:.
+# LED with idle: / active:. The pads can show any brightness, so they idle a
+# dim blue (blue 25%) and a hit stands out (the user's request, 2026-11-09).
 led_defaults: { idle: blue, active: white }
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
@@ -230,22 +234,22 @@ leds:
   - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 }, idle: blue, active: red }
   - { id: x_mode_led, name: "X mode", pin: { tm1628: leds_b, number: 46 }, pin2: { tm1628: leds_b, number: 30 }, pin3: { tm1628: leds_b, number: 14 } }
   - { id: y_mode_led, name: "Y mode", pin: { tm1628: leds_b, number: 47 }, pin2: { tm1628: leds_b, number: 31 }, pin3: { tm1628: leds_b, number: 15 } }
-  - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
-  - { id: pad_2_led, name: "Pad 2", pin: { rgb_serial: pad_leds, number: 39 }, pin2: { rgb_serial: pad_leds, number: 40 }, pin3: { rgb_serial: pad_leds, number: 41 } }
-  - { id: pad_3_led, name: "Pad 3", pin: { rgb_serial: pad_leds, number: 42 }, pin2: { rgb_serial: pad_leds, number: 43 }, pin3: { rgb_serial: pad_leds, number: 44 } }
-  - { id: pad_4_led, name: "Pad 4", pin: { rgb_serial: pad_leds, number: 45 }, pin2: { rgb_serial: pad_leds, number: 46 }, pin3: { rgb_serial: pad_leds, number: 47 } }
-  - { id: pad_5_led, name: "Pad 5", pin: { rgb_serial: pad_leds, number: 24 }, pin2: { rgb_serial: pad_leds, number: 25 }, pin3: { rgb_serial: pad_leds, number: 26 } }
-  - { id: pad_6_led, name: "Pad 6", pin: { rgb_serial: pad_leds, number: 27 }, pin2: { rgb_serial: pad_leds, number: 28 }, pin3: { rgb_serial: pad_leds, number: 29 } }
-  - { id: pad_7_led, name: "Pad 7", pin: { rgb_serial: pad_leds, number: 30 }, pin2: { rgb_serial: pad_leds, number: 31 }, pin3: { rgb_serial: pad_leds, number: 32 } }
-  - { id: pad_8_led, name: "Pad 8", pin: { rgb_serial: pad_leds, number: 33 }, pin2: { rgb_serial: pad_leds, number: 34 }, pin3: { rgb_serial: pad_leds, number: 35 } }
-  - { id: pad_9_led, name: "Pad 9", pin: { rgb_serial: pad_leds, number: 12 }, pin2: { rgb_serial: pad_leds, number: 13 }, pin3: { rgb_serial: pad_leds, number: 14 } }
-  - { id: pad_10_led, name: "Pad 10", pin: { rgb_serial: pad_leds, number: 15 }, pin2: { rgb_serial: pad_leds, number: 16 }, pin3: { rgb_serial: pad_leds, number: 17 } }
-  - { id: pad_11_led, name: "Pad 11", pin: { rgb_serial: pad_leds, number: 18 }, pin2: { rgb_serial: pad_leds, number: 19 }, pin3: { rgb_serial: pad_leds, number: 20 } }
-  - { id: pad_12_led, name: "Pad 12", pin: { rgb_serial: pad_leds, number: 21 }, pin2: { rgb_serial: pad_leds, number: 22 }, pin3: { rgb_serial: pad_leds, number: 23 } }
-  - { id: pad_13_led, name: "Pad 13", pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 } }
-  - { id: pad_14_led, name: "Pad 14", pin: { rgb_serial: pad_leds, number: 3 }, pin2: { rgb_serial: pad_leds, number: 4 }, pin3: { rgb_serial: pad_leds, number: 5 } }
-  - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 } }
-  - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 } }
+  - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 }, idle: blue 25% }
+  - { id: pad_2_led, name: "Pad 2", pin: { rgb_serial: pad_leds, number: 39 }, pin2: { rgb_serial: pad_leds, number: 40 }, pin3: { rgb_serial: pad_leds, number: 41 }, idle: blue 25% }
+  - { id: pad_3_led, name: "Pad 3", pin: { rgb_serial: pad_leds, number: 42 }, pin2: { rgb_serial: pad_leds, number: 43 }, pin3: { rgb_serial: pad_leds, number: 44 }, idle: blue 25% }
+  - { id: pad_4_led, name: "Pad 4", pin: { rgb_serial: pad_leds, number: 45 }, pin2: { rgb_serial: pad_leds, number: 46 }, pin3: { rgb_serial: pad_leds, number: 47 }, idle: blue 25% }
+  - { id: pad_5_led, name: "Pad 5", pin: { rgb_serial: pad_leds, number: 24 }, pin2: { rgb_serial: pad_leds, number: 25 }, pin3: { rgb_serial: pad_leds, number: 26 }, idle: blue 25% }
+  - { id: pad_6_led, name: "Pad 6", pin: { rgb_serial: pad_leds, number: 27 }, pin2: { rgb_serial: pad_leds, number: 28 }, pin3: { rgb_serial: pad_leds, number: 29 }, idle: blue 25% }
+  - { id: pad_7_led, name: "Pad 7", pin: { rgb_serial: pad_leds, number: 30 }, pin2: { rgb_serial: pad_leds, number: 31 }, pin3: { rgb_serial: pad_leds, number: 32 }, idle: blue 25% }
+  - { id: pad_8_led, name: "Pad 8", pin: { rgb_serial: pad_leds, number: 33 }, pin2: { rgb_serial: pad_leds, number: 34 }, pin3: { rgb_serial: pad_leds, number: 35 }, idle: blue 25% }
+  - { id: pad_9_led, name: "Pad 9", pin: { rgb_serial: pad_leds, number: 12 }, pin2: { rgb_serial: pad_leds, number: 13 }, pin3: { rgb_serial: pad_leds, number: 14 }, idle: blue 25% }
+  - { id: pad_10_led, name: "Pad 10", pin: { rgb_serial: pad_leds, number: 15 }, pin2: { rgb_serial: pad_leds, number: 16 }, pin3: { rgb_serial: pad_leds, number: 17 }, idle: blue 25% }
+  - { id: pad_11_led, name: "Pad 11", pin: { rgb_serial: pad_leds, number: 18 }, pin2: { rgb_serial: pad_leds, number: 19 }, pin3: { rgb_serial: pad_leds, number: 20 }, idle: blue 25% }
+  - { id: pad_12_led, name: "Pad 12", pin: { rgb_serial: pad_leds, number: 21 }, pin2: { rgb_serial: pad_leds, number: 22 }, pin3: { rgb_serial: pad_leds, number: 23 }, idle: blue 25% }
+  - { id: pad_13_led, name: "Pad 13", pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 }, idle: blue 25% }
+  - { id: pad_14_led, name: "Pad 14", pin: { rgb_serial: pad_leds, number: 3 }, pin2: { rgb_serial: pad_leds, number: 4 }, pin3: { rgb_serial: pad_leds, number: 5 }, idle: blue 25% }
+  - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 }, idle: blue 25% }
+  - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 }, idle: blue 25% }
 
 # Faders: 12-bit ADC. The stock map is (raw - 80) * 127 / 3920, so 80..4000 is
 # used as the range. [likely] Which slot is which physical fader is [guess]:

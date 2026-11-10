@@ -101,6 +101,8 @@ typedef struct {
                              RGB_SERIAL: 3 per LED, a byte per colour     */
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
+    uint8_t fade;         /* TM1628: the chip's brightness follows the host
+                             colours of the RGB LEDs on it (tm1628 fade:) */
     uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
     /* XY: sel[0..3] = X+, X-, Y+, Y- (MCU pins); data = the Y-plate pin X
      * is read on, clock = the X-plate pin Y is read on (both ADC pins). A

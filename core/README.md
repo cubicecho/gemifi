@@ -773,6 +773,24 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 A mode is a layer that turns the keys (and buttons) into function keys: while it is active, a key press runs what the mode binds to that key and sends no note (research/core/presets-design.md §6). It is how a keyboard with few buttons switches presets, the octave or the channel. Modes are device UI, so they are the same in every preset: a preset can't take away the way back.
 
+**No keyboard needed.** A device with buttons and no `key_matrix` (a pad box, a fader box, a floor board) has modes too: toggle and hold modes with `buttons:`, `with:` (Shift) combinations, layers ("Button layers") and cycles ("Cycles"). Only `keys:` needs a key matrix, and with it the sub-modes (`parent:`), which are entered from a key. A mode needs a button to enter it (`toggle:`, `hold:` or `cycle:`).
+
+```yaml
+# an FCB1010-style floor board: sw1 and sw2 send programs 1 and 2 (action: program)
+modes:
+  - id: bank_b
+    toggle: bank                 # a layer-only toggle: programs 6 and 7 while it is on
+    layer: { sw1: { program: 6 }, sw2: { program: 7 } }
+  - id: banks
+    cycle: page                  # each press: the next step
+    steps:
+      - { id: live, name: LIVE }
+      - { id: fx, name: FX, layer: { sw1: { action: cc_toggle, cc: 80 } } }
+  - id: setup
+    hold: tuner                  # while Tuner is held, the switches pick the channel
+    buttons: { sw1: channel_down, sw2: channel_up }
+```
+
 ```yaml
 modes:
   - id: edit
@@ -809,9 +827,9 @@ modes:
 - **Ranges.** `keys:` may also hold one range, `white_from: <key>` (white keys only) or `from: <key>` (every key), with `action: preset_select` or `channel` and an optional `count:` (default: every slot, or 16 channels). The keys are numbered 1, 2, ... in order. Single keys can sit beside a range in the same mapping.
 - **What it sends.** A preset switch from a mode is the same as from a button: Note Offs, PRESET_CHANGED and PARAM_CHANGED `preset.active`, and the preset's Program Change. Octave/transpose keys send PARAM_CHANGED like the octave buttons. `channel`, `channel_up`, `channel_down` and `velocity_curve` send PARAM_CHANGED and make the preset dirty, like a host edit: COMMIT keeps the change, a preset switch drops it. A display shows the preset's name or `CH <n>` ("Displays").
 - **`layer.enabled`** (one per mode, in the "Layers" group, global) is there on a device with layer twins or a cycle. 0: the mode can't be entered (its button is as if it weren't there, so a `with:` press is the button's own action; a mode that is on can still be left), and a cycle skips that step. Defaults are true, a step's `enabled:` aside.
-- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that keys are on the keyboard and bound once per mode, and the actions' numbers.
+- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that `keys:` and sub-modes have a key matrix to use, that keys are on the keyboard and bound once per mode, and the actions' numbers.
 
-**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds), then `with`, `cycle`, `colour` and `name` ("Cycles"; `name` is the step's name, else the mode's id, the label of `layer.enabled`). `GM_MODES_ENABLED` lists the `layer.enabled` defaults. The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink; with layers or cycles 24 more (the layer-only toggles, what EVENT 8 last said) and one per cycle.
+**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out; without a key matrix, `GM_HAS_MATRIX 0`, the key half of it is: the key table lookups and the Note Offs for held keys), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds), then `with`, `cycle`, `colour` and `name` ("Cycles"; `name` is the step's name, else the mode's id, the label of `layer.enabled`). `GM_MODES_ENABLED` lists the `layer.enabled` defaults. The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink; with layers or cycles 24 more (the layer-only toggles, what EVENT 8 last said) and one per cycle.
 
 ### Button layers
 

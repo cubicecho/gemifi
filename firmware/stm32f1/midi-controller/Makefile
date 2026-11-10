@@ -23,8 +23,14 @@ $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 endif
 
-# board_id for the image header comes from the device config.
+# board_id for the image header and the board profile come from the device
+# config (the YAML's board_id and board:; the builder also passes BOARD=).
 MKIMAGE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_ID[ \t]*//p' $(DEVICE_DIR)/gm_device_config.h)
+BOARD_ID := $(MKIMAGE_BOARD)
+DEVICE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_PROFILE[ \t]*"\(.*\)"/\1/p' $(DEVICE_DIR)/gm_device_config.h)
+ifneq ($(DEVICE_BOARD),)
+BOARD ?= $(DEVICE_BOARD)
+endif
 
 # Firmware version: the device YAML's `version:` (GM_FW_VERSION_STR in the
 # device config), else 0.1.0. `make FW_VERSION=x.y.z` overrides it.

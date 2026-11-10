@@ -493,6 +493,124 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
     return 1;
 }
 
+/* ws2812 LED strips (gm_hal.h hal_ledstrip_*): the bits go out on an SPI's
+ * MOSI, by DMA, so the main loop never waits and the scan interrupt is
+ * never held up: SPI1 on PA7 (DMA1 channel 3) and SPI2 on PB15 (channel 5),
+ * one strip each, transmit only. The SPI runs at about 2.25 MHz (HCLK / 32
+ * on SPI1, PCLK1 = HCLK / 2 over 16 on SPI2: at 72 MHz 0.44 us an SPI bit),
+ * and each strip bit is three SPI bits: 0 = 100 (0.44 us high, 0.89 low), 1
+ * = 110 (0.89 high, 0.44 low), 1.33 us a bit, inside WS2812B's and in
+ * practice SK6812's windows. A frame is one zero byte (the line low before
+ * the first bit), 3 bytes per colour byte, then LS_LATCH zero bytes: the
+ * 280 us low that latches the colours, so the DMA is done when the LEDs show
+ * the frame (hal_ledstrip_busy). Every encoded bit ends low, and MOSI keeps
+ * its last bit, so the line idles low. The buffers are sized by the builder
+ * (GM_LEDSTRIP_SPIn_BYTES: the frame's bytes); a strip's pin and its DMA
+ * channel are checked there (allocate_dma). */
+#if defined(GM_LEDSTRIP_SPI1_BYTES) || defined(GM_LEDSTRIP_SPI2_BYTES)
+#define LS_LATCH 90u                /* 320 us at 2.25 MHz */
+typedef struct {
+    uint32_t base;                  /* SPIn_BASE */
+    uint8_t pin, port, bit, ch;     /* MOSI, its port and bit, the TX DMA channel */
+    uint8_t open;
+    uint8_t *buf;
+    uint32_t max;                   /* frame bytes, at most */
+} ledstrip_t;
+#ifdef GM_LEDSTRIP_SPI1_BYTES
+static uint8_t ls_buf1[1u + 3u * GM_LEDSTRIP_SPI1_BYTES + LS_LATCH];
+#endif
+#ifdef GM_LEDSTRIP_SPI2_BYTES
+static uint8_t ls_buf2[1u + 3u * GM_LEDSTRIP_SPI2_BYTES + LS_LATCH];
+#endif
+static ledstrip_t strips[] = {
+#ifdef GM_LEDSTRIP_SPI1_BYTES
+    { SPI1_BASE, 7u, 0u, 7u, 3u, 0u, ls_buf1, GM_LEDSTRIP_SPI1_BYTES },
+#endif
+#ifdef GM_LEDSTRIP_SPI2_BYTES
+    { SPI2_BASE, 31u, 1u, 15u, 5u, 0u, ls_buf2, GM_LEDSTRIP_SPI2_BYTES },
+#endif
+};
+
+static ledstrip_t *strip_of(uint16_t pin)
+{
+    for (uint32_t i = 0; i < sizeof strips / sizeof strips[0]; i++)
+        if (strips[i].pin == pin)
+            return &strips[i];
+    return 0;
+}
+
+/* The pin's 4 config bits (CRL / CRH) to cfg. */
+static void ls_pin_cfg(const ledstrip_t *s, uint32_t cfg)
+{
+    volatile uint32_t *cr = s->bit < 8u ? &GPIO_CRL(s->port) : &GPIO_CRH(s->port);
+    uint32_t sh = 4u * (s->bit & 7u);
+    *cr = (*cr & ~(0xFu << sh)) | (cfg << sh);
+}
+
+int hal_ledstrip_open(uint16_t pin, uint32_t n)
+{
+    ledstrip_t *s = strip_of(pin);
+    if (!s || n == 0 || n > s->max)
+        return 0;
+    RCC_APB2ENR |= RCC_APB2_IOP(s->port);
+    RCC_AHBENR |= RCC_AHBENR_DMA1EN;
+    GPIO_BSRR(s->port) = 1u << (s->bit + 16u);     /* low, as a GPIO, until the SPI drives it */
+    ls_pin_cfg(s, 0x3u);                            /* push-pull output, 50 MHz */
+    uint32_t pclk = sys_hclk_hz;
+    if (s->base == SPI1_BASE) {
+        RCC_APB2ENR |= RCC_APB2_SPI1;
+    } else {
+        RCC_APB1ENR |= RCC_APB1_SPI2;
+        pclk /= 2u;                                 /* APB1 = HCLK / 2 */
+    }
+    uint32_t br = 0;                                /* the fastest at most 3.2 MHz */
+    while (br < 7u && pclk / (2u << br) > 3200000u)
+        br++;
+    SPI_CR1(s->base) = 0;
+    SPI_CR2(s->base) = SPI_CR2_TXDMAEN;
+    SPI_CR1(s->base) = SPI_CR1_MSTR | SPI_CR1_BR(br) | SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_BIDIMODE |
+                       SPI_CR1_BIDIOE | SPI_CR1_SPE;
+    ls_pin_cfg(s, 0xBu);                            /* AF push-pull: MOSI */
+    DMA1_CCR(s->ch) = 0;
+    DMA1_CPAR(s->ch) = s->base + 0x0Cu;             /* SPI_DR */
+    s->open = 1;
+    return 1;
+}
+
+int hal_ledstrip_busy(uint16_t pin)
+{
+    ledstrip_t *s = strip_of(pin);
+    if (!s || !s->open)
+        return 0;
+    return ((DMA1_CCR(s->ch) & DMA_CCR_EN) && DMA1_CNDTR(s->ch) != 0) || (SPI_SR(s->base) & SPI_SR_BSY);
+}
+
+int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n)
+{
+    ledstrip_t *s = strip_of(pin);
+    if (!s || !s->open || n > s->max || hal_ledstrip_busy(pin))
+        return 0;
+    uint8_t *p = s->buf;
+    *p++ = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t w = 0;                             /* 24 SPI bits, MSB first */
+        for (uint32_t m = 0x80u; m; m >>= 1)
+            w = w << 3 | ((b[i] & m) ? 6u : 4u);
+        *p++ = (uint8_t)(w >> 16);
+        *p++ = (uint8_t)(w >> 8);
+        *p++ = (uint8_t)w;
+    }
+    for (uint32_t i = 0; i < LS_LATCH; i++)
+        *p++ = 0;
+    DMA1_CCR(s->ch) = 0;
+    DMA1_IFCR = 0xEu << (4u * (s->ch - 1u));        /* its TC / HT / TE flags */
+    DMA1_CMAR(s->ch) = (uint32_t)s->buf;
+    DMA1_CNDTR(s->ch) = (uint32_t)(p - s->buf);
+    DMA1_CCR(s->ch) = DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_EN;
+    return 1;
+}
+#endif
+
 /* 5-pin DIN MIDI (din_midi:, core/src/din.c): USART1, TX on PA9, RX on
  * PA10, through rings. Two ways to move the bytes:
  *  - interrupt (the default): the USART1 interrupt, highest priority (0x00):

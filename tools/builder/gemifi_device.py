@@ -5644,6 +5644,9 @@ def generate(dev, source="device.yaml"):
     hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if hub_ram:
         h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (vpin.c hub_ram): its tm1628 and LED hubs' */")
+    strips = sum(1 for x in dev.hubs if x.type == "ws2812")
+    if strips:
+        h.append(f"#define GM_LEDSTRIPS {strips} /* ws2812 hubs (the platform's hal_ledstrip_*) */")
     if dev.platform.name == "stm32f1":
         for x in dev.hubs:
             spi = Stm32F1Platform.LEDSTRIP_SPI.get(x.data.num) if x.type == "ws2812" and x.data.hub == 0 else None

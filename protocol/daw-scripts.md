@@ -366,7 +366,7 @@ FB_METER meter 8 at 127, clip:             F0 7D 67 6D 01 27 00 04 00 08 00 7F 0
 ### 5.1 LEDs
 - **`level`:** 0 off, 1 blink, 2..127 on. It's on/off, not brightness.
 - **Bicolour LEDs** (`colours` 2): 2..63 = colour 1, 64..127 = colour 2, 1 = blink colour 1.
-- **FB_LED_RGB:** on a single-colour LED, any non-zero `r`/`g`/`b` lights it. On a bicolour LED, colour 1 if `r` ≥ `g`, else colour 2; all zero is off. On an RGB LED that can show any colour (a device's `rgb_serial` LEDs, e.g. the Code 61's pads) the colour shows as given, each channel scaled to 0..255 and through the device's brightness curve and white balance; on other RGB LEDs each channel is on or off (on if at least half the brightest).
+- **FB_LED_RGB:** on a single-colour LED, any non-zero `r`/`g`/`b` lights it. On a bicolour LED, colour 1 if `r` ≥ `g`, else colour 2; all zero is off. On an RGB LED that can show any colour (a device's `ws2812` or `maudio_pad_leds` LEDs, e.g. the Code 61's pads) the colour shows as given, each channel scaled to 0..255 and through the device's brightness curve and white balance; on other RGB LEDs each channel is on or off (on if at least half the brightest).
 - **Persistence:** a script's LED states **don't time out**.
 - **`owner` 2 (local):** the LED ignores FB_\*, so don't bind it.
 - **`owner` 0 (host_then_local):** the LED shows the script's state while one is set, and its local state after FB_RELEASE.

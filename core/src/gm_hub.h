@@ -80,7 +80,7 @@ struct gm_hub_state {
     uint32_t out;         /* wanted output levels                          */
     uint32_t written;     /* what the chip has                             */
     int8_t channel;       /* MUX / DECODER: selected output, -1 = none; SWMATRIX:
-                             next row; RGB_SERIAL: last LED sent; XY: axis driven */
+                             next row; MAUDIO_PADS: last LED sent; XY: axis driven */
     uint8_t never;        /* outputs never written yet                     */
     uint8_t flags;        /* the type's GM_HUBF_* (in RAM, for the fast paths) */
     uint16_t ram;         /* where its bytes start in vpin.c's hub RAM, if any */
@@ -107,14 +107,20 @@ struct gm_hub_state {
             uint32_t span_hi;     /* seen_hi / seen_lo as of that take */
             uint32_t span_lo;
         } sm;
-        struct {          /* RGB_SERIAL (the M-Audio Code pad LED board) */
+        struct {          /* MAUDIO_PADS (the M-Audio Code pad LED board) */
             uint32_t t_ka, t_any; /* last A5 keepalive, last write   */
             uint32_t t_led;       /* when the awaited LED went out   */
             uint8_t repainted;    /* every LED sent again once        */
             uint8_t wait_led;     /* rx_pin: the answer awaited, LED + 1, 0 = none */
             uint8_t misses;       /* ... unanswered in a row          */
             uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
-        } rgb;
+        } mpads;
+        struct {          /* WS2812 */
+            uint32_t t_frame;     /* ms the last frame went out       */
+            uint8_t dirty;        /* a colour changed since           */
+            uint8_t open;         /* hal_ledstrip_open took the pin   */
+            uint8_t tried;        /* a frame went out (t_frame is set) */
+        } ws;
         struct {          /* XY */
             uint16_t raw[2];      /* last X / Y reading, 0xFFFF = none */
             uint8_t touch;        /* readings in a row with both in the window */

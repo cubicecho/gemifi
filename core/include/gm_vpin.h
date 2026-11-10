@@ -9,7 +9,7 @@
  *   - MCP23017 / PCF8574 by vpin_refresh_i2c() / vpin_flush_i2c(), only from
  *     the main loop, because I2C can't run in an interrupt on most
  *     platforms: VPIN_BUS_IO hubs;
- *   - TM1628 and RGB_SERIAL outputs by vpin_poll() on every main-loop pass
+ *   - TM1628 and MAUDIO_PADS outputs by vpin_poll() on every main-loop pass
  *     (VPIN_MAIN hubs): only what changed, a few bytes per pass, since a
  *     whole TM1628 takes a few hundred us of bit-banging (too long for the
  *     scan tick, or one pass);
@@ -93,7 +93,7 @@ int vpin_read_span(gm_pin_t p, int *any);
  * vpin_analog(p). */
 void vpin_analog_peaks(void);
 int32_t vpin_analog_peak(gm_pin_t p);
-/* Main loop, every pass: each hub's poll (RGB_SERIAL: one changed LED at
+/* Main loop, every pass: each hub's poll (MAUDIO_PADS: one changed LED at
  * most every 5 ms, the keepalive every 50 ms), and what changed on the
  * bit-banged ones (TM1628), a few bus bytes (about 50 us) per call; a big
  * change goes out over a few passes. busy: this pass already did a lot (an
@@ -105,7 +105,7 @@ void vpin_send_all(void);
 void vpin_flush_tm1628(void);
 void vpin_poll_tm1628(void);
 /* Set a whole colour (0xRRGGBB, 8 bits a colour) on the LED whose red pin
- * is p, if p is the red pin of a full-colour LED (VPIN_RGB; on RGB_SERIAL,
+ * is p, if p is the red pin of a full-colour LED (VPIN_RGB; on MAUDIO_PADS,
  * number LED * 3): 1, else 0 (the caller shows it with vpin_write). */
 int vpin_rgb(gm_pin_t p, uint32_t rgb);
 

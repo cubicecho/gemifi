@@ -5,7 +5,7 @@
 # 7-segment display that shows the active preset's number.
 #
 # Untested on hardware: the bootloader and upload steps are the Blue Pill's
-# (devices/diy-bluepill.yaml), with BOARD_ID=0x3F04.
+# (devices/diy-bluepill.yaml), with BOARD_ID=0x3F05.
 #
 # Wiring:
 #   - footswitches 1-10, Up, Down: the inputs A-H of two chained 74HC165s
@@ -27,7 +27,7 @@ friendly_name: Floor Board
 description: FCB1010-style floor board on a Blue Pill, 10 footswitches with LEDs, 2 expression pedals, DIN MIDI, a 3-digit MAX7219 display
 project:
   version: 0.1.0
-board_id: 0x3F04               # 0x3F00-0x3FFF: DIY / private, one per device design
+board_id: 0x3F05               # 0x3F00-0x3FFF: DIY / private, one per device design
 platform: stm32f1
 chip: STM32F103C8
 board: generic-stm32f103c8

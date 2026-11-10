@@ -48,7 +48,7 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 | LED on HC595 | the chain is shifted out in the scan tick when any bit changed: 3 HAL calls per bit (~0.4 us on M3, ~0.8 us on M0, derived; #70) | ≤ one tick after the LED update | – | hub only | – |
 | LED on MCP23017 / PCF8574 | one write on change, every 1 ms at most: 3 bytes (~80 us at 400 kHz) / 1 byte (~50 us) | ≤ 1 ms after the LED update | – | hub only | – |
 | LED on TM1628 | changed bytes only, at most 9 bus bytes per pass, never on the LED-update pass: ~110 us per pass at most, one LED ~40 us (derived, stm32f1); measured `led writes` 122 us | ≤ 10 ms + one or two passes | – | 2 B per RAM byte | `ram_bytes` (start-up write only), `intensity` |
-| LED on `rgb_serial` (Code pad LEDs) | one 6-byte message per 5 ms at most, from the main loop; the UART runs by DMA or interrupt | one LED per 5 ms: all 16 pads changing take 80 ms | – | 2 B per 8 colour bits | `count`, `dma` |
+| LED on `maudio_pad_leds` (Code pad LEDs) | one 6-byte message per 5 ms at most, from the main loop; the UART runs by DMA or interrupt | one LED per 5 ms: all 16 pads changing take 80 ms | – | 2 B per 8 colour bits | `count`, `dma` |
 | Displays (14- and 7-segment) | formatted with the LED update (every 10 ms); only changed segments are written, through the hubs' bus budget (a 6-character change on a TM1628 is ~14 bus bytes: 2 passes; a MAX7219 digit is one frame, ~8 us a chip; a TM1637 digit ~180 us, one a pass) | ≤ 10 ms + 1-2 passes | – | small | `daw:` |
 | DIN MIDI | ~1 us per byte by interrupt (or DMA) | queue-dependent: DIN carries ~3 bytes per ms (320 us a byte) | the device's own messages copied (`midi.din_out`), thru, USB | 512 B TX + 256 B RX queues | `mode`, `dma`, `thru`, `controller_out`, `usb_to_din` (README "DIN MIDI") |
 | Presets | a switch reads the slot's record from the store and applies it (a flash read, no write); a flash write (a host's COMMIT or PRESET_*, or `write_to_flash`) can stall the CPU, and the key scan, for 20-40 ms | a switch: within the pass; the display shows the name | – | 8 B per param value (record buffer) | `write_to_flash:` (README "Writes the device makes on its own") |
@@ -65,7 +65,7 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 | `mcp23017` | read every 1 ms if it has inputs: two blocking transactions, ~120-150 us at 400 kHz (~12-15% of the main loop, derived; #72). A chip with only outputs isn't read. Outputs: one write on change | put inputs on as few chips as possible |
 | `pcf8574` | read every 1 ms if it has inputs: one 1-byte transaction (~50 us). Outputs: one write on change | as above |
 | `tm1628` | see LED on TM1628 | – |
-| `rgb_serial` | see LED on `rgb_serial`; plus a keepalive byte every 50 ms and one LED sent again every 50 ms when idle | – |
+| `maudio_pad_leds` | see LED on `maudio_pad_leds`; plus a keepalive byte every 50 ms and one LED sent again every 50 ms when idle | – |
 | `xy_pad` | see XY pad | – |
 
 ## MIDI traffic

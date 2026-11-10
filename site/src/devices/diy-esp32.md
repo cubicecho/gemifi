@@ -16,6 +16,7 @@ facts:
 yaml:
   - devices/esp32-example.yaml
   - devices/diy-esp32s3-faders.yaml
+  - devices/diy-esp32s3-pads-ws2812.yaml
   - devices/esp8266-example.yaml
 photos: No photos of a finished build yet.
 ---
@@ -35,6 +36,7 @@ Start from one of these and change the pins to match your wiring:
 | YAML | Board | What's on it |
 |---|---|---|
 | [`diy-esp32s3-faders.yaml`]({{ site.blob }}devices/diy-esp32s3-faders.yaml) | ESP32-S3-DevKitC-1 | 8 faders on a 74HC4051, 4 buttons with LEDs, 1 encoder, USB MIDI |
+| [`diy-esp32s3-pads-ws2812.yaml`]({{ site.blob }}devices/diy-esp32s3-pads-ws2812.yaml) | ESP32-S3-DevKitC-1 | 4x4 pad switches on a switch matrix, 16 WS2812B LEDs under them (one pin, any colour), 4 knobs, USB MIDI |
 | [`esp32-example.yaml`]({{ site.blob }}devices/esp32-example.yaml) | ESP32-S3-DevKitC-1 | 4 buttons, 1 LED, 2 pots, 8 faders on a 74HC4051, 1 encoder, USB MIDI |
 | [`esp8266-example.yaml`]({{ site.blob }}devices/esp8266-example.yaml) | Wemos D1 mini | 2 buttons, 1 LED, 1 pot, serial MIDI |
 

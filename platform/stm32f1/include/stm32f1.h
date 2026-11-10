@@ -64,11 +64,13 @@
 #define RCC_APB2_ADC1   (1u << 9)
 #define RCC_APB2_ADC2   (1u << 10)
 #define RCC_APB2_TIM1   (1u << 11)
+#define RCC_APB2_SPI1   (1u << 12)
 #define RCC_APB2_USART1 (1u << 14)
 /* APB1ENR / APB1RSTR */
 #define RCC_APB1_TIM2   (1u << 0)
 #define RCC_APB1_TIM3   (1u << 1)
 #define RCC_APB1_TIM4   (1u << 2)
+#define RCC_APB1_SPI2   (1u << 14)
 #define RCC_APB1_USART2 (1u << 17)
 #define RCC_APB1_USB    (1u << 23)
 #define RCC_APB1_PWR    (1u << 28)
@@ -377,6 +379,22 @@ static inline void irq_restore(uint32_t pm)
 #define USART_CR3_DMAT  (1u << 7)
 #define USART_CR3_DMAR  (1u << 6)
 #define USART1_CR3      REG32(USART1_BASE + 0x14u)
+/* ---- SPI1 / SPI2 (RM0008 25.5): ws2812 strips, MOSI only ---- */
+#define SPI1_BASE       0x40013000u     /* APB2, MOSI PA7, TX DMA1 channel 3 */
+#define SPI2_BASE       0x40003800u     /* APB1, MOSI PB15, TX DMA1 channel 5 */
+#define SPI_CR1(b)      REG32((b) + 0x00u)
+#define SPI_CR2(b)      REG32((b) + 0x04u)
+#define SPI_SR(b)       REG32((b) + 0x08u)
+#define SPI_DR(b)       REG32((b) + 0x0Cu)
+#define SPI_CR1_MSTR    (1u << 2)
+#define SPI_CR1_BR(n)   ((uint32_t)(n) << 3)    /* f = PCLK / 2^(n + 1) */
+#define SPI_CR1_SPE     (1u << 6)
+#define SPI_CR1_SSI     (1u << 8)
+#define SPI_CR1_SSM     (1u << 9)
+#define SPI_CR1_BIDIOE  (1u << 14)
+#define SPI_CR1_BIDIMODE (1u << 15)             /* with BIDIOE: transmit only, on MOSI */
+#define SPI_CR2_TXDMAEN (1u << 1)
+#define SPI_SR_BSY      (1u << 7)
 #define DMA1_BASE       0x40020000u
 #define DMA1_ISR        REG32(DMA1_BASE + 0x00u)
 #define DMA1_IFCR       REG32(DMA1_BASE + 0x04u)

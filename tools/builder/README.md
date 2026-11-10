@@ -71,10 +71,10 @@ Not fitting is an error that says the largest `slots` that fits; using more than
 devices/keystation-mini32-mk3.yaml: OK: Keystation Mini 32 (...), presets: 8 slots, worst case 1908 B in 5 of 5 pages (2560 B)
 ```
 
-**DMA channels and timers (stm32f1).** `allocate_dma()` in `gemifi_device.py` gives the DMA users their DMA1 channels (core/README.md "DMA channels"). `rgb_serial` and `din_midi` with `dma: true` have fixed channels. Each hardware scan takes a timer whose requests land on free channels: its `hardware_scan.*.timer`, or with `auto` (the default) the first fitting one, in the order of `HW_SCAN_TIMERS`, trying the steps' requests in the order of `HW_SCAN_ROLES` / `HW_ADC_MUX`. The core's scan tick gets the first of TIM2..4 the scans leave. If no choice fits, the error names the clash and what would fit: `auto`, or precharge off. The summary shows the result, which also goes at the top of `gm_device_config.h` (the `GM_HW_SCAN_*`, `GM_HW_ADC_*` and `GM_SCAN_TICK_TIM` defines are for `platform/stm32f1/include/dma_map.h`):
+**DMA channels and timers (stm32f1).** `allocate_dma()` in `gemifi_device.py` gives the DMA users their DMA1 channels (core/README.md "DMA channels"). `maudio_pad_leds` and `din_midi` with `dma: true` have fixed channels. Each hardware scan takes a timer whose requests land on free channels: its `hardware_scan.*.timer`, or with `auto` (the default) the first fitting one, in the order of `HW_SCAN_TIMERS`, trying the steps' requests in the order of `HW_SCAN_ROLES` / `HW_ADC_MUX`. The core's scan tick gets the first of TIM2..4 the scans leave. If no choice fits, the error names the clash and what would fit: `auto`, or precharge off. The summary shows the result, which also goes at the top of `gm_device_config.h` (the `GM_HW_SCAN_*`, `GM_HW_ADC_*` and `GM_SCAN_TICK_TIM` defines are for `platform/stm32f1/include/dma_map.h`):
 
 ```
-  DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ..., 7 USART2_TX (rgb_serial 'pad_leds'); free: none
+  DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ..., 7 USART2_TX (maudio_pad_leds 'pad_leds'); free: none
   timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)
 ```
 

@@ -8,7 +8,7 @@
  * and by each hal_cycles() call (10 ns; hal_ns_to_cycles(ns) = ns), so the
  * waits on hal_cycles() take what they count. GM_TEST_NO_CYCLES=1 makes
  * hal_ns_to_cycles 0 (no cycle counter): the bits are then timed with
- * hal_delay_us, as they are without hal_pin_bsrr. The rgb_serial hub's
+ * hal_delay_us, as they are without hal_pin_bsrr. The maudio_pad_leds hub's
  * messages are caught at hal_serial_write.
  *
  * Built with GM_TEST_STORE (vpin.c's TM_STORE calls gm_test_store); with
@@ -29,7 +29,7 @@
 #include "gm_feedback.h"
 #include "gm_vpin.h"
 
-#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 32
+#if !defined(GM_HUB_RAM) || GM_HUB_RAM != 32
 #error "test_tm1628.c needs the tm1628-test.yaml config"
 #endif
 
@@ -262,7 +262,7 @@ void hal_uid(uint8_t uid[12]) { for (int i = 0; i < 12; i++) uid[i] = (uint8_t)(
 void hal_reboot(int to_bootloader) { (void)to_bootloader; for (;;) {} }
 const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
-/* rgb_serial: what reached the "UART" */
+/* maudio_pad_leds: what reached the "UART" */
 static uint16_t ser_pin = 0xFFFF;
 static uint32_t ser_baud;
 static int ser_busy;                /* refuse writes, as if one were still going */
@@ -596,13 +596,13 @@ int main(void)
     run_ms(20);
 #endif
 
-    /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
+    /* maudio_pad_leds: opened on PA2 at 115200; every LED sent once at start
      * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */
     CHECK(ser_pin == 2 && ser_baud == 115200u, "serial opened on PA2 at 115200 (%u, %u)", ser_pin, ser_baud);
 #ifdef RGB_ACK_TEST
-    CHECK(ser_flags == (HAL_UART_DMA | HAL_UART_RX), "rgb_serial: by DMA, receiving (rx_pin)");
+    CHECK(ser_flags == (HAL_UART_DMA | HAL_UART_RX), "maudio_pad_leds: by DMA, receiving (rx_pin)");
 #else
-    CHECK(ser_flags == HAL_UART_DMA, "rgb_serial: by DMA (the default)");
+    CHECK(ser_flags == HAL_UART_DMA, "maudio_pad_leds: by DMA (the default)");
 #endif
     uint32_t gap;
     int n0 = ser_msgs(0, &gap);

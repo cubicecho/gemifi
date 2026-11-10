@@ -752,6 +752,35 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(chars="[[PB0, PB1, PB2, PB3, PB4, PB5, PB6]]"), r"must be a hub pin",
                          path="displays[0].chars[0][0]")
         self.assertError(dev(chars=f"[{seg([0, 1, 2, 3, 4, 5, 0])}]"), r"ta\.0 is already used")
+        # segment_order: the pins from the first one are these segments (the MAX7219's own D7..D0 order)
+        mx = dev(chars="[{ tm1628: ta, number: 0 }]", extra=", type: segment7, "
+                 "segment_order: [dp, a, b, c, d, e, f, g]")
+        self.assertClean(mx)
+        c = gen(mx)["gm_device_config.c"]
+        self.assertIn("    /* character 0 */\n    { 1, 0, 1 }, /* ta.1 */\n    { 1, 0, 2 }, /* ta.2 */", c)
+        self.assertIn("    { 1, 0, 7 }, /* ta.7 */\n    { 1, 0, 0 }, /* ta.0 */\n};", c)       # g, then dp
+        part = dev(chars="[{ tm1628: ta, number: 0 }]", extra=", type: segment7, segment_order: [g, f, e]")
+        c = gen(part)["gm_device_config.c"]
+        self.assertIn("    GM_NO_PIN, /* - */\n    GM_NO_PIN, /* - */\n    GM_NO_PIN, /* - */\n    GM_NO_PIN, "
+                      "/* - */\n    { 1, 0, 2 }, /* ta.2 */\n    { 1, 0, 1 }, /* ta.1 */\n    { 1, 0, 0 }, /* ta.0 */\n"
+                      "    GM_NO_PIN, /* - */", c)
+        self.assertClean(part + "leds:\n  - { id: l, pin: { tm1628: ta, number: 3 } }\n")    # pin 3: unused
+        self.assertIn("{ GM_DISPLAY_SEG7, 1, display_0_chars, 0,",
+                      gen(dev(chars="[{ tm1628: ta, number: 0 }]", extra=", type: segment7, segment_order: "
+                                                                        "[a, b, c, d, e, f, g, dot]"))
+                      ["gm_device_config.c"])                                    # the usual order: no map
+        self.assertError(dev(extra=", type: segment7, segment_order: [a, g1]"),
+                         r"'g1' is not a segment of a segment7 display \(a, b, c, d, e, f, g, dp\)")
+        self.assertError(dev(extra=", type: segment7, segment_order: [a, a]"), r"'a' is named twice")
+        self.assertError(dev(extra=", segment_order: x"), r"must be a list of up to 15 segment names")
+        self.assertError(dev(chars="[{ tm1628: ta, number: 108 }]", extra=", type: segment7, "
+                             "segment_order: [a, b, c, d, e]"), r"pins 108\.\.112 \(segment_order\) don't fit")
+        # 14 segments, the Adafruit HT16K33 backpack's order: lower diagonals the other way round
+        ada = dev(chars="[{ tm1628: ta, number: 0 }]", extra=", segment_order: "
+                  "[a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]")
+        c = gen(ada)["gm_device_config.c"]
+        self.assertIn("    { 1, 0, 10 }, /* ta.10 */\n    { 1, 0, 13 }, /* ta.13 */\n    { 1, 0, 12 }, /* ta.12 */\n"
+                      "    { 1, 0, 11 }, /* ta.11 */\n    { 1, 0, 14 }, /* ta.14 */", c)
         # shows: display 0 shows messages, the others nothing of their own, unless set
         self.assertError(dev(extra=", type: segment7, shows: time"), r"unknown value 'time' \(use last_message, "
                                                                      r"preset_number, preset_name, channel, none\)")

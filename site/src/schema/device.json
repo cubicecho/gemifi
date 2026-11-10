@@ -3314,6 +3314,38 @@
                   }
                 ]
               },
+              "segment_order": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "a",
+                        "b",
+                        "c",
+                        "d",
+                        "dot",
+                        "dp",
+                        "e",
+                        "f",
+                        "g",
+                        "g1",
+                        "g2",
+                        "h",
+                        "i",
+                        "j",
+                        "k",
+                        "l",
+                        "m"
+                      ]
+                    },
+                    {
+                      "$ref": "#/definitions/substitution"
+                    }
+                  ]
+                },
+                "description": "the segments in pin order"
+              },
               "shows": {
                 "anyOf": [
                   {

@@ -3571,12 +3571,15 @@ def validate_pads(v, dev, data):
 
 
 
-DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "shows", "daw"]
+DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw"]
 # gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
 DISPLAY_TYPES = {"segment14": 1, "segment7": 2}
 DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7"}
 DISPLAY_SEGS = {1: (15, "segments a..m and the dot"), 2: (8, "segments a..g and the point")}
 SEG14_PINS = 15                      # segments a..m, then the dot
+# each type's segments in gm_display.h order (segment_order: names them in pin order)
+SEG_NAMES = {1: ["a", "b", "c", "d", "e", "f", "g1", "g2", "h", "i", "j", "k", "l", "m", "dot"],
+             2: ["a", "b", "c", "d", "e", "f", "g", "dp"]}
 MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC
 MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, plus 9, per display
 # gm_display.h GM_SHOWS_*: what a display shows while no host writes to it
@@ -3611,6 +3614,7 @@ def validate_displays(v, dev, data):
             v.warn(f"{p}.shows", d.line_of("shows"), f"{shows}, but the device has no presets: (it always "
                                                       "shows preset 1's)")
         step = v.integer(d, "segment_step", p, 1, 64, default=1)
+        order = segment_order(v, d, p, t)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
         if not chars:
             v.err(f"{p}.chars", d.line_of("chars") or d.line, "needs chars: each character's first pin "
@@ -3641,26 +3645,58 @@ def validate_displays(v, dev, data):
                 v.err(cp, line, f"must be a hub pin: the {nseg} pins from it ({what}) must be in a row")
                 continue
             hub = dev.hubs[pin.hub - 1]
-            # every segment_step pins, the dot only where it fits (a TM1628's 7 grids: 7 segments)
-            n = nseg - 1 if step > 1 and pin.num + (nseg - 1) * step >= hub.n_pins else nseg
-            last = pin.num + (n - 1) * step
+            # pin k (every segment_step) is segment order[k]; without segment_order, a..m then the
+            # dot, the dot only where it fits (a TM1628's 7 grids: 7 segments)
+            seg_at = order or list(range(nseg - 1 if step > 1 and pin.num + (nseg - 1) * step >= hub.n_pins
+                                         else nseg))
+            last = pin.num + (len(seg_at) - 1) * step
             if last >= hub.n_pins:
                 every = f" every {step}" if step > 1 else ""
-                what_ = what.split(" and ")[0] if n < nseg else what
+                what_ = "segment_order" if order else what.split(" and ")[0] if len(seg_at) < nseg else what
                 v.err(cp, line, f"pins {pin.num}..{last}{every} ({what_}) don't fit on hub '{hub.id}' "
                                 f"(0..{hub.n_pins - 1})")
                 continue
-            run = [Pin(pin.hub, pin.flags, pin.num + k * step, f"{hub.id}.{pin.num + k * step}")
-                   for k in range(n)] + [NO_PIN] * (nseg - n)
-            for x in run[1:n]:              # the first one was recorded by v.pin
-                v.use(("hub", hub.index, x.num), x.desc, Use(cp, line))
+            run = [NO_PIN] * nseg
+            for k, sg in enumerate(seg_at):
+                x = Pin(pin.hub, pin.flags, pin.num + k * step, f"{hub.id}.{pin.num + k * step}")
+                run[sg] = x
+                if k:                       # the first one was recorded by v.pin
+                    v.use(("hub", hub.index, x.num), x.desc, Use(cp, line))
             pins.append(pin)
             segs.append(run)
-        mapped = step > 1 or any(isinstance(x, list) for x in chars)
+        mapped = step > 1 or any(isinstance(x, list) for x in chars) or \
+            (order is not None and order != list(range(nseg)))
         dev.displays.append(Hub(id=ident or "", type=t, chars=pins, segs=segs if mapped else None,
                                 shows=DISPLAY_SHOWS[shows], path=p, line=d.line, daw=daw_role(v, dev, d, p)))
     if len(dev.displays) > MAX_DISPLAYS:
         v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS}")
+
+
+def segment_order(v, d, p, t):
+    """segment_order: the segments' names in pin order (from each character's first pin): a list of
+    segment indexes, or None (gm_display.h order). Segments left out aren't wired."""
+    if d.get("segment_order") is None:
+        return None
+    names, sp, line = SEG_NAMES[t], f"{p}.segment_order", d.line_of("segment_order")
+    lst = d["segment_order"]
+    if not isinstance(lst, list) or not 1 <= len(lst) <= len(names):
+        v.err(sp, line, f"must be a list of up to {len(names)} segment names, in pin order "
+                        f"({', '.join(names)})")
+        return None
+    typ = next(n for n, c in DISPLAY_TYPES.items() if c == t)
+    out = []
+    for x in lst:
+        k = str(x).lower()
+        if k not in names:
+            k = {"dot": "dp", "dp": "dot"}.get(k, k)     # either name for the dot
+        if k not in names:
+            v.err(sp, line, f"'{x}' is not a segment of a {typ} display ({', '.join(names)})")
+            return None
+        if names.index(k) in out:
+            v.err(sp, line, f"'{x}' is named twice")
+            return None
+        out.append(names.index(k))
+    return out
 
 
 def display_char_map(v, raw, cp, line, nseg, what):

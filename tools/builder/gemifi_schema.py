@@ -256,6 +256,9 @@ def device_schema():
         "modes": modes(),
         "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES), "shows": enum(gd.DISPLAY_SHOWS),
                                               "segment_step": T("integer", minimum=1, maximum=64),
+                                              "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
+                                                                                for n in ns})),
+                                                                   "the segments in pin order"),
                                               "chars": lst(one_of(ref("pin"), lst(ref("pin"))),
                                                            "each character's first pin, or its segments' pins")})),
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),

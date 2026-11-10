@@ -449,6 +449,8 @@ A display is a row of segment characters on output pins of hubs (a TM1628, MAX72
   - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
   - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
   - or a list of its segments' pins, in segment order (the dot may be left out): any other wiring.
+
+  `segment_order:` on the display names the segments in pin order from each first pin, for a module whose segments are in a row but in another order: `[dp, a, b, c, d, e, f, g]` (segment7: `a`–`g`, `dp`; segment14: `a`–`f`, `g1`, `g2`, `h`–`m`, `dot`; `dot` and `dp` are the same). Segments it leaves out aren't wired, and their pins stay free.
   Every segment pin counts as used, so an LED on one is an error. Segments are hub pins (the display writes them from the main loop through the hub).
 - **What it shows** of its own, `shows:`, while no host is writing to it:
 

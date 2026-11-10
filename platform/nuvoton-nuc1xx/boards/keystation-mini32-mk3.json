@@ -1,0 +1,20 @@
+{
+  "name": "M-Audio Keystation Mini 32 MK3",
+  "short_name": "Keystation Mini 32",
+  "note": "Nuvoton NUC120LC1BN, 12 MHz crystal: 32 KB APROM (the app, from 0x0), 4 KB LDROM (the gemifi bootloader), 4 KB data flash at 0x1F000 (the config journal; its last page holds the device ID), 4 KB SRAM with the mailbox in its top 16 bytes. The buttons, LEDs and the bootloader's entry combo (Pitch down + Pitch up) are in the board header (keystation-mini32-mk3.h).",
+  "platform": "nuvoton-nuc1xx",
+  "board_id": "0x0001",
+  "chip": "NUC120LC1BN",
+  "crystal_hz": 12000000,
+  "flash": {
+    "aprom_size": "0x8000",
+    "page": 512,
+    "ldrom_size": "0x1000",
+    "data_base": "0x1F000",
+    "data_size": "0x1000"
+  },
+  "ram": {
+    "size": "0x1000",
+    "mailbox": "0x20000FF0"
+  }
+}

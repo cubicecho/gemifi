@@ -1,7 +1,6 @@
 /* host-sim: stand-in board header (no registers); buttons come from sim_buttons. */
 #include <stdint.h>
-#define BOARD_ID 0x0001
-#define BOARD_NAME "Keystation Mini 32"
+#include "board_layout.h"   /* BOARD_ID, BOARD_NAME: the default board's profile */
 #define BTN_PITCH_DOWN 5
 #define BTN_PITCH_UP 6
 #define BTN_OCT_UP 4

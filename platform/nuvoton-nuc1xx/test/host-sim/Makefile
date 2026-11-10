@@ -20,6 +20,12 @@ HELLO  := $(ROOT)/firmware/nuvoton-nuc1xx/hello-led
 CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -fPIC \
           -Istub -I$(PLAT)/include -I$(ROOT)/core/include -DBOARD_HEADER='"simboard.h"'
 
+# The board profile's generated layout, as in a firmware build (platform/board-profile.mk).
+PLATFORM_NAME := nuvoton-nuc1xx
+BOARD ?= keystation-mini32-mk3
+include $(ROOT)/platform/board-profile.mk
+CFLAGS += -I$(BOARD_GEN)
+
 .PHONY: test clean hello-led cs-test presets-test
 MIDI_TESTS := $(BUILD)/midi_test $(BUILD)/midi_test4 $(BUILD)/midi_test0
 

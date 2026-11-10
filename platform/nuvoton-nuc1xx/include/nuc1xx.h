@@ -24,19 +24,23 @@ typedef struct { volatile uint32_t w[256]; } nuc_regblock_t;
 #define RB(base, off) (((nuc_regblock_t *)(base))->w[(off) / 4u])
 
 /* ---- Memory map ------------------------------------------------------- */
+/* The part's sizes come from the board profile (platform/nuvoton-nuc1xx/
+ * boards/<board>.json -> the generated board_layout.h); NUC120LC1BN: 32 KB
+ * APROM, 4 KB data flash at 0x1F000, 4 KB SRAM. */
+#include "board_layout.h"
 #define FLASH_APROM_BASE     0x00000000u
-#define FLASH_APROM_SIZE     0x00008000u   /* 32 KB on NUC120LC1BN */
-#define FLASH_DATA_BASE      0x0001F000u   /* data flash, 4 KB      */
-#define FLASH_DATA_SIZE      0x00001000u
+#define FLASH_APROM_SIZE     BOARD_APROM_SIZE
+#define FLASH_DATA_BASE      BOARD_DATA_BASE
+#define FLASH_DATA_SIZE      BOARD_DATA_SIZE
 /* Last data-flash page: the device ID on chips without a UID (hal.c). The
  * config journal (config_store.c) uses the pages before it. */
 #define FLASH_DEVID_ADDR     (FLASH_DATA_BASE + FLASH_DATA_SIZE - FLASH_PAGE_SIZE)
 #define FLASH_LDROM_BASE     0x00100000u
-#define FLASH_LDROM_SIZE     0x00001000u
+#define FLASH_LDROM_SIZE     BOARD_LDROM_SIZE
 #define FLASH_CONFIG_BASE    0x00300000u
-#define FLASH_PAGE_SIZE      512u
-#define SRAM_BASE            0x20000000u
-#define SRAM_SIZE            0x00001000u   /* 4 KB */
+#define FLASH_PAGE_SIZE      BOARD_FLASH_PAGE
+#define SRAM_BASE            BOARD_RAM_BASE
+#define SRAM_SIZE            BOARD_RAM_SIZE
 
 /* ---- GCR: system manager (TRM 5.2), base 0x5000_0000 ------------------ */
 #define GCR_BASE             0x50000000u

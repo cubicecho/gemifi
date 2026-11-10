@@ -5,17 +5,14 @@
  * CBS = 0, bootloader-design.md 1). Programmed at 0x0010_0000 over SWD.
  * The TEST_IN_APROM build uses this same script and is programmed at 0x0.
  *
- * RAM ends 16 bytes early: 0x2000_0FF0..0x2000_0FFF is the no-init
- * mailbox shared with the app (protocol/sysex.md 6). The initial stack
- * pointer is 0x2000_0FF0.
+ * RAM ends 16 bytes early: the top 16 bytes (0x2000_0FF0..0x2000_0FFF on
+ * 4 KB) are the no-init mailbox shared with the app (protocol/sysex.md 6).
+ * The initial stack pointer is the mailbox address. board_boot.ld
+ * (generated from the board profile) holds the MEMORY regions.
  *
  * SPDX-License-Identifier: MIT
  */
-MEMORY
-{
-    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 4K
-    RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 4K - 16
-}
+INCLUDE board_boot.ld
 
 ENTRY(Reset_Handler)
 

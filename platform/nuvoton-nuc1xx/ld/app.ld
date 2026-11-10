@@ -1,17 +1,16 @@
 /*
- * app.ld: gemifi application in NUC1xx APROM (32 KB at 0x0).
+ * app.ld: gemifi application in NUC1xx APROM (at 0x0; 32 KB on the
+ * NUC120LC1BN).
  *
  * Layout: vector table 0x000-0x0BF (16 core + 32 IRQ entries), the 32-byte
  * .gfw header at 0x0C0 (protocol/sysex.md 5), then code.
- * RAM ends at the 16-byte mailbox at 0x2000_0FF0 (sysex.md 6).
+ * RAM ends at the 16-byte mailbox in the top of SRAM (sysex.md 6).
+ * board_app.ld (generated from the board profile, found through -L) holds
+ * the MEMORY regions: APROM, and SRAM up to the mailbox.
  *
  * SPDX-License-Identifier: MIT
  */
-MEMORY
-{
-    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 32K
-    RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 4K - 16
-}
+INCLUDE board_app.ld
 
 ENTRY(Reset_Handler)
 

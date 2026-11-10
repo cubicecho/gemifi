@@ -2335,6 +2335,48 @@ class TestModes(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    # A pad box: buttons, pads and encoders, no key_matrix (#117)
+    NO_KEYS_BASE = re.sub(r"key_matrix:\n(  .*\n)+", "", CYCLE_BASE)
+    NO_KEYS = (CYCLE + "- id: arm\n  toggle: { button: menu }\n  layer: { e2: { cc: 50 }, kick: { daw: clip_1_1 } }\n"
+               "- id: chan\n  hold: { button: other }\n  buttons: { shift: channel_up }\n")
+
+    def test_no_key_matrix(self):
+        """Layers, cycles, hold modes and buttons: remaps need no key matrix; only keys: does (#117)."""
+        self.assertNotIn("key_matrix", self.NO_KEYS_BASE)
+        base = self.NO_KEYS_BASE.replace("  - { id: other, pin: PA3, action: note, note: 60 }\n",
+                                         "  - { id: other, pin: PA3 }\n")
+        text = modes(self.NO_KEYS, base)
+        self.assertClean(text)
+        dev, h, c = self.gen(text)
+        self.assertIsNone(dev.matrix)
+        self.assertIn("#define GM_HAS_MATRIX 0", h)
+        self.assertIn("#define GM_N_MODES 5", h)
+        self.assertIn("#define GM_N_CYCLES 1", h)
+        self.assertEqual([m.id for m in dev.modes], ["plain", "dev", "pan", "arm", "chan"])
+        self.assertTrue(all(not m.keys for m in dev.modes))
+        self.assertEqual(dev.modes[4].buttons, [(3, 13, 0, "shift: channel_up")])
+        # keys: (function keys) still needs the keyboard, and says what to use instead
+        self.assertError(modes("- { id: m, toggle: menu, keys: { C3: octave_reset } }", base),
+                         r"this device has no key_matrix: bind buttons instead", path="modes[0].keys")
+        # a sub-mode is entered from a key: there is none
+        self.assertError(modes("- { id: m, toggle: menu, buttons: { shift: preset_next } }\n"
+                               "- { id: sub, parent: m, buttons: { shift: preset_prev } }", base),
+                         r"mode 'sub' is a sub-mode, entered from a key .* no key_matrix: make it a root mode",
+                         path="modes[1].parent")
+
+    def test_no_key_matrix_compiles(self):
+        if not GCC:
+            self.skipTest("needs host gcc")
+        tmp = tempfile.mkdtemp()
+        try:
+            base = self.NO_KEYS_BASE.replace("  - { id: other, pin: PA3, action: note, note: 60 }\n",
+                                             "  - { id: other, pin: PA3 }\n")
+            dev, diags = load(modes(self.NO_KEYS, base))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
+        finally:
+            shutil.rmtree(tmp)
+
     def test_no_modes(self):
         _dev, h, c = self.gen(MODES_NUC)
         self.assertIn("#define GM_N_MODES 0", h)
@@ -2407,7 +2449,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes("- { id: x, toggle: { button: menu }, parent: y }"),
                          r"one of toggle:, hold: or parent:, not toggle and parent")
         self.assertError(modes("- { id: x, toggle: menu, hold: menu }"), r"not toggle and hold")
-        self.assertError(modes(ROOT + "    C3: octave_reset", base=MINIMAL_NUC), r"needs a key_matrix")
+        self.assertError(modes(ROOT + "    C3: octave_reset", base=MINIMAL_NUC), r"no key_matrix")
         self.assertTrue(any("has no keys" in w for w in self.warns(modes("- { id: x, toggle: { button: menu } }"))))
 
     def test_toggle_errors(self):

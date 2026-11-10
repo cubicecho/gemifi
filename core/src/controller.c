@@ -2380,7 +2380,8 @@ static uint32_t led_look(const gm_led_t *l, int active)
  * it can show any colour (vpin_rgb). */
 static int led_full_colour(const gm_led_t *l)
 {
-    return l->pin.hub && l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
+    return l->pin.hub && gm_device.hubs[l->pin.hub - 1u].type == GM_HUB_RGB_SERIAL &&
+           l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
            l->pin2.num == l->pin.num + 1u && l->pin3.num == l->pin.num + 2u;
 }
 #endif
@@ -2470,10 +2471,14 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
         if (m) {
             lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
             /* fade: chips dim with the colour too (leds_fade) */
-            if (led_full_colour(&gm_device.leds[led]) || GM_TM_FADE) {
+            int full = led_full_colour(&gm_device.leds[led]);
+            if (full || GM_TM_FADE) {
                 uint32_t c = (r * 2u + (r >> 6)) << 16 | (g * 2u + (g >> 6)) << 8 | (b * 2u + (b >> 6));
-                if (c != led_colour[led])
-                    led_shown[led] = 0xFFFFu;       /* a new colour at the same level: draw it */
+                /* A new colour at the same level: draw it. Not on an on/off
+                 * LED (fade: its pins don't change, and leds_fade must keep
+                 * seeing it, or the chip jumps to full until it is drawn). */
+                if (c != led_colour[led] && full)
+                    led_shown[led] = 0xFFFFu;
                 led_colour[led] = c;
                 lv |= LV_COLOUR;
             }

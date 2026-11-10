@@ -529,6 +529,24 @@ int main(void)
     run_ms(30);
     CHECK(chip[0].ram[4] == 0x20 && chip[0].ctl == 0x80, "fade: a host colour wins over a lit button (%02X %02X)",
           chip[0].ram[4], chip[0].ctl);
+    /* a breath: the host's colour changes every 50 ms while the button is
+     * lit; the chip never jumps to full in between. Each change lands just
+     * before an LED update (on the device it comes in in the same pass), so
+     * the update sees it before the LED is drawn again. */
+    {
+        int full_seen = 0;
+        for (int f = 0; f < 20; f++) {
+            while (now_ms % 10u != 9u)
+                run_ms(1);
+            gm_led_script_rgb(3, (uint32_t)(40 + (f & 1) * 5), 0, 0, 0);
+            for (int ms = 0; ms < 50; ms++) {
+                run_ms(1);
+                full_seen += chip[0].ctl == 0x8B;
+            }
+        }
+        CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a changing host colour never jumps to full (%d ms, %02X)",
+              full_seen, chip[0].ctl);
+    }
     gm_led_script(3, 0);
     run_ms(20);
     CHECK(chip[0].ctl == 0x8B, "fade: no host colour: the lit button, full (%02X)", chip[0].ctl);

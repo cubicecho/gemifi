@@ -2,6 +2,18 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.41.1](https://github.com/cubicecho/gemifi/compare/v0.41.0...v0.41.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **vpin:** decoder fast tables are filled again on every vpin_init ([d208430](https://github.com/cubicecho/gemifi/commit/d208430347ba3be16aa83373a6c7b963f8b4cb27))
+
+
+### Performance Improvements
+
+* **vpin:** the mux and decoder selects take the hub index ([#118](https://github.com/cubicecho/gemifi/issues/118)) ([b3afeb3](https://github.com/cubicecho/gemifi/commit/b3afeb3c8dd5b32a261893df7e272c3dbbac199a))
+
 # [0.41.0](https://github.com/cubicecho/gemifi/compare/v0.40.0...v0.41.0) (2026-11-10)
 
 

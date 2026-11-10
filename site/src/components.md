@@ -346,13 +346,26 @@ walk: each listed LED lights on its own in turn, and the log names it.
 
 <h2 id="displays">Displays</h2>
 
-A 14-segment character display, like the Code 61's six characters, is a row
-of characters on a hub's outputs, usually a TM1628. It shows "GEMIFI" at
-boot, then the last message the device sent (`74 127` for a CC, `C#4.127`
-for a note), a preset's name when you switch, and `CH 3` when the channel
-changes. A DAW script can write its own text to it (`daw:` names what it
-shows: `time`, `track_name`, `param` or `status`). One display per device,
-up to 16 characters.
+A display is a row of segment characters on a hub's outputs: a TM1628, a
+MAX7219, a TM1637 or shift registers. `type:` is `segment14` (like the Code
+61's six characters, the default) or `segment7` (digits a to g and the
+point). Up to 4 displays per device, up to 16 characters each.
+
+What a display shows of its own is its `shows:`:
+
+- `last_message` (the first display's default): "GEMIFI" at boot, then the
+  last message the device sent (`74 127` for a CC, `C#4.127` for a note), a
+  preset's name when you switch, and `CH 3` when the channel changes;
+- `preset_number`: the active preset's number, as a floor board shows it;
+- `preset_name`, `channel`, or `none` (the other displays' default).
+
+A DAW script can write its own text to any display (`daw:` names what it
+shows: `time`, `track_name`, `param` or `status`).
+
+Each character is its first pin, with its segments on the pins after it.
+Wired the other way round (characters on the SEG lines),
+`segment_step: 16` puts each segment 16 pins on, or a character can list
+its segments' pins.
 
 {% raw %}
 ```yaml
@@ -363,6 +376,13 @@ displays:
     chars:
       - { tm1628: leds_a, number: 48 }
       - { tm1628: leds_a, number: 64 }
+  - id: preset_display          # 3 digits on a MAX7219
+    type: segment7
+    shows: preset_number
+    chars:
+      - { max7219: digits, number: 0 }
+      - { max7219: digits, number: 8 }
+      - { max7219: digits, number: 16 }
 ```
 {% endraw %}
 
@@ -384,6 +404,8 @@ use.
 | `decoder` | 74HC138-style row selects for a matrix | one register write per row on STM32F1 |
 | `switch_matrix` | up to 32 buttons or encoder contacts on a matrix | scanned with the key matrix |
 | `tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
+| `max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
+| `tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
 | `rgb_serial` | RGB LEDs on a serial LED board | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 

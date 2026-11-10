@@ -1087,6 +1087,51 @@
         }
       ]
     },
+    "ht16k33": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 119
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "intensity": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 15
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "ht16k33 hubs (core/README.md \"Virtual pins and hubs\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
     "buttons": {
       "anyOf": [
         {
@@ -3984,6 +4029,10 @@
               "description": "the id of another component"
             },
             "tm1637": {
+              "type": "string",
+              "description": "the id of another component"
+            },
+            "ht16k33": {
               "type": "string",
               "description": "the id of another component"
             }

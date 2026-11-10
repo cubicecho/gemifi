@@ -33,7 +33,7 @@
 # test_leds_local: the same with feedback off (leds-local-test.yaml)
 # test_leds_many:  the same with 132 LEDs (leds-test.yaml + 74HC595 chains)
 # test_encoders:   encoder acceleration on fake time (encoders-test.yaml)
-# test_i2c:        MCP23017 / PCF8574 hubs on a fake bus (i2c-test.yaml)
+# test_i2c:        MCP23017 / PCF8574 / HT16K33 hubs on a fake bus (i2c-test.yaml)
 # test_msg:        the MIDI message kinds: 14-bit CC, (N)RPN, bank, panic,
 #                  MMC, SysEx, per-control channel / range (msg-test.yaml)
 # test_modes:      layers, cycles, hold modes and buttons: without a key

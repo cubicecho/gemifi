@@ -347,7 +347,7 @@ walk: each listed LED lights on its own in turn, and the log names it.
 <h2 id="displays">Displays</h2>
 
 A display is a row of segment characters on a hub's outputs: a TM1628, a
-MAX7219, a TM1637 or shift registers. `type:` is `segment14` (like the Code
+MAX7219, a TM1637, an HT16K33 backpack or shift registers. `type:` is `segment14` (like the Code
 61's six characters, the default) or `segment7` (digits a to g and the
 point). Up to 4 displays per device, up to 16 characters each.
 
@@ -406,6 +406,7 @@ use.
 | `tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
 | `max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
 | `tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
+| `ht16k33` | 128 LED outputs over I2C (ESP only): 14- and 7-segment backpacks | changed bytes only, from the main loop |
 | `rgb_serial` | RGB LEDs on a serial LED board | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 

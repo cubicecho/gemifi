@@ -338,6 +338,7 @@ class HubType:
     ram = False                 # its pins are in the hub RAM (GM_TM1628_RAM): ram_bytes of it
     pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
     schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
+    i2c = False                 # on the i2c: bus (address:)
     what = "pin"                # a pin's name in messages
 
     def validate(self, v, dev, hub, h, p, line, ctl):
@@ -433,6 +434,7 @@ class I2CExpander(HubType):
     the main loop."""
     keys = ("id", "address")
     roles = frozenset({"in", "out"})
+    i2c = True
 
     def __init__(self, key, enum, num, n_pins, addrs, addr_text, pin_key=None):
         self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
@@ -690,6 +692,32 @@ class TM1637(HubType):
                 f".brightness = {hub.intensity} }},"]
 
 
+class HT16K33(HubType):
+    """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
+    loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
+    key, enum, num = "ht16k33", "GM_HUB_HT16K33", 13
+    keys = ("id", "address", "intensity")
+    roles = frozenset({"out"})
+    ram = True
+    i2c = True
+    schema = {"intensity": (0, 15)}
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x70)
+        if not 0x70 <= hub.addr <= 0x77:
+            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for an ht16k33 "
+                                                         "(0x70-0x77)")
+        hub.ram_bytes = 16
+        hub.n_pins = 128
+        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
+
+    def range_text(self, hub):
+        return " (16 RAM bytes x 8; pin = COM * 16 + ROW)"
+
+    def c_fields(self, hub):
+        return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
+
+
 HUB_DEFS = {t.key: t for t in (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
@@ -697,13 +725,13 @@ HUB_DEFS = {t.key: t for t in (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), RgbSerial(), XYPad(), MAX7219(), TM1637())}
+    Decoder(), SwitchMatrix(), TM1628(), RgbSerial(), XYPad(), MAX7219(), TM1637(), HT16K33())}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 HUB_PIN_KEY = {k: t.pin_key or k for k, t in HUB_DEFS.items()}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
-I2C_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, I2CExpander)}
+I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
 SHIFT_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, ShiftRegister)}
 MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
 MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
@@ -2001,7 +2029,7 @@ def validate(data, file=None):
             if sda and scl:
                 dev.i2c = (sda, scl)
             if not need_i2c:
-                v.warn("i2c", data.line_of("i2c"), "no I2C hub (mcp23017 / pcf8574) uses it")
+                v.warn("i2c", data.line_of("i2c"), "no I2C hub (mcp23017 / pcf8574 / ht16k33) uses it")
     elif need_i2c:
         first = next(h for h in dev.hubs if h.type in I2C_HUBS)
         v.err("i2c", data.line, f"hub '{first.id}' ({first.type}) needs the I2C pins: "
@@ -5650,7 +5678,8 @@ def generate(dev, source="device.yaml"):
     h += matrix_defines(dev)
     tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
-        h.append(f"#define GM_TM1628_RAM {tm_ram} /* hub RAM bytes: tm1628, max7219, tm1637, rgb_serial */")
+        h.append(f"#define GM_TM1628_RAM {tm_ram} /* hub RAM bytes: tm1628, max7219, tm1637, ht16k33, "
+                 "rgb_serial */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     if m and getattr(m, "vel_fast", None) is not None:

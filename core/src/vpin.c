@@ -5,9 +5,9 @@
  * gm_hub_ops_t, in hub_ops[] at the bottom, one section per type above it.
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
- * TM1628, MAX7219, TM1637 and RGB_SERIAL hubs keep their pins in the hub RAM
- * (hub_ram, GM_TM1628_RAM bytes, each hub's back to back from s->ram), since
- * a chip has more than 32 bits: an LED driver's display RAM (a MAX7219's
+ * TM1628, MAX7219, TM1637, HT16K33 and RGB_SERIAL hubs keep their pins in
+ * the hub RAM (hub_ram, GM_TM1628_RAM bytes, each hub's back to back from
+ * s->ram), since a chip has more than 32 bits: an LED driver's display RAM (a MAX7219's
  * digit registers), an RGB_SERIAL hub's LEDs a byte per colour (pin = LED
  * * 3 + colour: a pin on is 255, off 0; vpin_rgb sets any colour).
  *
@@ -1676,7 +1676,7 @@ static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     }
 }
 
-/* ---- RAM-backed LED drivers: MAX7219 and TM1637 (main loop) ----------- */
+/* ---- RAM-backed LED drivers: MAX7219, TM1637, HT16K33 (main loop) ----- */
 
 /* Pin num = RAM bit, byte * 8 + bit, of `bytes` bytes; marks the chip
  * dirty if it changed. */
@@ -1921,6 +1921,67 @@ static void tm1637_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int le
 {
     ledram_write(s, h->tm37.grids, num, level);
 }
+
+/* HT16K33 (I2C): 16 bytes of display RAM, COM c = bytes 2c (ROW0-7) and
+ * 2c + 1 (ROW8-15). The first write: 0x21 (oscillator on), the RAM from
+ * address 0, 0xE0 | brightness, 0x81 (display on, no blink). After that,
+ * the first run of changed bytes as one write (its address, its bytes), as
+ * many as the budget has room for (an I2C byte at 400 kHz, ~23 us, counts
+ * 2), at least one. The writes aren't checked: a missing chip costs its
+ * bytes once per change, as the MCP23017's do. */
+#define HT_RAM 16u
+#define HT_COST 2u
+
+static void ht_cmd(const gm_hub_t *h, uint8_t c)
+{
+    hal_i2c_write(h->ht.addr, &c, 1);
+}
+
+static uint32_t ht16k33_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
+{
+    if (!s->u.seg.dirty || s->ram + HT_RAM > GM_TM1628_RAM)
+        return budget;
+    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram], b[HT_RAM + 1];
+    uint32_t k = 0, all = s->never, used = 0;
+    if (all)
+        ht_cmd(h, 0x21u);
+    else
+        while (k < HT_RAM && ram[k] == sent[k])
+            k++;
+    if (k < HT_RAM) {
+        uint32_t n = 0;
+        b[n++] = (uint8_t)k;
+        used = 2u * HT_COST;                /* the address byte and the RAM address */
+        do {
+            b[n++] = ram[k];
+            sent[k] = ram[k];
+            k++;
+            used += HT_COST;
+        } while (k < HT_RAM && (all || (ram[k] != sent[k] && used + HT_COST <= budget)));
+        hal_i2c_write(h->ht.addr, b, n);
+    }
+    if (all) {
+        ht_cmd(h, (uint8_t)(0xE0u | (h->ht.brightness & 15u)));
+        ht_cmd(h, 0x81u);
+        s->never = 0;
+    }
+    while (k < HT_RAM && ram[k] == sent[k])
+        k++;
+    s->u.seg.dirty = k < HT_RAM;
+    return budget > used ? budget - used : 0u;
+}
+
+static void ht16k33_init(const gm_hub_t *h, hub_state_t *s)
+{
+    (void)h;
+    ledram_init(s, HT_RAM);
+}
+
+static void ht16k33_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
+{
+    (void)h;
+    ledram_write(s, HT_RAM, num, level);
+}
 #else
 int vpin_fades(gm_pin_t p)
 {
@@ -2059,6 +2120,9 @@ static const gm_hub_ops_t max7219_ops = {
 static const gm_hub_ops_t tm1637_ops = {
     .flags = GM_HUBF_NO_READ, .init = tm1637_init, .write = tm1637_write, .send = tm1637_send,
 };
+static const gm_hub_ops_t ht16k33_ops = {
+    .flags = GM_HUBF_NO_READ, .init = ht16k33_init, .write = ht16k33_write, .send = ht16k33_send,
+};
 #endif
 static const gm_hub_ops_t xy_ops = {
     .flags = GM_HUBF_IN_REG, .init = xy_init, .analog = xy_analog,
@@ -2079,6 +2143,7 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_RGB_SERIAL, rgb_serial_ops),
     HUB(GM_HUB_MAX7219, max7219_ops),
     HUB(GM_HUB_TM1637, tm1637_ops),
+    HUB(GM_HUB_HT16K33, ht16k33_ops),
 #endif
     HUB(GM_HUB_XY, xy_ops),
 };

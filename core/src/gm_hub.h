@@ -98,7 +98,7 @@ struct gm_hub_state {
             uint16_t peak[2];     /* fade: brightest LED noted + 1, 0 = none:
                                      [0] looks and plain levels, [1] host colours */
         } tm;
-        struct {          /* MAX7219 / TM1637 */
+        struct {          /* MAX7219 / TM1637 / HT16K33 */
             uint8_t dirty;        /* RAM changed since the last write */
         } seg;
         struct {          /* SWMATRIX */

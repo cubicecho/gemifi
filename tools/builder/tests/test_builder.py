@@ -861,6 +861,34 @@ class TestValidation(unittest.TestCase):
                       ".brightness = 2 },", files["gm_device_config.c"])
         self.assertIn("#define GM_TM1628_RAM 4 ", files["gm_device_config.h"])
 
+    def test_ht16k33(self):
+        esp = MINIMAL_ESP.format(plat="esp32", tr="serial") + "i2c: { sda: GPIO21, scl: GPIO22 }\n"
+
+        def dev(extra="", more=""):
+            return esp + f"ht16k33:\n  - {{ id: alpha{extra} }}\n" + more
+
+        self.assertClean(dev())
+        self.assertClean(dev(", address: 0x77, intensity: 0"))
+        self.assertError(dev(", intensity: 16"), r"16 is out of range \(0\.\.15\)")
+        w = [x for x in load(dev(", address: 0x20"))[1] if x.level == "warning"]
+        self.assertTrue(any("unusual for an ht16k33" in x.msg for x in w), [str(x) for x in w])
+        self.assertError(dev(more="  - { id: b }\n"), r"I2C address 0x70 is already used by hub 'alpha'")
+        self.assertError(dev().replace("i2c: { sda: GPIO21, scl: GPIO22 }\n", ""), r"needs the I2C pins")
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        self.assertError(stm + "ht16k33:\n  - { id: alpha }\n", r"ht16k33 isn't supported on stm32f1 yet")
+        # pin = COM * 16 + ROW: 128 pins; an Adafruit 14-segment backpack's characters at 0, 16, 32, 48
+        self.assertError(dev(more="leds:\n  - { id: l, pin: { ht16k33: alpha, number: 128 } }\n"),
+                         r"pin 128 is out of range for hub 'alpha' \(ht16k33 \(16 RAM bytes x 8")
+        disp = dev(", intensity: 9", "displays:\n  - { id: d, chars: [{ ht16k33: alpha, number: 0 }, "
+                                     "{ ht16k33: alpha, number: 16 }] }\n")
+        self.assertClean(disp)
+        d, diags = load(disp)
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        files = gd.generate(d, "t.yaml")
+        self.assertIn(".type = GM_HUB_HT16K33, .ht = { .addr = 0x70, .brightness = 9 },", files["gm_device_config.c"])
+        self.assertIn("#define GM_HAS_I2C 1", files["gm_device_config.h"])
+        self.assertIn("#define GM_TM1628_RAM 16 ", files["gm_device_config.h"])
+
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         share = "{ number: %s, allow_other_uses: true }"

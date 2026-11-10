@@ -1,5 +1,6 @@
 # core/test test_i2c: I2C hubs. One MCP23017 with only LEDs on it (never
-# read), one with a button and an LED, one PCF8574 with a button.
+# read), one with a button and an LED, one PCF8574 with a button, and an
+# HT16K33 14-segment backpack (Adafruit's segment order) as a display.
 gemifi: 2
 name: i2c-test
 friendly_name: I2C Test
@@ -16,6 +17,8 @@ mcp23017:
   - { id: mixed_io, address: 0x21 }
 pcf8574:
   - { id: btn_io, address: 0x38 }
+ht16k33:
+  - { id: alpha, address: 0x70, intensity: 9 }
 
 buttons:
   - { id: play, pin: { mcp23xxx: mixed_io, number: GPA0, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 20, led: play_led }
@@ -25,3 +28,12 @@ leds:
   - { id: play_led, pin: { mcp23xxx: mixed_io, number: GPB0 } }
   - { id: led_a, pin: { mcp23xxx: led_io, number: 0 } }
   - { id: led_b, pin: { mcp23xxx: led_io, number: GPB7 } }
+
+displays:
+  - id: alpha_display
+    segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]   # the lower diagonals swapped
+    chars:
+      - { ht16k33: alpha, number: 0 }
+      - { ht16k33: alpha, number: 16 }
+      - { ht16k33: alpha, number: 32 }
+      - { ht16k33: alpha, number: 48 }

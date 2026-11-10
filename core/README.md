@@ -52,8 +52,9 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
-| `max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see "MAX7219 and TM1637") |
-| `tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see "MAX7219 and TM1637") |
+| `max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see "MAX7219, TM1637 and HT16K33") |
+| `tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see "MAX7219, TM1637 and HT16K33") |
+| `ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; the `i2c:` pins), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see "MAX7219, TM1637 and HT16K33") |
 
 A pin on a hub names the hub by its chip key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
@@ -142,12 +143,13 @@ leds:
 
 Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
 
-### MAX7219 and TM1637
+### MAX7219, TM1637 and HT16K33
 
-Two more LED drivers for 7-segment digits (and single LEDs), bit-banged from the main loop like the TM1628, on any platform. Their pins are kept in the hub RAM (`GM_TM1628_RAM` counts them too), and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. Both are untested on hardware.
+Three more LED drivers for segment digits (and single LEDs), written from the main loop like the TM1628: the MAX7219 and TM1637 bit-banged on any platform, the HT16K33 on the I2C bus (ESP only for now). Their pins are kept in the hub RAM (`GM_TM1628_RAM` counts them too), and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. All three are untested on hardware.
 
 - **`max7219`** (also the MAX7221; ESPHome's keys): a chain of `num_chips` chips on one `din_pin` / `clk_pin` / `cs_pin`. Chip 0 is the one whose DIN is the MCU's. Pin = chip × 64 + digit × 8 + segment, with segment 0–6 = A–G and 7 = DP, and digit 0 = DIG0, so a `segment7` character is its digit's first pin (`number: 0`, `8`, `16`, ...) and every chip is also 64 single LEDs. The chips' own decode is off: the core sends segments. The first write sets the chain up (display test off, no decode, scan limit `scan_limit - 1`, intensity) and writes every digit before turning it on (shutdown off), so nothing random shows. After that, a digit that changed in any chip is one frame: that digit register of every chip, the last chip's word first, taken on CS rising. Words go MSB first, DIN set while CLK is low and taken on the rising edge, each phase ≥ 100 ns on `hal_cycles()` (`MX_PHASE_NS`; 1 µs a phase on a platform without a cycle counter, the ESP and NUC builds). A frame counts 2 a chip against the budget, and at least one goes out per pass. Several chains can share `clk_pin` and `din_pin` (`allow_other_uses: true` on each), each with its own `cs_pin`. A low `scan_limit` lights each digit longer: the datasheet's "Scan-Limit Register" says how to choose RSET for fewer than 4.
 - **`tm1637`** (ESPHome's keys, `length` = grids): a 2-wire chip, one per `clk_pin` / `dio_pin` pair (there's no chip select, so they can't be shared). Pin = grid × 8 + segment, bit 0 = SEG1 (a on the usual 4- and 6-digit modules) to bit 7 = SEG8 (the point, or the colon on clock modules). Start (DIO falls while CLK is high), bytes LSB first, each followed by the chip's ACK clock, stop (DIO rises while CLK is high), each phase 3 µs (`TM37_HALF_US`; the chip's clock is slow and modules often have capacitors on both lines), about 60 µs a byte. The ACK isn't read: DIO is driven low through it, the level the chip pulls it to, so a push-pull DIO never fights the chip (`OUTPUT_OPEN_DRAIN` with a pull-up works too). The first write is 0x40 (write, auto-increment), every grid from 0xC0, then 0x88 | `intensity` (on); after that each pass sends the first run of changed grids, 0x40 then 0xC0 | its address and as many bytes as the budget has room for (a byte counts 5), at least one.
+- **`ht16k33`** (the Adafruit 14-segment and 7-segment backpacks and similar boards): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
 
 ```yaml
 max7219:
@@ -484,7 +486,7 @@ displays:
     chars: [{ tm1628: leds_b, number: 0 }, { tm1628: leds_b, number: 1 }]
 ```
 
-Not yet: `text` displays (HD44780 characters, SSD1306 / SH1106 OLEDs), HT16K33 backpacks, more than one row, and the TM1640. See #120.
+Not yet: `text` displays (HD44780 characters, SSD1306 / SH1106 OLEDs), more than one row, and the TM1640. See #120.
 
 ## Layout
 

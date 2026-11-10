@@ -4,8 +4,8 @@
  * A device is a list of components (buttons, LEDs, analog inputs, encoders,
  * a key matrix) whose pins are *virtual pins*: either a pin of the MCU
  * itself (hub 0) or a pin of an expander hub (74HC595 outputs, 74HC165
- * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 over I2C, TM1628,
- * MAX7219 and TM1637 LED drivers). The core
+ * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 / HT16K33 over
+ * I2C, TM1628, MAX7219 and TM1637 LED drivers). The core
  * drives the hubs; the platform HAL only knows its own pins.
  *
  * The tables are generated from a device YAML by tools/builder (see
@@ -59,6 +59,7 @@ enum {
     GM_HUB_XY = 10,       /* 4-wire resistive XY pad (.xy)                */
     GM_HUB_MAX7219 = 11,  /* MAX7219 LED drivers, a chain (.mx)           */
     GM_HUB_TM1637 = 12,   /* TM1637 2-wire LED driver (.tm37)             */
+    GM_HUB_HT16K33 = 13,  /* HT16K33 I2C LED driver (.ht)                 */
     GM_HUB_N_TYPES        /* (one more than the last)                     */
 };
 
@@ -177,6 +178,14 @@ typedef struct {
     uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
 } gm_hub_tm1637_t;
 
+/* .ht: an HT16K33 LED driver on the I2C bus (the 14-segment and 7-segment
+ * backpacks), written from the main loop: outputs, pin = COM * 16 + ROW
+ * (display RAM bit: byte * 8 + bit). The key scan isn't read. */
+typedef struct {
+    uint8_t addr;         /* 7-bit I2C address, 0x70..0x77                 */
+    uint8_t brightness;   /* 0..15 (dimming 0xE0 | it)                     */
+} gm_hub_ht16k33_t;
+
 typedef struct {
     uint8_t type;         /* GM_HUB_*                                      */
     union {
@@ -190,6 +199,7 @@ typedef struct {
         gm_hub_xy_t xy;           /* GM_HUB_XY */
         gm_hub_max7219_t mx;      /* GM_HUB_MAX7219 */
         gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
+        gm_hub_ht16k33_t ht;      /* GM_HUB_HT16K33 */
     };
 } gm_hub_t;
 

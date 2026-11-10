@@ -335,7 +335,7 @@ class HubType:
     keys = ("id",)              # a hub's YAML keys
     lines = {}                  # control-pin keys: the line kind, for allow_other_uses (same kind on each)
     roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
-    ram = False                 # its pins are in the hub RAM (GM_TM1628_RAM): ram_bytes of it
+    ram = False                 # its pins are in the hub RAM (GM_HUB_RAM): ram_bytes of it
     pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
     what = "pin"                # a pin's name in messages
 
@@ -5460,9 +5460,9 @@ def generate(dev, source="device.yaml"):
     h += hw_scan_sizes(dev)
     h += timer_defines(dev)
     h += matrix_defines(dev)
-    tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
-    if tm_ram:
-        h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
+    hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
+    if hub_ram:
+        h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (vpin.c hub_ram): its tm1628 and LED hubs' */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     if m and getattr(m, "vel_fast", None) is not None:

@@ -6,7 +6,7 @@
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
  * TM1628 and RGB_SERIAL hubs keep their pins in the hub RAM (hub_ram,
- * GM_TM1628_RAM bytes, each hub's back to back from s->ram), since a chip
+ * GM_HUB_RAM bytes, each hub's back to back from s->ram), since a chip
  * has more than 32 bits: a TM1628's display RAM, an RGB_SERIAL hub's LEDs a
  * byte per colour (pin = LED * 3 + colour: a pin on is 255, off 0;
  * vpin_rgb sets any colour).
@@ -31,8 +31,11 @@
 #define GM_HUB_TYPES 0xFFFFFFFFu     /* a config generated before it: all */
 #endif
 #define USES(t) ((GM_HUB_TYPES >> (t)) & 1u)
-#ifndef GM_TM1628_RAM
-#define GM_TM1628_RAM 0             /* no TM1628 / RGB_SERIAL hub */
+#if !defined(GM_HUB_RAM) && defined(GM_TM1628_RAM)
+#define GM_HUB_RAM GM_TM1628_RAM    /* a config generated before the rename */
+#endif
+#ifndef GM_HUB_RAM
+#define GM_HUB_RAM 0                /* no hub keeps its pins in the hub RAM */
 #endif
 
 typedef gm_hub_state_t hub_state_t;
@@ -143,16 +146,16 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
     sm_inv[i] = inv;
     sm_reg[i] = reg;
 }
-#if GM_TM1628_RAM > 0
-static uint8_t hub_ram[GM_TM1628_RAM];
-static uint8_t ram_sent[GM_TM1628_RAM];   /* what the chip / LED board has (its bytes of hub_ram) */
+#if GM_HUB_RAM > 0
+static uint8_t hub_ram[GM_HUB_RAM];
+static uint8_t ram_sent[GM_HUB_RAM];   /* what the chip / LED board has (its bytes of hub_ram) */
 static uint32_t ram_next;                 /* vpin_init: the next free byte */
 
 /* n bytes of the hub RAM for the hub being initialised (as many as are left). */
 static uint16_t ram_alloc(uint32_t n)
 {
     uint32_t at = ram_next;
-    ram_next = at + n < GM_TM1628_RAM ? at + n : GM_TM1628_RAM;
+    ram_next = at + n < GM_HUB_RAM ? at + n : GM_HUB_RAM;
     return (uint16_t)at;
 }
 #endif
@@ -229,7 +232,7 @@ static uint8_t n_scan_in, n_scan_out;
 
 void vpin_init(void)
 {
-#if GM_TM1628_RAM > 0
+#if GM_HUB_RAM > 0
     ram_next = 0;
 #endif
     n_fed = 0;
@@ -1199,7 +1202,7 @@ int vpin_read_span(gm_pin_t p, int *any)
 
 /* ---- TM1628 LED drivers ------------------------------------------------ */
 
-#if GM_TM1628_RAM > 0
+#if GM_HUB_RAM > 0
 /* Bus timing, from the datasheet: CLK <= 1 MHz, PWCLK >= 400 ns high and
  * low, DIO setup and hold >= 100 ns around the CLK rising edge, PWSTB
  * >= 1 us, CLK rising to STB rising >= 1 us. DIO is set at the start of the
@@ -1344,8 +1347,8 @@ static uint32_t tm1628_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     if (!s->u.tm.dirty)
         return budget;
     uint32_t n = h->tm.ram_bytes;
-    if (s->ram + n > GM_TM1628_RAM)
-        n = GM_TM1628_RAM - s->ram;
+    if (s->ram + n > GM_HUB_RAM)
+        n = GM_HUB_RAM - s->ram;
     uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
     tm_io_t bus;
     const tm_io_t *io = &bus;
@@ -1406,7 +1409,7 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
     mcu_out(h->tm.dio, 1);
     s->ram = ram_alloc(h->tm.ram_bytes);
     s->u.tm.dirty = 1;
-    for (uint32_t k = 0; k < h->tm.ram_bytes && s->ram + k < GM_TM1628_RAM; k++)
+    for (uint32_t k = 0; k < h->tm.ram_bytes && s->ram + k < GM_HUB_RAM; k++)
         hub_ram[s->ram + k] = 0;
 }
 
@@ -1414,7 +1417,7 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
 static void tm1628_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
     uint32_t k = num >> 3u;
-    if (k >= h->tm.ram_bytes || s->ram + k >= GM_TM1628_RAM)
+    if (k >= h->tm.ram_bytes || s->ram + k >= GM_HUB_RAM)
         return;
     uint8_t *b = &hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
     uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
@@ -1538,7 +1541,7 @@ static void rgb_serial_init(const gm_hub_t *h, hub_state_t *s)
 {
     /* All off; every LED is sent once (ram_sent starts different). */
     s->ram = ram_alloc(3u * h->rgb.count);
-    for (uint32_t k = 0; k < 3u * h->rgb.count && s->ram + k < GM_TM1628_RAM; k++) {
+    for (uint32_t k = 0; k < 3u * h->rgb.count && s->ram + k < GM_HUB_RAM; k++) {
         hub_ram[s->ram + k] = 0;
         ram_sent[s->ram + k] = 0xFFu;
     }
@@ -1550,13 +1553,13 @@ static void rgb_serial_init(const gm_hub_t *h, hub_state_t *s)
 /* Pin num = LED * 3 + colour: on is 255, off 0. */
 static void rgb_serial_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
-    if (num < 3u * h->rgb.count && s->ram + num < GM_TM1628_RAM)
+    if (num < 3u * h->rgb.count && s->ram + num < GM_HUB_RAM)
         hub_ram[s->ram + num] = level ? 0xFFu : 0u;
 }
 
 static int rgb_serial_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
 {
-    if (num % 3u || num + 3u > 3u * h->rgb.count || s->ram + num + 3u > GM_TM1628_RAM)
+    if (num % 3u || num + 3u > 3u * h->rgb.count || s->ram + num + 3u > GM_HUB_RAM)
         return 0;
     uint8_t *b = &hub_ram[s->ram + num];
     b[0] = (uint8_t)(rgb >> 16);
@@ -1597,7 +1600,7 @@ static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
 /* Send one changed LED (at most every RGB_GAP_MS) and the keepalive. */
 static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
 {
-    if (h->rgb.tx.hub != 0 || s->ram + 3u * h->rgb.count > GM_TM1628_RAM)
+    if (h->rgb.tx.hub != 0 || s->ram + 3u * h->rgb.count > GM_HUB_RAM)
         return;
     uint16_t tx = h->rgb.tx.num;
     const uint8_t *ram = &hub_ram[s->ram];
@@ -1799,7 +1802,7 @@ static const gm_hub_ops_t decoder_ops = {
 static const gm_hub_ops_t swmatrix_ops = {
     .flags = GM_HUBF_IN_REG | GM_HUBF_MATRIX, .init = swmatrix_init,   /* scan: vpin_scan_matrices */
 };
-#if GM_TM1628_RAM > 0
+#if GM_HUB_RAM > 0
 static const gm_hub_ops_t tm1628_ops = {
     .flags = GM_HUBF_NO_READ, .init = tm1628_init, .write = tm1628_write, .send = tm1628_send,
 };
@@ -1822,7 +1825,7 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_PCF8574, pcf8574_ops),
     HUB(GM_HUB_DECODER, decoder_ops),
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),
-#if GM_TM1628_RAM > 0
+#if GM_HUB_RAM > 0
     HUB(GM_HUB_TM1628, tm1628_ops),
     HUB(GM_HUB_RGB_SERIAL, rgb_serial_ops),
 #endif

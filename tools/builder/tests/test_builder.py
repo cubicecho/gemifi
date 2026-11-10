@@ -150,7 +150,7 @@ class TestGenerateCompiles(unittest.TestCase):
                                  ("4", "0", "0", "21"), ("5", "0", "0", "38"), ("7", "0", "0", "00"),
                                  ("7", "0", "0", "00")])
         # tm1628: RAM size, intensity, grids; CLK/DIO shared, DIO open-drain (flag 8), own STB
-        self.assertIn("#define GM_TM1628_RAM 20", h)
+        self.assertIn("#define GM_HUB_RAM 20", h)
         hub8 = out.split(" hub 8 ")[1].split(" hub 9 ")[0]
         hub9 = out.split(" hub 9 ")[1].split("buttons=")[0]
         self.assertIn("ram=14 bright=2 grids=6", hub8)
@@ -329,7 +329,7 @@ class TestValidation(unittest.TestCase):
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
-        self.assertIn("#define GM_TM1628_RAM 48 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_HUB_RAM 48 ", files["gm_device_config.h"])
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .rgb = {", files["gm_device_config.c"])
         self.assertIn(".count = 16, .dma = 1,", files["gm_device_config.c"])
         self.assertIn(".white = { 255, 255, 255 }, .curve = 0 }", files["gm_device_config.c"])

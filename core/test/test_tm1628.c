@@ -29,7 +29,7 @@
 #include "gm_feedback.h"
 #include "gm_vpin.h"
 
-#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 32
+#if !defined(GM_HUB_RAM) || GM_HUB_RAM != 32
 #error "test_tm1628.c needs the tm1628-test.yaml config"
 #endif
 

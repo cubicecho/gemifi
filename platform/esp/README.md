@@ -5,7 +5,7 @@ The gemifi HAL (`core/include/gm_hal.h`) and profile store (`config_store.h`) fo
 | File | What |
 |---|---|
 | `gm_esp.h` | build settings (transport, I2C pins, board id), and the platform calls `main.cpp` makes |
-| `hal_esp.cpp` | time, pins, ADC, I2C, uid, reboot, scan timer |
+| `hal_esp.cpp` | time, pins, ADC, I2C, uid, reboot, scan timer; LED strips (`hal_ledstrip_*`, the `ws2812` hub) by RMT on ESP32 / S2 / S3 (`rmtWriteAsync`: a frame goes out in the background, then a 300 us latch), none on ESP8266 |
 | `midi_esp.cpp` | MIDI transports and the TX queue |
 | `fw_esp.cpp` | firmware upload to the other OTA slot (`hal_fw_ops`), plus a zlib CRC-32 |
 | `config_store_esp.cpp` | the stored profile: NVS (ESP32) or EEPROM sector (ESP8266) |

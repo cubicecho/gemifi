@@ -1,0 +1,46 @@
+# WS2812 LED strips for core/test/test_ws2812.c: an RGB strip (GRB, the
+# default) and an RGBW one (GRBW, gamma and white), full-colour looks,
+# led_defaults and a cycle with full step colours. LED indices and pins
+# are the test's.
+gemifi: 2
+name: ws2812-test
+friendly_name: WS2812 Test
+board_id: 0x3F17
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+ws2812:
+  - { id: strip, pin: PB15, count: 4 }
+  - { id: rgbw, pin: PA7, count: 2, order: GRBW, gamma: 2.2, white: [255, 200, 220, 128] }
+
+led_defaults: { idle: green 10% }
+
+buttons:
+  - { id: b0, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 20, led: l0 }
+  - { id: b1, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 21, led: lw }
+  - { id: cyc, pin: { number: PB3, inverted: true } }       # the next step of the cycle
+
+leds:
+  # 0: strip LED 0, its own looks
+  - { id: l0, pin: { ws2812: strip, number: 0 }, pin2: { ws2812: strip, number: 1 }, pin3: { ws2812: strip, number: 2 }, idle: blue 20%, active: "#ff8000" }
+  # 1: strip LED 1, led_defaults (green 10% idle, white active)
+  - { id: l1, pin: { ws2812: strip, number: 3 }, pin2: { ws2812: strip, number: 4 }, pin3: { ws2812: strip, number: 5 } }
+  # 2: strip LED 3, the cycle's
+  - { id: lc, pin: { ws2812: strip, number: 9 }, pin2: { ws2812: strip, number: 10 }, pin3: { ws2812: strip, number: 11 } }
+  # 3: RGBW LED 0, full colour: its white part goes on the white LED
+  - { id: lw, pin: { ws2812: rgbw, number: 0 }, pin2: { ws2812: rgbw, number: 1 }, pin3: { ws2812: rgbw, number: 2 }, idle: "#402010", active: "#ffffff" }
+  # 4: RGBW LED 1's white LED alone (a single-colour LED); led_defaults: on
+  - { id: lw1, pin: { ws2812: rgbw, number: 7 } }
+  # 5: an MCU pin: led_defaults green 10% is on there
+  - { id: lm, pin: PC0 }
+
+modes:
+  - id: cycle
+    cycle: cyc
+    led: lc
+    steps:
+      - { id: s_orange, colour: "#ff8000" }
+      - { id: s_dim, colour: blue 20% }
+      - { id: s_red, colour: red }

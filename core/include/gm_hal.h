@@ -74,10 +74,10 @@ void hal_midi_flush(uint32_t timeout_ms);
 void hal_midi_send_usb(const uint8_t ev[4]);
 
 /* hal_din_open / hal_serial_open flags: move the bytes by DMA rather than
- * from an interrupt (din_midi dma:, rgb_serial dma:; the builder checks the
+ * from an interrupt (din_midi dma:, maudio_pad_leds dma:; the builder checks the
  * channels are free). Platforms without DMA ignore it. */
 #define HAL_UART_DMA 1u
-/* hal_serial_open: also receive, on the pin paired with tx_pin (rgb_serial
+/* hal_serial_open: also receive, on the pin paired with tx_pin (maudio_pad_leds
  * rx_pin:), for hal_serial_read. */
 #define HAL_UART_RX 2u
 
@@ -123,7 +123,7 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
-/* A serial port on tx_pin (8N1), for rgb_serial hubs.
+/* A serial port on tx_pin (8N1), for maudio_pad_leds hubs.
  * hal_serial_open sets it up, by DMA or interrupt per HAL_UART_DMA in flags
  * (0 if tx_pin can't be one), receiving too with HAL_UART_RX; hal_serial_write
  * starts sending n <= 16 bytes in the background, copied, and returns 0
@@ -133,6 +133,22 @@ uint16_t hal_extra_caps(void);
 int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 int hal_serial_read(uint16_t tx_pin);
+
+/* An addressable LED chain on MCU pin pin, for ws2812 hubs (WS2812B,
+ * SK6812): 800 kHz, each byte MSB first. The core sends wire bytes (its
+ * colour order, gamma and white balance applied), whole frames, from the
+ * main loop and never from the scan interrupt.
+ * hal_ledstrip_open sets the pin up for frames of up to n bytes: 1, or 0
+ * if it can't be one (the builder checks the pin per platform).
+ * hal_ledstrip_write starts a frame of n bytes in the background and
+ * returns 1, or 0 without sending if the last one is still going (b may
+ * change once it returns: the HAL keeps its own copy or encoding).
+ * hal_ledstrip_busy: the last frame, or the latch after it (the line low
+ * for at least 280 us, so the LEDs show it), is still going.
+ * Weak defaults in vpin.c: no strip (open returns 0). */
+int hal_ledstrip_open(uint16_t pin, uint32_t n);
+int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n);
+int hal_ledstrip_busy(uint16_t pin);
 
 /* Optional: mask interrupts for a few instructions, so the main loop can
  * read and reset what the scan interrupt collects (vpin_span_take) in one

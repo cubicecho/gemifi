@@ -49,7 +49,8 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`). ESP only for now, as `mcp23017` | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
+| `maudio_pad_leds` (was `rgb_serial`, still taken) | `GM_HUB_MAUDIO_PADS` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). The M-Audio Code pad LED board; see "M-Audio pad LEDs" |
+| `ws2812` | `GM_HUB_WS2812` | `pin` (an MCU pin; stm32f1: PA7 or PB15); `count` (1–256 LEDs); `order` (`GRB`, the default, `RGB`, `BRG`, ...; `GRBW`, `RGBW`, ... for RGBW LEDs); `gamma`, `white` (`[r, g, b]`, `[r, g, b, w]` on RGBW) | 3 × count outputs (4 × on RGBW): pin = LED × 3 + colour (0 red, 1 green, 2 blue, 3 white). WS2812B / SK6812 strips; see "WS2812 LED strips" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
@@ -84,10 +85,10 @@ Each hub type is a driver in `src/vpin.c` behind one interface, `gm_hub_ops_t` (
 | `input`, `output` | `vpin_input`, `vpin_output` | start-up: a pin is read / driven (I2C: direction and pull-up bits) |
 | `read`, `write` | `vpin_read`, `vpin_write` | anywhere. Without them: the cached `in` / `out` words |
 | `analog` | `vpin_analog` | the main loop: 0..4095 on a channel (mux, XY pad) |
-| `rgb` | `vpin_rgb` | a whole colour on an LED (rgb_serial); a hub with it can show full-colour looks |
+| `rgb` | `vpin_rgb` | a whole colour on an LED (maudio_pad_leds, ws2812); a hub with it is full-colour: its LEDs take full-colour looks ("Full-colour LEDs") |
 | `refresh`, `flush` | `vpin_refresh` / `vpin_flush` in the scan tick (HC165 / HC595), or with `GM_HUBF_BUS` `vpin_refresh_i2c` / `vpin_flush_i2c` from the main loop (I2C) | inputs into `in`; `out` to the chip if it changed |
 | `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
-| `poll` | `vpin_poll` every main-loop pass | protocol timing (rgb_serial: one LED per 5 ms, the keepalive, acks) |
+| `poll` | `vpin_poll` every main-loop pass | protocol timing (maudio_pad_leds: one LED per 5 ms, the keepalive, acks; ws2812: a frame when something changed) |
 
 `flags` say what else the core needs to know: `GM_HUBF_IN_REG` (`in` holds the pins' levels, so a key scan can read a column with one load), `GM_HUBF_NO_READ` (outputs only), `GM_HUBF_BUS`, `GM_HUBF_SELECT` (decoder outputs: "off" does nothing), `GM_HUBF_MATRIX`. The controller asks `vpin_caps()` / `vpin_pin_caps(pin)` (`VPIN_SCAN_IO`, `VPIN_BUS_IO`, `VPIN_MAIN`, `VPIN_MATRIX`, `VPIN_RGB`) which loops to run and what a pin can do, instead of looking at hub types.
 
@@ -97,9 +98,9 @@ The builder writes `GM_HUB_TYPES` (a bit per hub type the device has) into `gm_d
 
 ### Adding a hub type
 
-1. **`include/gm_device.h`**: a `GM_HUB_*` value (before `GM_HUB_N_TYPES`), its config struct, and a member for it in `gm_hub_t`'s union. A config bigger than the largest (the decoder's, 36 bytes) makes every hub bigger: point at a `const` table instead.
-2. **`src/vpin.c`**: a section with its ops and a `gm_hub_ops_t`, and a `HUB(GM_HUB_..., ...)` line in `hub_ops[]`. State it keeps goes in a struct of its own in `gm_hub_state_t`'s union (`src/gm_hub.h`), reset by `vpin_init` before its `init`. Pins kept in the hub RAM (more than 32 of them, or bytes per pin) take `ram_alloc(n)` bytes there in `init`; count them into `GM_TM1628_RAM` in the builder (`ram = True`).
-3. **`tools/builder/gemifi_device.py`**: a `HubType` subclass (its YAML key, `enum` and `num`, its `keys`, the control pins' `lines`, `roles`, `validate`, `c_fields` for its union member, and `c_tables` for anything the entry points at), and an instance in `HUB_DEFS`. The YAML key, the pin key, the schema and the "which hubs can be an input / output / analog" checks follow from it. Then `gemifi_build.py schema -o site/src/schema/device.json`.
+1. **`include/gm_device.h`**: a `GM_HUB_*` value (before `GM_HUB_N_TYPES`), its config struct, and a member for it in `gm_hub_t`'s union. A config bigger than the largest (the decoder's, 36 bytes) makes every hub bigger: point at a `const` table instead (as the switch matrix's rows and the LED hubs' `curve` do).
+2. **`src/vpin.c`**: a section with its ops and a `gm_hub_ops_t`, and a `HUB(GM_HUB_..., ...)` line in `hub_ops[]`. State it keeps goes in a struct of its own in `gm_hub_state_t`'s union (`src/gm_hub.h`), reset by `vpin_init` before its `init`. Pins kept in the hub RAM (more than 32 of them, or bytes per pin) take `ram_alloc(n)` bytes there in `init`; count them into `GM_HUB_RAM` in the builder (`ram = True`).
+3. **`tools/builder/gemifi_device.py`**: a `HubType` subclass (its YAML key, `enum` and `num`, its `keys`, the control pins' `lines`, `roles`, `validate`, `c_fields` for its union member, and `c_tables` for anything the entry points at), and an instance in `HUB_DEFS`. A hub with an `rgb` op sets `full_colour = True` (and `colour_pins` if an LED isn't 3 pins): its LEDs then take full-colour looks, `led_defaults` and step colours as they are. Old names of a type go in `aliases`. The YAML key, the pin key, the schema and the "which hubs can be an input / output / analog" checks follow from it. Then `gemifi_build.py schema -o site/src/schema/device.json`.
 4. **Tests**: a core test YAML in `core/test` with the hub, and a builder test of its validation and C.
 
 ### TM1628 LED drivers
@@ -108,7 +109,7 @@ The builder writes `GM_HUB_TYPES` (a bit per hub type the device has) into `gm_d
 
 - **Pin numbers** are display RAM bits: `number = byte * 8 + bit`, bit 0 = the LSB of the byte. `{ tm1628: leds_a, number: 37 }` is byte 4 (address 0xC4), bit 5. On a TM1628 in its usual wiring, byte 2g is SEG1–SEG8 of grid g+1 and byte 2g+1 is SEG9–SEG14, but the board decides what each bit lights.
 - **Sharing**: several chips can share `clk_pin` and `dio_pin` (`allow_other_uses: true` on each), each with its own `stb_pin`. TM1628 lines can't be shared with other hubs' lines.
-- **Writing**: `vpin_write` only changes a RAM copy (`GM_TM1628_RAM` bytes in `vpin.c`) and marks the chip dirty if a bit changed. The main loop writes dirty chips, never the scan interrupt: at most 4 bytes on the bus per pass, and not on the pass that works the LED levels out (every 10 ms). A chip's first write, at start-up, is its whole RAM: the display-mode command (`grids - 4`, only if `grids:` is set), 0x40 (write, auto-increment), 0xC0 and all `ram_bytes` bytes, then 0x88 | `intensity` (display on). Those stay set in the chip, so after that only what changed goes out: 0x40, then each run of changed bytes as one command, 0xC0 | its first address and its bytes. A run goes on over one unchanged byte (sending it again costs a bus byte, as a new address command would) and ends at two. One LED is 3 bus bytes (0x40, C0|a, the byte), as a fixed-address write (0x44) would be; 12 changed bytes in a row (about what the Code 61's 6-character display takes) are 14, where fixed addresses would take 25. A run the 4-byte budget cuts short goes on at its next address (a new 0xC0 | address) on the next pass. Bits go LSB first, DIO set while CLK is low and taken on the rising edge; the bus idles with STB, CLK and DIO high. Each chip is written once at start-up (all off after the lamp test), so it's cleared even with no LEDs on it.
+- **Writing**: `vpin_write` only changes a RAM copy (`GM_HUB_RAM` bytes in `vpin.c`) and marks the chip dirty if a bit changed. The main loop writes dirty chips, never the scan interrupt: at most 4 bytes on the bus per pass, and not on the pass that works the LED levels out (every 10 ms). A chip's first write, at start-up, is its whole RAM: the display-mode command (`grids - 4`, only if `grids:` is set), 0x40 (write, auto-increment), 0xC0 and all `ram_bytes` bytes, then 0x88 | `intensity` (display on). Those stay set in the chip, so after that only what changed goes out: 0x40, then each run of changed bytes as one command, 0xC0 | its first address and its bytes. A run goes on over one unchanged byte (sending it again costs a bus byte, as a new address command would) and ends at two. One LED is 3 bus bytes (0x40, C0|a, the byte), as a fixed-address write (0x44) would be; 12 changed bytes in a row (about what the Code 61's 6-character display takes) are 14, where fixed addresses would take 25. A run the 4-byte budget cuts short goes on at its next address (a new 0xC0 | address) on the next pass. Bits go LSB first, DIO set while CLK is low and taken on the rising edge; the bus idles with STB, CLK and DIO high. Each chip is written once at start-up (all off after the lamp test), so it's cleared even with no LEDs on it.
 - **Timing**: CLK low 600 ns (DIO is set at its start, so that's also DIO's setup time: an open-drain DIO has to rise through its pull-up within it), CLK high 450 ns, so a bit is at least 1.05 µs (the TM1628 takes up to 1 MHz, PWCLK ≥ 400 ns, setup and hold ≥ 100 ns); STB low 1 µs before the first bit, high 1 µs after the last one, and high for at least 1 µs between commands. The phases are counted on `hal_cycles()` from just after each edge (`hal_ns_to_cycles` converts, once per write), and the pins are written with one set/reset store each (`hal_pin_bsrr`), so on the STM32 at 72 MHz a bit is about 1.3 µs and a byte about 11 µs: the 4-byte budget is ~50 µs a pass, one LED ~40 µs. A platform without them (`hal_pin_bsrr` or `hal_ns_to_cycles` returning 0) uses `hal_pin_write` and `hal_delay_us(1)` a phase, about 2 µs a bit or more. `TM_CLK_LOW_NS` and `TM_CLK_HIGH_NS` in `vpin.c` set the phases; raise the low one if a slow DIO pull-up garbles bits.
 - **Brightness** is per chip (`intensity`, the chip's PWM). LEDs on it are on/off, like other LEDs.
 - **`fade: true`** lets a chip's brightness follow the host: a DAW's colour (FB_LED_RGB) sets the chip's 8 steps from the brightest LED on it, up to `intensity`, and below half the dimmest step the chip goes dark (display off, 0x80). Host colours win: any other lit LED or look counts as full only while no LED on the chip shows a host colour, so an LED the host turned off (showing its idle look) doesn't hold the chip at full. Every LED on the chip dims together, so it suits a chip with only LEDs on it (the Code 61's button chip) and not one that also drives a display. The steps are uneven (pulse widths of 1, 2, 4, 10, 11, 12, 13 and 14 sixteenths), so a fade is coarse at the bottom and nearly flat at the top.
@@ -140,31 +141,61 @@ leds:
 
 Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
 
-### RGB serial LEDs
+### Full-colour LEDs
 
-Some boards drive their RGB LEDs from a second small controller over a serial line. The one supported is the M-Audio Code pad LED board (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
+Two hub types drive LEDs that can show any colour, a byte per colour: `ws2812` (addressable strips) and `maudio_pad_leds` (the M-Audio Code pad LED board). An RGB LED on one of them (`pin`, `pin2`, `pin3` = one LED's red, green and blue: numbers LED × 3, + 1, + 2; LED × 4 on an RGBW strip) shows:
+
+- full-colour looks: `idle: blue 20%`, `active: "#ff8000"` ("LED looks"), from its own `idle:` / `active:` or `led_defaults:`;
+- a cycle step's full colour (`colour: "#ff8000"`, "Cycles");
+- the colour a DAW script picks (FB_LED_RGB, 0..127 per channel, sent as 0..255).
+
+Anything that only switches pins on or off (a plain on, a named look like `blue`, a mode's named colour) sends 0 or 255 per colour. An LED whose pins aren't one LED's red, green and blue in a row (or an LED elsewhere) is on/off per pin: a full-colour look there is an error, and in `led_defaults:` or a step colour it shows as the nearest on/off look.
+
+Two settings on the hub calibrate what goes on the wire, so colours look right:
+
+- **`gamma:`** eyes see brightness on a curve: a quarter of the power looks about half as bright. Each colour goes through 255 × (v / 255) ^ gamma first, so `blue 50%` looks half as bright as `blue`. Default 1 (straight). About 2.2 suits most LEDs; anything above 0 stays above 0.
+- **`white:`** what full red, green and blue (and white, on RGBW) send, to balance the LEDs: `[255, 200, 220]` takes some green and blue out where 255/255/255 looks green. Default all 255.
+
+To find them: show a ramp (255, 64, 16, 4) and see whether 64 looks about half as bright (gamma near 2.2), then show a grid of whites and pick the most neutral. The Code 61's values (`gamma: 2.2`, `white: [255, 200, 220]`) came from that.
+
+### WS2812 LED strips
+
+`ws2812` drives a chain of addressable LEDs, WS2812B or SK6812 (RGB or RGBW), on one MCU pin. Each LED is 3 hub pins (4 on RGBW) as on `maudio_pad_leds`, so LEDs take `pin`, `pin2`, `pin3` and show any colour ("Full-colour LEDs"):
+
+```yaml
+ws2812:
+  - { id: strip, pin: GPIO48, count: 16, order: GRB, gamma: 2.2, white: [255, 235, 210] }
+led_defaults: { idle: blue 20%, active: white }       # full colours where an LED can show them
+leds:
+  - { id: led_1, pin: { ws2812: strip, number: 0 }, pin2: { ws2812: strip, number: 1 }, pin3: { ws2812: strip, number: 2 } }
+  - { id: led_2, pin: { ws2812: strip, number: 3 }, pin2: { ws2812: strip, number: 4 }, pin3: { ws2812: strip, number: 5 }, idle: "#ff6000" }
+```
+
+- **`order:`** the colours in the order the LED takes them: `GRB` (WS2812B, SK6812 RGB; the default), `RGB`, `BRG`, ..., and `GRBW`, `RGBW`, ... for RGBW LEDs (SK6812 RGBW). With a W, each LED is 4 pins (red, green, blue, white) and `white:` takes 4 values. The white part of a colour (the least of red, green and blue) goes on the white LED, so `white` or `#ffffff` lights only the white LED; the white pin on its own (`{ ws2812: strip, number: 4 * LED + 3 }`) is a single-colour LED.
+- **When a frame goes out:** pins only change a copy in RAM; the main loop builds a frame (order, `gamma:`, `white:` applied) only when a colour changed, and sends it only if it differs from the last, at most every 5 ms (`WS_FRAME_MS`), never while the last frame and its latch (280 us low) are still going out, and never from the scan interrupt. The platform sends it in the background (`hal_ledstrip_*`), so the main loop doesn't wait either: a frame is 30 us an LED on the wire (16 LEDs about 0.5 ms).
+- **ESP32, S2, S3:** RMT, through the Arduino core (`rmtWriteAsync`): any output pin, a TX channel a strip (ESP32 8, S2 and S3 4).
+- **stm32f1:** the SPI's MOSI with DMA: PA7 (SPI1, DMA1 channel 3) or PB15 (SPI2, channel 5), one strip each. The SPI runs at about 2.25 MHz and each LED bit is three SPI bits (0 = 100, 1 = 110: 0.44 / 0.89 us high, 1.33 us a bit). The DMA channel goes through the allocator ("DMA channels"). RAM: the hub's bytes twice (the colours and the last frame), and 3 bytes per colour byte for the SPI frame, plus 91.
+- **Not supported:** ESP8266 (no RMT: bit-banging would stop the scan for 30 us an LED) and the NUC (no driver yet); the builder refuses them. APA102 (clock and data) isn't there yet.
+- **Wiring:** WS2812B take 5 V data; at 3.3 V most work, a 74AHCT125 level shifter makes sure. A resistor (about 330 ohm) in the data line and a big capacitor across the strip's supply are good practice; at full white a WS2812B draws about 60 mA.
+
+### M-Audio pad LEDs
+
+`maudio_pad_leds` (called `rgb_serial` before; that name still works, as the list key and the pin key, and builds the same firmware) is the M-Audio Code pad LED board: a small controller that drives the pads' RGB LEDs and takes their colours over a serial line, in its own protocol (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
 
 At power-on the board isn't listening for the first ~220 ms, so the first colours are lost. Without `rx_pin`, every LED is sent once more 2 s after start; after that an LED goes out only when it changes. Don't resend LEDs on a timer: resending one every 50 ms left the Code 61's board deaf after a cold start.
 
 With `rx_pin`, the core listens to the board, which answers each LED message with `0x40 + LED` (the keepalive gets no answer). An LED counts as shown only once answered. Without an answer in 20 ms it goes out again, after a pause that grows with each miss in a row (50 ms, 100 ms, ... up to 500 ms), so a board that is still starting gets little traffic. The first answer means the board is up, and every LED is sent again then instead of at 2 s. If nothing answers in the first 3 s, the hub works as without `rx_pin`.
 
 ```yaml
-rgb_serial:
+maudio_pad_leds:
   - { id: pad_leds, tx_pin: PA2, rx_pin: PA3, count: 16, gamma: 2.2, white: [255, 200, 220] }   # dma: false sends from the interrupt ("DMA channels")
 leds:
-  - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
+  - { id: pad_1_led, pin: { maudio_pad_leds: pad_leds, number: 36 }, pin2: { maudio_pad_leds: pad_leds, number: 37 }, pin3: { maudio_pad_leds: pad_leds, number: 38 } }
 pads:
   - { id: pad_1, pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36, led: pad_1_led }   # lit while held
 ```
 
-Each colour is a byte (0 off to 255 full). An RGB LED on the hub (`pin`, `pin2`, `pin3` = one LED's red, green and blue: numbers LED × 3, + 1, + 2) shows any colour: a full-colour look (`idle: blue 20%`, "LED looks") or the colour a DAW script picks (FB_LED_RGB, 0..127 per channel, sent as 0..255). Anything that only switches pins on or off (a plain on, a mode's colour) sends 0 or 255 per colour.
-
-Two settings calibrate what goes on the wire, so colours look right:
-
-- **`gamma:`** eyes see brightness on a curve: a quarter of the power looks about half as bright. Each colour goes through 255 × (v / 255) ^ gamma first, so `blue 50%` looks half as bright as `blue`. Default 1 (straight). About 2.2 suits most LEDs; anything above 0 stays above 0.
-- **`white:`** what full red, green and blue send, to balance the LEDs: `[255, 200, 220]` takes some green and blue out where 255/255/255 looks green. Default `[255, 255, 255]`.
-
-To find them: show a ramp (255, 64, 16, 4) and see whether 64 looks about half as bright (gamma near 2.2), then show a grid of whites and pick the most neutral. The Code 61's values (`gamma: 2.2`, `white: [255, 200, 220]`) came from that.
+Each colour is a byte (0 off to 255 full), and an RGB LED on the hub shows any colour, with the hub's `gamma:` and `white:` ("Full-colour LEDs").
 
 ### XY pads
 
@@ -288,7 +319,7 @@ encoders:
 By default an LED is dark while off and lit (white on an RGB LED) while on. `idle:` and `active:` change that: `idle:` is what it shows while off, so a panel can be lit all the time and still show presses, and `active:` what it shows for "on" (held, toggled on, a pad hit, a host's on).
 
 ```yaml
-led_defaults: { idle: blue, active: white }   # optional: every LED, unless it sets its own
+led_defaults: { idle: blue, active: white }   # optional: every LED, unless it sets its own (full colours too: blue 20%)
 leds:
   - { id: rec_led, pin: PC4, idle: on }                                # lit until pressed (active: off)
   - { id: bi_led, pin: PC5, pin2: PC6, idle: colour2, active: colour1 }
@@ -300,13 +331,13 @@ leds:
 | single colour (`pin`) | `off`, `on` | off / on |
 | bicolour (`pin2`) | `off`, `colour1` (`pin`), `colour2` (`pin2`), `both`; `on` = colour1 | off / colour1 |
 | RGB (`pin3`) | `off`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `white`; `on` = white | off / white |
-| RGB on an `rgb_serial` hub | any colour too: `"#rrggbb"` (quoted: `#` starts a YAML comment), or a colour name with a brightness, `blue 20%` | off / white |
+| RGB on a full-colour hub (`ws2812`, `maudio_pad_leds`) | any colour too: `"#rrggbb"` (quoted: `#` starts a YAML comment), or a colour name with a brightness, `blue 20%` | off / white |
 
 - `on` and `off` work with or without quotes.
 - **`active:` left out** with an `idle:` that matches the default active look: active is `off`. So `idle: on` on a single-colour LED means lit until pressed, then dark. Giving both the same look is a warning: the LED would never show its state.
-- **`led_defaults:`** takes any look of any kind of LED, and each LED shows the nearest it can: the same pins where it has them (yellow = red + green = `both` on a bicolour LED), else its first colour. A single-colour LED is `on` for anything but `off`, and then dark when active if the two come out the same. An LED's own `idle:` / `active:` win over the defaults.
+- **`led_defaults:`** takes any look of any kind of LED, full colours included, and each LED shows the nearest it can: a full colour as it is on an LED that can show any colour, elsewhere the channels at least half the brightest (`"#ff8000"` is red + green, yellow; black is `off`); a named look the same pins where it has them (yellow = red + green = `both` on a bicolour LED), else its first colour. A single-colour LED is `on` for anything but `off`, and then dark when active if the two come out the same. An LED's own `idle:` / `active:` win over the defaults.
 - **What follows the looks:** off (0) shows idle and a plain on shows active, from every source: buttons, pads, modes, plain host feedback and Mackie Control. A blink alternates active and idle. A bicolour LED's other levels keep their meaning (octave +2 both colours, +3 colour 2, +4 colour 2 blinking against idle), and so does a colour a DAW script picks (FB_LED_RGB). The lamp test at start and the LED walk light every pin whatever the looks.
-- The TM1628 and the MCU pins are on or off, so idle can't be a dim version of active there: pick a different colour, or `on` / `off`. Only an `rgb_serial` LED takes full colours (`idle: blue 20%`, `active: "#ff8000"`); elsewhere they are an error. Brightness in a full colour is as seen: the hub's `gamma:` turns it into power.
+- The TM1628 and the MCU pins are on or off, so idle can't be a dim version of active there: pick a different colour, or `on` / `off`. Only an LED of a full-colour hub (`ws2812`, `maudio_pad_leds`; "Full-colour LEDs") takes full colours in its own `idle:` / `active:` (`idle: blue 20%`, `active: "#ff8000"`); elsewhere they are an error. Brightness in a full colour is as seen: the hub's `gamma:` turns it into power.
 - **Generated:** `gm_led_t.looks` = `GM_LED_LOOKS(idle, active)`, each a pin mask (bit 0 `pin`, 1 `pin2`, 2 `pin3`), or 0 for the defaults; `gm_led_t.rgb` = the full colours, `GM_LED_RGB(0xRRGGBB)` each, or 0. A full-colour look's mask is its nearest on/off colour.
 
 ### Pitch wheels and aftertouch
@@ -394,10 +425,11 @@ The STM32F103 has 7 DMA channels, and each peripheral's DMA request is wired to 
 |---|---|---|
 | `hardware_scan.matrix` | 2 of one timer (select, read); with `precharge` 4 (+ columns in, precharge) | the scan interrupt reads the matrix |
 | `hardware_scan.analog` | ADC1 (channel 1) + 1 of one timer (mux step) | the main loop reads one input per pass |
-| `rgb_serial` (`dma: true`, the default) | USART2_TX (7) | `dma: false`: the USART2 interrupt sends the bytes |
+| `maudio_pad_leds` (`dma: true`, the default) | USART2_TX (7) | `dma: false`: the USART2 interrupt sends the bytes |
 | `din_midi` (`dma: false`, the default) | `dma: true`: USART1_TX (4), USART1_RX (5) | the USART1 interrupt moves the bytes |
+| `ws2812` on PA7 / PB15 | SPI1_TX (3) / SPI2_TX (5) | none: a strip always sends by DMA (move it to the other pin) |
 
-The UARTs' channels are fixed. The scans' depend on the timer that paces them, since each timer's update and compare events are wired to their own channels:
+The UARTs' and SPIs' channels are fixed (two of them on one channel, as a PB15 strip and `din_midi dma: true`, is an error). The scans' depend on the timer that paces them, since each timer's update and compare events are wired to their own channels:
 
 | Timer | UP | CH1 | CH2 | CH3 | CH4 | Matrix | Analog (ADC1 trigger) |
 |---|---|---|---|---|---|---|---|
@@ -408,14 +440,14 @@ The UARTs' channels are fixed. The scans' depend on the timer that paces them, s
 
 `timer: auto` (the default) tries the matrix on TIM1, TIM3, TIM4, TIM2 and the analog scan on TIM4, TIM3, TIM2, taking the first that leaves the UARTs' channels free. For the Code 61 that is the original map: matrix on TIM1 (select = update, ch5; columns in = CC1, ch2; read = CC2, ch3; precharge = CC3, ch6), analog on TIM4 (mux = CC2, ch4; ADC1 by CC4). Only the select may be the update event; when it is a compare instead, every step of the row comes one timer tick (14 ns) later, which changes nothing else. `timer: tim3` (etc.) fixes the timer, and auto still picks its compares. TIM2 is also the core's scan tick (an interrupt, no DMA): when a scan takes it, the tick moves to TIM3 or TIM4.
 
-When nothing fits, the build stops. The message names both users and says what would fit: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false (...), or turn hardware_scan.analog off; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels instead of 4, and that fits`. An explicit timer that can't run its scan is an error on its `timer:` line, with the timer's requests. The build output and the top of `gm_device_config.h` show the map and the timers, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ... 7 USART2_TX (rgb_serial 'pad_leds'); free: none` and `timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)`.
+When nothing fits, the build stops. The message names both users and says what would fit: `din_midi.dma: needs DMA1 channel 4 (USART1_TX), which hardware_scan.analog uses (TIM4_CH2): set din_midi dma: false (...), or turn hardware_scan.analog off; or turn hardware_scan.matrix precharge off: the scan then needs 2 channels instead of 4, and that fits`. An explicit timer that can't run its scan is an error on its `timer:` line, with the timer's requests. The build output and the top of `gm_device_config.h` show the map and the timers, for example `DMA1 channels: 1 ADC1 (hardware_scan.analog), 2 TIM1_CH1 (hardware_scan.matrix columns in), ... 7 USART2_TX (maudio_pad_leds 'pad_leds'); free: none` and `timers: TIM1 hardware_scan.matrix, TIM2 scan tick, TIM4 hardware_scan.analog (ADC1 started by TIM4_CC4)`.
 
 What fits on the Code 61 (ADC1, the mux step and the matrix leave 7 − 2 − 4 = 1 channel with precharge, 3 without):
 
 | Matrix | Fits with it |
 |---|---|
-| precharge (36 us frames) | `rgb_serial` DMA (the default), DIN by interrupt |
-| no precharge (`row_time: 3.5us, settle: 3us`: 84 us frames) | `rgb_serial` DMA and `din_midi dma: true`: matrix on TIM1 (select CC1 = ch2, read CC2 = ch3), analog on TIM3 (mux CC1 = ch6, ADC1 by TRGO), DIN on 4 and 5 |
+| precharge (36 us frames) | `maudio_pad_leds` DMA (the default), DIN by interrupt |
+| no precharge (`row_time: 3.5us, settle: 3us`: 84 us frames) | `maudio_pad_leds` DMA and `din_midi dma: true`: matrix on TIM1 (select CC1 = ch2, read CC2 = ch3), analog on TIM3 (mux CC1 = ch6, ADC1 by TRGO), DIN on 4 and 5 |
 
 The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and the interrupt for it takes about a microsecond. Spend the channels on the scans, and use DMA for the UARTs on boards that don't scan by hardware.
 
@@ -944,7 +976,7 @@ modes:
 ```
 
 - **`cycle: { button, with }`** (`with:` optional; or `cycle: <button id>`) instead of `toggle:` / `hold:` / `parent:`. Each press (with `with:` held, if given) moves to the next enabled step, round the end, skipping disabled ones; with only one enabled, the press shows its name again. With `with:`, a plain press is the button's own action, as for `toggle:`; without it, the button has no action of its own.
-- **Steps** (2 to 8): `id`, `name` (up to 16 characters; the display shows it, as much as fits, when the step is switched to; default: the id), `colour` (an LED look for the cycle's LED, resolved for its kind like `led_defaults:`; default: its active look), `enabled` (default true) and `layer:` (as "Button layers"). No `keys:` or `buttons:`. A step is a root mode with its own mode index, in `modes:` order where the cycle is, so its twins' `layer` is that index + 1.
+- **Steps** (2 to 8): `id`, `name` (up to 16 characters; the display shows it, as much as fits, when the step is switched to; default: the id), `colour` (an LED look for the cycle's LED, resolved for its kind like `led_defaults:`, or a full colour, `"#ff8000"` or `blue 20%`: as it is on an LED that can show any colour, the nearest on/off colour elsewhere; default: its active look), `enabled` (default true) and `layer:` (as "Button layers"). No `keys:` or `buttons:`. A step is a root mode with its own mode index, in `modes:` order where the cycle is, so its twins' `layer` is that index + 1.
 - **The LED** (`led:`, default the button's LED) shows the current step's colour all the time, over a host's level.
 - **Power-on** starts each cycle at its first enabled step; the step isn't remembered across power-off. A preset switch doesn't change it.
 - **Disabled steps** (`layer.enabled` 0, "Modes"; the YAML's `enabled:` is its default) are skipped. With every step of a cycle disabled the first step counts as enabled. Changing `layer.enabled` takes effect at the next press.
@@ -952,7 +984,7 @@ modes:
 - **Independent** of every other mode: a cycle, layer-only toggles and a key mode can all be on together ("Modes").
 - **The builder checks** that a cycle has 2 to 8 steps, that step ids are unique among all modes, that its button doesn't enter another mode (toggle, hold or cycle), that `colour` is a look of the cycle's LED (a look another kind of LED has is a warning: the nearest it can show), that the cycle has an LED for its colours, and that at least one step is enabled.
 
-**Generated code:** each step is a `gm_modes[]` row with the cycle's button as `toggle` / `with`, `cycle` = the cycle's number + 1, `colour` = 0x80 | the LED pins to light (bit 0 pin, 1 pin2, 2 pin3; 0 = the active look) and `name`; `GM_N_CYCLES` in `gm_device_config.h`. The runtime keeps one byte per cycle (its current step).
+**Generated code:** each step is a `gm_modes[]` row with the cycle's button as `toggle` / `with`, `cycle` = the cycle's number + 1, `colour` = 0x80 | the LED pins to light (bit 0 pin, 1 pin2, 2 pin3; 0 = the active look) and `name`; `GM_N_CYCLES` in `gm_device_config.h`. A step with a full colour on an LED that can show it also has `gm_mode_rgb[]` (`GM_LED_RGB(0xRRGGBB)`, 0 for the others; `GM_MODE_RGB 1`), and `colour` is its nearest on/off colour. The runtime keeps one byte per cycle (its current step).
 
 ## DAW feedback
 
@@ -1004,7 +1036,7 @@ analog:
   - { id: volume, pin: PA0, cc: 7, takeover: pickup }   # none (default) | pickup
 ```
 
-LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour, and set an RGB LED's colour (FB_LED_RGB). An RGB LED (`pin3:`) shows its active look (white unless `active:` says otherwise) for any level from its button, plain feedback, Mackie Control or FB_LED, and its idle look for 0 ("LED looks"); only FB_LED_RGB picks a colour: an `rgb_serial` LED shows it as given (each channel 0..127 sent as 0..255), any other RGB LED with each channel on or off (on if it is at least half the brightest channel: 127/60/0 is red and green).
+LED `feedback:` takes exactly one of `note:` / `cc:` (a number 0..127, with an optional `channel: 1..16`), `clock: beat`, `transport: playing`, or `mcu: <MCU LED>` (below). Values map to the LED as in Mackie Control: 0 off, 1 blinking, anything else on (the first colour of a bicolour LED). DAW scripts (F3) can also reach a bicolour LED's second colour, and set an RGB LED's colour (FB_LED_RGB). An RGB LED (`pin3:`) shows its active look (white unless `active:` says otherwise) for any level from its button, plain feedback, Mackie Control or FB_LED, and its idle look for 0 ("LED looks"); only FB_LED_RGB picks a colour: an LED of a full-colour hub (`ws2812`, `maudio_pad_leds`) shows it as given (each channel 0..127 sent as 0..255), any other RGB LED with each channel on or off (on if it is at least half the brightest channel: 127/60/0 is red and green).
 
 ### LED ownership
 

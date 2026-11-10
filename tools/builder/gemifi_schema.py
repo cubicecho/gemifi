@@ -93,9 +93,9 @@ HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("int
              "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
 
 
-def hub(typ):
+def hub(typ, alias=None):
     keys = gd.HUB_KEYS[typ]
-    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_")}
+    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
     types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
     types.update({k: v for k, v in matrix_lines().items() if k in keys})
     if typ in gd.ROW_HUBS:
@@ -103,7 +103,8 @@ def hub(typ):
     elif "address" in keys:
         types["address"] = T("integer", minimum=0x08, maximum=0x77)
     types["id"] = ref("id")
-    return lst(obj(keys, types), f"{typ} hubs (core/README.md \"Virtual pins and hubs\")")
+    what = f"{alias}: the old name of {typ}" if alias else f"{typ} hubs"
+    return lst(obj(keys, types), f"{what} (core/README.md \"Virtual pins and hubs\")")
 
 
 def matrix_lines():
@@ -227,6 +228,7 @@ def device_schema():
                                                         "led_timeout": one_of(PERIOD, {"const": "never"})})),
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{t: hub(t) for t in gd.HUB_TYPES},
+        **{a: hub(t, alias=a) for a, t in gd.HUB_ALIAS.items()},
         "buttons": lst(obj(gd.BUTTON_KEYS, CTL_TYPES)),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
         "leds": lst(obj(gd.LED_KEYS, {

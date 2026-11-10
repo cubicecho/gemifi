@@ -304,3 +304,121 @@ uint32_t hal_reset_reason(void)
     }
 #endif
 }
+
+/* ---- LED strips (gm_hal.h hal_ledstrip_*, the ws2812 hub) -------------
+ *
+ * ESP32 / S2 / S3: by RMT through the Arduino core (esp32-hal-rmt,
+ * Arduino-ESP32 3.x). Each strip has an RMT TX channel at a 10 MHz tick
+ * (0.1 us) and its own symbol buffer: one symbol a bit, WS2812B / SK6812
+ * timings (a 0 is 0.4 us high then 0.8 us low, a 1 is 0.8 us high then
+ * 0.5 us low: inside both parts' windows), then one symbol of 300 us low,
+ * the latch, so "transmit completed" means the LEDs show the frame.
+ * hal_ledstrip_write encodes the bytes and starts rmtWriteAsync: it doesn't
+ * wait, and the RMT driver feeds the channel from its interrupt while the
+ * main loop goes on. A frame of 16 LEDs is about 0.8 ms on the wire.
+ * Here, not in a file of its own: the library is an archive, and the
+ * core's weak defaults (vpin.c) would keep a file only these are in from
+ * being linked.
+ *
+ * ESP8266 has no RMT: no strip there (the builder refuses ws2812), and the
+ * weak defaults stay. */
+#if defined(ESP32) && __has_include("esp32-hal-rmt.h")
+#include "esp32-hal-rmt.h"
+#endif
+
+#if defined(ESP32) && defined(SOC_RMT_SUPPORTED) && SOC_RMT_SUPPORTED
+#include <stdlib.h>
+
+#define LS_MAX 8                    /* strips (ESP32 has 8 RMT TX channels, S2 / S3 4) */
+#define LS_TICK_HZ 10000000u        /* 0.1 us */
+#define LS_T0H 4u                   /* ticks: a 0 is 0.4 + 0.8 us */
+#define LS_T0L 8u
+#define LS_T1H 8u                   /* a 1 is 0.8 + 0.5 us */
+#define LS_T1L 5u
+#define LS_LATCH 1500u              /* x 2: 300 us low */
+
+/* How many of the RMT's memory blocks each strip's channel takes: more
+ * means fewer refills from the interrupt, so a late refill (Wi-Fi, flash)
+ * is less likely to cut a frame short. One strip can have two. */
+#ifndef GM_LEDSTRIPS
+#define GM_LEDSTRIPS 2
+#endif
+#define LS_BLOCKS (GM_LEDSTRIPS > 1 ? RMT_MEM_NUM_BLOCKS_1 : RMT_MEM_NUM_BLOCKS_2)
+
+typedef struct {
+    int16_t pin;                    /* -1 = free */
+    uint32_t n;                     /* bytes a frame, at most */
+    rmt_data_t *sym;                /* n * 8 + 1 symbols */
+    uint8_t started;                /* a frame went out */
+} strip_t;
+
+static strip_t strips[LS_MAX] = {
+    { -1, 0, 0, 0 }, { -1, 0, 0, 0 }, { -1, 0, 0, 0 }, { -1, 0, 0, 0 },
+    { -1, 0, 0, 0 }, { -1, 0, 0, 0 }, { -1, 0, 0, 0 }, { -1, 0, 0, 0 },
+};
+
+static strip_t *strip_of(uint16_t pin)
+{
+    for (uint32_t i = 0; i < LS_MAX; i++)
+        if (strips[i].pin == (int16_t)pin)
+            return &strips[i];
+    return 0;
+}
+
+extern "C" int hal_ledstrip_open(uint16_t pin, uint32_t n)
+{
+    strip_t *s = strip_of(pin);
+    if (s)
+        return n <= s->n;
+    for (uint32_t i = 0; i < LS_MAX && !s; i++)
+        if (strips[i].pin < 0)
+            s = &strips[i];         /* a free slot */
+    if (!s || n == 0)
+        return 0;
+    rmt_data_t *sym = (rmt_data_t *)calloc(n * 8u + 1u, sizeof(rmt_data_t));
+    if (!sym)
+        return 0;
+    if (!rmtInit((int)pin, RMT_TX_MODE, LS_BLOCKS, LS_TICK_HZ)) {
+        free(sym);
+        return 0;
+    }
+    rmtSetEOT((int)pin, 0);         /* the line idles low */
+    s->pin = (int16_t)pin;
+    s->n = n;
+    s->sym = sym;
+    s->started = 0;
+    return 1;
+}
+
+extern "C" int hal_ledstrip_busy(uint16_t pin)
+{
+    strip_t *s = strip_of(pin);
+    return s && s->started && !rmtTransmitCompleted((int)pin);
+}
+
+extern "C" int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n)
+{
+    strip_t *s = strip_of(pin);
+    if (!s || n > s->n || (s->started && !rmtTransmitCompleted((int)pin)))
+        return 0;
+    rmt_data_t *p = s->sym;
+    for (uint32_t i = 0; i < n; i++)
+        for (uint32_t m = 0x80u; m; m >>= 1) {
+            int one = (b[i] & m) != 0;
+            p->level0 = 1;
+            p->duration0 = one ? LS_T1H : LS_T0H;
+            p->level1 = 0;
+            p->duration1 = one ? LS_T1L : LS_T0L;
+            p++;
+        }
+    p->level0 = 0;                  /* the latch */
+    p->duration0 = LS_LATCH;
+    p->level1 = 0;
+    p->duration1 = LS_LATCH;
+    p++;
+    if (!rmtWriteAsync((int)pin, s->sym, (size_t)(p - s->sym)))
+        return 0;
+    s->started = 1;
+    return 1;
+}
+#endif

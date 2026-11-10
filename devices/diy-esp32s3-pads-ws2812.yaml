@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
+# DIY pad controller: ESP32-S3 dev board, a 4x4 grid of pad switches on a
+# switch matrix, 16 WS2812B LEDs under the pads (one chain on one pin),
+# 4 knobs. Starting point for your own build: change the pins to match
+# your wiring.
+#
+# Wiring: the LED chain's DIN on GPIO48 (on many S3 dev boards that is the
+# on-board RGB LED's pin: use another output pin if yours has one there),
+# 5 V and GND to the strip, a 330 ohm resistor in the data line and a
+# 1000 uF capacitor across the strip's supply are good practice. WS2812B
+# take 5 V logic: at 3.3 V most work, a 74AHCT125 level shifter makes sure.
+# Each switch goes from its row pin to its column pin through a diode
+# (cathode to the row), so several pads can be held at once.
+gemifi: 2
+name: diy-s3-pads
+friendly_name: DIY S3 Pads
+description: DIY ESP32-S3 USB MIDI pad controller, 4x4 pads (switch matrix) with WS2812 LEDs, 4 knobs
+board_id: 0x3F04               # 0x3F00-0x3FFF: DIY / private (protocol/sysex.md section 7)
+platform: esp32s3
+chip: esp32-s3-devkitc-1       # PlatformIO board id
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
+scan_interval: 500us
+boot_combo: [pad_1, pad_4]
+
+# 16 LEDs, 3 pins each (red, green, blue): LED n is pins 3n, 3n + 1, 3n + 2.
+# gamma: 2.2 so "blue 20%" looks a fifth as bright; white: takes some blue
+# out where full white looks bluish (tune by eye, core/README.md
+# "Full-colour LEDs").
+ws2812:
+  - { id: strip, pin: GPIO48, count: 16, order: GRB, gamma: 2.2, white: [255, 235, 210] }
+
+# 4 rows driven, 4 columns read (pull-ups: a pad closes column to its row).
+switch_matrix:
+  - id: grid
+    rows: [GPIO4, GPIO5, GPIO6, GPIO7]
+    columns:
+      - { number: GPIO15, mode: INPUT_PULLUP, inverted: true }
+      - { number: GPIO16, mode: INPUT_PULLUP, inverted: true }
+      - { number: GPIO17, mode: INPUT_PULLUP, inverted: true }
+      - { number: GPIO18, mode: INPUT_PULLUP, inverted: true }
+
+# Every pad dim blue when idle, white while held: led_defaults with full
+# colours, shown as they are on the strip's LEDs.
+led_defaults: { idle: blue 20%, active: white }
+
+# The pads (switch n = row n / 4, column n % 4), bottom-left first, notes 36-51.
+buttons:
+  - { id: pad_1, pin: { switch_matrix: grid, number: 12 }, action: note, note: 36, led: led_1 }
+  - { id: pad_2, pin: { switch_matrix: grid, number: 13 }, action: note, note: 37, led: led_2 }
+  - { id: pad_3, pin: { switch_matrix: grid, number: 14 }, action: note, note: 38, led: led_3 }
+  - { id: pad_4, pin: { switch_matrix: grid, number: 15 }, action: note, note: 39, led: led_4 }
+  - { id: pad_5, pin: { switch_matrix: grid, number: 8 }, action: note, note: 40, led: led_5 }
+  - { id: pad_6, pin: { switch_matrix: grid, number: 9 }, action: note, note: 41, led: led_6 }
+  - { id: pad_7, pin: { switch_matrix: grid, number: 10 }, action: note, note: 42, led: led_7 }
+  - { id: pad_8, pin: { switch_matrix: grid, number: 11 }, action: note, note: 43, led: led_8 }
+  - { id: pad_9, pin: { switch_matrix: grid, number: 4 }, action: note, note: 44, led: led_9 }
+  - { id: pad_10, pin: { switch_matrix: grid, number: 5 }, action: note, note: 45, led: led_10 }
+  - { id: pad_11, pin: { switch_matrix: grid, number: 6 }, action: note, note: 46, led: led_11 }
+  - { id: pad_12, pin: { switch_matrix: grid, number: 7 }, action: note, note: 47, led: led_12 }
+  - { id: pad_13, pin: { switch_matrix: grid, number: 0 }, action: note, note: 48, led: led_13 }
+  - { id: pad_14, pin: { switch_matrix: grid, number: 1 }, action: note, note: 49, led: led_14 }
+  - { id: pad_15, pin: { switch_matrix: grid, number: 2 }, action: note, note: 50, led: led_15 }
+  - { id: pad_16, pin: { switch_matrix: grid, number: 3 }, action: note, note: 51, led: led_16 }
+
+# The strip runs in a snake under the pads, bottom row left to right first.
+# The top-right pad is orange when idle, as an example of a look of its own.
+leds:
+  - { id: led_1, pin: { ws2812: strip, number: 0 }, pin2: { ws2812: strip, number: 1 }, pin3: { ws2812: strip, number: 2 } }
+  - { id: led_2, pin: { ws2812: strip, number: 3 }, pin2: { ws2812: strip, number: 4 }, pin3: { ws2812: strip, number: 5 } }
+  - { id: led_3, pin: { ws2812: strip, number: 6 }, pin2: { ws2812: strip, number: 7 }, pin3: { ws2812: strip, number: 8 } }
+  - { id: led_4, pin: { ws2812: strip, number: 9 }, pin2: { ws2812: strip, number: 10 }, pin3: { ws2812: strip, number: 11 } }
+  - { id: led_5, pin: { ws2812: strip, number: 21 }, pin2: { ws2812: strip, number: 22 }, pin3: { ws2812: strip, number: 23 } }
+  - { id: led_6, pin: { ws2812: strip, number: 18 }, pin2: { ws2812: strip, number: 19 }, pin3: { ws2812: strip, number: 20 } }
+  - { id: led_7, pin: { ws2812: strip, number: 15 }, pin2: { ws2812: strip, number: 16 }, pin3: { ws2812: strip, number: 17 } }
+  - { id: led_8, pin: { ws2812: strip, number: 12 }, pin2: { ws2812: strip, number: 13 }, pin3: { ws2812: strip, number: 14 } }
+  - { id: led_9, pin: { ws2812: strip, number: 24 }, pin2: { ws2812: strip, number: 25 }, pin3: { ws2812: strip, number: 26 } }
+  - { id: led_10, pin: { ws2812: strip, number: 27 }, pin2: { ws2812: strip, number: 28 }, pin3: { ws2812: strip, number: 29 } }
+  - { id: led_11, pin: { ws2812: strip, number: 30 }, pin2: { ws2812: strip, number: 31 }, pin3: { ws2812: strip, number: 32 } }
+  - { id: led_12, pin: { ws2812: strip, number: 33 }, pin2: { ws2812: strip, number: 34 }, pin3: { ws2812: strip, number: 35 } }
+  - { id: led_13, pin: { ws2812: strip, number: 45 }, pin2: { ws2812: strip, number: 46 }, pin3: { ws2812: strip, number: 47 } }
+  - { id: led_14, pin: { ws2812: strip, number: 42 }, pin2: { ws2812: strip, number: 43 }, pin3: { ws2812: strip, number: 44 } }
+  - { id: led_15, pin: { ws2812: strip, number: 39 }, pin2: { ws2812: strip, number: 40 }, pin3: { ws2812: strip, number: 41 } }
+  - { id: led_16, pin: { ws2812: strip, number: 36 }, pin2: { ws2812: strip, number: 37 }, pin3: { ws2812: strip, number: 38 }, idle: "#ff6000" }
+
+# Knobs on ADC1 pins.
+analog:
+  - { id: knob_1, pin: GPIO1, cc: 20 }
+  - { id: knob_2, pin: GPIO2, cc: 21 }
+  - { id: knob_3, pin: GPIO8, cc: 22 }
+  - { id: knob_4, pin: GPIO9, cc: 23 }

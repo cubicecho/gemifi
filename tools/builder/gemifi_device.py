@@ -547,9 +547,10 @@ class TM1628(HubType):
     def range_text(self, hub):
         return f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)"
 
-    def c_extra(self, hub):
-        return [f"        .ram_bytes = {hub.ram_bytes}, .brightness = {hub.intensity}, "
-                f".grids = {hub.grids}, .fade = {1 if hub.fade else 0},"]
+    def c_fields(self, hub):
+        return [f"        .tm = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .stb = {hub.latch.c()},",
+                f"                .ram_bytes = {hub.ram_bytes}, .brightness = {hub.intensity}, "
+                f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
 
 
 # RGB LEDs behind a serial link (the M-Audio Code pad LED board): pin = LED * 3 + colour

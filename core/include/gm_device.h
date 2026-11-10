@@ -125,6 +125,20 @@ typedef struct {
     uint8_t rows_per_scan; /* rows read per scan, in turn; 0 = all         */
 } gm_hub_swmatrix_t;
 
+/* .tm: a TM1628-class LED driver, bit-banged from the main loop: outputs,
+ * pin = display RAM bit, byte * 8 + bit. Chips may share CLK and DIO, each
+ * has its own STB. */
+typedef struct {
+    gm_pin_t clk;
+    gm_pin_t dio;         /* open-drain on the Code 61                     */
+    gm_pin_t stb;
+    uint8_t ram_bytes;    /* display RAM bytes written (1..16)             */
+    uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
+    uint8_t grids;        /* display mode 4..7 grids, 0 = not sent         */
+    uint8_t fade;         /* the chip's brightness follows the host colours
+                             of the RGB LEDs on it (tm1628 fade:)          */
+} gm_hub_tm1628_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -175,6 +189,7 @@ typedef struct {
         gm_hub_i2c_t i2c;         /* GM_HUB_MCP23017, GM_HUB_PCF8574 */
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
+        gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
     };
 } gm_hub_t;
 

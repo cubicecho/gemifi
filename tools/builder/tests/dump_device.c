@@ -58,6 +58,16 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.data = f.clock = f.latch = f.common = f.enable = none;
         f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
+    case GM_HUB_TM1628:
+        f.ram = h->tm.ram_bytes;
+        f.bright = h->tm.brightness;
+        f.grids = h->tm.grids;
+        f.data = h->tm.dio;
+        f.clock = h->tm.clk;
+        f.latch = h->tm.stb;
+        f.common = f.enable = none;
+        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
+        break;
     case GM_HUB_MCP23017:
     case GM_HUB_PCF8574:
         f.addr = h->i2c.addr;

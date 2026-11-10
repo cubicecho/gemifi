@@ -722,7 +722,7 @@ class TestValidation(unittest.TestCase):
             dev_, diags = load(dev(extra_a=fade))
             self.assertIsNotNone(dev_, [str(d) for d in diags])
             files = gd.generate(dev_, "t.yaml")
-            self.assertIn(f".grids = 0, .fade = {n},", files["gm_device_config.c"])
+            self.assertIn(f".grids = 0, .fade = {n} }}", files["gm_device_config.c"])
             self.assertEqual("#define GM_TM_FADE 1" in files["gm_device_config.h"], n == 1)
         # outputs only
         self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),

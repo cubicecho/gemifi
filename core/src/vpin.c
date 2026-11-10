@@ -1245,7 +1245,7 @@ void gm_test_store(volatile uint32_t *reg, uint32_t w);
 
 static void tm_io_init(tm_io_t *io, const gm_hub_t *h)
 {
-    const gm_pin_t p[3] = { h->clock, h->data, h->latch };
+    const gm_pin_t p[3] = { h->tm.clk, h->tm.dio, h->tm.stb };
     volatile uint32_t *reg[3];
     uint32_t bit[3], fast = 1;
     for (uint32_t k = 0; k < 3u; k++) {
@@ -1341,14 +1341,14 @@ static uint32_t tm1628_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
 {
     if (!s->u.tm.dirty)
         return budget;
-    uint32_t n = h->ram_bytes;
+    uint32_t n = h->tm.ram_bytes;
     if (s->ram + n > GM_TM1628_RAM)
         n = GM_TM1628_RAM - s->ram;
     uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
     tm_io_t bus;
     const tm_io_t *io = &bus;
     tm_io_init(&bus, h);
-    uint32_t ctl = s->u.tm.ctl ? s->u.tm.ctl : 0x88u | (h->brightness & 7u);
+    uint32_t ctl = s->u.tm.ctl ? s->u.tm.ctl : 0x88u | (h->tm.brightness & 7u);
     if (!s->never && ctl != s->u.tm.ctl_sent) {    /* a new brightness (fade:) */
         tm_cmd(&bus, ctl);
         s->u.tm.ctl_sent = (uint8_t)ctl;
@@ -1356,8 +1356,8 @@ static uint32_t tm1628_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     }
     uint32_t k = 0, open = 0, left = budget;
     if (s->never) {                         /* all of it now, whatever the budget */
-        if (h->grids >= 4u && h->grids <= 7u)
-            tm_cmd(io, h->grids - 4u);
+        if (h->tm.grids >= 4u && h->tm.grids <= 7u)
+            tm_cmd(io, h->tm.grids - 4u);
         for (k = 0; k < n; k++)
             sent[k] = (uint8_t)~ram[k];     /* every byte "changed": one run */
         k = 0;
@@ -1399,12 +1399,12 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
 {
     /* Idle: STB, CLK and DIO high. RAM all off, written on the first send
      * (s->never: the whole RAM). */
-    mcu_out(h->latch, 1);
-    mcu_out(h->clock, 1);
-    mcu_out(h->data, 1);
-    s->ram = ram_alloc(h->ram_bytes);
+    mcu_out(h->tm.stb, 1);
+    mcu_out(h->tm.clk, 1);
+    mcu_out(h->tm.dio, 1);
+    s->ram = ram_alloc(h->tm.ram_bytes);
     s->u.tm.dirty = 1;
-    for (uint32_t k = 0; k < h->ram_bytes && s->ram + k < GM_TM1628_RAM; k++)
+    for (uint32_t k = 0; k < h->tm.ram_bytes && s->ram + k < GM_TM1628_RAM; k++)
         hub_ram[s->ram + k] = 0;
 }
 
@@ -1412,7 +1412,7 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
 static void tm1628_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
     uint32_t k = num >> 3u;
-    if (k >= h->ram_bytes || s->ram + k >= GM_TM1628_RAM)
+    if (k >= h->tm.ram_bytes || s->ram + k >= GM_TM1628_RAM)
         return;
     uint8_t *b = &hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
     uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
@@ -1430,7 +1430,7 @@ static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
 int vpin_fades(gm_pin_t p)
 {
     const gm_hub_t *h = p.hub ? hub_of(p) : 0;
-    return h && h->type == GM_HUB_TM1628 && h->fade;
+    return h && h->type == GM_HUB_TM1628 && h->tm.fade;
 }
 
 void vpin_fade(gm_pin_t p, uint32_t v, int colour)
@@ -1448,7 +1448,7 @@ void vpin_fade(gm_pin_t p, uint32_t v, int colour)
  * than half the dimmest step: display off. */
 static uint32_t tm_fade_ctl(const gm_hub_t *h, uint32_t v)
 {
-    uint32_t top = h->brightness & 7u, want = v * tm_seen[top] / 255u, best = 0;
+    uint32_t top = h->tm.brightness & 7u, want = v * tm_seen[top] / 255u, best = 0;
     if (2u * want < tm_seen[0])
         return 0x80u;
     for (uint32_t k = 1; k <= top; k++) {
@@ -1471,10 +1471,10 @@ void vpin_fade_apply(void)
          * which mustn't hold the chip at full */
         uint32_t peak = s->u.tm.peak[1] ? s->u.tm.peak[1] : s->u.tm.peak[0];
         s->u.tm.peak[0] = s->u.tm.peak[1] = 0;
-        if (!h->fade || !peak)
+        if (!h->tm.fade || !peak)
             continue;
         uint32_t ctl = tm_fade_ctl(h, peak - 1u);
-        if (ctl != (s->u.tm.ctl ? s->u.tm.ctl : (0x88u | (h->brightness & 7u)))) {
+        if (ctl != (s->u.tm.ctl ? s->u.tm.ctl : (0x88u | (h->tm.brightness & 7u)))) {
             s->u.tm.ctl = (uint8_t)ctl;
             s->u.tm.dirty = 1;
         }

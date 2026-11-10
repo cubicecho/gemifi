@@ -2,6 +2,24 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.41.0](https://github.com/cubicecho/gemifi/compare/v0.40.0...v0.41.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** one source of board-reserved pins per board ([a18e6f3](https://github.com/cubicecho/gemifi/commit/a18e6f37828dac843033a3a16475c86504adc9bb))
+* **firmware:** read GM_BOARD_PROFILE without its comment ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([549236d](https://github.com/cubicecho/gemifi/commit/549236dc39c7a62964589e5f8bc0835098df1754))
+
+
+### Features
+
+* **builder:** board: picks the board profile; a generic STM32F103C8 profile ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([12f2637](https://github.com/cubicecho/gemifi/commit/12f26372712081da113e3710026edeccb9506bbe))
+* **devices:** diy-bluepill, a Blue Pill DIY example ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([bc9963a](https://github.com/cubicecho/gemifi/commit/bc9963a9a23c35c614d314249b0f83526c00bd5b))
+* **mkimage:** DIY board ids with the layout from the build ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([db40a81](https://github.com/cubicecho/gemifi/commit/db40a817e5144e0ec47e08e8adfafce767f49416))
+* **nuc1xx:** board profile for the Keystation Mini 32 ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([4d4a01f](https://github.com/cubicecho/gemifi/commit/4d4a01f951152d5de1b57664deb354c6f52e29f5))
+* **stm32f1:** board profiles: the layout and board pins as data ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([2f4b1a1](https://github.com/cubicecho/gemifi/commit/2f4b1a1643fa6bfe7f0cd6434485f4cbbe3173c6))
+* **web:** flash a DIY board's .gfw with its .board.json ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([17092e1](https://github.com/cubicecho/gemifi/commit/17092e18af1a8466798800b2eac05bab24edcaca))
+
 # [0.40.0](https://github.com/cubicecho/gemifi/compare/v0.39.0...v0.40.0) (2026-11-10)
 
 

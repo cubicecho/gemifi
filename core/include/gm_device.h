@@ -93,6 +93,12 @@ typedef struct {
     uint8_t n_sel;        /* select lines, 3 or 4                          */
 } gm_hub_mux_t;
 
+/* .i2c: MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional GPIO) on the
+ * I2C bus (GM_I2C_SDA / _SCL). */
+typedef struct {
+    uint8_t addr;         /* 7-bit I2C address                             */
+} gm_hub_i2c_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -140,6 +146,7 @@ typedef struct {
     union {
         gm_hub_sr_t sr;           /* GM_HUB_HC595, GM_HUB_HC165 */
         gm_hub_mux_t mux;         /* GM_HUB_MUX */
+        gm_hub_i2c_t i2c;         /* GM_HUB_MCP23017, GM_HUB_PCF8574 */
     };
 } gm_hub_t;
 

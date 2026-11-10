@@ -1734,20 +1734,20 @@ static void i2c_output(const gm_hub_t *h, hub_state_t *s, gm_pin_t p)
 static void mcp23017_refresh(const gm_hub_t *h, hub_state_t *s)
 {
     uint8_t b[2], reg = MCP_GPIOA;
-    if (s->u.io.in_used && hal_i2c_write(h->i2c_addr, &reg, 1) == 0 && hal_i2c_read(h->i2c_addr, b, 2) == 0)
+    if (s->u.io.in_used && hal_i2c_write(h->i2c.addr, &reg, 1) == 0 && hal_i2c_read(h->i2c.addr, b, 2) == 0)
         s->in = b[0] | (uint32_t)b[1] << 8;
 }
 
 static void mcp23017_flush(const gm_hub_t *h, hub_state_t *s)
 {
     if (s->u.io.cfg_dirty) {
-        mcp_write16(h->i2c_addr, MCP_IODIRA, ~s->u.io.dir_out & 0xFFFFu);
-        mcp_write16(h->i2c_addr, MCP_GPPUA, s->u.io.pullup & 0xFFFFu);
+        mcp_write16(h->i2c.addr, MCP_IODIRA, ~s->u.io.dir_out & 0xFFFFu);
+        mcp_write16(h->i2c.addr, MCP_GPPUA, s->u.io.pullup & 0xFFFFu);
         s->u.io.cfg_dirty = 0;
         s->never = 1;
     }
     if (s->out != s->written || s->never) {
-        mcp_write16(h->i2c_addr, MCP_OLATA, s->out);
+        mcp_write16(h->i2c.addr, MCP_OLATA, s->out);
         s->written = s->out;
         s->never = 0;
     }
@@ -1756,7 +1756,7 @@ static void mcp23017_flush(const gm_hub_t *h, hub_state_t *s)
 static void pcf8574_refresh(const gm_hub_t *h, hub_state_t *s)
 {
     uint8_t b;
-    if (s->u.io.in_used && hal_i2c_read(h->i2c_addr, &b, 1) == 0)
+    if (s->u.io.in_used && hal_i2c_read(h->i2c.addr, &b, 1) == 0)
         s->in = b;
 }
 
@@ -1766,7 +1766,7 @@ static void pcf8574_flush(const gm_hub_t *h, hub_state_t *s)
     uint32_t v = (s->out | ~s->u.io.dir_out) & 0xFFu;
     if (v != s->written || s->never) {
         uint8_t b = (uint8_t)v;
-        hal_i2c_write(h->i2c_addr, &b, 1);
+        hal_i2c_write(h->i2c.addr, &b, 1);
         s->written = v;
         s->never = 0;
     }

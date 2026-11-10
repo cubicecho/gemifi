@@ -448,6 +448,9 @@ class I2CExpander(HubType):
             v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "
                                                          f"(usually {self.addr_text})")
 
+    def c_fields(self, hub):
+        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X} }},"]
+
     def pin_name(self, s):
         if self.key == "mcp23017":
             m = re.fullmatch(r"(?:GP)?([AB])([0-7])", s)

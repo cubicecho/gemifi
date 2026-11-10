@@ -48,6 +48,12 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.enable = h->mux.enable;
         f.data = f.clock = f.latch = none;
         break;
+    case GM_HUB_MCP23017:
+    case GM_HUB_PCF8574:
+        f.addr = h->i2c.addr;
+        f.data = f.clock = f.latch = f.common = f.enable = none;
+        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
+        break;
     default:
         break;
     }

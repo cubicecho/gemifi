@@ -31,6 +31,10 @@
 #include "gm_din.h"
 #include "gm_safety.h"
 
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
+
 #define BTN_SAMPLE_MS   1u
 /* A press counts as soon as it is read, so a quick tap is never lost; a
  * release counts once the button has read released for BTN_STABLE samples in
@@ -382,9 +386,16 @@ static void layers_update(void);
 #endif
 
 /* LED levels (see led_show below): LV_BLINK | level blinks it; LV_RGB | m
- * lights the pins in mask m (an RGB colour, or a cycle step's colour). */
+ * lights the pins in mask m (an RGB colour, or a cycle step's colour);
+ * LV_RGB | LV_COLOUR | m shows led_colour[] (a DAW's colour, FB_LED_RGB) on
+ * an LED that can show any colour (rgb_serial), else mask m. */
 #define LV_BLINK 0x80u
 #define LV_RGB 0x40u
+#define LV_COLOUR 0x20u
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* defined with leds_update() */
+#if GM_HOST_FB
+static uint32_t led_colour[GM_ARR(GM_N_LEDS)];  /* 0xRRGGBB, 8 bits a colour */
+#endif
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
@@ -2009,13 +2020,17 @@ static void analog_poll(void)
  * scan interrupt would race with the main loop's reads. A hit: the reading
  * crosses pad.threshold, the peak over the next pad.window ms gives the
  * velocity (pad.threshold..pad.full -> 1..127, then pad.curve), and the pad
- * is let go below pad.release. pad.retrigger ms after a release must pass
- * before the next hit. A pad that reads high at start-up stays silent until
+ * is let go below pad.release. A soft one (peak under twice pad.threshold)
+ * that falls below pad.release again within PAD_MIN_MS is noise, not a hit:
+ * the Code 61's pads see such spikes (velocity 1-3) while the pad board's
+ * LEDs change. A hard short strike still counts.
+ * pad.retrigger ms after a release must pass before the next hit. A pad that reads high at start-up stays silent until
  * it first reads below pad.release (wrong polarity, or held). */
 #if GM_N_PADS > 0
 #define NP GM_N_PADS
 #define PAD_MS 1u
 #define PAD_AT_MS 10u               /* poly aftertouch: at most once per 10 ms per pad */
+#define PAD_MIN_MS 3u               /* a soft hit stays at or above pad.release this long */
 enum { PAD_BLOCKED, PAD_IDLE, PAD_PEAK, PAD_ON };
 
 static uint8_t pad_state[NP], pad_note[NP], pad_ch[NP], pad_at[NP];
@@ -2160,6 +2175,10 @@ static void pads_scan(uint32_t now)
             pad_peak[i] = (uint16_t)r;
             break;
         case PAD_PEAK:
+            if (r < off && now - pad_t[i] < PAD_MIN_MS && pad_peak[i] < 2 * on) {
+                pad_state[i] = PAD_IDLE;    /* a soft spike, gone again at once */
+                break;
+            }
             if (r > pad_peak[i])
                 pad_peak[i] = (uint16_t)r;
             if (r >= off && now - pad_t[i] < (uint32_t)gm_cfg.pad_window)
@@ -2356,6 +2375,17 @@ static uint32_t led_look(const gm_led_t *l, int active)
     return active ? (l->looks >> 3) & 7u : l->looks & 7u;
 }
 
+#if GM_HOST_FB
+/* An RGB LED whose pins are one rgb_serial LED (red, green, blue in a row):
+ * it can show any colour (vpin_rgb). */
+static int led_full_colour(const gm_led_t *l)
+{
+    return l->pin.hub && gm_device.hubs[l->pin.hub - 1u].type == GM_HUB_RGB_SERIAL &&
+           l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
+           l->pin2.num == l->pin.num + 1u && l->pin3.num == l->pin.num + 2u;
+}
+#endif
+
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
 #if GM_HOST_LEDS
@@ -2363,16 +2393,24 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
         level = blink_on ? level & ~LV_BLINK : 0;
 #endif
     uint32_t m;
+    int look = -1;                  /* 0 idle, 1 active: m is that look */
     if (level == 0)
-        m = led_look(l, 0);
-    else if (level & LV_RGB)
+        m = led_look(l, look = 0);
+    else if (level & LV_RGB) {
+#if GM_HOST_FB
+        if ((level & LV_COLOUR) && led_full_colour(l) &&
+            vpin_rgb(l->pin, led_colour[(uint32_t)(l - gm_device.leds)]))
+            return;
+#endif
         m = level & 7u;             /* these pins, whatever the kind */
-    else if (!vpin_is_none(l->pin3))
-        m = led_look(l, 1);
+    } else if (!vpin_is_none(l->pin3))
+        m = led_look(l, look = 1);
     else if (vpin_is_none(l->pin2) || level == 1)
-        m = led_look(l, 1);
+        m = led_look(l, look = 1);
     else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
-        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, 0);
+        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, look = 0);
+    if (look >= 0 && l->rgb[look] && vpin_rgb(l->pin, l->rgb[look]))
+        return;                     /* a full-colour look (rgb_serial LEDs) */
     led_pins(l, m);
 }
 
@@ -2427,9 +2465,24 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
     if (b > m)
         m = b;
     if (!vpin_is_none(gm_device.leds[led].pin3)) {
-        /* on/off per channel: lit if at least half the brightest one */
-        if (m)
+        /* on/off per channel: lit if at least half the brightest one; an
+         * LED that can show any colour gets the colour itself (0..127 per
+         * channel to 0..255) */
+        if (m) {
             lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
+            /* fade: chips dim with the colour too (leds_fade) */
+            int full = led_full_colour(&gm_device.leds[led]);
+            if (full || GM_TM_FADE) {
+                uint32_t c = (r * 2u + (r >> 6)) << 16 | (g * 2u + (g >> 6)) << 8 | (b * 2u + (b >> 6));
+                /* A new colour at the same level: draw it. Not on an on/off
+                 * LED (fade: its pins don't change, and leds_fade must keep
+                 * seeing it, or the chip jumps to full until it is drawn). */
+                if (c != led_colour[led] && full)
+                    led_shown[led] = 0xFFFFu;
+                led_colour[led] = c;
+                lv |= LV_COLOUR;
+            }
+        }
     } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
@@ -2483,7 +2536,7 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
 /* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
  * (start, after the lamp test). leds_update() runs every 10 ms over every
  * LED; an LED whose level and phase didn't change isn't written again. */
-static uint16_t led_shown[GM_ARR(GM_N_LEDS)];
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* (declared above) */
 
 /* Whether level shows differently in the two blink phases (led_show). */
 static int led_blinks(const gm_led_t *l, uint32_t level)
@@ -2661,12 +2714,45 @@ static void leds_walk(uint32_t now)
 }
 #endif
 
+#if GM_TM_FADE && GM_HOST_FB
+/* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
+ * from led_shown: a DAW's colour at its brightest channel (these win), any
+ * other lit level or look full. */
+static void leds_fade(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        const gm_led_t *l = &gm_device.leds[i];
+        uint32_t key = led_shown[i], level = key >> 1;
+        if (key == 0xFFFFu)
+            continue;
+#if GM_HOST_LEDS
+        if ((level & LV_BLINK) && !(key & 1u))
+            level = 0;              /* a blink's dark half: the idle look */
+        level &= ~LV_BLINK;
+#endif
+        uint32_t v = 255u, colour = (level & LV_COLOUR) != 0;
+        if (colour) {
+            uint32_t c = led_colour[i], r = c >> 16, g = (c >> 8) & 0xFFu, b = c & 0xFFu;
+            v = r > g ? r : g;
+            if (b > v)
+                v = b;
+        } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
+            continue;               /* dark */
+        vpin_fade(l->pin, v, (int)colour);
+    }
+    vpin_fade_apply();
+}
+#else
+#define leds_fade() ((void)0)
+#endif
+
 static void leds_update(uint32_t now)
 {
 #if GM_LED_WALK_MS
     leds_walk(now);
     return;
 #endif
+    leds_fade();
     int blink_on = (now / 500u) & 1u;
 #if GM_STATUS_LED >= 0
     /* A blink code on the status LED (gm_safety.h): drawn every update;

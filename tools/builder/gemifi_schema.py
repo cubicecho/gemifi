@@ -88,6 +88,7 @@ CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max"
 # hub keys: pins are `*_pin` and `pin_s*`
 HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("integer", minimum=1),
              "intensity": T("integer", minimum=0, maximum=7), "grids": T("integer", minimum=4, maximum=7),
+             "fade": BOOL,
              "touch_min": T("integer", minimum=0, maximum=4095), "touch_max": T("integer", minimum=0, maximum=4095),
              "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
 

@@ -319,13 +319,15 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
                          r"rgb_serial, which can't be an input")
         self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
-        # its RAM goes in with the TM1628s'; 16 LEDs default = 6 bytes
+        # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
-        self.assertIn("#define GM_TM1628_RAM 6 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_TM1628_RAM 48 ", files["gm_device_config.h"])
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
-        self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48,", files["gm_device_config.c"])
+        self.assertIn(".rgb_white = { 255, 255, 255 }, .rgb_curve = 0,", files["gm_device_config.c"])
+        self.assertIn("{ 0, 0 } }, /* l0", files["gm_device_config.c"])         # no full-colour looks
         self.assertIn(".latch = GM_NO_PIN,", files["gm_device_config.c"])     # no rx_pin: no answers
         # rx_pin: the board's answers, on USART2 RX (PA3) only
         self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
@@ -335,6 +337,44 @@ class TestValidation(unittest.TestCase):
         dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         self.assertIn(".latch = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
+
+    def test_rgb_serial_colours(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(hub="", look="", pins=(0, 1, 2)):
+            a, b, c = pins
+            return (stm + f"rgb_serial:\n  - {{ id: p, tx_pin: PA2, count: 4{hub} }}\n"
+                    f"leds:\n  - {{ id: l0, pin: {{ rgb_serial: p, number: {a} }}, "
+                    f"pin2: {{ rgb_serial: p, number: {b} }}, pin3: {{ rgb_serial: p, number: {c} }}{look} }}\n")
+
+        # gamma: and white: (the calibration)
+        self.assertClean(dev(", gamma: 2.2, white: [255, 200, 220]"))
+        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="rgb_serial[0].gamma")
+        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="rgb_serial[0].white")
+        self.assertError(dev(", white: [255, 0, 220]"), r"each 1\.\.255")
+        dev_, diags = load(dev(", gamma: 2.2, white: [255, 200, 220]"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
+        self.assertIn(".rgb_white = { 255, 200, 220 }, .rgb_curve = rgb_curve_1,", c)
+        self.assertIn("static const uint8_t rgb_curve_1[256] = {", c)
+        curve = gd.rgb_curve(2.2)
+        self.assertEqual((curve[0], curve[1], curve[255]), (0, 1, 255))     # above 0 stays above 0
+        self.assertEqual(curve[128], 56)                                      # half as seen: about 22%
+        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one rgb_serial LED
+        self.assertClean(dev(look=', idle: "#000030", active: white'))
+        self.assertClean(dev(look=", idle: blue 20%", pins=(3, 4, 5)))
+        dev_, diags = load(dev(look=', idle: "#102030", active: red 50%'))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
+        self.assertIn("{ GM_LED_RGB(0x102030), GM_LED_RGB(0x800000) } }, /* l0", c)
+        self.assertIn("GM_LED_LOOKS(6, 1)", c)              # on/off fallback: cyan idle, red active
+        self.assertError(dev(look=", idle: blue 20%", pins=(1, 2, 3)), r"needs an LED that can show any colour",
+                         path="leds[0].idle")                                   # not one LED's red, green, blue
+        self.assertError(dev(look=", idle: blue 120%"), r"unknown look 'blue 120%'")
+        on_tm = MINIMAL_NUC + ("tm1628:\n  - { id: t, clk_pin: PA0, dio_pin: PA1, stb_pin: PA2 }\n"
+                               "leds:\n  - { id: l0, pin: { tm1628: t, number: 0 }, pin2: { tm1628: t, number: 1 }, "
+                               "pin3: { tm1628: t, number: 2 }, idle: blue 20% }\n")
+        self.assertError(on_tm, r"needs an LED that can show any colour")
 
     def test_analog_mode(self):
         base = MINIMAL_NUC + "analog:\n"
@@ -385,7 +425,7 @@ class TestValidation(unittest.TestCase):
                      "GM_SCAN_TICK_TIM 2 "):
             self.assertIn("#define " + line, h)
         self.assertIn("#define GM_DIN_DMA 0 ", h)
-        self.assertIn(".ram_bytes = 6, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
         # DIN by DMA: with precharge the scans need 6 channels (ADC1, mux, 4 matrix steps), DIN 2:
         # no timer choice fits; the error says what would
         din_dma = c61.replace(*self.C61_DIN_DMA)
@@ -408,7 +448,7 @@ class TestValidation(unittest.TestCase):
         files = gd.generate(d, "t.yaml")
         self.assertIn("#define GM_DIN_DMA 1 ", files["gm_device_config.h"])
         self.assertNotIn("GM_HW_SCAN_TIM", files["gm_device_config.h"])
-        self.assertIn(".ram_bytes = 6, .dma = 0,", files["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48, .dma = 0,", files["gm_device_config.c"])
         # the matrix scan without precharge leaves 2 and 6
         d, _ = load(c61.replace("    precharge: true\n", ""))
         self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 3, 4, 5, 7])
@@ -665,6 +705,13 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(extra_a=", intensity: 8"), r"8 is out of range \(0\.\.7\)")
         self.assertError(dev(extra_a=", grids: 3"), r"3 is out of range \(4\.\.7\)")
         self.assertClean(dev(extra_a=", intensity: 0, grids: 7"))
+        # fade: the chip's brightness follows its LEDs' host colours
+        for fade, n in (("", 0), (", fade: true", 1)):
+            dev_, diags = load(dev(extra_a=fade))
+            self.assertIsNotNone(dev_, [str(d) for d in diags])
+            files = gd.generate(dev_, "t.yaml")
+            self.assertIn(f".grids = 0, .fade = {n},", files["gm_device_config.c"])
+            self.assertEqual("#define GM_TM_FADE 1" in files["gm_device_config.h"], n == 1)
         # outputs only
         self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),
                          r"tm1628, which can't be an input")
@@ -735,9 +782,9 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(gen_dir(dev, tmp), "gm_device_config.c")) as f:
                 c = f.read()
-        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0), 0, 0 }, /* s: PB0 */", c)
-        self.assertRegex(c, r"GM_NO_PIN, 0, 0, 0 \}, /\* bi: PB1 \*/")
-        self.assertIn("GM_LED_LOOKS(4, 7), 0, 0 }, /* rgb: PB3 */", c)
+        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0), 0, 0, { 0, 0 } }, /* s: PB0 */", c)
+        self.assertRegex(c, r"GM_NO_PIN, 0, 0, 0, \{ 0, 0 \} \}, /\* bi: PB1 \*/")
+        self.assertIn("GM_LED_LOOKS(4, 7), 0, 0, { 0, 0 } }, /* rgb: PB3 */", c)
 
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
@@ -2033,7 +2080,7 @@ class TestModes(unittest.TestCase):
         # the twin: after the YAML's buttons, the mute switch and a new LED (index 2), layer 1 (mode 0 + 1),
         # base 4 (mute); its LED the lamp's pins, base LED 1
         self.assertIn('{ { 0, 0, 5 }, "Mute arm", 2, 1, 4 }, /* mute_arm: PA5 */', c)
-        self.assertRegex(c, r"\{ \{ 0, 0, 13 \}, GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS\(1, 0\), 1, 1 \}, /\* lamp_arm")
+        self.assertRegex(c, r"\{ \{ 0, 0, 13 \}, GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS\(1, 0\), 1, 1, \{ 0, 0 \} \}, /\* lamp_arm")
         self.assertIn('{ "mute_arm", "Mute arm", "arm_1" }', c)
         # it keeps cc_toggle (action 2), with CC 7; sel (5) toggles with shift (3 + 1) held, sel keeps CC 8
         self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 1, 0, 4, 1, 2, 1, 2 }", c)
@@ -2190,6 +2237,11 @@ class TestModes(unittest.TestCase):
         self.assertIn('"E1 dev", 4, 2, 0 }', c)
         self.assertIn('"E1 pan", 4, 3, 0 }', c)
         self.assertIn("gm_encoder_cc_defaults[GM_N_ENCODERS] = { 20, 21, -1, 41, -1, 50 }", c)
+        # the cycle's LED (2) always shows its step: reported owner local (2), so hosts leave it alone
+        rows = gd.led_fb_rows(dev)
+        self.assertIsNotNone(rows)
+        self.assertEqual(rows[2][1], gd.LED_OWNERS["local"])
+        self.assertTrue(all(r[1] == dev.led_owner for i, r in enumerate(rows) if i != 2))
         # params: the YAML's own components per preset, the layer.* globals (counted once in the budget)
         counts = {n: cnt(dev) for n, _i, _s, cnt in gd.PARAMS}
         self.assertEqual((counts["encoder.cc"], counts["layer.encoder.cc"], counts["layer.encoder.mode"]), (2, 4, 4))

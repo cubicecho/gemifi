@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ColorDot } from '@/components/ui/color-dot';
 import { Play, Square } from '@/components/ui/icons';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
-import { DEMO_EFFECTS, PREVIEW_CSS } from '../demo/effects.ts';
+import { colourToHex, DEMO_EFFECTS, hexToColour, previewCss } from '../demo/effects.ts';
 import type { SysexClient } from '../protocol/client.ts';
 import { hostDrives } from '../protocol/feedback.ts';
 import type { FeedbackController } from './use-feedback.ts';
@@ -63,7 +63,7 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
           {state.kind === 'ready' && hasTargets ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-3">
-                {/* On a narrow screen the five effects scroll sideways rather than run off the card. */}
+                {/* On a narrow screen the effects scroll sideways rather than run off the card. */}
                 <div className="min-w-0 max-w-full overflow-x-auto">
                   <SegmentedGroup aria-label="Effect" value={picked} onValueChange={pick}>
                     {DEMO_EFFECTS.map((e) => (
@@ -85,14 +85,25 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
                   ))}
                 </SegmentedGroup>
               </div>
+              {effect?.picksColour ? (
+                <label className="flex w-fit items-center gap-2 text-sm">
+                  Colour
+                  <input
+                    type="color"
+                    className="h-8 w-12 cursor-pointer rounded border border-foreground/20 bg-transparent"
+                    value={colourToHex(demo.colour)}
+                    onChange={(e) => demo.setColour(hexToColour(e.target.value))}
+                  />
+                </label>
+              ) : null}
               <p className="text-foreground/70 text-sm">{effect?.description}</p>
               <p className="text-foreground/60 text-xs">
                 {`${ledCount} LED${ledCount === 1 ? '' : 's'}`}
                 {demo.displays.length > 0
                   ? ` and ${demo.displays.length} display${demo.displays.length === 1 ? '' : 's'}`
                   : ''}
-                {skipped > 0 ? `; ${skipped} with owner: local are left alone` : ''}. The LEDs are on/off per colour, so
-                "dimmer" means fewer LEDs lit.
+                {skipped > 0 ? `; ${skipped} with owner: local are left alone` : ''}. LEDs that can show any colour fade
+                smoothly; on/off ones show the nearest of 7 colours, and a fade lights fewer of them.
               </p>
               <Section
                 title={isRunning ? 'Sending' : 'Preview (stopped)'}
@@ -105,7 +116,7 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
                         const isDriven = hostDrives(led);
                         return (
                           <li key={led.index} title={led.name} className={isDriven ? '' : 'opacity-30'}>
-                            <ColorDot color={PREVIEW_CSS[isDriven ? colour : 0] ?? ''} label={led.name} />
+                            <ColorDot color={previewCss(isDriven ? colour : 0)} label={led.name} />
                           </li>
                         );
                       })}

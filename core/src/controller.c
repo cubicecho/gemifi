@@ -2774,9 +2774,13 @@ static void leds_walk(uint32_t now)
 #endif
 
 #if GM_TM_FADE && GM_HOST_FB
-/* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
- * from led_shown: a DAW's colour at its brightest channel (these win), any
- * other lit level or look full. */
+/* tm1628 fade: (vpin_fade): how bright each LED shows, from led_shown: a
+ * DAW's colour at its brightest channel (these win), any other lit level or
+ * look full. Run when leds_apply() has shown a whole round, and the TM1628
+ * bytes wait for that (gm_poll), so a chip's new brightness goes out with
+ * the round's bytes (tm_flush sends the brightness first), not a round
+ * later: a dim host colour never shows at the old, full brightness. */
+#define LEDS_FADE 1
 /* LEDs on a fade chip (bit = LED), gm_init: the others aren't looked at. */
 static uint32_t fade_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
 
@@ -2811,6 +2815,7 @@ static void leds_fade(void)
 }
 #else
 #define leds_fade() ((void)0)
+#define LEDS_FADE 0
 #endif
 
 static void leds_update(uint32_t now)
@@ -2819,7 +2824,6 @@ static void leds_update(uint32_t now)
     leds_walk(now);
     return;
 #endif
-    leds_fade();
     int blink_on = (now / 500u) & 1u;
 #if GM_STATUS_LED >= 0
     /* A blink code on the status LED (gm_safety.h): drawn every update;
@@ -2932,6 +2936,8 @@ static int leds_apply(void)
     for (uint32_t i = led_next; i < end && i < gm_device.n_leds; i++)
         led_set(i, MODE_LED(i, led_level(i, local[i], led_now10), now), blink_on);
     led_next = end >= gm_device.n_leds ? 0xFFu : (uint8_t)end;
+    if (led_next == 0xFFu)
+        leds_fade();                /* the round is shown: its brightness */
     return 1;
 #else
     return 0;
@@ -3769,8 +3775,14 @@ void gm_poll(void)
     }
     poll_part_done(5, &tc);
     /* Changed TM1628 bytes, a few per pass, and not on the LED update's
-     * pass, so the two never add up in one pass. */
-    if (has_tm_hubs && !led_pass)
+     * pass, so the two never add up in one pass. With fade: chips, not
+     * while a round is being shown either (leds_fade). */
+#if LEDS_FADE
+    int round_open = led_next != 0xFFu;
+#else
+    int round_open = 0;
+#endif
+    if (has_tm_hubs && !led_pass && !round_open)
         vpin_poll_tm1628();
     if (has_rgb_hubs)
         vpin_poll_rgb_serial(now);

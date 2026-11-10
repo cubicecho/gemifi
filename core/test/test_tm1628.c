@@ -577,6 +577,20 @@ int main(void)
     gm_led_script(3, 127);
     run_ms(20);
     CHECK(chip[0].ctl == 0x8B, "fade: FB_LED on, full again (%02X)", chip[0].ctl);
+    /* from a full level to a dim host colour: the colour's bytes go out with
+     * the chip's new brightness, never at the old (full) one */
+    {
+        gm_led_script_rgb(3, 40, 0, 0, 0);
+        int bad = 0;
+        for (int ms = 0; ms < 30; ms++) {
+            run_ms(1);
+            bad += chip[0].ram[13] == 0x01 && chip[0].ctl == 0x8B;
+        }
+        CHECK(bad == 0 && chip[0].ram[13] == 0x01 && chip[0].ctl == 0x88,
+              "fade: a dim host colour never shows at full (%d ms, %02X %02X)", bad, chip[0].ram[13], chip[0].ctl);
+        gm_led_script(3, 127);
+        run_ms(20);
+    }
     CHECK(chip[1].ctl == 0x8F, "no fade: chip B stays at intensity 7 (%02X)", chip[1].ctl);
     gm_led_script(3, 0);
     run_ms(20);

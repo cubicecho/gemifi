@@ -2618,6 +2618,9 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.data = ctl("dio_pin", "out", open_drain=True)
         hub.latch = ctl("stb_pin", "out")
     elif typ == "rgb_serial":
+        if any(x.type == "rgb_serial" for x in dev.hubs if x is not hub):
+            # vpin_poll_rgb_serial keeps the board's state (timing, acks) once, not per hub
+            v.err(p, line, "a second rgb_serial hub: the firmware drives one (one LED board)")
         hub.chain = v.integer(h, "count", p, 1, RGB_SERIAL_MAX, default=16)
         hub.n_pins = 3 * hub.chain
         hub.ram_bytes = hub.n_pins                       # a byte per colour

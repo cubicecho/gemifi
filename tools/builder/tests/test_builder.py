@@ -319,6 +319,10 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
                          r"rgb_serial, which can't be an input")
         self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
+        # one board: vpin_poll_rgb_serial's state isn't per hub
+        self.assertError(stm + "rgb_serial:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
+                         "  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
+                         r"a second rgb_serial hub", path="rgb_serial[1]")
         # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])

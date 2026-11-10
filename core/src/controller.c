@@ -2703,8 +2703,8 @@ static void leds_walk(uint32_t now)
 
 #if GM_TM_FADE && GM_HOST_FB
 /* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
- * from led_shown: a DAW's colour at its brightest channel, any other lit
- * level or look full. */
+ * from led_shown: a DAW's colour at its brightest channel (these win), any
+ * other lit level or look full. */
 static void leds_fade(void)
 {
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
@@ -2717,15 +2717,15 @@ static void leds_fade(void)
             level = 0;              /* a blink's dark half: the idle look */
         level &= ~LV_BLINK;
 #endif
-        uint32_t v = 255u;
-        if (level & LV_COLOUR) {
+        uint32_t v = 255u, colour = (level & LV_COLOUR) != 0;
+        if (colour) {
             uint32_t c = led_colour[i], r = c >> 16, g = (c >> 8) & 0xFFu, b = c & 0xFFu;
             v = r > g ? r : g;
             if (b > v)
                 v = b;
         } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
             continue;               /* dark */
-        vpin_fade(l->pin, v);
+        vpin_fade(l->pin, v, (int)colour);
     }
     vpin_fade_apply();
 }

@@ -41,7 +41,8 @@ typedef struct {
     uint8_t tm_ctl;       /* TM1628: display control wanted (0x88 | step, 0x80
                              off), 0 = its intensity                       */
     uint8_t tm_ctl_sent;  /* ... and what the chip has                      */
-    uint16_t tm_peak;     /* TM1628 fade: brightest LED noted + 1, 0 = none */
+    uint16_t tm_peak[2];  /* TM1628 fade: brightest LED noted + 1, 0 = none:
+                             [0] looks and plain levels, [1] host colours */
     uint16_t tm_off;      /* TM1628, RGB_SERIAL: its bytes in tm_ram      */
     uint16_t xy_raw[2];   /* XY: last X / Y reading, 0xFFFF = none        */
     uint8_t xy_touch;     /* XY: readings in a row with both in the window */
@@ -267,7 +268,7 @@ void vpin_init(void)
         s->channel = -1;
         s->tm_dirty = 0;
         s->tm_ctl = s->tm_ctl_sent = 0;
-        s->tm_peak = 0;
+        s->tm_peak[0] = s->tm_peak[1] = 0;
         s->tm_off = 0;
         s->xy_raw[0] = s->xy_raw[1] = 0xFFFFu;
         s->xy_touch = 0;
@@ -1263,16 +1264,16 @@ void vpin_flush_tm1628(void)
  * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
 static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
 
-void vpin_fade(gm_pin_t p, uint32_t v)
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
 {
     const gm_hub_t *h = p.hub ? hub_of(p) : 0;
     if (!h || h->type != GM_HUB_TM1628 || !h->fade)
         return;
-    hub_state_t *s = &hs[p.hub - 1];
+    uint16_t *peak = &hs[p.hub - 1].tm_peak[colour ? 1 : 0];
     if (v > 255u)
         v = 255u;
-    if (v + 1u > s->tm_peak)
-        s->tm_peak = (uint16_t)(v + 1u);
+    if (v + 1u > *peak)
+        *peak = (uint16_t)(v + 1u);
 }
 
 /* The step that looks most like v of full (the hub's intensity); darker
@@ -1296,10 +1297,13 @@ void vpin_fade_apply(void)
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
-        if (h->type != GM_HUB_TM1628 || !h->fade || !s->tm_peak)
+        /* a host's colours win: an LED it turned off shows its idle look,
+         * which mustn't hold the chip at full */
+        uint32_t peak = s->tm_peak[1] ? s->tm_peak[1] : s->tm_peak[0];
+        s->tm_peak[0] = s->tm_peak[1] = 0;
+        if (h->type != GM_HUB_TM1628 || !h->fade || !peak)
             continue;
-        uint32_t ctl = tm_fade_ctl(h, s->tm_peak - 1u);
-        s->tm_peak = 0;
+        uint32_t ctl = tm_fade_ctl(h, peak - 1u);
         if (ctl != (s->tm_ctl ? s->tm_ctl : (0x88u | (h->brightness & 7u)))) {
             s->tm_ctl = (uint8_t)ctl;
             s->tm_dirty = 1;
@@ -1307,10 +1311,11 @@ void vpin_fade_apply(void)
     }
 }
 #else
-void vpin_fade(gm_pin_t p, uint32_t v)
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
 {
     (void)p;
     (void)v;
+    (void)colour;
 }
 
 void vpin_fade_apply(void)
@@ -1488,10 +1493,11 @@ void vpin_flush_tm1628(void)
 {
 }
 
-void vpin_fade(gm_pin_t p, uint32_t v)
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
 {
     (void)p;
     (void)v;
+    (void)colour;
 }
 
 void vpin_fade_apply(void)

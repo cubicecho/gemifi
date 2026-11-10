@@ -521,6 +521,21 @@ int main(void)
     run_ms(20);
     CHECK(chip[0].ctl == 0x80 && chip[0].ram[13] == 0x01, "fade: 10 of 127, display off (%02X %02X)",
           chip[0].ctl, chip[0].ram[13]);
+    /* the button LED (A, lit full by its toggle) doesn't hold the chip at
+     * full while a host colour is lit */
+    level[PIN_BTN] = 0;
+    run_ms(30);
+    level[PIN_BTN] = 1;
+    run_ms(30);
+    CHECK(chip[0].ram[4] == 0x20 && chip[0].ctl == 0x80, "fade: a host colour wins over a lit button (%02X %02X)",
+          chip[0].ram[4], chip[0].ctl);
+    gm_led_script(3, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: no host colour: the lit button, full (%02X)", chip[0].ctl);
+    level[PIN_BTN] = 0;
+    run_ms(30);
+    level[PIN_BTN] = 1;
+    run_ms(30);
     gm_led_script(3, 127);
     run_ms(20);
     CHECK(chip[0].ctl == 0x8B, "fade: FB_LED on, full again (%02X)", chip[0].ctl);

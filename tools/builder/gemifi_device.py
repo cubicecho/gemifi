@@ -1289,11 +1289,16 @@ class _V:
                 elif w:
                     self.warn(path, line, w)
             r = "in" if role == "common" else role
-            for lvl, msg in self.plat.check(num, r, flags, self.transport) + self.plat.check_board(num, r, flags):
+            msgs = self.plat.check(num, r, flags, self.transport)
+            # The pins the board itself uses, from one source: the platform's table (Platform.board_pins,
+            # finer: which uses match the board's) for the board it describes, else the board profile's
+            # `reserved` pins (issue #116).
+            if not self.board or self.board["id"] == self.plat.board:
+                msgs += self.plat.check_board(num, r, flags)
+            else:
+                msgs += gbd.pin_check(self.board, num, r)
+            for lvl, msg in msgs:
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
-            if self.board:     # the pins the board itself uses (board profile `reserved`, issue #116)
-                for lvl, msg in gbd.pin_check(self.board, num, "in" if role == "common" else role):
-                    (self.err if lvl == "error" else self.warn)(path, line, msg)
             self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)
         if not allow_hub:

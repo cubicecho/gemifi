@@ -232,14 +232,18 @@ class TestBuilderBoard(unittest.TestCase):
         self.assertTrue(any("isn't the part" in m for m in self.msgs(diags, "warning")))
 
     def test_reserved_pins(self):
-        cases = [("PA8", "PB13", "error", "USB D+ pull-up"), ("PB12", "PC15", "error", "soft-power latch"),
-                 ("PC13", "PB13", "error", "power button"), ("PB12", "PB8", "warning", "read at reset")]
+        # The Code 61 (the platform's default board): the builder's finer table (Platform.board_pins,
+        # issue #115) speaks for it. A recovery pin as an output or a plain input is fine: the combo
+        # only reads it at reset, before the app drives anything.
+        cases = [("PA8", "PB13", "error", "USB D+ pull-up"), ("PB12", "PC15", "error", "power latch"),
+                 ("PC13", "PB13", "error", "power button")]
         for pin, led, level, text in cases:
             with self.subTest(pin=pin, led=led):
                 _dev, diags = load(pin=pin, led=led)
                 self.assertTrue(any(text in m for m in self.msgs(diags, level)), self.msgs(diags))
-        _dev, diags = load(pin="PB8")                       # a recovery pin as an input: fine
-        self.assertEqual([m for m in self.msgs(diags) if "board profile" in m], [])
+        for pin, led in (("PB8", "PB13"), ("PB12", "PB8")):  # a recovery pin as an input / an output
+            _dev, diags = load(pin=pin, led=led)
+            self.assertEqual([m for m in self.msgs(diags) if "board" in m], [])
         _dev, diags = load("0x3F03", chip="STM32F103C8", board="generic-stm32f103c8", pin="PA8", led="PC15")
         self.assertEqual([m for m in self.msgs(diags) if "board profile" in m], [])
 

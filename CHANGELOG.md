@@ -2,6 +2,22 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.43.0](https://github.com/cubicecho/gemifi/compare/v0.42.0...v0.43.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **max7219:** 1 us bus phases where there is no cycle counter ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([3231859](https://github.com/cubicecho/gemifi/commit/3231859b76b52b569ae53861af05dbdafafaaccc))
+
+
+### Features
+
+* **devices:** diy-floorboard, an FCB1010-style board with a MAX7219 display ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([a988e34](https://github.com/cubicecho/gemifi/commit/a988e341d896574d0a2f55a088dacd0366478a25))
+* **displays:** segment_order: a display's segments in pin order ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([560b9c3](https://github.com/cubicecho/gemifi/commit/560b9c3a324dfb50c32a9457765dca1007f9b971))
+* **displays:** segment7, segment maps, up to 4 displays, shows: ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([201fe8a](https://github.com/cubicecho/gemifi/commit/201fe8a6d56025374d5dfd9602bcead21fef4ac8))
+* **hubs:** ht16k33, the I2C LED driver of the 14- and 7-segment backpacks ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([1afd06f](https://github.com/cubicecho/gemifi/commit/1afd06f0912c0d7e2adb51d750ad02ceb29c3d4d)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **hubs:** max7219 and tm1637 LED drivers ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([7f42aa1](https://github.com/cubicecho/gemifi/commit/7f42aa1090670fe57edd2239231b10920a51489a)), closes [#118](https://github.com/cubicecho/gemifi/issues/118)
+
 # [0.42.0](https://github.com/cubicecho/gemifi/compare/v0.41.1...v0.42.0) (2026-11-10)
 
 

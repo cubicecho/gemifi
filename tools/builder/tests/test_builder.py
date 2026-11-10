@@ -401,6 +401,16 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(look=", idle: blue 20%", pins=(1, 2, 3)), r"needs an LED that can show any colour",
                          path="leds[0].idle")                                   # not one LED's red, green, blue
         self.assertError(dev(look=", idle: blue 120%"), r"unknown look 'blue 120%'")
+        # led_defaults: the full colour where an LED can show it, the nearest on/off look elsewhere
+        top = 'led_defaults: { idle: blue 20%, active: "#ff8000" }\n'
+        dev_, diags = load(dev().replace("\nleds:\n", "\n" + top + "leds:\n") + "  - { id: l1, pin: PA0 }\n"
+                           "  - { id: l2, pin: PA4, pin2: PA5, pin3: PA6 }\n")
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        self.assertEqual([(x.looks, x.rgb) for x in dev_.leds],
+                         [((4, 3), (0x000033, 0xFF8000)), ((1, 0), None), ((4, 3), None)])
+        # an LED's own on/off look wins over a full-colour default
+        dev_, diags = load(dev(look=", active: white").replace("\nleds:\n", "\n" + top + "leds:\n"))
+        self.assertEqual((dev_.leds[0].looks, dev_.leds[0].rgb), ((4, 7), (0x000033, None)))
         on_tm = MINIMAL_NUC + ("tm1628:\n  - { id: t, clk_pin: PA0, dio_pin: PA1, stb_pin: PA2 }\n"
                                "leds:\n  - { id: l0, pin: { tm1628: t, number: 0 }, pin2: { tm1628: t, number: 1 }, "
                                "pin3: { tm1628: t, number: 2 }, idle: blue 20% }\n")
@@ -811,6 +821,12 @@ class TestValidation(unittest.TestCase):
                          r"unknown look 'colour3' \(did you mean 'colour\d'\?\)", path="leds[1].idle")
         self.assertError(MINIMAL_NUC + "led_defaults: { idle: purple }\n" + leds % ("", "", ""),
                          r"unknown look 'purple'.*valid: on, off", path="led_defaults.idle")
+        # led_defaults takes full colours: on on/off LEDs, the nearest look (black is off)
+        self.assertEqual(looks(top="led_defaults: { idle: blue 20% }\n"), [(1, 0), (1, 0), (4, 7)])
+        self.assertEqual(looks(top='led_defaults: { idle: "#ff8000", active: "#000000" }\n'),
+                         [(1, 0), (3, 0), (3, 0)])     # orange: red and green at least half the brightest
+        self.assertError(MINIMAL_NUC + "led_defaults: { idle: blue 120% }\n" + leds % ("", "", ""),
+                         r"unknown look 'blue 120%'", path="led_defaults.idle")
         self.assertError(MINIMAL_NUC + "led_defaults: { idle: blue, dim: true }\n" + leds % ("", "", ""),
                          r"unknown key \(known: idle, active\)", path="led_defaults.dim")
         # the same look twice, given: a warning
@@ -2424,11 +2440,45 @@ class TestModes(unittest.TestCase):
         w = self.warns(bad(two.replace("steps:", "led: lamp\n  steps:") + "    - { id: a, colour: red }\n"
                            "    - { id: b, colour: off }\n"))
         self.assertTrue(any("can't show red" in x for x in w), w)
+        # a full colour on an on/off LED: the nearest on/off colour, with a warning unless it is exact
+        text = bad(self.CYCLE.replace("colour: blue", 'colour: "#ff8000"').replace("colour: red", 'colour: "#ff0000"'))
+        w = self.warns(text)
+        self.assertTrue(any("can't show #ff8000" in x for x in w), w)
+        self.assertFalse(any("#ff0000" in x for x in w), w)
+        dev, h, c = self.gen(text)
+        self.assertEqual([m.colour for m in dev.modes], [0x83, 0x82, 0x81])
+        self.assertNotIn("GM_MODE_RGB", h)
+        self.assertNotIn("gm_mode_rgb", c)
+        self.assertError(bad(self.CYCLE.replace("colour: blue", "colour: blue 200%")), "unknown colour 'blue 200%'")
         self.assertFalse(any("does nothing" in x for x in w), w)      # a step without a layer: the base components
         # a key can't go to a step; a step's encoder twin takes cc: none, a button twin doesn't
         self.assertError(bad(self.CYCLE.replace("e2: { cc: none }", "sel: { cc: none }")), "must be an integer")
         self.assertError(bad(self.CYCLE + "- id: m\n  toggle: { button: menu }\n  keys: { C3: { mode: plain } }\n"),
                          "mode 'plain' has no parent")
+
+    def test_cycle_full_colour(self):
+        """A cycle step's "#rrggbb" / "blue 20%" on an LED that can show any colour: gm_mode_rgb[]."""
+        base = (STM32_BASE.replace("  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n",
+                                   "  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n"
+                                   "  - { id: sel, pin: PA4, action: cc_momentary, cc: 8 }\n") +
+                "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
+                "leds:\n  - { id: l0, pin: { maudio_pad_leds: p, number: 3 }, pin2: { maudio_pad_leds: p, number: 4 }, "
+                "pin3: { maudio_pad_leds: p, number: 5 } }\n")
+        text = modes("- id: c\n  cycle: { button: sel, with: a }\n  led: l0\n  steps:\n"
+                     '    - { id: a, colour: "#ff8000" }\n    - { id: b, colour: blue 20% }\n    - { id: d, colour: red }\n'
+                     "    - { id: e }\n", base)
+        self.assertClean(text)
+        dev, h, c = self.gen(text)
+        self.assertEqual([m.colour for m in dev.modes], [0x83, 0x84, 0x81, 0x00])
+        self.assertIn("#define GM_MODE_RGB 1 ", h)
+        self.assertIn("const uint32_t gm_mode_rgb[GM_N_MODES] = {\n    GM_LED_RGB(0xFF8000), /* a */\n"
+                      "    GM_LED_RGB(0x000033), /* b */\n    0, /* d */\n    0, /* e */\n};", c)
+        if GCC:
+            tmp = tempfile.mkdtemp()
+            try:
+                TestGenerateCompiles.compile_with_core(self, gen_dir(dev, tmp))
+            finally:
+                shutil.rmtree(tmp)
 
     def test_cycle_compiles(self):
         if not GCC:

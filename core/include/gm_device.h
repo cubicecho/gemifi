@@ -501,6 +501,10 @@ typedef struct {
 } gm_mode_t;
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
+/* A cycle step's full colour (its colour: "#rrggbb" or "blue 20%", on an LED
+ * that can show any colour): GM_LED_RGB(colour), 0 = gm_modes[].colour only.
+ * Generated only with GM_MODE_RGB. */
+extern const uint32_t gm_mode_rgb[];         /* GM_N_MODES entries */
 
 /* Pads (core/README.md "Pads"): pressure pads (FSR style) that play notes
  * with a velocity from how hard they are hit. Generated only when the YAML

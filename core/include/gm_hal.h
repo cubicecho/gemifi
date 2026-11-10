@@ -77,6 +77,9 @@ void hal_midi_send_usb(const uint8_t ev[4]);
  * from an interrupt (din_midi dma:, rgb_serial dma:; the builder checks the
  * channels are free). Platforms without DMA ignore it. */
 #define HAL_UART_DMA 1u
+/* hal_serial_open: also receive, on the pin paired with tx_pin (rgb_serial
+ * rx_pin:), for hal_serial_read. */
+#define HAL_UART_RX 2u
 
 /* 5-pin DIN MIDI (din_midi:, core/src/din.c; weak defaults there say "none").
  * hal_din_open: the UART on tx_pin / rx_pin (rx_pin 0xFFFF = no MIDI In) at
@@ -120,14 +123,16 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
-/* A transmit-only serial port on tx_pin (8N1), for rgb_serial hubs.
+/* A serial port on tx_pin (8N1), for rgb_serial hubs.
  * hal_serial_open sets it up, by DMA or interrupt per HAL_UART_DMA in flags
- * (0 if tx_pin can't be one); hal_serial_write
+ * (0 if tx_pin can't be one), receiving too with HAL_UART_RX; hal_serial_write
  * starts sending n <= 16 bytes in the background, copied, and returns 0
- * without sending if the last write is still going. Weak defaults that do
- * nothing are in core/src/vpin.c. */
+ * without sending if the last write is still going; hal_serial_read returns
+ * the next byte received (kept by interrupt, at least 16), or -1 for none.
+ * Weak defaults that do nothing are in core/src/vpin.c. */
 int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
+int hal_serial_read(uint16_t tx_pin);
 
 /* Optional: mask interrupts for a few instructions, so the main loop can
  * read and reset what the scan interrupt collects (vpin_span_take) in one
@@ -151,6 +156,13 @@ uint32_t hal_ns_to_cycles(uint32_t ns);
  * port change in one store. NULL if the platform has none. A weak default
  * returning NULL is in core/src/vpin.c. */
 volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit);
+
+/* Why the app started (diag.reset_reason, sysex.md 4.10): a GM_RESET_*
+ * value of gm_safety.h, and whether the bootloader's boot-loop guard had
+ * stopped the app before this start (sysex.md 6). Weak defaults returning
+ * 0 (unknown, no) are in core/src/safety.c. */
+uint32_t hal_reset_reason(void);
+int hal_boot_loop(void);
 
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
  * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */

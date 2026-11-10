@@ -8,12 +8,18 @@ export interface RequestSettings {
   longReplyTimeoutMs: number;
   /** How many times a request is resent after the first try before giving up. */
   maxRetries: number;
+  /**
+   * After a LOCKED reply (§4.9): how long past the end of the device's unlock window to keep
+   * waiting for UNLOCKED before giving up.
+   */
+  unlockGraceMs: number;
 }
 
 export const REQUEST_DEFAULTS: Readonly<RequestSettings> = Object.freeze({
   replyTimeoutMs: 200,
   longReplyTimeoutMs: 2000,
   maxRetries: 5,
+  unlockGraceMs: 5000,
 });
 
 /** Waiting for the device to come back after a reboot. */

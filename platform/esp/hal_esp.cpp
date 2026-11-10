@@ -7,11 +7,13 @@
 #include "gm_esp.h"
 #include <Wire.h>
 #include "gm_hal.h"
+#include "gm_safety.h"
 
 #ifdef ESP32
 #include <esp_mac.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
+#include <esp_system.h>
 #else
 extern "C" {
 #include <user_interface.h>
@@ -187,7 +189,9 @@ static void scan_task_fn(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        uint32_t t0 = micros();
         scan_fn();
+        gm_diag_scan_us(micros() - t0);     /* diag.scan_max */
     }
 }
 
@@ -234,6 +238,7 @@ void gm_esp_scan_service(void)
     in_scan = 1;
     scan_fn();
     in_scan = 0;
+    gm_diag_scan_us(micros() - now);        /* diag.scan_max */
     scan_next += scan_period;
     if ((int32_t)(now - scan_next) > (int32_t)(4 * scan_period))
         scan_next = now + scan_period;     /* far behind: don't burst */
@@ -258,6 +263,44 @@ void gm_esp_begin(void)
 
 void gm_esp_loop(void)
 {
+    /* diag.loop_max: from one call to the next, gm_poll() included */
+    static uint32_t t_last;
+    uint32_t t = micros();
+    if (t_last)
+        gm_diag_loop_us(t - t_last);
+    t_last = t | 1u;
     hal_midi_poll();
     gm_esp_scan_service();
+}
+
+/* ---- why the app started (diag.reset_reason, sysex.md 4.10) ------------ */
+
+uint32_t hal_reset_reason(void)
+{
+#ifdef ESP32
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:   return GM_RESET_POWER_ON;
+    case ESP_RST_EXT:       return GM_RESET_PIN;
+    case ESP_RST_SW:        return GM_RESET_SOFTWARE;
+    case ESP_RST_PANIC:     return GM_RESET_CRASH;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return GM_RESET_WATCHDOG;
+    case ESP_RST_DEEPSLEEP: return GM_RESET_LOW_POWER;
+    case ESP_RST_BROWNOUT:  return GM_RESET_BROWN_OUT;
+    default:                return GM_RESET_UNKNOWN;
+    }
+#else
+    const rst_info *r = ESP.getResetInfoPtr();
+    switch (r ? r->reason : 0xFFu) {
+    case REASON_DEFAULT_RST:      return GM_RESET_POWER_ON;
+    case REASON_EXT_SYS_RST:      return GM_RESET_PIN;
+    case REASON_SOFT_RESTART:     return GM_RESET_SOFTWARE;
+    case REASON_EXCEPTION_RST:    return GM_RESET_CRASH;
+    case REASON_WDT_RST:
+    case REASON_SOFT_WDT_RST:     return GM_RESET_WATCHDOG;
+    case REASON_DEEP_SLEEP_AWAKE: return GM_RESET_LOW_POWER;
+    default:                      return GM_RESET_UNKNOWN;
+    }
+#endif
 }

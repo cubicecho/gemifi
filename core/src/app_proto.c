@@ -13,13 +13,20 @@
 #include "gm_feedback.h"
 #include "gm_vpin.h"
 #include "gm_display.h"
+#include "gm_safety.h"
 #include "gm_device_config.h"
 
 #ifndef GM_N_DISPLAYS
 #define GM_N_DISPLAYS 0                 /* a config generated before displays */
 #endif
+#ifndef GM_UNLOCK
+#define GM_UNLOCK 0                     /* physical unlock (gm_safety.h) */
+#endif
 #if GM_N_DISPLAYS > 0
 extern const gm_display_t gm_displays[GM_N_DISPLAYS];   /* generated config */
+#endif
+#ifndef GM_LAYOUT_BYTES
+#define GM_LAYOUT_BYTES 0               /* no layout: in the YAML: no GET_LAYOUT */
 #endif
 
 #define REBOOT_DELAY_MS 50u
@@ -55,11 +62,17 @@ static uint8_t rx_buf[GSX_OVERHEAD + RX_PAYLOAD];
 #endif
 static gsx_rx_t rx;
 /* The largest reply: GET_PARAMS (6 + 16 values), or GET_COMPONENT (kind,
- * index, count, three lstrings, up to 5 bytes of extras: an encoder's ring,
- * centre, mode and layer). */
+ * index, count, three lstrings, up to 6 bytes of extras: an analog's
+ * takeover, touch, adc_min and adc_max). */
 #define REPLY_PARAMS    (6u + PARAMS_RUN * 5u + 8u)
-#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 5u)
-#define REPLY_MAX       (REPLY_PARAMS > REPLY_COMPONENT ? REPLY_PARAMS : REPLY_COMPONENT)
+#define REPLY_COMPONENT (1u + 2u + 2u + 3u * (1u + GSX_LSTRING_MAX) + 6u)
+#define REPLY_MAX0      (REPLY_PARAMS > REPLY_COMPONENT ? REPLY_PARAMS : REPLY_COMPONENT)
+/* UNLOCK: state, window, hold, n, the names (the builder's GM_UNLOCK_REPLY) */
+#if GM_UNLOCK && GM_UNLOCK_REPLY > REPLY_MAX0
+#define REPLY_MAX       GM_UNLOCK_REPLY
+#else
+#define REPLY_MAX       REPLY_MAX0
+#endif
 static uint8_t tx_buf[GSX_OVERHEAD + 1 + REPLY_MAX];
 static uint16_t tx_len;
 static uint32_t last_req;            /* 0x10000 | seq << 8 | cmd, 0 = none */
@@ -121,10 +134,33 @@ static uint16_t caps(void)
 #endif
     if (fw)
         c |= GSX_CAP_FW_UPLOAD;
+#if GM_LAYOUT_BYTES
+    if (has_config)
+        c |= GSX_CAP_LAYOUT;
+#endif
+#if GM_MONITOR
+    if (has_config)
+        c |= GSX_CAP_MONITOR;
+#endif
+#if GM_UNLOCK
+    c |= GSX_CAP_UNLOCK;
+#endif
     return c;
 }
 
 /* ---- unsolicited messages --------------------------------------------- */
+
+void app_send_unsolicited(uint8_t cmd, const uint8_t *payload, uint32_t n)
+{
+    uint8_t buf[FRAME(96)];
+    if (n > 96u)
+        return;
+    gsx_tx_t t;
+    gsx_tx_begin(&t, buf, cmd, unsol_seq++ & 0x7F);
+    for (uint32_t i = 0; i < n; i++)
+        gsx_put(&t, payload[i]);
+    hal_midi_send(buf, gsx_tx_end(&t));
+}
 
 void app_log(uint8_t level, const char *a, const char *b)
 {
@@ -188,6 +224,22 @@ void app_preset_changed(uint32_t slot, uint32_t dirty)
     gsx_put(&t, (uint8_t)(dirty ? 1 : 0));
     hal_midi_send(buf, gsx_tx_end(&t));
 }
+
+#if GM_UNLOCK
+void app_unlocked(uint8_t state)
+{
+    uint8_t buf[FRAME(1)];
+    gsx_tx_t t;
+    gsx_tx_begin(&t, buf, GSX_MSG_UNLOCKED, unsol_seq++ & 0x7F);
+    gsx_put(&t, state);
+    hal_midi_send(buf, gsx_tx_end(&t));
+}
+#else
+void app_unlocked(uint8_t state)
+{
+    (void)state;
+}
+#endif
 
 /* ---- requests --------------------------------------------------------- */
 
@@ -259,7 +311,10 @@ static void send_booted(void)
 }
 #endif
 
-static int cmd_get_schema(const gsx_frame_t *f, gsx_tx_t *t)
+/* GET_SCHEMA and GET_LAYOUT: a window of a blob, `total` bytes long, read
+ * by read() (sysex.md 4.3, 4.7). */
+static int cmd_window(const gsx_frame_t *f, gsx_tx_t *t, uint32_t total,
+                      uint32_t (*read)(uint32_t off, uint8_t *dst, uint32_t max))
 {
     if (f->len != 6)
         return GSX_BAD_LEN;
@@ -268,12 +323,22 @@ static int cmd_get_schema(const gsx_frame_t *f, gsx_tx_t *t)
     if (max == 0 || max > SCHEMA_WINDOW)
         return GSX_BAD_LEN;
     uint8_t data[SCHEMA_WINDOW];
-    uint32_t n = params_schema_read(off, data, max);
-    gsx_put_u(t, params_schema_size(), 4);
+    uint32_t n = read(off, data, max);
+    gsx_put_u(t, total, 4);
     gsx_put_u(t, off, 4);
     gsx_put_packed(t, data, n);
     return GSX_OK;
 }
+
+#if GM_LAYOUT_BYTES
+static uint32_t layout_read(uint32_t off, uint8_t *dst, uint32_t max)
+{
+    uint32_t n = 0;
+    for (; n < max && off + n < GM_LAYOUT_BYTES; n++)
+        dst[n] = gm_layout[off + n];
+    return n;
+}
+#endif
 
 static int cmd_get_param(const gsx_frame_t *f, gsx_tx_t *t)
 {
@@ -366,7 +431,7 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
     const uint8_t *vp = f->payload + 6;
     for (uint32_t i = 0; i < n; i++) {           /* all or nothing */
         int32_t v = (int32_t)gsx_get_u(vp + 5 * i, 5);
-        if (v < d->min || v > d->max || !presets_value_ok(id, v))
+        if (!params_value_ok(d, v) || !presets_value_ok(id, v))
             return GSX_BAD_VALUE;
     }
     params_gen++;
@@ -461,6 +526,8 @@ static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
             return GSX_BAD_BOARD;
         if (size == 0 || (size & 3u))
             return GSX_BAD_ADDR;
+        if (gm_unlock_check())
+            return GSX_LOCKED;              /* sysex.md 4.9 */
         if (fw_active)
             fw->abort();
         int st = fw->begin(size, crc, board, ver);
@@ -505,7 +572,7 @@ static int cmd_fw(const gsx_frame_t *f, gsx_tx_t *t)
 
 /* ---- DAW-script messages (sysex.md 4.6) ---------------------------------- */
 
-#if GM_HOST_FB
+#if GM_HOST_FB || GM_UNLOCK
 static void put_lstring(gsx_tx_t *t, const char *s)
 {
     uint32_t n = 0;
@@ -515,6 +582,29 @@ static void put_lstring(gsx_tx_t *t, const char *s)
     for (uint32_t i = 0; i < n; i++)
         gsx_put(t, (uint8_t)s[i]);
 }
+#endif
+
+#if GM_UNLOCK
+/* UNLOCK (sysex.md 4.9): what to ask the user. */
+static int cmd_unlock(const gsx_frame_t *f, gsx_tx_t *t)
+{
+    if (f->len != 1)
+        return GSX_BAD_LEN;
+    if (f->payload[0] > 1)
+        return GSX_BAD_CMD;
+    uint32_t window;
+    gsx_put(t, (uint8_t)gm_unlock_state(f->payload[0], &window));
+    gsx_put(t, (uint8_t)window);
+    gsx_put_u(t, GM_UNLOCK_HOLD_MS, 2);
+    gsx_put(t, GM_UNLOCK_N);
+    for (uint32_t i = 0; i < gm_device.n_buttons && i < 8u * sizeof(GM_UNLOCK_COMBO); i++)
+        if (((GM_UNLOCK_COMBO) >> i) & 1u)
+            put_lstring(t, gm_device.buttons[i].name);
+    return GSX_OK;
+}
+#endif
+
+#if GM_HOST_FB
 
 static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
 {
@@ -587,6 +677,8 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
 #else
         gsx_put(t, 0);
 #endif
+        gsx_put_u(t, gm_device.analogs[index].raw_min, 2);   /* adc_min, adc_max (the input tester) */
+        gsx_put_u(t, gm_device.analogs[index].raw_max, 2);
         break;
     case GSX_KIND_ENCODER: {
 #if GM_RINGS
@@ -598,6 +690,10 @@ static int cmd_get_component(const gsx_frame_t *f, gsx_tx_t *t)
         gsx_put_u(t, GSX_NONE_INDEX, 2);
 #endif
         uint32_t mode = (uint32_t)gm_cfg.enc_mode[index];
+        if (mode == ENC_REL_SIGN)
+            mode = GSX_ENC_MODE_SIGN;
+        else if (mode > ENC_REL_SIGN)
+            mode = 0;                                   /* the 14-bit / (N)RPN modes: absolute */
 #if GM_MCU
         if (gm_encoder_mcu[index] != GM_MCU_NONE)
             mode = GSX_ENC_MODE_MCU;                    /* a V-Pot ignores encoder.mode */
@@ -667,9 +763,9 @@ static void notify(const gsx_frame_t *f)
         break;
     case GSX_FB_VALUE:
         if (n == 5) {
-            uint32_t i = gsx_get_u(p + 1, 2), v = gsx_get_u(p + 3, 2) >> 7;
+            uint32_t i = gsx_get_u(p + 1, 2), v = gsx_get_u(p + 3, 2);
             if (p[0] == GSX_KIND_ANALOG && i < gm_device.n_analogs)
-                gm_analog_host(i, v);
+                gm_analog_host(i, v >> 7);
             else if (p[0] == GSX_KIND_ENCODER)
                 gm_encoder_host(i, v);
         }
@@ -702,6 +798,8 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
             return GSX_BAD_LEN;
         if (f->payload[0] > 1)
             return GSX_BAD_CMD;
+        if (f->payload[0] == 1 && gm_unlock_check())
+            return GSX_LOCKED;              /* sysex.md 4.9 */
         reboot_mode = f->payload[0] + 1;
         reboot_at = hal_millis() + REBOOT_DELAY_MS;
         return GSX_OK;
@@ -719,7 +817,20 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
         return GSX_BAD_CMD;
     switch (f->cmd) {
     case GSX_CMD_GET_SCHEMA:
-        return cmd_get_schema(f, t);
+        return cmd_window(f, t, params_schema_size(), params_schema_read);
+#if GM_LAYOUT_BYTES
+    case GSX_CMD_GET_LAYOUT:
+        return cmd_window(f, t, GM_LAYOUT_BYTES, layout_read);
+#endif
+#if GM_MONITOR
+    case GSX_CMD_MONITOR:
+        if (f->len != 1)
+            return GSX_BAD_LEN;
+        gsx_put(t, (uint8_t)gm_monitor(f->payload[0]));
+        gsx_put_u(t, GM_MONITOR_INTERVAL_MS, 2);
+        gsx_put_u(t, GM_MONITOR_TIMEOUT_MS, 2);
+        return GSX_OK;
+#endif
     case GSX_CMD_GET_PARAM:
         return cmd_get_param(f, t);
     case GSX_CMD_SET_PARAM:
@@ -735,7 +846,10 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_FACTORY_RESET: {
         if (f->len != 0)
             return GSX_BAD_LEN;
+        if (gm_unlock_check())
+            return GSX_LOCKED;              /* sysex.md 4.9 */
         int st = presets_factory_reset();
+        gm_diag_refresh();                  /* params_defaults() cleared diag.* */
         app_on_param_set(0, 0);
         return st;
     }
@@ -749,6 +863,10 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
 #if GM_HOST_FB
     case GSX_CMD_GET_COMPONENT:
         return cmd_get_component(f, t);
+#endif
+#if GM_UNLOCK
+    case GSX_CMD_UNLOCK:
+        return cmd_unlock(f, t);
 #endif
     }
     return GSX_BAD_CMD;
@@ -792,6 +910,7 @@ static void handle_frame(void)
         return;
     }
     uint32_t req = 0x10000u | (uint32_t)f.seq << 8 | f.cmd;
+    gm_unlock_activity();
     if (req != last_req) {
         gsx_tx_t t;
         gsx_tx_begin(&t, tx_buf, f.cmd | GSX_REPLY, f.seq);
@@ -802,7 +921,9 @@ static void handle_frame(void)
             t.n = status_at + 1u;
         tx_buf[status_at] = (uint8_t)st;
         tx_len = gsx_tx_end(&t);
-        last_req = req;
+        /* LOCKED doesn't complete the request (sysex.md 1): its resend
+         * after the unlock is done, not answered from here. */
+        last_req = st == GSX_LOCKED ? 0 : req;
     }
     hal_midi_send(tx_buf, tx_len);
 }

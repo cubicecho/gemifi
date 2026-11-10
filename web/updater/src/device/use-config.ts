@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isPresetsBackup, restoreBackup } from '../protocol/backup.ts';
 import { RequestError, RequestFailure, type SysexClient } from '../protocol/client.ts';
 import {
   commit,
@@ -37,6 +38,8 @@ export interface ImportReport {
   problems: string[];
   /** Set when the file came from another board. */
   boardWarning: string | null;
+  /** A backup with presets was written back and stored: nothing is left to save. */
+  isStored?: boolean;
 }
 
 /** What {@link useConfig} hands the card. */
@@ -60,7 +63,8 @@ export interface ConfigController {
   /** Reads every value again, keeping the schema and the form on screen (another preset loaded). */
   refreshValues: () => void;
   save: () => void;
-  reset: () => void;
+  /** FACTORY_RESET, then a reload. Resolves when it has finished, whether or not it worked. */
+  reset: () => Promise<void>;
   importText: (text: string) => void;
   /** The shown values as profile JSON, or null before they load. */
   exportJson: () => string | null;
@@ -217,10 +221,10 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
     [client, countsAsEdit],
   );
 
-  const run = useCallback((name: ConfigAction, work: () => Promise<void>) => {
+  const run = useCallback((name: ConfigAction, work: () => Promise<void>): Promise<void> => {
     setAction(name);
     setActionError(null);
-    work()
+    return work()
       .catch((error: unknown) => setActionError(messageOf(error)))
       .finally(() => setAction(null));
   }, []);
@@ -253,11 +257,11 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
     });
   }, [client, run]);
 
-  const reset = useCallback(() => {
+  const reset = useCallback(async () => {
     if (client === null) {
       return;
     }
-    run('reset', async () => {
+    await run('reset', async () => {
       await factoryReset(client);
       setIsDirty(false);
       setImportReport(null);
@@ -278,6 +282,22 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
           json = JSON.parse(text);
         } catch (error) {
           throw new Error(`The file is not JSON: ${messageOf(error)}`);
+        }
+        if (isPresetsBackup(json) && hasPresets) {
+          // A backup with every preset (`gemifi.py backup`, or the one taken before a firmware
+          // upload): written back preset by preset and stored, then everything is read again.
+          const report = await restoreBackup(client, device, current.schema, json);
+          setIsDirty(false);
+          setAttempt((n) => n + 1);
+          setImportReport({
+            applied: report.applied,
+            unknownNames: [],
+            readOnlyNames: [],
+            problems: report.problems,
+            boardWarning: null,
+            isStored: true,
+          });
+          return;
         }
         const plan = planImport(current.schema, json, device.boardId);
         const result = await applyImport(client, plan);
@@ -308,7 +328,7 @@ export function useConfig(client: SysexClient | null, device: HelloInfo | null):
         });
       });
     },
-    [client, countsAsEdit, device, run, state],
+    [client, countsAsEdit, device, hasPresets, run, state],
   );
 
   const exportJson = useCallback(() => {

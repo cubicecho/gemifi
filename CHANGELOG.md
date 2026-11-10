@@ -2,6 +2,90 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.38.0](https://github.com/cubicecho/gemifi/compare/v0.37.1...v0.38.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **leds:** Code 61 pad LEDs dead after a cold start ([6906eb5](https://github.com/cubicecho/gemifi/commit/6906eb5cbb5143e6cda447ba42d58aa2ac0ffc3b))
+* **leds:** fade: host colours set the chip's brightness, not idle looks ([400dafc](https://github.com/cubicecho/gemifi/commit/400dafc6640538fa3b041806bba20a3373f298bf))
+* **leds:** fade: no jump to full while a host colour is being drawn ([46454b7](https://github.com/cubicecho/gemifi/commit/46454b77d13069c6846792a00505b94ae1eec3b5))
+* **pads:** ignore soft spikes; cycle LEDs report owner local ([a79381f](https://github.com/cubicecho/gemifi/commit/a79381f5b09225c7edc843518ce45b7efc5e8711))
+
+
+### Features
+
+* **leds:** full-colour rgb_serial LEDs, with gamma and white balance ([c732bfa](https://github.com/cubicecho/gemifi/commit/c732bfa3e51b18de10528ed1f33f92047b692199))
+* **leds:** rgb_serial rx_pin: resend only what the board didn't answer ([0ac22a7](https://github.com/cubicecho/gemifi/commit/0ac22a75923007ee58f817f153dc50d3d9470b62))
+* **leds:** tm1628 fade: chip brightness follows host colours; Code 61 pads idle dim blue ([b3e84f6](https://github.com/cubicecho/gemifi/commit/b3e84f64ecfff16a4196a4cea6285c2924a370cb))
+* **web:** demo Breathe in a picked colour; the staggered one is Waves ([76bbd73](https://github.com/cubicecho/gemifi/commit/76bbd73c6806e801f629d02415a96e286b39cfef))
+* **web:** feedback demo in full colour ([7d59b7a](https://github.com/cubicecho/gemifi/commit/7d59b7a01930932edbcda6cebd231a8d46cd0562))
+
+## [0.37.1](https://github.com/cubicecho/gemifi/compare/v0.37.0...v0.37.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **web:** reinstall cubeui segmented for the 40px strip, and drop the touchTarget workaround ([05ee278](https://github.com/cubicecho/gemifi/commit/05ee278ed1125777745c47dd66366df427ea85b6)), closes [cubeui#540](https://github.com/cubeui/issues/540) [cubeui#541](https://github.com/cubeui/issues/541)
+
+# [0.37.0](https://github.com/cubicecho/gemifi/compare/v0.36.0...v0.37.0) (2026-11-06)
+
+
+### Features
+
+* **bootloader:** STM32F1 boot-loop guard, reset flags for the app ([90b4d9c](https://github.com/cubicecho/gemifi/commit/90b4d9c6ab97f1eb03d2d2b7863cdfee5fc19856))
+* **core:** physical unlock is opt-in ([b76b013](https://github.com/cubicecho/gemifi/commit/b76b013c98e08a3e008b65b2189767c06ab7e9d2))
+* **core:** physical unlock, factory-reset combo, status LED, diagnostics ([5b9b16f](https://github.com/cubicecho/gemifi/commit/5b9b16f8449f8e9b0a6bcfecfa1ca96f6734deb8))
+* **host:** wait for the physical unlock, unlock and hello --diag commands ([d1ed4b4](https://github.com/cubicecho/gemifi/commit/d1ed4b4d7e0cc490c9a089406ec655913498dae2))
+* **web:** unlock dialog and Diagnostics in the updater ([3be3f46](https://github.com/cubicecho/gemifi/commit/3be3f4657f8a37f2370596c332ab1cd3afecc1ea))
+
+# [0.36.0](https://github.com/cubicecho/gemifi/compare/v0.35.0...v0.36.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** layout: in the device YAML schema; unknown layout ids warn ([7f08171](https://github.com/cubicecho/gemifi/commit/7f08171259e167cd03f5f7a1d447c61742e82819))
+* **core:** device layout from the YAML, and the raw readings stream ([11d28c5](https://github.com/cubicecho/gemifi/commit/11d28c597a74f1600edafb9ff57a78a58979cf71))
+* **host:** gemifi.py layout and monitor ([d6a9c63](https://github.com/cubicecho/gemifi/commit/d6a9c63403480b4936089cd483f8e4f1846c01f7))
+* **protocol:** GET_LAYOUT, MONITOR and RAW for drawing and testing a device ([9dd56d9](https://github.com/cubicecho/gemifi/commit/9dd56d94df26983812832fe486f24e66bf9aa490))
+* **web:** device drawing, Tester view and MIDI learn ([e10b987](https://github.com/cubicecho/gemifi/commit/e10b987df71a15cd66fff4e85529ed950ca78529))
+
+# [0.35.0](https://github.com/cubicecho/gemifi/compare/v0.34.0...v0.35.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** MIDI message keys in the device YAML schema ([94f1da3](https://github.com/cubicecho/gemifi/commit/94f1da3b115911adaff3849a98b114a6ea589c30))
+* **core:** 14-bit CC, NRPN/RPN, bank select, panic, MMC and SysEx ([71d9d4a](https://github.com/cubicecho/gemifi/commit/71d9d4a30dc0814617f09ce12b70094ed002b9a3)), closes [#90](https://github.com/cubicecho/gemifi/issues/90)
+* **web:** leave out enum options the firmware doesn't have ([1a700f8](https://github.com/cubicecho/gemifi/commit/1a700f8c08da71511fc2c30c7d1ef20baa1eaa3f))
+
+# [0.34.0](https://github.com/cubicecho/gemifi/compare/v0.33.1...v0.34.0) (2026-11-06)
+
+
+### Features
+
+* **builder:** device YAML packages, substitutions, config hash and JSON schema ([0641d1b](https://github.com/cubicecho/gemifi/commit/0641d1b7e7c673d9b0d8f5926ac9d51a157fe593))
+
+## [0.33.1](https://github.com/cubicecho/gemifi/compare/v0.33.0...v0.33.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **host:** flash a Code 61 through its gemifi bootloader ([b6b7664](https://github.com/cubicecho/gemifi/commit/b6b7664cd1d2ec15100387cf48031a25fd434615))
+
+# [0.33.0](https://github.com/cubicecho/gemifi/compare/v0.32.1...v0.33.0) (2026-11-05)
+
+
+### Bug Fixes
+
+* **live:** teal for a clip without a colour, as in Bitwig ([541233d](https://github.com/cubicecho/gemifi/commit/541233d350adf6937e4a488ca43fea2b9b812c17))
+
+
+### Features
+
+* **bitwig:** clip grid (pads, clip_T_S, scene_N, grid_*) ([b5bf778](https://github.com/cubicecho/gemifi/commit/b5bf77849669355fb5cf4a5b4969207be53f8a58))
+* **live:** clip grid (pads, clip_T_S, scene_N, grid_*) ([37d274e](https://github.com/cubicecho/gemifi/commit/37d274eda8d7ab2d6085d4ac38059542392a3d88))
+
 ## [0.32.1](https://github.com/cubicecho/gemifi/compare/v0.32.0...v0.32.1) (2026-11-05)
 
 

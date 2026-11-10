@@ -86,6 +86,7 @@ SECTIONS
     ASSERT(_gemifi_hdr_end == 0x08002550, "image header missing or not 32 bytes")
     ASSERT(_image_end <= 0x0801B000, "image runs into the vendor checksum page 0x0801B000")
     ASSERT(_enoinit + 1024 <= _estack, "less than 1 KB of RAM left for the stack")
+    ASSERT(_estack <= 0x20004FF0, "the stack top runs into the SRAM mailbox (sys.h)")
     ASSERT(_estack < ORIGIN(RAM) + LENGTH(RAM), "initial SP at the top of RAM: the vendor bootloader faults on it")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }

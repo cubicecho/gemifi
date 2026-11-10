@@ -21,6 +21,7 @@
 #include "params.h"
 #include "config_store.h"
 #include "gm_presets.h"
+#include "gm_safety.h"
 #include "fake_config_store.h"
 #include "gsx.h"
 
@@ -324,6 +325,35 @@ static void boot(void)
     gm_init(0x00010000u, 0);
     run_ms(2000);                    /* past the boot log */
     out_n = 0;
+}
+
+/* Physical unlock (sysex.md 4.9), opt-in: test_controller builds the
+ * Keystation with `unlock: true` (Pitch down + Pitch up, buttons 4 and 5,
+ * the boot_combo); test_controller_wtf builds it as shipped, unlock off. */
+#if GM_UNLOCK
+/* Hold the combo for the hold time, then let go. */
+static void unlock_combo(void)
+{
+    button(4, 1);
+    button(5, 1);
+    run_ms(GM_UNLOCK_HOLD_MS + 50);
+    button(4, 0);
+    button(5, 0);
+    run_ms(1000);                    /* the status LED's "unlocked" second */
+}
+#endif
+
+/* A request that may need the unlock: on LOCKED, unlock and send it again. */
+static int unlocked_request(uint8_t cmd, const uint8_t *payload, int n, int *pl)
+{
+    int st = request(cmd, payload, n, pl);
+#if GM_UNLOCK
+    if (st == GSX_LOCKED) {
+        unlock_combo();
+        st = request(cmd, payload, n, pl);
+    }
+#endif
+    return st;
 }
 
 /* ---- presets ------------------------------------------------------------ */
@@ -785,7 +815,7 @@ static void test_presets(void)
     CHECK(gm_cfg.preset_count == 6 && gm_cfg.preset_active == 1, "boot: slot 6 is stored, so 6 in use");
 
     /* FACTORY_RESET: store erased, slot 1 */
-    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.preset_active == 1 &&
+    CHECK(unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.preset_active == 1 &&
           gm_cfg.vel_fast == GM_VEL_FAST_DEFAULT && fake_cs_count(0) == -1, "FACTORY_RESET");
 
     /* a failing store: COMMIT reports it, dirty stays */
@@ -793,7 +823,7 @@ static void test_presets(void)
     fake_cs_fail = 1;
     CHECK(request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_FLASH_ERR && gm_cfg.preset_dirty == 1, "COMMIT flash error");
     fake_cs_fail = 0;
-    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+    unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
 }
 
 /* ---- modes (the Keystation's edit mode, devices/keystation-mini32-mk3.yaml) ---- */
@@ -953,7 +983,7 @@ static void test_modes(void)
     tap(K_C3);
     CHECK(count_msgs(0x90) == 0, "in the mode");
     edit();
-    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+    unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
 }
 
 /* ---- velocity sweep ----------------------------------------------------
@@ -1056,10 +1086,390 @@ static void test_velocity_sweep(void)
     }
     gm_scan_period_us = period;
     CHECK(bad == 0, "velocity with slowed scans and long key times: %d differ", bad);
-    request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+    unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+}
+
+/* ---- safety: unlock, factory-reset combo, status LED, diag (gm_safety.h) ---- */
+
+#if GM_UNLOCK
+static int unlock_info(uint32_t *state, uint32_t *window, uint32_t *hold, char *names)
+{
+    uint8_t open = 0;
+    int pl, st = request(GSX_CMD_UNLOCK, &open, 1, &pl);
+    if (st != GSX_OK)
+        return st;
+    *state = out[pl];
+    *window = out[pl + 1];
+    *hold = gsx_get_u(out + pl + 2, 2);
+    uint32_t n = out[pl + 4], k = 0, at = (uint32_t)pl + 5u;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t len = out[at++];
+        if (i)
+            names[k++] = '|';
+        memcpy(names + k, out + at, len);
+        k += len;
+        at += len;
+    }
+    names[k] = 0;
+    return GSX_OK;
+}
+
+static int unlocked_msg(int *state)
+{
+    int p = find_sysex(GSX_MSG_UNLOCKED, 0);
+    if (p >= 0 && state)
+        *state = out[p];
+    return p >= 0;
+}
+
+/* The Edit LED (PA13, active-low: level 0 = lit) over ms: how often it
+ * changed. */
+static int led_changes(uint32_t ms)
+{
+    int n = 0;
+    uint32_t was = level[13];
+    for (uint32_t i = 0; i < ms; i++) {
+        run_ms(1);
+        n += level[13] != was;
+        was = level[13];
+    }
+    return n;
+}
+#endif
+
+static void test_safety(void)
+{
+    int d1, d2;
+    int32_t v;
+
+#if GM_UNLOCK
+    uint32_t state, window, hold;
+    char names[80];
+    int us = -1;
+
+    boot();
+    /* FACTORY_RESET locked: nothing happens, the window opens */
+    CHECK(set_param(P_CHANNEL, 0, 5) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store something");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_LOCKED && gm_cfg.channel == 5 &&
+          fake_cs_count(1) > 0, "FACTORY_RESET -> LOCKED, nothing reset");
+    CHECK(unlock_info(&state, &window, &hold, names) == GSX_OK && state == 0 && window == 30 &&
+          hold == GM_UNLOCK_HOLD_MS && strcmp(names, "Pitch down|Pitch up") == 0,
+          "UNLOCK: locked, 30 s, hold 2 s, '%s'", names);
+    {
+        uint8_t bad = 2;
+        CHECK(request(GSX_CMD_UNLOCK, &bad, 1, 0) == GSX_BAD_CMD && request(GSX_CMD_UNLOCK, 0, 0, 0) == GSX_BAD_LEN,
+              "UNLOCK: open 2 -> BAD_CMD, no payload -> BAD_LEN");
+    }
+    CHECK(led_changes(1000) >= 6, "the status LED blinks fast in the window");
+    /* too short a hold: still locked; the combo's buttons send nothing */
+    out_n = 0;
+    button(4, 1);
+    button(5, 1);
+    run_ms(1000);
+    button(4, 0);
+    button(5, 0);
+    run_ms(100);
+    CHECK(!find_msg(0xE0, &d1, &d2) && !unlocked_msg(0), "a short hold: no bend, not unlocked");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_LOCKED, "still locked");
+    /* the whole hold: UNLOCKED, then the request goes through */
+    out_n = 0;
+    button(4, 1);
+    button(5, 1);
+    run_ms(GM_UNLOCK_HOLD_MS + 20);
+    CHECK(unlocked_msg(&us) && us == 1, "UNLOCKED 1 after the hold");
+    CHECK(!find_msg(0xE0, &d1, &d2), "the held combo sent no pitch bend");
+    button(4, 0);
+    button(5, 0);
+    out_n = 0;
+    run_ms(100);
+    CHECK(!find_msg(0xE0, &d1, &d2), "nor its release");
+    CHECK(unlock_info(&state, &window, &hold, names) == GSX_OK && state == 1 && window == 0, "UNLOCK: unlocked");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.channel == 1 && fake_cs_count(1) == -1,
+          "FACTORY_RESET after the unlock");
+    /* outside the window the combo is ordinary buttons again */
+    out_n = 0;
+    button(4, 1);
+    run_ms(100);
+    CHECK(find_msg(0xE0, &d1, &d2), "Pitch down bends again");
+    button(4, 0);
+    run_ms(500);
+    /* idle for 5 min: locked again */
+    out_n = 0;
+    run_ms(300000);
+    CHECK(unlocked_msg(&us) && us == 0, "UNLOCKED 0 after 5 min idle");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_LOCKED, "locked after idling");
+    /* the window closes after 30 s */
+    out_n = 0;
+    run_ms(30100);
+    CHECK(unlocked_msg(&us) && us == 0, "UNLOCKED 0: the window closed");
+    CHECK(unlock_info(&state, &window, &hold, names) == GSX_OK && state == 0 && window == 0, "window closed");
+    /* LOCKED doesn't complete a request: the same seq is done after the unlock */
+    {
+        uint8_t buf[32];
+        gsx_tx_t t;
+        gsx_tx_begin(&t, buf, GSX_CMD_FACTORY_RESET, ++seq & 0x7F);
+        uint16_t len = gsx_tx_end(&t);
+        out_n = 0;
+        for (int i = 0; i < len; i++)
+            gm_midi_rx_byte(buf[i]);
+        int p = find_sysex(GSX_CMD_FACTORY_RESET | GSX_REPLY, 0);
+        CHECK(p >= 0 && out[p] == GSX_LOCKED, "LOCKED");
+        unlock_combo();
+        out_n = 0;
+        for (int i = 0; i < len; i++)
+            gm_midi_rx_byte(buf[i]);
+        p = find_sysex(GSX_CMD_FACTORY_RESET | GSX_REPLY, 0);
+        CHECK(p >= 0 && out[p] == GSX_OK, "the same seq again after the unlock: done");
+    }
+    /* UNLOCK open 1 opens the window */
+    boot();
+    {
+        uint8_t open = 1;
+        int pl;
+        CHECK(request(GSX_CMD_UNLOCK, &open, 1, &pl) == GSX_OK && out[pl] == 0 && out[pl + 1] == 30,
+              "UNLOCK open 1: the window opens");
+    }
+    unlock_combo();
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK, "unlocked before the request");
+#else
+    /* unlock off (no unlock: in the YAML): nothing waits for the device */
+    boot();
+    CHECK(set_param(P_CHANNEL, 0, 5) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store something");
+    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && gm_cfg.channel == 1 && fake_cs_count(1) == -1,
+          "unlock off: FACTORY_RESET goes through at once");
+    {
+        uint8_t open = 0;
+        CHECK(request(GSX_CMD_UNLOCK, &open, 1, 0) == GSX_BAD_CMD, "unlock off: UNLOCK -> BAD_CMD");
+    }
+    out_n = 0;
+    button(4, 1);
+    run_ms(100);
+    CHECK(find_msg(0xE0, &d1, &d2), "unlock off: Pitch down bends");
+    button(4, 0);
+    run_ms(100);
+#endif
+
+    /* diag.* (sysex.md 4.10) */
+    boot();
+    CHECK(get_param(P_DIAG_RESET, 0, &v) == GSX_OK && v == GM_RESET_UNKNOWN, "diag.reset_reason (weak HAL: unknown)");
+    CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_NONE, "diag.settings: none stored");
+    CHECK(get_param(P_DIAG_UPTIME, 0, &v) == GSX_OK && v == (int32_t)(now_ms / 1000u), "diag.uptime %d", (int)v);
+    CHECK(get_param(P_DIAG_SCAN_PERIOD, 0, &v) == GSX_OK && v == (int32_t)gm_device.scan_us, "diag.scan_period");
+    CHECK(set_param(P_DIAG_UPTIME, 0, 0) == GSX_BAD_PARAM, "diag.* are read-only");
+    gm_diag_scan_us(77);
+    gm_diag_loop_us(1234);
+    gm_diag_loop_us(5);
+    run_ms(1);
+    CHECK(get_param(P_DIAG_SCAN_MAX, 0, &v) == GSX_OK && v == 77 && get_param(P_DIAG_LOOP_MAX, 0, &v) == GSX_OK &&
+          v == 1234, "diag.scan_max, diag.loop_max keep the longest");
+    CHECK(unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK && get_param(P_DIAG_LOOP_MAX, 0, &v) == GSX_OK &&
+          v == 1234, "a FACTORY_RESET doesn't clear them");
+    CHECK(set_param(P_CHANNEL, 0, 3) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store");
+    boot();
+    CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_LOADED, "diag.settings: loaded");
+    /* a stored value this firmware refuses: diag.settings 2, blink code 2 */
+    {
+        cs_entry_t e = { P_LOG_LEVEL, 0, 9 };
+        config_store_write(0, 0, 0, &e, 1);
+    }
+    gm_init(0x00010000u, 0);
+    out_n = 0;
+    run_ms(5);
+    CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_REFUSED, "diag.settings: refused");
+    int lit = 0;
+    for (uint32_t i = 0; i < 2200; i++) {   /* one round: 2 x (200 on, 300 off), 1.2 s dark */
+        run_ms(1);
+        lit += level[13] == 0;
+    }
+    CHECK(lit >= 350 && lit <= 450, "blink code 2: the Edit LED lit %d ms of 2.2 s", lit);
+    run_ms(10000);
+    CHECK(level[13] == 1, "the code stops after 10 s");
+    gm_init(0x00010000u, 1);
+    run_ms(5);
+    CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_SAFE, "diag.settings: safe mode");
+
+    /* the factory-reset combo: Oct - + Oct + held at power-up for 5 s */
+    boot();
+    CHECK(set_param(P_CHANNEL, 0, 4) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store");
+    level[3] = level[4] = 0;
+    gm_init(0x00010000u, 0);
+    out_n = 0;
+    run_ms(3000);
+    CHECK(gm_cfg.channel == 4 && fake_cs_count(1) > 0 && gm_cfg.octave == 0, "3 s: nothing yet, octave untouched");
+    level[3] = level[4] = 1;            /* let go early */
+    run_ms(3000);
+    CHECK(gm_cfg.channel == 4 && fake_cs_count(1) > 0 && gm_cfg.octave == 0, "let go early: nothing wiped");
+    level[3] = level[4] = 0;
+    gm_init(0x00010000u, 0);
+    run_ms(GM_RESET_HOLD_MS + 300);
+    CHECK(gm_cfg.channel == 1 && fake_cs_count(1) == -1 && fake_cs_count(0) == -1, "held 5 s: settings wiped");
+    CHECK(get_param(P_DIAG_SETTINGS, 0, &v) == GSX_OK && v == GM_SETTINGS_WIPED, "diag.settings: wiped by the combo");
+    level[3] = level[4] = 1;
+    run_ms(100);
+    CHECK(gm_cfg.octave == 0, "the release does nothing either");
+    /* pressed later than at power-up: ordinary buttons */
+    run_ms(2000);
+    CHECK(set_param(P_CHANNEL, 0, 6) == GSX_OK && request(GSX_CMD_COMMIT, 0, 0, 0) == GSX_OK, "store");
+    level[3] = 0;
+    run_ms(50);
+    level[4] = 0;
+    run_ms(GM_RESET_HOLD_MS + 300);
+    CHECK(fake_cs_count(1) > 0 && gm_cfg.channel == 6, "later on, Oct - + Oct + wipe nothing");
+    level[3] = level[4] = 1;
+    run_ms(100);
+    unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0);
+    boot();
 }
 
 /* ---- tests ------------------------------------------------------------ */
+
+/* ---- layout and raw readings (sysex.md 4.7, 4.8) ------------------------ */
+
+/* The next RAW message at or after *at in the output; its payload offset,
+ * or -1. *at moves past it. */
+static int next_raw(int *at, int *len)
+{
+    for (int i = *at; i + GSX_OVERHEAD < out_n; i++) {
+        if (out[i] == 0xF0 && out[i + 1] == 0x7D && out[i + 1 + GSX_OFF_CMD] == GSX_MSG_RAW) {
+            *len = (int)gsx_get_u(out + i + 1 + GSX_OFF_LEN, 2);
+            *at = i + 1;
+            return i + 1 + GSX_OFF_PAYLOAD;
+        }
+    }
+    return -1;
+}
+
+static int count_raw(void)
+{
+    int at = 0, len, n = 0;
+    while (next_raw(&at, &len) >= 0)
+        n++;
+    return n;
+}
+
+static int monitor(uint8_t kinds, int *pl)
+{
+    return request(GSX_CMD_MONITOR, &kinds, 1, pl);
+}
+
+static void test_layout(void)
+{
+    /* GET_LAYOUT: windows of the blob, as GET_SCHEMA */
+    uint8_t got[GM_LAYOUT_BYTES + 64];
+    uint32_t off = 0, total = 0;
+    for (int guard = 0; guard < 64; guard++) {
+        uint8_t p[6];
+        put_u(p, off, 4);
+        put_u(p + 4, 64, 2);
+        int pl, len;
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, &pl) == GSX_OK, "GET_LAYOUT at %u", off);
+        total = gsx_get_u(out + pl, 4);
+        CHECK(gsx_get_u(out + pl + 4, 4) == off, "GET_LAYOUT offset echo");
+        find_sysex(GSX_CMD_GET_LAYOUT | GSX_REPLY, &len);
+        int n = gsx_unpack(out + pl + 8, (uint32_t)(len - 9), got + off);
+        if (n <= 0)
+            break;
+        off += (uint32_t)n;
+    }
+    CHECK(total == GM_LAYOUT_BYTES && off == total && memcmp(got, gm_layout, total) == 0,
+          "GET_LAYOUT reads the whole layout (%u of %u bytes)", off, total);
+    CHECK(got[0] == 1 && got[3] == 9 && got[4] == 0, "layout v1 with 9 items (7 buttons, the knob, the keys)");
+    /* the last item: the keys, made by the builder under the controls */
+    const uint8_t *k = got + total - 10;
+    CHECK(k[0] == 9 && k[1] == GSX_KIND_MATRIX && k[3] == 8 && k[8] == 32 && k[9] == 48,
+          "keys item: 32 keys from note 48");
+    {
+        uint8_t p[6];
+        put_u(p, total, 4);
+        put_u(p + 4, 64, 2);
+        int pl, len;
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, &pl) == GSX_OK, "GET_LAYOUT at total");
+        find_sysex(GSX_CMD_GET_LAYOUT | GSX_REPLY, &len);
+        CHECK(len == 9, "GET_LAYOUT at total: no data");
+        put_u(p + 4, 0, 2);
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 6, 0) == GSX_BAD_LEN, "GET_LAYOUT max 0");
+        CHECK(request(GSX_CMD_GET_LAYOUT, p, 5, 0) == GSX_BAD_LEN, "GET_LAYOUT short");
+    }
+}
+
+static void test_monitor(void)
+{
+    int pl;
+    CHECK(monitor(0x7F, &pl) == GSX_OK, "MONITOR");
+    CHECK(out[pl] == (GSX_MON_BUTTONS | GSX_MON_MATRIX | GSX_MON_ANALOG),
+          "MONITOR: buttons, key matrix and analog (no encoders or pads here): 0x%x", out[pl]);
+    CHECK(gsx_get_u(out + pl + 1, 2) == GM_MONITOR_INTERVAL_MS && gsx_get_u(out + pl + 3, 2) == GM_MONITOR_TIMEOUT_MS,
+          "MONITOR interval and timeout");
+    {
+        uint8_t two[2] = { 1, 0 };
+        CHECK(request(GSX_CMD_MONITOR, two, 2, 0) == GSX_BAD_LEN, "MONITOR with 2 bytes");
+    }
+    adc[0] = 1234;
+    level[1 + 2] = 0;               /* Oct - held (button 2), not yet debounced */
+    contact[3][1] = 1;              /* key 3's first contact: row 3, column 1 */
+    ticks(2);
+    out_n = 0;
+    run_ms(4 * GM_MONITOR_INTERVAL_MS);
+    int at = 0, len, seen = 0;
+    for (int p; (p = next_raw(&at, &len)) >= 0;) {
+        if (out[p] == EV_BUTTON) {
+            CHECK(len == 1 + 2 + 1 + 1 && gsx_get_u(out + p + 1, 2) == 0 && out[p + 3] == 7,
+                  "RAW buttons: first 0, 7 buttons, one byte");
+            CHECK(out[p + 4] == 1u << 2, "RAW buttons: Oct - pressed (0x%x)", out[p + 4]);
+            seen |= 1;
+        } else if (out[p] == EV_KEY) {
+            CHECK(len == 1 + 3 + 10 && out[p + 1] == 0 && out[p + 2] == 8 && out[p + 3] == 8,
+                  "RAW key matrix: rows 0..7, 8 columns, 10 bytes");
+            int b = 3 * 8 + 1, ones = 0;
+            for (int i = 0; i < 64; i++)
+                ones += (out[p + 4 + i / 7] >> (i % 7)) & 1;
+            CHECK(((out[p + 4 + b / 7] >> (b % 7)) & 1) && ones == 1, "RAW key matrix: row 3 column 1 closed");
+            seen |= 2;
+        } else if (out[p] == EV_ANALOG) {
+            CHECK(len == 1 + 2 + 1 + 2 && out[p + 3] == 1 && gsx_get_u(out + p + 4, 2) == 1234,
+                  "RAW analog: the volume knob's reading, 1234 (got %u)", gsx_get_u(out + p + 4, 2));
+            seen |= 4;
+        }
+    }
+    CHECK(seen == 7, "RAW: every kind in turn (seen 0x%x)", seen);
+    CHECK(count_raw() >= 3 && count_raw() <= 5, "RAW: one per %u ms (%d in %u ms)", GM_MONITOR_INTERVAL_MS,
+          count_raw(), 4 * GM_MONITOR_INTERVAL_MS);
+    level[1 + 2] = 1;
+    contact[3][1] = 0;
+    run_ms(20);
+
+    /* only the kinds asked for */
+    CHECK(monitor(GSX_MON_ANALOG | GSX_MON_ENCODERS, &pl) == GSX_OK && out[pl] == GSX_MON_ANALOG,
+          "MONITOR analog + encoders: analog only");
+    out_n = 0;
+    run_ms(3 * GM_MONITOR_INTERVAL_MS);
+    at = 0;
+    int only = 1;
+    for (int p; (p = next_raw(&at, &len)) >= 0;)
+        only &= out[p] == EV_ANALOG;
+    CHECK(only && count_raw() >= 2, "RAW: analog only");
+
+    /* it stops by itself without a renewal */
+    run_ms(GM_MONITOR_TIMEOUT_MS);
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() == 0, "RAW stops %u ms after the last MONITOR", GM_MONITOR_TIMEOUT_MS);
+
+    /* renewed in time it goes on; MONITOR 0 stops it */
+    monitor(GSX_MON_BUTTONS, 0);
+    for (int i = 0; i < 4; i++) {
+        run_ms(2000);
+        monitor(GSX_MON_BUTTONS, 0);
+    }
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() >= 4, "RAW goes on while it is renewed");
+    CHECK(monitor(0, &pl) == GSX_OK && out[pl] == 0, "MONITOR 0");
+    out_n = 0;
+    run_ms(5 * GM_MONITOR_INTERVAL_MS);
+    CHECK(count_raw() == 0, "MONITOR 0 stops it");
+    adc[0] = 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -1412,13 +1822,16 @@ int main(int argc, char **argv)
 
     /* the rest of the old config test, now via presets */
     CHECK(gm_cfg.preset_dirty == 1, "host edits made preset 1 dirty");
-    CHECK(request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK, "FACTORY_RESET");
+    CHECK(unlocked_request(GSX_CMD_FACTORY_RESET, 0, 0, 0) == GSX_OK, "FACTORY_RESET");
     CHECK(gm_cfg.channel == 1 && gm_cfg.vel_fixed == 100 && gm_cfg.preset_dirty == 0,
           "defaults after reset");
 
     test_presets();
     test_modes();
     test_velocity_sweep();
+    test_layout();
+    test_monitor();
+    test_safety();
 
     /* HELLO, FW_* in the app, REBOOT */
     {
@@ -1426,7 +1839,8 @@ int main(int argc, char **argv)
         CHECK(request(GSX_CMD_HELLO, 0, 0, &pl) == GSX_OK, "HELLO");
         CHECK(out[pl] == 0 && gsx_get_u(out + pl + 1, 2) == 1, "role app, board 1");
         uint32_t caps = gsx_get_u(out + pl + 1 + 2 + 5 + 1 + 2, 2);
-        CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS | GSX_CAP_FEEDBACK), "caps 0x%x", caps);
+        CHECK(caps == (GSX_CAP_CONFIG | GSX_CAP_LOG | GSX_CAP_EVENT | GSX_CAP_PRESETS | GSX_CAP_FEEDBACK |
+                       GSX_CAP_LAYOUT | GSX_CAP_MONITOR | (GM_UNLOCK ? GSX_CAP_UNLOCK : 0)), "caps 0x%x", caps);
         int node_at = pl + 1 + 2 + 5 + 1 + 2 + 2 + 14;
         size_t node_len = strlen(gm_device.node_name);
         CHECK(out[node_at] == node_len && memcmp(out + node_at + 1, gm_device.node_name, node_len) == 0,
@@ -1438,7 +1852,10 @@ int main(int argc, char **argv)
                   "FW_DATA longer than the receive buffer -> BAD_STATE all the same");
         }
         uint8_t m = 1;
-        CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1)");
+#if GM_UNLOCK
+        CHECK(request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_LOCKED, "REBOOT(1) locked");
+#endif
+        CHECK(unlocked_request(GSX_CMD_REBOOT, &m, 1, 0) == GSX_OK, "REBOOT(1) after the unlock");
         if (!setjmp(reboot_jb)) {
             run_ms(100);
             CHECK(0, "no reboot");

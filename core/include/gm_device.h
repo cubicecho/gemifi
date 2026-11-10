@@ -80,7 +80,7 @@ typedef struct {
     gm_pin_t data;        /* HC595 SER, HC165 QH, TM1628 DIO, RGB_SERIAL TX */
     gm_pin_t clock;       /* HC595 SRCLK, HC165 CLK, TM1628 CLK            */
     gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low),
-                             TM1628 STB                                    */
+                             TM1628 STB, RGB_SERIAL RX (optional: acks)    */
     gm_pin_t sel[4];      /* MUX S0..S3                                    */
     gm_pin_t common;      /* MUX common pin (an MCU pin; ADC for analog)   */
     gm_pin_t enable;      /* MUX /E, HC595 /OE (optional)                  */
@@ -98,15 +98,22 @@ typedef struct {
     uint8_t n_rows;
     uint8_t n_cols;
     uint8_t ram_bytes;    /* TM1628: display RAM bytes written (1..16);
-                             RGB_SERIAL: bytes of LED bits (3 per LED)     */
+                             RGB_SERIAL: 3 per LED, a byte per colour     */
     uint8_t brightness;   /* TM1628: 0..7 (display control 0x88 | it)      */
     uint8_t grids;        /* TM1628: display mode 4..7 grids, 0 = not sent */
+    uint8_t fade;         /* TM1628: the chip's brightness follows the host
+                             colours of the RGB LEDs on it (tm1628 fade:) */
     uint8_t rows_per_scan; /* SWMATRIX: rows read per scan, in turn; 0 = all */
     /* XY: sel[0..3] = X+, X-, Y+, Y- (MCU pins); data = the Y-plate pin X
      * is read on, clock = the X-plate pin Y is read on (both ADC pins). A
      * touch: both readings within touch_min..touch_max. */
     uint16_t touch_min, touch_max;
     uint8_t dma;          /* RGB_SERIAL: send by DMA (rgb_serial dma:), else interrupt */
+    /* RGB_SERIAL: what full red, green and blue send (rgb_serial white:,
+     * the white balance; 0 = 255), and the brightness curve applied first
+     * (rgb_serial gamma:; 256 entries, 0 = straight). */
+    uint8_t rgb_white[3];
+    const uint8_t *rgb_curve;
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */
@@ -142,7 +149,11 @@ typedef struct {
     uint8_t looks;        /* GM_LED_LOOKS(idle, active), 0 = defaults */
     uint8_t layer;        /* a layer twin of leds[base] (as gm_button_t), 0 = none */
     uint8_t base;
+    /* Full-colour idle and active looks (idle: "#RRGGBB" on an LED of an
+     * rgb_serial hub): GM_LED_RGB(colour), 0 = the looks mask above. */
+    uint32_t rgb[2];
 } gm_led_t;
+#define GM_LED_RGB(c) (0x1000000u | ((c) & 0xFFFFFFu))
 
 typedef struct {
     gm_pin_t pin;         /* MCU ADC pin, or a MUX hub channel             */
@@ -271,6 +282,49 @@ typedef struct {
 
 extern const gm_device_t gm_device;
 
+/* ---- MIDI messages (core/README.md "MIDI messages") --------------------
+ * Build-time settings of what the controls send. Each table is generated
+ * only when the YAML uses it (GM_BTN_CTL, GM_ANALOG_CTL, GM_ENC_CTL,
+ * GM_BTN_BANK, GM_N_SYSEX, GM_ENC_MODES in gm_device_config.h). */
+
+/* A control's output range and channel (YAML min:, max:, channel:), one
+ * per button / analog input / encoder (twins included). The value range
+ * 0..top (127, or 16383 for a 14-bit mode) goes out as min..max; min > max
+ * inverts it. */
+#define GM_CTL_TOP 0xFFFFu           /* max: the top of the mode's range */
+typedef struct {
+    uint16_t min;
+    uint16_t max;                    /* or GM_CTL_TOP */
+    uint8_t channel;                 /* 1..16; 0 = midi.channel */
+} gm_ctl_t;
+
+extern const gm_ctl_t gm_button_ctl[];       /* GM_BTN_CTL */
+extern const gm_ctl_t gm_analog_ctl[];       /* GM_ANALOG_CTL */
+extern const gm_ctl_t gm_encoder_ctl[];      /* GM_ENC_CTL */
+
+/* Bank Select (CC 0 / 32) a program action sends before its Program
+ * Change (YAML bank:), per button; GM_BANK_NONE = none. */
+#define GM_BANK_NONE 0xFFFFu
+extern const uint16_t gm_button_bank[];      /* GM_BTN_BANK */
+
+/* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
+ * from F0 to F7, with these placeholders (all >= 0x80, so never a data
+ * byte): the value (7-bit), its top and bottom 7 bits (14-bit), the
+ * control's channel 0..15, the start of the checksummed bytes, and the
+ * Roland checksum of the bytes from that start to here: (128 - sum % 128)
+ * % 128. flags: GM_SX_WIDE, the string has GM_SX_MSB / GM_SX_LSB, so the
+ * value is 14-bit; GM_SX_HAS_VALUE, it has a value at all. */
+enum { GM_SX_VALUE = 0x80, GM_SX_MSB, GM_SX_LSB, GM_SX_CHANNEL, GM_SX_SUM_START, GM_SX_SUM };
+#define GM_SX_WIDE      (1u << 0)
+#define GM_SX_HAS_VALUE (1u << 1)
+typedef struct {
+    const uint8_t *data;
+    uint8_t len;
+    uint8_t flags;
+} gm_sysex_t;
+
+extern const gm_sysex_t gm_sysex[];          /* GM_N_SYSEX entries; GM_SYSEX_MAX bytes at most, sent */
+
 /* Per-component defaults for the params (generated alongside gm_device;
  * arrays sized by the GM_N_* counts in gm_device_config.h). */
 extern const int32_t gm_button_action_defaults[];
@@ -278,6 +332,7 @@ extern const int32_t gm_button_number_defaults[];
 extern const int32_t gm_analog_cc_defaults[];
 extern const int32_t gm_analog_mode_defaults[];   /* AN_MODE_* (gm_settings.h) */
 extern const int32_t gm_encoder_cc_defaults[];
+extern const int32_t gm_encoder_mode_defaults[];  /* GM_ENC_MODES: ENC_* (gm_settings.h) */
 
 /* The params' index labels (core/src/settings.c): each component's display
  * name, as in gm_device (gm_pad_names: with pads; gm_mode_names: with modes). */
@@ -419,6 +474,10 @@ typedef struct {
 } gm_pad_twin_t;
 
 extern const gm_pad_twin_t gm_pad_twins[];
+
+/* The physical layout (YAML layout:, sysex.md 4.7): the GET_LAYOUT blob,
+ * GM_LAYOUT_BYTES long. Generated only when the YAML has layout:. */
+extern const uint8_t gm_layout[];
 
 #ifdef __cplusplus
 }

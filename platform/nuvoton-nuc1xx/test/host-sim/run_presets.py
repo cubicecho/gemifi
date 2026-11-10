@@ -16,6 +16,7 @@ P_ANALOG_CC, P_ACTION, P_NUMBER, P_GLIDE, P_RAMP, P_LOG = 8, 9, 10, 11, 12, 14
 P_ACTIVE, P_PROGRAM, P_DIRTY = gp.P_PRESET_ACTIVE, gp.P_PRESET_PROGRAM, gp.P_PRESET_DIRTY
 ACT_NOTE, ACT_PRESET_NEXT, ACT_PRESET_PREV = 4, 13, 14
 SUSTAIN, EDIT, MOD = 0, 1, 6               # button indexes (Edit: the mode button)
+PITCH_DOWN, PITCH_UP = 4, 5                # the unlock combo (Makefile adds unlock: true: the boot_combo, sysex.md 4.9)
 N_SLOTS = 8
 
 fails = 0
@@ -89,8 +90,18 @@ class Dev:
                     reply = f
         return reply, unsol, chan
 
+    def unlock(self):
+        """Hold the unlock combo for its 2 s (sysex.md 4.9), then let go. -> the UNLOCKED states sent."""
+        self.L.sim_button(PITCH_DOWN, 1); self.L.sim_button(PITCH_UP, 1); self.advance(2100)
+        u = self.split(self.take())[1]
+        self.L.sim_button(PITCH_DOWN, 0); self.L.sim_button(PITCH_UP, 0); self.advance(1100); self.take()
+        return [gp.parse_unlocked(f.payload) for f in u if f.cmd == gp.UNLOCKED]
+
     def ok(self, cmd, payload=b"", what=""):
         r, u, c = self.request(cmd, payload)
+        if r is not None and r.status == gp.LOCKED:     # FACTORY_RESET: the user's OK first
+            self.unlock()
+            r, u, c = self.request(cmd, payload)
         if r is None or r.status != gp.OK:
             raise RuntimeError(f"{what or gp.CMD_NAMES[cmd]}: " +
                                ("no reply" if r is None else gp.STATUS.get(r.status, str(r.status))))
@@ -280,6 +291,8 @@ check(d.get(P_VEL_FAST) == 30 and d.get(P_ACTIVE) == 2 and d.get(P_NUMBER, 0) ==
 d.set(P_NUMBER, 0, 50); d.commit()
 d.ok(gp.PRESET_NAME, gp.req_preset_name(4, "Mine"))
 d.set(P_LOG, 0, 4)
+check(d.status(gp.FACTORY_RESET) == gp.LOCKED and not d.journal_blank(), "FACTORY_RESET locked: nothing erased")
+check(d.unlock() == [1], "the unlock combo held 2 s: UNLOCKED 1")
 _, u, _ = d.ok(gp.FACTORY_RESET)
 check([(x.slot, x.dirty) for x in changed(u)] == [(1, 0)], f"FACTORY_RESET: PRESET_CHANGED (1, clean): {changed(u)}")
 check(d.journal_blank(), "FACTORY_RESET: the journal is erased")
@@ -475,7 +488,26 @@ sess = gh.Session(Port(d), timeout=0.01)
 hh = sess.hello(); sch = sess.get_schema()
 doc = gh.backup_doc(sess, hh, sch)
 check(d.get(P_ACTIVE) == 6 and d.get(P_DIRTY) == 1 and d.get(P_RAMP) == 4321, "backup leaves the device as it was (slot 6, dirty)")
-d.ok(gp.FACTORY_RESET); d.reboot()
+class UserPort(Port):
+    """... with a user who holds the unlock combo when the host asks the device for its prompt (UNLOCK)."""
+    def __init__(self, dev): super().__init__(dev); self.hold = 0
+    def send(self, frame):
+        if gp.parse_frame(bytes(frame)).cmd == gp.UNLOCK:
+            self.d.L.sim_button(PITCH_DOWN, 1); self.d.L.sim_button(PITCH_UP, 1); self.hold = 1100
+        super().send(frame)
+    def recv(self, timeout):
+        out = super().recv(timeout)
+        if self.hold:
+            self.hold -= 1
+            if not self.hold:
+                self.d.L.sim_button(PITCH_DOWN, 0); self.d.L.sim_button(PITCH_UP, 0)
+        return out
+prompts = []
+sess = gh.Session(UserPort(d), timeout=0.01, on_prompt=prompts.append)
+sess.factory_reset()
+check(d.journal_blank() and prompts and "Hold Pitch down + Pitch up on the device for 2 s" in prompts[0],
+      f"gemifi.py factory reset: the unlock prompt, then done {prompts[:1]}")
+d.reboot()
 sess = gh.Session(Port(d), timeout=0.01)
 n_set, n_err = gh.restore_presets(sess, sess.get_schema(), doc, warn=lambda *a: print("    ", *a))
 check(n_err == 0, f"restore: {n_set} values set, no errors")

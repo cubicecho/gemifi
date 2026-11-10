@@ -1,28 +1,36 @@
-import { createContext, type ReactNode, useContext } from "react";
-import { cn, type SlotNode } from "@/lib/utils";
+import type { ReactNode } from "react";
+import { cn, hasSlot, type SlotNode } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * How each heading level is drawn. The level is a prop because only the caller knows whether the
- * block names a page or sits inside a card under one.
+ * How large a title is drawn. Each heading level has a size it takes unless `size` names another
+ * (see {@link LEVEL_SIZE}), so a page can keep its `h1` and still have a compact title.
+ *
+ * The three are 24, 20 and 16px, each on its own line of the named scale (#480): 24/32, 20/28 and
+ * 16/24. They were 20, 18 and 16px, and two pixels apart `md` and `sm` read as the same rank
+ * (#483). Four pixels apart each is a step, and `sm` is still a step over a card's 14px title.
  *
  * `row` is the floor under the title row, so `contentSlot` starts at the same place on every
- * page. `bar` is the height of one line of `title`, so a loading header is as tall as the header
- * it becomes. The tag is not in the map: {@link Heading} spells each one out for the compiler.
+ * page; under a back row it is {@link FLOOR_UNDER_BACK} instead. At `lg` it is the title's 32px
+ * line, the rhythm's 4px and a 20px description, so a page with a description and one without
+ * are one height. `bar` is the height of one line of `title`, so a loading header is as tall as
+ * the header it becomes. The tag is not in the map: {@link Heading} spells each one out for the
+ * compiler.
  */
-const LEVELS = {
-  1: {
-    title: "text-xl",
+const SIZES = {
+  lg: {
+    title: "text-2xl",
     icon: "[&_svg]:size-5",
     row: "min-h-14",
-    bar: "h-7",
+    bar: "h-8",
   },
-  2: {
-    title: "text-lg",
+  md: {
+    title: "text-xl",
     icon: "[&_svg]:size-5",
     row: "min-h-12",
     bar: "h-7",
   },
-  3: {
+  sm: {
     title: "text-base",
     icon: "[&_svg]:size-4",
     row: "min-h-10",
@@ -30,8 +38,26 @@ const LEVELS = {
   },
 } as const;
 
+/**
+ * The title row's floor and alignment under a back row: as tall as a header's buttons
+ * (`size="sm"`), with the title at the top of it.
+ *
+ * The back row has already moved the body down, so a page with one never lines up with a page
+ * without it, and {@link SIZES}' floor only bought an empty band. Centred, half of it sat between
+ * the way back and the title it belongs to: 26px under a back button at `lg`, against the 12px
+ * gap (#413). A button's height still holds the action, so a detail page with buttons and one
+ * without line up with each other, and the title sits the same 12px under the way back on both.
+ */
+const FLOOR_UNDER_BACK = "min-h-9 content-start";
+
 /** The heading levels a {@link PageHeader} can be. */
-export type PageHeaderLevel = keyof typeof LEVELS;
+export type PageHeaderLevel = 1 | 2 | 3;
+
+/** The sizes a {@link PageHeader}'s title can be drawn at. */
+export type PageHeaderSize = keyof typeof SIZES;
+
+/** The size each level is drawn at unless told otherwise: the bigger the heading, the larger. */
+const LEVEL_SIZE: Record<PageHeaderLevel, PageHeaderSize> = { 1: "lg", 2: "md", 3: "sm" };
 
 /** Off the screen and still read. `sr-only` is a clip, which the device does not have. */
 const SR_ONLY = "sr-only";
@@ -50,13 +76,13 @@ const INK = "text-foreground";
  */
 const SLOT = "block";
 
-/** A bar standing in for text that has not arrived — `Skeleton`'s look, on both platforms. */
-const BAR = cn("max-w-full rounded-md bg-foreground/10", "animate-pulse");
-
 export type PageHeaderProps = {
   /**
    * The row under the title block: a search field, a filter row, a set of tabs — stacked, each
    * on its own line, in the order they are passed.
+   *
+   * Each sits at its own width, from the start: a tab list is as wide as its tabs. A search field
+   * fills the line, and a filter row that should passes `self-stretch`.
    *
    * One slot rather than `search`, `filters` and `tabs`. The prior art grew all three, plus a
    * `searchZone` and an `actionsZone` escape hatch beside two of them, and three of those five
@@ -88,7 +114,7 @@ export type PageHeaderProps = {
    */
   description?: ReactNode | undefined;
   /**
-   * Sits before the title. On the web it is sized from the level — pass a bare `<Users />`, not a
+   * Sits before the title. On the web it is sized with the title — pass a bare `<Users />`, not a
    * sized one. On device an icon cannot be sized from outside it, so pass it at the size you want.
    *
    * Also where a status dot goes. Four of these apps put a coloured dot, a live indicator or a
@@ -106,17 +132,15 @@ export type PageHeaderProps = {
    */
   actionSlot?: SlotNode | undefined;
   /**
-   * The line above the title: a breadcrumb trail, or a back link, which is a one-step trail.
+   * The way back, on the line above the title: a back link, or a breadcrumb trail, which is a
+   * back link with more steps.
    *
-   * A slot rather than the caller's own node above the header, because that node would not carry
-   * the header's inset, and a trail starting 16px left of the title it belongs to is exactly the
-   * drift this set exists to stop.
-   *
-   * Above the title, not beside it. Both placements are in use; above is the one that also holds
-   * a trail, and a back button beside the title competes with `iconSlot` for the same spot and
-   * takes width from the page's name for a control that is not part of it. It is a node, not a
-   * route — no shell routes.
+   * Above the title, not beside it. A back button beside the title takes `iconSlot`'s place,
+   * which is the page's own icon, and width from the page's name for a control that is not part
+   * of it. It is a node, not a route — no shell routes.
    */
+  backSlot?: SlotNode | undefined;
+  /** @deprecated Renamed `backSlot`. Read when `backSlot` is not passed. */
   breadcrumbsSlot?: SlotNode | undefined;
   /**
    * Whether the title is still being fetched. On, a bar of the title's own height stands in for
@@ -140,11 +164,23 @@ export type PageHeaderProps = {
   loading?: boolean | undefined;
   /**
    * Which heading this is. `1` names a page; `2` names a section, a pane in a split, or a card
-   * that already sits under a page title; `3` goes a level below that. See {@link LEVELS}.
+   * that already sits under a page title; `3` goes a level below that. The size follows it unless
+   * `size` says otherwise.
    */
   level?: PageHeaderLevel | undefined;
+  /**
+   * How large the title is drawn, apart from which heading it is: `lg` (24px), `md` (20px) or
+   * `sm` (16px). Left out, it follows `level` — `lg` at 1, `md` at 2, `sm` at 3. A page whose
+   * header is mostly controls (a chat with its model picker) keeps `level={1}` and passes
+   * `size="sm"`, rather than taking a lower heading to get a smaller title. The rule under the
+   * header follows `level`, not this.
+   */
+  size?: PageHeaderSize | undefined;
+  /** On the header's own box, which draws the rule under it: `border-b-0` takes the rule away. */
   className?: string | undefined;
+  /** On the title's own `Text`. Its size comes from `size`; this is for anything else. */
   titleClassName?: string | undefined;
+  /** On the box that holds `contentSlot`, under the title row. */
   contentClassName?: string | undefined;
 };
 
@@ -195,27 +231,28 @@ function Heading({
  * one line, because the variable is how wide the action is, not the window. The title wraps and
  * never truncates.
  */
-/**
- * Set by a shell that already insets its content — `Page` — so a `PageHeader` inside it does not
- * add its own `px-4` and top padding on top, which put the title 16px right of the body under it.
- */
-export const PageInsetContext = createContext(false);
-
 export function PageHeader({
   contentSlot,
   title,
   description,
   iconSlot,
   actionSlot,
+  backSlot,
   breadcrumbsSlot,
   loading = false,
   level = 1,
+  size,
   className,
   titleClassName,
   contentClassName,
 }: PageHeaderProps) {
-  const { title: titleSize, icon: iconSize, row: rowFloor, bar: barHeight } = LEVELS[level];
-  const inset = useContext(PageInsetContext);
+  const {
+    title: titleSize,
+    icon: iconSize,
+    row: rowFloor,
+    bar: barHeight,
+  } = SIZES[size ?? LEVEL_SIZE[level]];
+  const back = backSlot ?? breadcrumbsSlot;
 
   // The rule these apps already follow without having named it: a page header draws a line under
   // itself exactly when nothing else separates it from the body. The list headers, which all
@@ -226,14 +263,14 @@ export function PageHeader({
   //
   // Level 1 only. A section heading inside a card sits above a body the card has already fenced,
   // and not one of the section headings in these apps draws a second line.
-  const rule = level === 1 && !contentSlot ? "border-b border-foreground/10" : undefined;
+  const rule =
+    level === 1 && hasSlot(contentSlot) === false ? "border-b border-foreground/10" : undefined;
 
   const descriptionLine = loading ? (
-    <div
-      data-slot="page-header-description"
-      aria-hidden
-      className={cn("cube-rn-view", BAR, "h-5 w-72")}
-    />
+    // The part's name on a box round the bar, as in `StatTile`, so the bar keeps `Skeleton`'s.
+    <div data-slot="page-header-description" aria-hidden className="cube-rn-view">
+      <Skeleton className="h-5 w-72 max-w-full" />
+    </div>
   ) : (
     // `max-w-prose`: under a page-wide header a description could run to 200 characters a line.
     <p
@@ -250,17 +287,12 @@ export function PageHeader({
     <div
       data-slot="page-header"
       aria-busy={loading || undefined}
-      className={cn(
-        "cube-rn-view",
-        "min-w-0 flex-col gap-3 px-4 py-4",
-        inset && "px-0 pt-0",
-        rule,
-        className,
-      )}
+      className={cn("cube-rn-view", "min-w-0 flex-col gap-3 px-4 py-4", rule, className)}
     >
-      {breadcrumbsSlot ? (
+      {hasSlot(back) ? (
+        // The slot keeps its old name: a `data-slot` is public, and a selector on it still matches.
         <div data-slot="page-header-breadcrumbs" className={cn("cube-rn-view", SLOT, "min-w-0")}>
-          {breadcrumbsSlot}
+          {back}
         </div>
       ) : null}
 
@@ -272,8 +304,8 @@ export function PageHeader({
         // floating between the title and the description under it.
         className={cn(
           "cube-rn-view",
-          "flex-row flex-wrap content-center items-start justify-between gap-x-4 gap-y-2",
-          rowFloor,
+          "flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2",
+          back ? FLOOR_UNDER_BACK : cn("content-center", rowFloor),
         )}
       >
         {/* `basis-40` is the threshold, and the only number here that is a judgement rather than
@@ -286,10 +318,10 @@ export function PageHeader({
           className="cube-rn-view min-w-0 flex-1 basis-40 flex-col gap-1"
         >
           <div className="cube-rn-view min-w-0 flex-row items-center gap-2">
-            {iconSlot ? (
+            {hasSlot(iconSlot) ? (
               // Sized here on the web rather than by the caller, so an icon passed as `<Users />`
               // and one passed as `<Users className="size-6" />` land at the same size — and so the
-              // size follows the level instead of being guessed once per page.
+              // size follows the title instead of being guessed once per page.
               <div className={cn("cube-rn-view", "shrink-0 text-foreground/60", iconSize)}>
                 {iconSlot}
               </div>
@@ -302,7 +334,9 @@ export function PageHeader({
                 <Heading level={level} className={SR_ONLY}>
                   Loading…
                 </Heading>
-                <div aria-hidden className={cn("cube-rn-view", BAR, "w-48", barHeight)} />
+                {/* `shrink-0`: a compiled view does not shrink, and the web `Skeleton` is a bare
+                    `<div>`, which would give way to the icon beside it. */}
+                <Skeleton aria-hidden className={cn("w-48 max-w-full shrink-0", barHeight)} />
               </>
             ) : (
               // `break-words` is what a title does when it runs out of room — an unbroken id or
@@ -321,10 +355,10 @@ export function PageHeader({
             )}
           </div>
 
-          {description ? descriptionLine : null}
+          {hasSlot(description) ? descriptionLine : null}
         </div>
 
-        {actionSlot ? (
+        {hasSlot(actionSlot) ? (
           <div
             data-slot="page-header-action"
             className="cube-rn-view shrink-0 flex-row flex-wrap items-center gap-2"
@@ -334,10 +368,14 @@ export function PageHeader({
         ) : null}
       </div>
 
-      {contentSlot ? (
+      {hasSlot(contentSlot) ? (
+        // `items-start`: tabs or a segmented control sit at their own width, at the start, as they
+        // do everywhere else. Stretched, a tab list ran the page's width with its tabs centred in
+        // it (#414). `Input` and `SearchInput` are `w-full` and still fill; a row of filters
+        // passes `self-stretch`.
         <div
           data-slot="page-header-content"
-          className={cn("cube-rn-view", "min-w-0 flex-col gap-2", contentClassName)}
+          className={cn("cube-rn-view", "min-w-0 flex-col items-start gap-2", contentClassName)}
         >
           {contentSlot}
         </div>

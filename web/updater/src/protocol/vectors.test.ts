@@ -20,6 +20,7 @@ import {
 import { parseComponent } from './feedback.ts';
 import { checksum, decodeFrame, encodeFrame, FrameProblem } from './frame.ts';
 import { planChunks, readHeader, validateImage } from './image.ts';
+import { keyRects, parseLayout } from './layout.ts';
 import {
   encoderDelta,
   getParamPayload,
@@ -34,8 +35,22 @@ import {
   setParamPayload,
   setParamsPayload,
 } from './messages.ts';
+import { monitorPayload, parseMonitorReply, parseRaw } from './monitor.ts';
 import { type ParamSpec, parseSchema, SchemaError } from './schema.ts';
-import { Command, NOTIFICATION_FIRST, NOTIFICATION_LAST, ParamFlag, REPLY_FLAG, Status, Unsolicited } from './wire.ts';
+import {
+  Capability,
+  Command,
+  LayoutShape,
+  MonitorKind,
+  NOTIFICATION_FIRST,
+  NOTIFICATION_LAST,
+  ParamFlag,
+  RAW_NO_READING,
+  RawKind,
+  REPLY_FLAG,
+  Status,
+  Unsolicited,
+} from './wire.ts';
 
 const VECTORS_URL = new URL('../../../../protocol/test-vectors.json', import.meta.url);
 
@@ -103,8 +118,63 @@ interface VectorFrame {
   frame: string;
   fields?: FeedbackFields;
 }
+/** A layout item as the vectors write it (§4.7). */
+interface VectorLayoutItem {
+  kind: number;
+  index: number;
+  shape: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  n_keys?: number;
+  first_note?: number;
+  y_index?: number;
+  extra?: string;
+}
+/** A frame of the layout and monitor sections, with its decoded fields. */
+interface ToolsFrame {
+  desc: string;
+  cmd: number;
+  seq: number;
+  payload: string;
+  frame: string;
+  fields?: {
+    status?: number;
+    offset?: number;
+    max?: number;
+    total?: number;
+    data?: string;
+    kinds?: number;
+    interval_ms?: number;
+    timeout_ms?: number;
+    kind?: number;
+    first?: number;
+    row?: number;
+    rows?: number;
+    cols?: number;
+    values?: number[];
+  };
+}
+interface LayoutVectors {
+  cap_layout: number;
+  shapes: Record<string, number>;
+  layout: { hex: string; version: number; width: number; height: number; items: VectorLayoutItem[] };
+  /** The keys item's keys: index, black, x, y, w, h. */
+  keys: [number, boolean, number, number, number, number][];
+  frames: ToolsFrame[];
+}
+interface MonitorVectors {
+  cap_monitor: number;
+  kinds: Record<string, number>;
+  raw_kinds: Record<string, number>;
+  no_reading: number;
+  frames: ToolsFrame[];
+}
 interface Vectors {
   config?: ConfigVectors;
+  layout?: LayoutVectors;
+  monitor?: MonitorVectors;
   /** Host feedback (§4.6): a list of frames, or an object holding one as `frames`. */
   feedback?: VectorFrame[] | { frames: VectorFrame[] };
   u14: IntVector[];
@@ -398,3 +468,156 @@ describe.runIf(vectors.feedback !== undefined)('protocol/test-vectors.json feedb
     }
   });
 });
+
+/** Places the key geometry is rounded to in the vectors. */
+const KEY_PLACES = 4;
+
+describe('protocol/test-vectors.json: layout and raw readings (§4.7, §4.8)', () => {
+  const { layout, monitor } = vectors;
+
+  it.runIf(layout !== undefined)('parses the layout blob and draws its keys by the rule', () => {
+    if (layout === undefined) {
+      return;
+    }
+    expect(Capability.Layout).toBe(layout.cap_layout);
+    expect(LayoutShape).toEqual({
+      Button: layout.shapes.button,
+      RoundButton: layout.shapes.round_button,
+      Knob: layout.shapes.knob,
+      Encoder: layout.shapes.encoder,
+      Fader: layout.shapes.fader,
+      Wheel: layout.shapes.wheel,
+      Pad: layout.shapes.pad,
+      Display: layout.shapes.display,
+      Keys: layout.shapes.keys,
+      Xy: layout.shapes.xy,
+    });
+    const parsed = parseLayout(bytesOf(layout.layout.hex));
+    expect(parsed.width).toBe(layout.layout.width);
+    expect(parsed.height).toBe(layout.layout.height);
+    expect(parsed.items).toEqual(
+      layout.layout.items.map((item) => ({
+        kind: item.kind,
+        index: item.index,
+        shape: item.shape,
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h,
+        ...(item.n_keys === undefined ? {} : { keys: { count: item.n_keys, firstNote: item.first_note } }),
+        ...(item.y_index === undefined ? {} : { yIndex: item.y_index }),
+      })),
+    );
+    const keysItem = parsed.items.find((item) => item.shape === LayoutShape.Keys);
+    expect(keysItem).toBeDefined();
+    if (keysItem === undefined) {
+      return;
+    }
+    const round = (v: number) => Number(v.toFixed(KEY_PLACES));
+    const drawn = keyRects(keysItem)
+      .sort((a, b) => a.key - b.key)
+      .map((key) => [key.key, key.isBlack, round(key.x), round(key.y), round(key.w), round(key.h)]);
+    expect(drawn).toEqual(layout.keys);
+  });
+
+  it.runIf(layout !== undefined)('GET_LAYOUT frames', () => {
+    for (const { desc, cmd, seq, payload, frame, fields } of layout?.frames ?? []) {
+      expect(toHexList(encodeFrame(cmd, seq, bytesOf(payload))), desc).toEqual(bytesOf(frame));
+      if (cmd === Command.GetLayout) {
+        expect(getSchemaPayload(fields?.offset ?? 0, fields?.max ?? 0), desc).toEqual(bytesOf(payload));
+        continue;
+      }
+      expect(cmd, desc).toBe(Command.GetLayout | REPLY_FLAG);
+      const [status, ...body] = bytesOf(payload);
+      expect(status, desc).toBe(fields?.status);
+      if (status === Status.Ok) {
+        const window = parseSchemaWindow(body);
+        expect(window.total, desc).toBe(fields?.total);
+        expect(window.offset, desc).toBe(fields?.offset);
+        expect(window.data, desc).toEqual(bytesOf(fields?.data ?? ''));
+      }
+    }
+  });
+
+  it.runIf(monitor !== undefined)('MONITOR and RAW frames', () => {
+    if (monitor === undefined) {
+      return;
+    }
+    expect(Capability.Monitor).toBe(monitor.cap_monitor);
+    expect(MonitorKind).toEqual({
+      Buttons: monitor.kinds.buttons,
+      KeyMatrix: monitor.kinds.key_matrix,
+      Analog: monitor.kinds.analog,
+      Encoders: monitor.kinds.encoders,
+      Pads: monitor.kinds.pads,
+    });
+    expect(RawKind).toEqual({
+      Buttons: monitor.raw_kinds.buttons,
+      KeyMatrix: monitor.raw_kinds.key_matrix,
+      Analog: monitor.raw_kinds.analog,
+      Encoders: monitor.raw_kinds.encoders,
+      Pads: monitor.raw_kinds.pads,
+    });
+    expect(RAW_NO_READING).toBe(monitor.no_reading);
+    for (const { desc, cmd, seq, payload, frame, fields } of monitor.frames) {
+      expect(toHexList(encodeFrame(cmd, seq, bytesOf(payload))), desc).toEqual(bytesOf(frame));
+      if (cmd === Command.Monitor) {
+        expect(monitorPayload(fields?.kinds ?? 0), desc).toEqual(bytesOf(payload));
+      } else if (cmd === (Command.Monitor | REPLY_FLAG)) {
+        const [status, ...body] = bytesOf(payload);
+        expect(status, desc).toBe(fields?.status);
+        expect(parseMonitorReply(body), desc).toEqual({
+          kinds: fields?.kinds,
+          intervalMs: fields?.interval_ms,
+          timeoutMs: fields?.timeout_ms,
+        });
+      } else {
+        expect(cmd, desc).toBe(Unsolicited.Raw);
+        const reading = parseRaw(bytesOf(payload));
+        const values = fields?.values ?? [];
+        switch (reading.kind) {
+          case 'buttons':
+            expect(fields?.kind, desc).toBe(RawKind.Buttons);
+            expect(reading.first, desc).toBe(fields?.first);
+            expect(reading.pressed.map(Number), desc).toEqual(values);
+            break;
+          case 'matrix':
+            expect(fields?.kind, desc).toBe(RawKind.KeyMatrix);
+            expect([reading.row, reading.rows, reading.cols], desc).toEqual([fields?.row, fields?.rows, fields?.cols]);
+            expect(reading.closed.map(Number), desc).toEqual(values);
+            break;
+          case 'analog':
+            expect(fields?.kind, desc).toBe(RawKind.Analog);
+            expect(reading.first, desc).toBe(fields?.first);
+            expect(
+              reading.values.map((v) => v ?? RAW_NO_READING),
+              desc,
+            ).toEqual(values);
+            break;
+          case 'encoders':
+            expect(fields?.kind, desc).toBe(RawKind.Encoders);
+            expect(reading.first, desc).toBe(fields?.first);
+            expect(reading.counts, desc).toEqual(values);
+            break;
+          case 'pads':
+            expect(fields?.kind, desc).toBe(RawKind.Pads);
+            expect(reading.first, desc).toBe(fields?.first);
+            expect(reading.values, desc).toEqual(values);
+            break;
+          default:
+            throw new Error(`${desc}: RAW kind ${fields?.kind} not parsed`);
+        }
+        const message = parseDeviceMessage({ version: 1, cmd, seq, payload: bytesOf(payload) });
+        expect(message?.kind, desc).toBe('raw');
+      }
+    }
+  });
+});
+
+/**
+ * @param bytes - A frame.
+ * @returns Its bytes as a plain list.
+ */
+function toHexList(bytes: Uint8Array): number[] {
+  return Array.from(bytes);
+}

@@ -216,6 +216,109 @@ def preset_vectors():
     }
 
 
+def sample_layout():
+    """A small layout with every kind of item: a knob, a round button, a fader, an XY pad, 25 keys from C3, and
+    an item from a later version (unknown shape 12, two extra bytes) that a host draws as a button."""
+    L = gp.LayoutItem
+    return gp.Layout(80, 30, [
+        L(gp.EV_ANALOG, 0, 2, 1, 1, 4, 4),
+        L(gp.EV_BUTTON, 2, 1, 7, 2, 2, 2),
+        L(gp.EV_ANALOG, 1, 4, 11, 1, 2, 8),
+        L(gp.EV_ANALOG, 2, gp.SHAPE_XY, 15, 1, 8, 8, y_index=3),
+        L(gp.EV_KEY, 0, gp.SHAPE_KEYS, 0, 12, 60, 14, n_keys=25, first_note=48),
+        L(gp.EV_BUTTON, 3, 12, 30, 2, 3, 2, extra=bytes([5, 6])),
+    ])
+
+
+def layout_vectors():
+    lay = sample_layout()
+    blob = gp.build_layout(lay)
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    w = gp.SCHEMA_WINDOW
+    fr("GET_LAYOUT request offset=0 max=64", gp.GET_LAYOUT, 30, gp.req_get_layout(0, w), offset=0, max=w)
+    fr(f"GET_LAYOUT reply: the whole layout, {len(blob)} bytes", gp.GET_LAYOUT | gp.REPLY, 30,
+       gp.build_layout_reply(blob, 0, w), status=gp.OK, total=len(blob), offset=0, data=hx(blob[:w]))
+    fr(f"GET_LAYOUT reply: offset {len(blob)} (at total), no data", gp.GET_LAYOUT | gp.REPLY, 31,
+       gp.build_layout_reply(blob, len(blob), w), status=gp.OK, total=len(blob), offset=len(blob), data="")
+    fr("GET_LAYOUT reply BAD_CMD (no layout: caps bit 8 clear)", gp.GET_LAYOUT | gp.REPLY, 32, bytes([gp.BAD_CMD]),
+       status=gp.BAD_CMD)
+
+    def item(it):
+        j = {"kind": it.kind, "index": it.index, "shape": it.shape, "x": it.x, "y": it.y, "w": it.w, "h": it.h}
+        if it.shape == gp.SHAPE_KEYS:
+            j.update(n_keys=it.n_keys, first_note=it.first_note)
+        if it.shape == gp.SHAPE_XY:
+            j["y_index"] = it.y_index
+        if it.extra:
+            j["extra"] = hx(it.extra)
+        return j
+
+    keys = next(it for it in lay.items if it.shape == gp.SHAPE_KEYS)
+    return {
+        "_comment": ["sysex.md 4.7: GET_LAYOUT (0x14) and the layout blob (v1), HELLO caps bit 8. `layout.items` is the",
+                     "blob decoded; `extra` holds an item's bytes past the fields of its shape (a host skips them).",
+                     "`keys` are the keys item's keys by the drawing rule: index, black, x, y, w, h in units."],
+        "cap_layout": gp.CAP_LAYOUT,
+        "shapes": {n: k for k, n in gp.LAYOUT_SHAPES.items()},
+        "layout": {"hex": hx(blob), "version": gp.LAYOUT_VERSION, "width": lay.width, "height": lay.height,
+                   "items": [item(it) for it in lay.items]},
+        "keys": [[k, black, round(x, 4), y, round(kw, 4), round(kh, 4)] for k, black, x, y, kw, kh in gp.key_rects(keys)],
+        "frames": frames,
+    }
+
+
+def monitor_vectors():
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    every = gp.MON_BUTTONS | gp.MON_MATRIX | gp.MON_ANALOG | gp.MON_ENCODERS | gp.MON_PADS
+    fr("MONITOR request: every kind", gp.MONITOR, 40, gp.req_monitor(every), kinds=every)
+    fr("MONITOR reply: buttons, key matrix, analog (what the device has), every 20 ms, stops 5000 ms after the last",
+       gp.MONITOR | gp.REPLY, 40, gp.build_monitor_reply(7, 20, 5000), status=gp.OK, kinds=7, interval_ms=20,
+       timeout_ms=5000)
+    fr("MONITOR request: stop", gp.MONITOR, 41, gp.req_monitor(0), kinds=0)
+    fr("MONITOR reply: stopped", gp.MONITOR | gp.REPLY, 41, gp.build_monitor_reply(0, 20, 5000), status=gp.OK, kinds=0,
+       interval_ms=20, timeout_ms=5000)
+    R = gp.RawMsg
+    raws = [
+        ("RAW buttons 0..6: button 2 pressed", R(gp.EV_BUTTON, 0, [0, 0, 1, 0, 0, 0, 0])),
+        ("RAW buttons 32..41: 32 and 40 pressed (two bytes)", R(gp.EV_BUTTON, 32, [1, 0, 0, 0, 0, 0, 0, 0, 1, 0])),
+        ("RAW key matrix rows 0..7 x 8 columns: row 3 column 1 closed",
+         R(gp.EV_KEY, 0, [1 if b == 3 * 8 + 1 else 0 for b in range(64)], rows=8, cols=8)),
+        ("RAW analog 0..2: 1234, 4095, no reading (0x3FFF)", R(gp.EV_ANALOG, 0, [1234, 4095, gp.RAW_NONE])),
+        ("RAW encoders 0..1: counts 5 and 16383 (one detent back from 0)", R(gp.EV_ENCODER, 0, [5, 16383])),
+        ("RAW pads 16..17: 0 and 3000", R(gp.EV_PAD, 16, [0, 3000])),
+    ]
+    for i, (desc, m) in enumerate(raws):
+        f = {"kind": m.kind, "first": m.first, "values": m.values}
+        if m.kind == gp.EV_KEY:
+            f = {"kind": m.kind, "row": m.first, "rows": m.rows, "cols": m.cols, "values": m.values}
+        fr(desc, gp.RAW, 50 + i, gp.build_raw(m), **f)
+    return {
+        "_comment": ["sysex.md 4.8: MONITOR (0x15) and RAW (0x65), HELLO caps bit 9. RAW `values`: buttons and key",
+                     "matrix 1 = pressed / closed (a key matrix row by row from `row`), else the u14 readings."],
+        "cap_monitor": gp.CAP_MONITOR,
+        "kinds": {"buttons": gp.MON_BUTTONS, "key_matrix": gp.MON_MATRIX, "analog": gp.MON_ANALOG,
+                  "encoders": gp.MON_ENCODERS, "pads": gp.MON_PADS},
+        "raw_kinds": {"buttons": gp.EV_BUTTON, "key_matrix": gp.EV_KEY, "analog": gp.EV_ANALOG,
+                      "encoders": gp.EV_ENCODER, "pads": gp.EV_PAD},
+        "no_reading": gp.RAW_NONE,
+        "frames": frames,
+    }
+
+
 def feedback_vectors():
     frames = []
 
@@ -316,6 +419,46 @@ def feedback_vectors():
     }
 
 
+def unlock_vectors():
+    frames = []
+
+    def fr(desc, cmd, seq, payload, **fields):
+        t = {"desc": desc, "cmd": cmd, "seq": seq, "payload": hx(payload), "frame": hx(gp.build_frame(cmd, seq, payload))}
+        if fields:
+            t["fields"] = fields
+        frames.append(t)
+
+    def reply(desc, seq, info):
+        fr(desc, gp.UNLOCK | gp.REPLY, seq, gp.build_unlock_reply(info), status=gp.OK, state=info.state,
+           window=info.window, hold=info.hold, n=len(info.names), names=info.names, prompt=info.prompt)
+
+    fr("FACTORY_RESET reply LOCKED (the device opened its unlock window)", gp.FACTORY_RESET | gp.REPLY, 31,
+       bytes([gp.LOCKED]), status=gp.LOCKED)
+    fr("REBOOT(bootloader) reply LOCKED", gp.REBOOT | gp.REPLY, 5, bytes([gp.LOCKED]), status=gp.LOCKED)
+    fr("UNLOCK request open 0 (only report)", gp.UNLOCK, 32, gp.req_unlock(False), open=0)
+    fr("UNLOCK request open 1 (also open the window)", gp.UNLOCK, 33, gp.req_unlock(True), open=1)
+    reply("UNLOCK reply: locked, window 30 s, hold 2000 ms, 'Pitch down' + 'Pitch up'", 32,
+          gp.UnlockInfo(0, 30, 2000, ["Pitch down", "Pitch up"]))
+    reply("UNLOCK reply: unlocked, window closed, hold 0 (a press), 'Shift'", 33, gp.UnlockInfo(1, 0, 0, ["Shift"]))
+    fr("UNLOCK reply BAD_CMD (an app without physical unlock)", gp.UNLOCK | gp.REPLY, 34, bytes([gp.BAD_CMD]),
+       status=gp.BAD_CMD)
+    fr("UNLOCKED (unsolicited) state 1: unlocked", gp.UNLOCKED, 12, gp.build_unlocked(1), state=1)
+    fr("UNLOCKED (unsolicited) state 0: locked again, or the window closed", gp.UNLOCKED, 13, gp.build_unlocked(0),
+       state=0)
+    return {
+        "_comment": [
+            "Physical unlock (sysex.md 4.9; HELLO caps bit 10 = 1024): status 12 LOCKED, UNLOCK 0x16, UNLOCKED 0x66.",
+            "FW_BEGIN (A/B app), REBOOT(1) and FACTORY_RESET may reply LOCKED; the host sends UNLOCK (open 0), shows",
+            "the prompt, waits for UNLOCKED state 1 (or gives up on state 0, or after window + 5 s), then resends.",
+            "UNLOCK reply: status, state (0 locked, 1 unlocked), window (s left, 0 closed), hold u14 (ms, 0 = a press),",
+            "n, then n lstrings (the combo's button names). fields.prompt is what the host tool shows (not on the wire).",
+        ],
+        "status_locked": gp.LOCKED,
+        "cap_unlock": gp.CAP_UNLOCK,
+        "frames": frames,
+    }
+
+
 def build():
     v = {"_comment": [
         "gemifi SysEx protocol v1 test vectors, generated by tools/host/make_test_vectors.py from the",
@@ -389,6 +532,9 @@ def build():
     v["config"] = config_vectors()
     v["presets"] = preset_vectors()
     v["feedback"] = feedback_vectors()
+    v["layout"] = layout_vectors()
+    v["monitor"] = monitor_vectors()
+    v["unlock"] = unlock_vectors()
     return v
 
 

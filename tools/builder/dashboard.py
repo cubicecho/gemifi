@@ -28,9 +28,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import gemifi_build as gb
 import gemifi_device as gd
+import gemifi_yaml as gy
 
 NAME = "gemifi builder"
-VERSION = "0.32.1"
+VERSION = gd.VERSION
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml")
 IMAGE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.(gfw|bin)")
 DEFAULT_BUILD_DIR = os.path.join(gb.REPO, "build", "devices")
@@ -93,7 +94,19 @@ class Roots:
         if not self.images(ident):
             return False
         recorded = gb.built_hash(self.out_dir(ident))
-        return recorded is None or recorded != gb.source_hash(self.resolve(ident))
+        return recorded is None or recorded != gb.source_hash(self.resolve(ident), preset_dir=self.dirs["presets"])
+
+    def config_hash(self, path):
+        """The file's config hash (param config.hash) as it is now, or None when it doesn't resolve."""
+        res = gy.resolve_file(path, preset_dir=self.dirs["presets"])
+        return None if res.data is None else gy.config_hash(res.data)
+
+    def file_label(self, path, device_path):
+        """How to name another file in a message: <root>/<file> in a root, else relative to the device file."""
+        for root, base in self.dirs.items():
+            if os.path.dirname(os.path.realpath(path)) == os.path.realpath(base):
+                return f"{root}/{os.path.basename(path)}"
+        return os.path.relpath(path, os.path.dirname(device_path))
 
     def listing(self):
         out = []
@@ -102,12 +115,15 @@ class Roots:
                 continue
             for name in sorted(os.listdir(base)):
                 if NAME_RE.fullmatch(name) and os.path.isfile(os.path.join(base, name)):
-                    plat, desc, dname, node = gb.peek_info(os.path.join(base, name))
+                    path = os.path.join(base, name)
+                    plat, desc, dname, node = gb.peek_info(path, preset_dir=self.dirs["presets"])
                     ident = f"{root}/{name}"
                     out.append({"id": ident, "root": root, "file": name, "name": dname, "node_name": node,
                                 "platform": plat,
                                 "description": desc, "images": self.images(ident),
-                                "stale": self.is_stale(ident), "writable": self.writable(ident)})
+                                "stale": self.is_stale(ident), "writable": self.writable(ident),
+                                "config_hash": self.config_hash(path),
+                                "built_config_hash": gb.built_config_hash(self.out_dir(ident))})
         return out
 
 
@@ -417,9 +433,19 @@ def make_handler(roots, port, *, bind="127.0.0.1", allowed_hosts=(), web_dir=Non
                 if not isinstance(text, str):
                     return self.fail(400, "text required")
                 ident = b.get("id")
-                dev, diags = gd.load_device(ident if isinstance(ident, str) and ident else "device.yaml", text)
+                # packages and !include count from the file's real place
+                path = roots.resolve(ident) if isinstance(ident, str) else None
+                dev, diags = gd.load_device(path or os.path.join(roots.dirs["mine"], "device.yaml"), text,
+                                            preset_dir=roots.dirs["presets"])
+                shown = []
+                for d in diags:
+                    j = d.as_dict()
+                    if d.src:          # in a package or !include: that file's line
+                        j["file"] = roots.file_label(d.src, path or roots.dirs["mine"] + os.sep)
+                    shown.append(j)
                 return self.send(200, {"ok": dev is not None, "summary": gb.summary(dev) if dev else "",
-                                       "diags": [d.as_dict() for d in diags],
+                                       "diags": shown,
+                                       "config_hash": dev.config_hash if dev else None,
                                        "presets": preset_info(dev) if dev else None,
                                        "dma": dma_info(dev) if dev else None,
                                        "din_midi": din_info(dev) if dev else None,
@@ -604,8 +630,8 @@ async function openDev(id){if(cur&&$('dirty').textContent&&!confirm('Discard uns
 function showImages(){const d=devices.find(x=>x.id===cur);$('imgs').innerHTML=d?d.images.map(f=>`<a href="/api/image?id=${encodeURIComponent(cur)}&file=${encodeURIComponent(f)}">${esc(f)}</a>`).join(' '):''}
 function gotoLine(n){const t=$('ed'),lines=t.value.split('\n');let p=0;for(let i=0;i<n-1&&i<lines.length;i++)p+=lines[i].length+1;t.focus();t.setSelectionRange(p,p+(lines[n-1]||'').length)}
 async function validate(){const j=await api('/api/validate',{id:cur,text:$('ed').value});
- $('diags').innerHTML=(j.ok?`<div class="okmsg">OK: ${esc(j.summary)}</div>`:'')+(j.presets&&j.presets.given?`<div class="small">Presets: ${j.presets.slots.map(p=>`${p.slot} ${esc(p.name)}${p.changes?` (${p.changes} change${p.changes>1?'s':''})`:''}`).join(' &middot; ')}</div>`:'')+j.diags.map(d=>`<div class="diag ${d.level}" data-line="${d.line}">line ${d.line||'?'}: ${d.level}: ${esc(d.path?d.path+': ':'')}${esc(d.msg)}</div>`).join('');
- document.querySelectorAll('.diag').forEach(e=>e.onclick=()=>gotoLine(+e.dataset.line));return j.ok}
+ $('diags').innerHTML=(j.ok?`<div class="okmsg">OK: ${esc(j.summary)}</div>`:'')+(j.presets&&j.presets.given?`<div class="small">Presets: ${j.presets.slots.map(p=>`${p.slot} ${esc(p.name)}${p.changes?` (${p.changes} change${p.changes>1?'s':''})`:''}`).join(' &middot; ')}</div>`:'')+j.diags.map(d=>`<div class="diag ${d.level}" data-line="${d.file?0:d.line}">${d.file?esc(d.file)+':':'line '}${d.line||'?'}:${d.level}: ${esc(d.path?d.path+': ':'')}${esc(d.msg)}</div>`).join('');
+ document.querySelectorAll('.diag').forEach(e=>e.onclick=()=>+e.dataset.line&&gotoLine(+e.dataset.line));return j.ok}
 async function save(){await api('/api/save',{id:cur,text:$('ed').value});$('dirty').textContent=''}
 async function build(){await save();if(!await validate())return;const log=$('log');log.hidden=false;log.textContent='';$('build').disabled=true;
  try{const r=await fetch('/api/build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:cur})});

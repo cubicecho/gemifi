@@ -88,6 +88,19 @@ void vpin_poll_tm1628(void);
 /* RGB_SERIAL hubs: send one changed LED (at most every 5 ms) and the
  * keepalive (every 50 ms). Call it on every main-loop pass. */
 void vpin_poll_rgb_serial(uint32_t now_ms);
+/* Set a whole colour (0xRRGGBB, 8 bits a colour) on the LED whose red pin
+ * is p, if p is the red pin of an RGB_SERIAL hub's LED (number LED * 3):
+ * 1, else 0 (the caller shows it with vpin_write). */
+int vpin_rgb(gm_pin_t p, uint32_t rgb);
+
+/* TM1628 hubs with fade: (core/README.md "TM1628 LED drivers"): the chip
+ * has one brightness (8 steps), so it shows the brightest of its LEDs.
+ * vpin_fade notes that the LED on pin p is lit at v (0..255, as eyes see
+ * it), colour = 1 if that is a host's colour; vpin_fade_apply then sets
+ * each fade chip from the brightest host colour noted since the last call,
+ * else the brightest other LED (a chip with none keeps its brightness). */
+void vpin_fade(gm_pin_t p, uint32_t v, int colour);
+void vpin_fade_apply(void);
 
 #ifdef __cplusplus
 }

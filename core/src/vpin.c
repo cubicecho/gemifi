@@ -5,7 +5,8 @@
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
  * TM1628 hubs keep their display RAM in tm_ram (GM_TM1628_RAM bytes, all
  * TM1628 hubs back to back), since a chip has more than 32 bits. RGB_SERIAL
- * hubs keep their LED bits there too (bit = LED * 3 + colour).
+ * hubs keep their LEDs there too, a byte per colour (pin = LED * 3 +
+ * colour: a pin on is 255, off 0; vpin_rgb sets any colour).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -14,6 +15,10 @@
 #include "gm_device_config.h"
 #include "gm_controller.h"
 #include "app_proto.h"
+
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
 
 #define N_HUBS (GM_N_HUBS > 0 ? GM_N_HUBS : 1)
 #ifndef GM_TM1628_RAM
@@ -33,6 +38,11 @@ typedef struct {
     uint8_t never;        /* outputs never written yet                    */
     int8_t channel;       /* MUX: selected channel, -1 = none             */
     uint8_t tm_dirty;     /* TM1628: RAM changed since the last write     */
+    uint8_t tm_ctl;       /* TM1628: display control wanted (0x88 | step, 0x80
+                             off), 0 = its intensity                       */
+    uint8_t tm_ctl_sent;  /* ... and what the chip has                      */
+    uint16_t tm_peak[2];  /* TM1628 fade: brightest LED noted + 1, 0 = none:
+                             [0] looks and plain levels, [1] host colours */
     uint16_t tm_off;      /* TM1628, RGB_SERIAL: its bytes in tm_ram      */
     uint16_t xy_raw[2];   /* XY: last X / Y reading, 0xFFFF = none        */
     uint8_t xy_touch;     /* XY: readings in a row with both in the window */
@@ -69,6 +79,12 @@ __attribute__((weak)) int hal_serial_write(uint16_t tx_pin, const uint8_t *b, ui
     (void)b;
     (void)n;
     return 0;
+}
+
+__attribute__((weak)) int hal_serial_read(uint16_t tx_pin)
+{
+    (void)tx_pin;
+    return -1;
 }
 
 __attribute__((weak)) volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
@@ -255,6 +271,8 @@ void vpin_init(void)
         s->never = 1;
         s->channel = -1;
         s->tm_dirty = 0;
+        s->tm_ctl = s->tm_ctl_sent = 0;
+        s->tm_peak[0] = s->tm_peak[1] = 0;
         s->tm_off = 0;
         s->xy_raw[0] = s->xy_raw[1] = 0xFFFFu;
         s->xy_touch = 0;
@@ -316,7 +334,8 @@ void vpin_init(void)
                 ram_sent[tm_off++] = 0xFFu;
             }
             if (h->data.hub == 0)
-                (void)hal_serial_open(h->data.num, 115200u, h->dma ? HAL_UART_DMA : 0u);
+                (void)hal_serial_open(h->data.num, 115200u, (h->dma ? HAL_UART_DMA : 0u) |
+                                      (vpin_is_none(h->latch) ? 0u : HAL_UART_RX));
             break;
 #endif
         case GM_HUB_XY:
@@ -520,6 +539,11 @@ void vpin_write(gm_pin_t p, int active)
         return;
     }
 #if GM_TM1628_RAM > 0
+    if (h->type == GM_HUB_RGB_SERIAL) {
+        if (p.num < h->ram_bytes && s->tm_off + p.num < GM_TM1628_RAM)
+            tm_ram[s->tm_off + p.num] = level ? 0xFFu : 0u;
+        return;
+    }
     if (RAM_HUB(h->type)) {
         uint32_t k = p.num >> 3u;
         if (k >= h->ram_bytes || s->tm_off + k >= GM_TM1628_RAM)
@@ -539,6 +563,27 @@ void vpin_write(gm_pin_t p, int active)
         s->out &= ~(1u << p.num);
 }
 
+int vpin_rgb(gm_pin_t p, uint32_t rgb)
+{
+#if GM_TM1628_RAM > 0
+    const gm_hub_t *h = p.hub ? hub_of(p) : 0;
+    if (!h || h->type != GM_HUB_RGB_SERIAL || p.num % 3u || p.num + 3u > h->ram_bytes)
+        return 0;
+    hub_state_t *s = &hs[p.hub - 1];
+    if (s->tm_off + p.num + 3u > GM_TM1628_RAM)
+        return 0;
+    uint8_t *b = &tm_ram[s->tm_off + p.num];
+    b[0] = (uint8_t)(rgb >> 16);
+    b[1] = (uint8_t)(rgb >> 8);
+    b[2] = (uint8_t)rgb;
+    return 1;
+#else
+    (void)p;
+    (void)rgb;
+    return 0;
+#endif
+}
+
 /* ---- hardware analog scan (gm_controller.h gm_adc_plan_t) -------------- */
 
 #ifndef GM_HW_ADC
@@ -548,6 +593,7 @@ void vpin_write(gm_pin_t p, int active)
 #define ADC_CELLS (GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS)
 static gm_adc_plan_t aplan;
 static uint8_t adc_on;
+static volatile uint8_t adc_swept;     /* a whole sweep is in adc_last[] since the start */
 static uint16_t adc_last[ADC_CELLS];
 /* Per cell, the highest and lowest reading of the sweeps since the pads'
  * last look, in two generations: the interrupt fills adc_gen while the main
@@ -685,6 +731,7 @@ void gm_adc_hw_started(void)
 {
 #if GM_HW_ADC
     adc_n[0] = adc_n[1] = 0;
+    adc_swept = 0;
     adc_gen = 0;
     adc_read_gen = 1;
     adc_on = 1;
@@ -705,6 +752,7 @@ void gm_adc_sweep(const uint16_t *v)
             lo[i] = x;
     }
     adc_n[g]++;
+    adc_swept = 1;
 #else
     (void)v;
 #endif
@@ -768,6 +816,8 @@ int32_t vpin_analog(gm_pin_t p)
 #if GM_HW_ADC
     int k, step;
     if (adc_on && adc_cell(p, &k, &step)) {
+        if (!adc_swept)
+            return -1;                  /* no sweep yet: adc_last[] is still zeros, not a reading */
         if (step >= 0) {
             v = adc_last[(uint32_t)step * aplan.n_pins + (uint32_t)k];
         } else {
@@ -1219,6 +1269,12 @@ static void tm_flush(uint32_t budget)
         tm_io_t bus;
         const tm_io_t *io = &bus;
         tm_io_init(&bus, h);
+        uint32_t ctl = s->tm_ctl ? s->tm_ctl : 0x88u | (h->brightness & 7u);
+        if (!s->never && ctl != s->tm_ctl_sent) {      /* a new brightness (fade:) */
+            tm_cmd(&bus, ctl);
+            s->tm_ctl_sent = (uint8_t)ctl;
+            budget--;
+        }
         uint32_t k = 0, open = 0, left = budget;
         if (s->never) {                         /* all of it now, whatever the budget */
             if (h->grids >= 4u && h->grids <= 7u)
@@ -1252,7 +1308,8 @@ static void tm_flush(uint32_t budget)
         }
         s->tm_dirty = k < n;
         if (s->never) {
-            tm_cmd(io, 0x88u | (h->brightness & 7u));
+            tm_cmd(io, ctl);
+            s->tm_ctl_sent = (uint8_t)ctl;
             s->never = 0;
             budget = left > 3u + n ? left - 3u - n : 0u;
         }
@@ -1263,6 +1320,70 @@ void vpin_flush_tm1628(void)
 {
     tm_flush(0xFFFFFFFFu);
 }
+
+#if GM_TM_FADE
+/* How bright each step looks, 0..255: the chip's pulse widths (1, 2, 4,
+ * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
+static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
+
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+{
+    const gm_hub_t *h = p.hub ? hub_of(p) : 0;
+    if (!h || h->type != GM_HUB_TM1628 || !h->fade)
+        return;
+    uint16_t *peak = &hs[p.hub - 1].tm_peak[colour ? 1 : 0];
+    if (v > 255u)
+        v = 255u;
+    if (v + 1u > *peak)
+        *peak = (uint16_t)(v + 1u);
+}
+
+/* The step that looks most like v of full (the hub's intensity); darker
+ * than half the dimmest step: display off. */
+static uint32_t tm_fade_ctl(const gm_hub_t *h, uint32_t v)
+{
+    uint32_t top = h->brightness & 7u, want = v * tm_seen[top] / 255u, best = 0;
+    if (2u * want < tm_seen[0])
+        return 0x80u;
+    for (uint32_t k = 1; k <= top; k++) {
+        uint32_t d = want > tm_seen[k] ? want - tm_seen[k] : tm_seen[k] - want;
+        uint32_t e = want > tm_seen[best] ? want - tm_seen[best] : tm_seen[best] - want;
+        if (d < e)
+            best = k;
+    }
+    return 0x88u | best;
+}
+
+void vpin_fade_apply(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        hub_state_t *s = &hs[i];
+        /* a host's colours win: an LED it turned off shows its idle look,
+         * which mustn't hold the chip at full */
+        uint32_t peak = s->tm_peak[1] ? s->tm_peak[1] : s->tm_peak[0];
+        s->tm_peak[0] = s->tm_peak[1] = 0;
+        if (h->type != GM_HUB_TM1628 || !h->fade || !peak)
+            continue;
+        uint32_t ctl = tm_fade_ctl(h, peak - 1u);
+        if (ctl != (s->tm_ctl ? s->tm_ctl : (0x88u | (h->brightness & 7u)))) {
+            s->tm_ctl = (uint8_t)ctl;
+            s->tm_dirty = 1;
+        }
+    }
+}
+#else
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+{
+    (void)p;
+    (void)v;
+    (void)colour;
+}
+
+void vpin_fade_apply(void)
+{
+}
+#endif
 
 /* 9 bus bytes: ~110 us at most per main-loop pass on the STM32 (a byte is
  * ~11 us, a command ~3 us more), and a single LED change (3 bytes in two
@@ -1280,89 +1401,168 @@ void vpin_poll_tm1628(void)
  * and 0x08013C94): one LED per message, 02, 0x80 + LED, R, G, B, 03, with
  * 00 off and FF full; a lone A5 keepalive about every 60 ms (without it the
  * board turns its LEDs off). Messages sent back to back are lost after the
- * first, so they go out one per RGB_GAP_MS. */
+ * first, so every write, the A5 included, goes out RGB_GAP_MS after the
+ * last one. */
 #define RGB_GAP_MS 5u
 #define RGB_KEEPALIVE_MS 50u
-/* With nothing changed, one LED's colour is sent again every RGB_REFRESH_MS
- * (16 pads: each about every 0.8 s), so a lost message (back to back, or
- * at power-on before the board is up: the pads stayed dark until hit)
- * doesn't stay wrong. */
-#define RGB_REFRESH_MS 50u
+/* At power-on the board isn't listening yet: the first colours are lost
+ * (the pads stayed dark until hit). So every LED is sent once more,
+ * RGB_REPAINT_MS after start; after that an LED goes out only when it
+ * changes. Resending one LED every 50 ms forever (builds 74-93) left the
+ * board deaf after a cold start: with no LED message during its start-up
+ * it comes up fine (tested on the Code 61, 2026-11-09). */
+#ifndef RGB_REPAINT_MS
+#define RGB_REPAINT_MS 2000u
+#endif
+/* With rx_pin: the board answers each LED message with 0x40 + LED (the
+ * Code 61's does, about 220 ms after power-on at the earliest). An LED is
+ * only counted as shown once answered: without an answer in RGB_ACK_MS it
+ * is sent again, after a pause that grows with each miss (RGB_RETRY_MS
+ * times the misses in a row, at most RGB_RETRY_MAX_MS), so a board that
+ * is still starting gets little traffic. The first answer means the board
+ * is up: every LED is sent again then, instead of at RGB_REPAINT_MS. With
+ * no answer by RGB_ACK_GIVE_UP_MS the hub works as without rx_pin. */
+#define RGB_ACK_MS 20u
+#define RGB_RETRY_MS 50u
+#define RGB_RETRY_MAX_MS 500u
+#define RGB_ACK_GIVE_UP_MS 3000u
+#define RGB_ACK 0x40u
 
-static uint32_t rgb_bits(const uint8_t *ram, uint32_t led)
+/* LED led's three bytes differ between a and b. */
+static int rgb_differs(const uint8_t *a, const uint8_t *b, uint32_t led)
 {
-    uint32_t v = 0;
-    for (uint32_t c = 0; c < 3u; c++) {
-        uint32_t n = led * 3u + c;
-        v |= ((ram[n >> 3u] >> (n & 7u)) & 1u) << c;
-    }
-    return v;
+    a += led * 3u;
+    b += led * 3u;
+    return a[0] != b[0] || a[1] != b[1] || a[2] != b[2];
 }
 
-static void rgb_set_sent(uint8_t *ram, uint32_t led, uint32_t v)
+/* What goes on the wire for colour c (0 red, 1 green, 2 blue) at value v:
+ * through the hub's curve (gamma:), then scaled to its white (white:). A
+ * value above 0 stays above 0. */
+static uint8_t rgb_out(const gm_hub_t *h, uint32_t c, uint32_t v)
 {
-    for (uint32_t c = 0; c < 3u; c++) {
-        uint32_t n = led * 3u + c;
-        uint8_t m = (uint8_t)(1u << (n & 7u));
-        ram[n >> 3u] = (v >> c) & 1u ? (uint8_t)(ram[n >> 3u] | m) : (uint8_t)(ram[n >> 3u] & ~m);
-    }
+    if (h->rgb_curve)
+        v = h->rgb_curve[v];
+    uint32_t w = h->rgb_white[c] ? h->rgb_white[c] : 255u;
+    if (w == 255u || !v)
+        return (uint8_t)v;
+    v = (v * w + 127u) / 255u;
+    return (uint8_t)(v ? v : 1u);
+}
+
+/* LED led no longer counts as sent: it goes out again. */
+static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
+{
+    for (uint32_t c = 0; c < 3u; c++)
+        sent[led * 3u + c] = (uint8_t)~ram[led * 3u + c];
 }
 
 void vpin_poll_rgb_serial(uint32_t now_ms)
 {
-    static uint32_t t_msg, t_ka;
-    static uint8_t refresh;             /* the next LED to send again */
+    static uint32_t t_ka, t_any;        /* last A5, last write */
+    static uint8_t repainted;
+    /* rx_pin: the answer awaited (LED + 1, 0 none), when that LED went out,
+     * misses in a row; acks: 0 none yet, 1 answering, 2 gave up. */
+    static uint8_t wait_led, misses, acks;
+    static uint32_t t_led;
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
         if (h->type != GM_HUB_RGB_SERIAL || h->data.hub != 0 || s->tm_off + h->ram_bytes > GM_TM1628_RAM)
             continue;
         uint16_t tx = h->data.num;
+        const uint8_t *ram = &tm_ram[s->tm_off];
+        uint8_t *sent = &ram_sent[s->tm_off];
+        int use_acks = !vpin_is_none(h->latch) && acks != 2u;
+        int repaint = 0;
+        if (use_acks) {
+            for (int b; (b = hal_serial_read(tx)) >= 0;) {
+                uint32_t led = (uint32_t)b - RGB_ACK;
+                if (led >= h->chain)
+                    continue;               /* not an answer */
+                if (!acks) {
+                    acks = 1;
+                    repaint = !repainted;   /* the board is up: everything again */
+                }
+                if (wait_led == led + 1u) {
+                    wait_led = 0;
+                    misses = 0;
+                }
+            }
+            if (wait_led && now_ms - t_led >= RGB_ACK_MS) {
+                rgb_unsend(ram, sent, wait_led - 1u);     /* not answered: again */
+                wait_led = 0;
+                if (misses < 255u)
+                    misses++;
+            }
+            if (!acks && now_ms >= RGB_ACK_GIVE_UP_MS) {
+                acks = 2;                   /* never answered: as without rx_pin */
+                wait_led = 0;
+                misses = 0;
+                use_acks = 0;
+            }
+        }
+        if (!repainted && (repaint || (!use_acks && now_ms >= RGB_REPAINT_MS))) {
+            for (uint32_t k = 0; k < h->ram_bytes; k++)
+                sent[k] = (uint8_t)~ram[k];     /* every LED differs: all sent again */
+            repainted = 1;
+        }
+        if (now_ms - t_any < RGB_GAP_MS)
+            continue;
         if (now_ms - t_ka >= RGB_KEEPALIVE_MS) {
             static const uint8_t ka = 0xA5u;
             if (hal_serial_write(tx, &ka, 1))
-                t_ka = now_ms;
+                t_ka = t_any = now_ms;
             continue;
         }
-        if (now_ms - t_msg < RGB_GAP_MS)
-            continue;
+        if (use_acks && wait_led)
+            continue;                       /* the last LED isn't answered yet */
+        if (use_acks && misses) {
+            uint32_t pause = RGB_RETRY_MS * misses;
+            if (now_ms - t_led < (pause < RGB_RETRY_MAX_MS ? pause : RGB_RETRY_MAX_MS))
+                continue;
+        }
         /* The next changed LED after the last one sent, so one busy LED
          * can't starve the others. */
-        const uint8_t *ram = &tm_ram[s->tm_off];
-        uint8_t *sent = &ram_sent[s->tm_off];
         uint32_t todo = h->chain;           /* an LED to send, h->chain = none */
         for (uint32_t k = 0; k < h->chain; k++) {
             uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->chain;
-            if (rgb_bits(ram, led) != rgb_bits(sent, led)) {
+            if (rgb_differs(ram, sent, led)) {
                 todo = led;
                 break;
             }
         }
-        int again = 0;
-        if (todo == h->chain) {
-            if (now_ms - t_msg < RGB_REFRESH_MS || h->chain == 0)
-                continue;
-            todo = refresh % h->chain;
-            again = 1;
-        }
+        if (todo == h->chain)
+            continue;
         {
             uint32_t led = todo;
-            uint32_t v = rgb_bits(ram, led);
-            uint8_t msg[6] = { 0x02u, (uint8_t)(0x80u + led), (v & 1u) ? 0xFFu : 0u,
-                               (v & 2u) ? 0xFFu : 0u, (v & 4u) ? 0xFFu : 0u, 0x03u };
+            const uint8_t *v = &ram[led * 3u];
+            uint8_t msg[6] = { 0x02u, (uint8_t)(0x80u + led), rgb_out(h, 0, v[0]),
+                               rgb_out(h, 1, v[1]), rgb_out(h, 2, v[2]), 0x03u };
             if (hal_serial_write(tx, msg, sizeof msg)) {
-                rgb_set_sent(sent, led, v);
-                if (again)
-                    refresh = (uint8_t)((led + 1u) % h->chain);
-                else
-                    s->channel = (int8_t)led;
-                t_msg = now_ms;
+                for (uint32_t c = 0; c < 3u; c++)
+                    sent[led * 3u + c] = v[c];
+                s->channel = (int8_t)led;
+                t_any = t_led = now_ms;
+                if (use_acks)
+                    wait_led = (uint8_t)(led + 1u);
             }
         }
     }
 }
 #else
 void vpin_flush_tm1628(void)
+{
+}
+
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+{
+    (void)p;
+    (void)v;
+    (void)colour;
+}
+
+void vpin_fade_apply(void)
 {
 }
 

@@ -11,6 +11,7 @@
 #include "gm_display.h"
 #include "gm_din.h"
 #include "gm_presets.h"
+#include "gm_safety.h"
 #include "gm_settings.h"
 #include "gm_device.h"
 #include "gm_controller.h"
@@ -37,7 +38,8 @@
 #define PAD_ENTRIES (GM_N_PADS > 0 ? (uint32_t)GM_N_PADS + 8u : 0u)
 #define LAYER_ENTRIES (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u)
 #define MAX_ENTRIES (2u * GM_ARR(GM_N_BUTTONS) + GM_ARR(GM_N_ANALOGS) + \
-                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES)
+                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES + \
+                     (GM_PRESET_BANK ? 1u : 0u))
 
 /* The record a save builds: write_values(), write_globals(), write_state()
  * and presets_rename() build theirs here, check it with stored_same() and
@@ -118,13 +120,18 @@ static int yaml_defined(uint32_t slot)
 #endif
 }
 
+/* Stored values this firmware refused (out of range, a bad index): their
+ * params keep the default. Counted for diag.settings (presets_boot_state). */
+static uint32_t refused;
+
 /* Store callback: apply one stored value if it belongs to this scope. */
 static void apply_cb(const cs_entry_t *e, void *ctx)
 {
     int want_preset = *(const int *)ctx;
     const param_def_t *p = params_find(e->id);
-    if (p && storable(p) && is_preset(p) == want_preset)
-        params_set(e->id, e->index, e->value, 0);
+    if (p && storable(p) && is_preset(p) == want_preset &&
+        params_set(e->id, e->index, e->value, 0) != GSX_OK)
+        refused++;
 }
 
 typedef struct {
@@ -205,13 +212,22 @@ static void load_slot(uint32_t slot)
     load_slot_info(slot, 0);
 }
 
+static uint8_t boot_state;            /* GM_SETTINGS_* (gm_safety.h) */
+
+int presets_boot_state(void)
+{
+    return boot_state;
+}
+
 void presets_boot(int safe)
 {
     no_store = (uint8_t)(safe != 0);
     params_defaults();
+    refused = 0;
+    int stored = 0;
     if (!no_store) {
         int want_preset = 0;
-        config_store_read(CS_SLOT_GLOBAL, 0, apply_cb, &want_preset);
+        stored = config_store_read(CS_SLOT_GLOBAL, 0, apply_cb, &want_preset);
     }
     /* A store written before preset.count (or by an older firmware) may
      * hold presets past it: they stay in use. */
@@ -224,8 +240,10 @@ void presets_boot(int safe)
     uint32_t slot = (uint32_t)gm_cfg.preset_active;
     if (!GM_WRITE_LAST_PRESET || slot < 1u || slot > used())
         slot = 1;                           /* off: a stored preset.active is ignored */
-    load_slot(slot);
+    stored |= load_slot_info(slot, 0);
     active_pending = 0;
+    boot_state = no_store ? GM_SETTINGS_SAFE : refused ? GM_SETTINGS_REFUSED :
+                 stored ? GM_SETTINGS_LOADED : GM_SETTINGS_NONE;
 }
 
 uint32_t presets_active(void)
@@ -243,6 +261,17 @@ static void do_select(uint32_t slot, int from_host)
     if (gm_cfg.preset_program >= 0) {
         uint8_t m[2] = { (uint8_t)(0xC0 | ((gm_cfg.channel - 1) & 0x0F)),
                          (uint8_t)(gm_cfg.preset_program & 0x7F) };
+#if GM_PRESET_BANK
+        if (gm_cfg.preset_bank >= 0) {      /* Bank Select MSB, LSB, then the Program Change */
+            uint8_t b[3] = { (uint8_t)(0xB0 | (m[0] & 0x0F)), 0, (uint8_t)((gm_cfg.preset_bank >> 7) & 0x7F) };
+            hal_midi_send(b, 3);
+            gm_din_local(b, 3);
+            b[1] = 32;
+            b[2] = (uint8_t)(gm_cfg.preset_bank & 0x7F);
+            hal_midi_send(b, 3);
+            gm_din_local(b, 3);
+        }
+#endif
         hal_midi_send(m, 2);
         gm_din_local(m, 2);
         gm_display_midi(m[0], m[1], 0);

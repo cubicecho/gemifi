@@ -4,6 +4,7 @@ import { cloneElement, createContext, type RefObject, useContext, useRef, useSta
 import { flushSync } from "react-dom";
 import {
   MENU_CONTENT_CLASS,
+  MENU_ICON_ROOM_CLASS,
   MENU_INDICATOR_CLASS,
   MENU_ITEM_CLASS,
   MENU_ITEM_TEXT_CLASS,
@@ -19,7 +20,8 @@ import {
   type MenuSeparatorProps,
   type MenuTriggerProps,
 } from "@/components/ui/menu-base";
-import { cn } from "@/lib/utils";
+import { FrameFocusGuard } from "@/lib/frame-focus-guard";
+import { CardBodyContext, cn, hasSlot } from "@/lib/utils";
 import { Check } from "@/components/ui/icons";
 
 /** The shared contract, widened to what the radix part underneath accepts. */
@@ -80,6 +82,7 @@ function MenuContent({
   align = "center",
   sideOffset = 4,
   onCloseAutoFocus,
+  children,
   ...props
 }: Wide<MenuContentProps, React.ComponentProps<typeof MenuPrimitive.Content>>) {
   const { skipReturnRef } = useContext(MenuContext);
@@ -91,7 +94,7 @@ function MenuContent({
         sideOffset={sideOffset}
         className={cn(
           MENU_CONTENT_CLASS,
-          "z-50 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto text-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          "group/menu z-50 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto text-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className,
         )}
         {...props}
@@ -104,8 +107,41 @@ function MenuContent({
           }
           skipReturnRef.current = false;
         }}
-      />
+      >
+        <CardBodyContext.Provider value={false}>{children}</CardBodyContext.Provider>
+        {/* A framed app focusing itself would blur the window, which closes a menu at once. */}
+        <FrameFocusGuard />
+      </MenuPrimitive.Content>
     </MenuPrimitive.Portal>
+  );
+}
+
+/**
+ * A row's icon, or with none the room for one while another row in the menu draws one. The menu
+ * finds that out with `:has()`, so no row has to be told and nothing renders twice.
+ */
+function RowIcon({
+  iconSlot,
+  className,
+}: {
+  iconSlot: MenuItemProps["iconSlot"];
+  className: string;
+}) {
+  if (hasSlot(iconSlot)) {
+    return (
+      <span data-slot="menu-item-icon" className={cn("flex shrink-0", className)}>
+        {iconSlot}
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        MENU_ICON_ROOM_CLASS,
+        "hidden group-has-[[data-slot=menu-item-icon]]/menu:block",
+      )}
+    />
   );
 }
 
@@ -128,11 +164,7 @@ function MenuItem({
     <>
       {/* The icon quieter than the label, except on a destructive row, where it follows the
           row's `negative` through currentColor. */}
-      {iconSlot ? (
-        <span className={cn("flex shrink-0", destructive === false && "text-foreground/60")}>
-          {iconSlot}
-        </span>
-      ) : null}
+      <RowIcon iconSlot={iconSlot} className={cn(destructive === false && "text-foreground/60")} />
       <span className={cn(MENU_ITEM_TEXT_CLASS, "truncate")}>{label}</span>
       {typeof trailing === "string" ? (
         <span className={MENU_TRAILING_CLASS}>{trailing}</span>
@@ -202,7 +234,9 @@ function MenuSeparator({
 
 /**
  * A toggle row's inside: `MenuItem`'s icon, label and trailing node, then the ✓ slot at the far
- * edge. `ItemIndicator` renders only while its row is on; the slot around it stays.
+ * edge. `ItemIndicator` renders only while its row is on; the slot around it stays. On a row that
+ * is on, the quiet icon and trailing text turn `foreground`: muted on the chosen tint is under
+ * 4.5:1.
  */
 function ToggleRowBody({
   iconSlot,
@@ -211,10 +245,10 @@ function ToggleRowBody({
 }: Pick<MenuCheckboxItemProps, "iconSlot" | "label" | "trailing">) {
   return (
     <>
-      {iconSlot ? <span className="flex shrink-0 text-foreground/60">{iconSlot}</span> : null}
+      <RowIcon iconSlot={iconSlot} className={cn("text-foreground/60", ON_CHECKED_INK)} />
       <span className={cn(MENU_ITEM_TEXT_CLASS, "truncate")}>{label}</span>
       {typeof trailing === "string" ? (
-        <span className={MENU_TRAILING_CLASS}>{trailing}</span>
+        <span className={cn(MENU_TRAILING_CLASS, ON_CHECKED_INK)}>{trailing}</span>
       ) : (
         trailing
       )}
@@ -227,7 +261,17 @@ function ToggleRowBody({
   );
 }
 
-const TOGGLE_ROW_CLASS = cn(MENU_ITEM_CLASS, MENU_ITEM_WEB_CLASS, "text-foreground focus:bg-hover");
+/**
+ * A toggle row is `MenuItem`'s row, and while it is on, the chosen tint, a step further when
+ * highlighted — radix highlights the row under the pointer by focusing it.
+ */
+const TOGGLE_ROW_CLASS = cn(
+  MENU_ITEM_CLASS,
+  MENU_ITEM_WEB_CLASS,
+  "group/toggle text-foreground focus:bg-hover data-[state=checked]:bg-active/40 data-[state=checked]:focus:bg-active/60",
+);
+/** The quiet ink inside a toggle row, lifted to `foreground` while the row is on. */
+const ON_CHECKED_INK = "group-data-[state=checked]/toggle:text-foreground";
 
 /** A row that is checked or not, and toggles when chosen. */
 function MenuCheckboxItem({

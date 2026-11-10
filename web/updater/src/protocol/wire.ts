@@ -61,6 +61,12 @@ export const Command = {
   GetComponent: 0x11,
   PresetDelete: 0x12,
   PresetMove: 0x13,
+  /** The physical layout (§4.7), on a device with caps bit 8. */
+  GetLayout: 0x14,
+  /** Start, renew or stop the raw readings (§4.8), on a device with caps bit 9. */
+  Monitor: 0x15,
+  /** Physical unlock (§4.9), on a device with caps bit 10: what to ask the user, and optionally open the window. */
+  Unlock: 0x16,
   FwBegin: 0x18,
   FwData: 0x19,
   FwEnd: 0x1a,
@@ -89,6 +95,10 @@ export const Unsolicited = {
   PresetChanged: 0x63,
   /** HELLO's fields without the status, sent once after boot by a device with caps bit 6 (§4.6.3). */
   Booted: 0x64,
+  /** Raw readings of one kind, while MONITOR runs (§4.8). */
+  Raw: 0x65,
+  /** The device was unlocked (1), or locked again / its unlock window closed (0) (§4.9). */
+  Unlocked: 0x66,
 } as const;
 export type Unsolicited = (typeof Unsolicited)[keyof typeof Unsolicited];
 
@@ -106,6 +116,8 @@ export const Status = {
   Busy: 9,
   BadParam: 10,
   BadValue: 11,
+  /** Needs the user's OK on the device first (§4.9): the device has opened its unlock window. */
+  Locked: 12,
 } as const;
 export type Status = (typeof Status)[keyof typeof Status];
 
@@ -123,6 +135,7 @@ export const STATUS_NAMES: Readonly<Record<number, string>> = Object.freeze({
   9: 'BUSY',
   10: 'BAD_PARAM',
   11: 'BAD_VALUE',
+  12: 'LOCKED',
 });
 
 /** What each status code means, in a reader's words (§3). */
@@ -139,6 +152,7 @@ export const STATUS_MEANINGS: Readonly<Record<number, string>> = Object.freeze({
   9: 'the device is busy',
   10: 'the param is unknown, the index is out of range, or the param is read-only',
   11: "the value is outside the param's range",
+  12: 'the device must be unlocked on the device itself first',
 });
 
 /** The role a device answers HELLO with (§4). */
@@ -168,6 +182,12 @@ export const Capability = {
   Feedback: 1 << 6,
   /** REBOOT(1) leads to a gemifi bootloader, on a board that may also have a vendor one (Code 61). */
   GemifiBoot: 1 << 7,
+  /** GET_LAYOUT: the device can describe where its controls are (§4.7). */
+  Layout: 1 << 8,
+  /** MONITOR and RAW: the device can stream its raw readings (§4.8). */
+  Monitor: 1 << 9,
+  /** Physical unlock (§4.9): FW_BEGIN, REBOOT(1) and FACTORY_RESET may answer LOCKED; UNLOCK and UNLOCKED exist. */
+  Unlock: 1 << 10,
 } as const;
 export type Capability = (typeof Capability)[keyof typeof Capability];
 
@@ -191,8 +211,8 @@ export type LedColours = (typeof LedColours)[keyof typeof LedColours];
 export const Takeover = { None: 0, Pickup: 1 } as const;
 export type Takeover = (typeof Takeover)[keyof typeof Takeover];
 
-/** An encoder's `mode` (§4.6.1): `encoder.mode`, or 3 for a Mackie Control V-Pot. */
-export const EncoderMode = { Absolute: 0, RelativeTwos: 1, RelativeOffset: 2, McuVpot: 3 } as const;
+/** An encoder's `mode` (§4.6.1): `encoder.mode` 0..2, 3 for a Mackie Control V-Pot, 4 sign-magnitude. */
+export const EncoderMode = { Absolute: 0, RelativeTwos: 1, RelativeOffset: 2, McuVpot: 3, RelativeSign: 4 } as const;
 export type EncoderMode = (typeof EncoderMode)[keyof typeof EncoderMode];
 
 /** An LED's `owner` (§4.6.1): who drives it. */
@@ -219,6 +239,41 @@ export type ReleaseWhat = (typeof ReleaseWhat)[keyof typeof ReleaseWhat];
 export const FB_LEDS_MAX = 64;
 /** The most text bytes one FB_TEXT carries (§4.6.2). */
 export const FB_TEXT_MAX = 64;
+
+/** GET_LAYOUT's `shape` (§4.7). Unknown shapes are drawn as buttons. */
+export const LayoutShape = {
+  Button: 0,
+  RoundButton: 1,
+  Knob: 2,
+  Encoder: 3,
+  Fader: 4,
+  Wheel: 5,
+  Pad: 6,
+  Display: 7,
+  Keys: 8,
+  Xy: 9,
+} as const;
+export type LayoutShape = (typeof LayoutShape)[keyof typeof LayoutShape];
+
+/** The layout blob this module parses (§4.7). */
+export const LAYOUT_VERSION = 1;
+
+/** MONITOR's `kinds` bits (§4.8): which raw readings to stream. 0 stops. */
+export const MonitorKind = {
+  Buttons: 1 << 0,
+  KeyMatrix: 1 << 1,
+  Analog: 1 << 2,
+  Encoders: 1 << 3,
+  Pads: 1 << 4,
+} as const;
+export type MonitorKind = (typeof MonitorKind)[keyof typeof MonitorKind];
+
+/** RAW's `kind` (§4.8): EVENT's type numbers. */
+export const RawKind = { Buttons: 1, KeyMatrix: 2, Analog: 3, Encoders: 4, Pads: 7 } as const;
+export type RawKind = (typeof RawKind)[keyof typeof RawKind];
+
+/** A RAW analog value that means "no reading" (an XY pad not touched, §4.8). */
+export const RAW_NO_READING = 0x3fff;
 
 /** Flash page size the upload rules are written against (§4.2). */
 export const PAGE_BYTES = 512;
@@ -277,6 +332,34 @@ export type PresetFlag = (typeof PresetFlag)[keyof typeof PresetFlag];
 /** The preset params (§4.5): the active slot, its Program Change, its dirty flag. */
 export const PresetParam = { Active: 17, Program: 18, Dirty: 19, Count: 33 } as const;
 export type PresetParam = (typeof PresetParam)[keyof typeof PresetParam];
+
+/** UNLOCK's `state` and UNLOCKED's (§4.9). */
+export const UnlockState = { Locked: 0, Unlocked: 1 } as const;
+export type UnlockState = (typeof UnlockState)[keyof typeof UnlockState];
+
+/** UNLOCK's `open` (§4.9): only report, or also open (or restart) the unlock window. */
+export const UnlockOpen = { Report: 0, Open: 1 } as const;
+export type UnlockOpen = (typeof UnlockOpen)[keyof typeof UnlockOpen];
+
+/** How long a LOCKED reply opens the unlock window for (§4.9). */
+export const UNLOCK_WINDOW_SECONDS = 30;
+
+/** The diagnostics params (§4.10): read-only, VOLATILE, in the group "Debug". */
+export const DiagParam = {
+  ResetReason: 65,
+  BootLoop: 66,
+  Settings: 67,
+  ScanMax: 68,
+  LoopMax: 69,
+  ScanPeriod: 70,
+  Uptime: 71,
+} as const;
+export type DiagParam = (typeof DiagParam)[keyof typeof DiagParam];
+
+/** The first id kept for diagnostics (§4.10). */
+export const DIAG_PARAM_FIRST = 65;
+/** The last id kept for diagnostics (§4.10): 65–71 are in use, 72–74 kept for more. */
+export const DIAG_PARAM_LAST = 74;
 
 /** Longest preset name, in characters (§2, string). */
 export const PRESET_NAME_MAX = 16;

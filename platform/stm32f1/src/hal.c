@@ -13,6 +13,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "gm_hal.h"
+#include "gm_safety.h"
 #include "gsx.h"
 #include "stm32f1.h"
 #include "sys.h"
@@ -353,8 +354,11 @@ void hal_reboot(int to_bootloader)
     sys_iwdg_kick();
     /* Update mode = the vendor bootloader's request flag (recovery.h).
      * If the flash write fails we still reset: the app just comes back. */
-    if (to_bootloader)
+    if (to_bootloader) {
         recovery_request_update();
+        if (hal_boot_mailbox())
+            MAILBOX->reason = MAILBOX_REASON_REBOOT;
+    }
     usbd_disconnect();
     sys_delay_ms(10);
     sys_reset();
@@ -372,10 +376,22 @@ const hal_fw_ops_t *hal_fw_ops(void)
 static uint8_t serial_buf[16];
 static uint8_t serial_open, serial_dma;
 static volatile uint8_t serial_at, serial_n;   /* interrupt mode: next byte, bytes */
+/* HAL_UART_RX: bytes received on PA3, by the USART2 interrupt. */
+static volatile uint8_t serial_rx[16];
+static volatile uint8_t serial_rx_in, serial_rx_out;
 
 void USART2_IRQHandler(void)
 {
-    if (!(USART2_SR & USART_SR_TXE))
+    uint32_t sr = USART2_SR;
+    if (sr & (USART_SR_RXNE | USART_SR_ORE)) {
+        uint8_t b = (uint8_t)USART2_DR;     /* SR then DR clears RXNE and the error flags */
+        uint8_t in = serial_rx_in;
+        if ((uint8_t)(in - serial_rx_out) < sizeof serial_rx) {     /* full: dropped */
+            serial_rx[in % sizeof serial_rx] = b;
+            serial_rx_in = (uint8_t)(in + 1u);
+        }
+    }
+    if (!(sr & USART_SR_TXE) || !(USART2_CR1 & USART_CR1_TXEIE))
         return;
     uint8_t i = serial_at;
     if (i < serial_n) {
@@ -404,13 +420,32 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
     } else {
         USART2_CR3 = 0;
         serial_at = serial_n = 0;
+    }
+    uint32_t cr1 = USART_CR1_UE | USART_CR1_TE;
+    if (flags & HAL_UART_RX) {
+        GPIO_CRL(0) = (GPIO_CRL(0) & ~(0xFu << 12)) | (0x8u << 12);   /* PA3: input, pull-up */
+        GPIO_BSRR(0) = 1u << 3;
+        serial_rx_in = serial_rx_out = 0;
+        cr1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+    }
+    if (!serial_dma || (flags & HAL_UART_RX)) {
         NVIC_IPR8(IRQ_USART2) = 0x40;       /* a byte per 87 us at 115200: below USART1, with USB */
         NVIC_ICPR(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
         NVIC_ISER(IRQ_USART2 / 32u) = 1u << (IRQ_USART2 % 32u);
     }
-    USART2_CR1 = USART_CR1_UE | USART_CR1_TE;
+    USART2_CR1 = cr1;
     serial_open = 1;
     return 1;
+}
+
+int hal_serial_read(uint16_t tx_pin)
+{
+    uint8_t out = serial_rx_out;
+    if (tx_pin != SERIAL_TX_PIN || out == serial_rx_in)
+        return -1;
+    int b = serial_rx[out % sizeof serial_rx];
+    serial_rx_out = (uint8_t)(out + 1u);
+    return b;
 }
 
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
@@ -635,4 +670,43 @@ uint16_t hal_extra_caps(void)
 {
     const volatile uint32_t *m = (const volatile uint32_t *)GEMIFI_BOOT_MARK_ADDR;
     return *m == GEMIFI_BOOT_MAGIC ? GSX_CAP_GEMIFI_BOOT : 0;
+}
+
+/* The gemifi bootloader writes the SRAM mailbox (sys.h) from version 0.1.2
+ * on; under M-Audio's, or an older gemifi one, it is random. */
+int hal_boot_mailbox(void)
+{
+    const volatile struct gemifi_boot_mark *m = (const volatile struct gemifi_boot_mark *)GEMIFI_BOOT_MARK_ADDR;
+    return m->magic == GEMIFI_BOOT_MAGIC && m->boot_version >= GEMIFI_VERSION(0, 1, 2);
+}
+
+/* ---- why the app started (diag.reset_reason, diag.boot_loop; sysex.md 4.10) ----
+ * Under the gemifi bootloader RCC_CSR is already cleared: the flags are in
+ * the mailbox (sysex.md 6). Otherwise RCC_CSR as the app found it
+ * (sys_reset_cause). The F1 reports a brown-out as a power-on reset. */
+static uint8_t rst_reason, boot_loop;
+
+void hal_boot_capture(void)
+{
+    uint32_t f = sys_reset_cause();
+    if (hal_boot_mailbox()) {
+        f = MAILBOX->rst_flags;
+        boot_loop = MAILBOX->reason == MAILBOX_REASON_BOOT_LOOP;
+        MAILBOX->reason = 0;
+    }
+    rst_reason = (uint8_t)(f & RCC_CSR_PORRSTF ? GM_RESET_POWER_ON :
+                           f & RCC_CSR_LPWRRSTF ? GM_RESET_LOW_POWER :
+                           f & (RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF) ? GM_RESET_WATCHDOG :
+                           f & RCC_CSR_SFTRSTF ? GM_RESET_SOFTWARE :
+                           f & RCC_CSR_PINRSTF ? GM_RESET_PIN : GM_RESET_UNKNOWN);
+}
+
+uint32_t hal_reset_reason(void)
+{
+    return rst_reason;
+}
+
+int hal_boot_loop(void)
+{
+    return boot_loop;
 }

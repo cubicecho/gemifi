@@ -6,6 +6,7 @@ import {
   type DemoFrame,
   type EffectRun,
   frameChanges,
+  type LedColour,
 } from '../demo/effects.ts';
 import type { SysexClient } from '../protocol/client.ts';
 import {
@@ -27,6 +28,9 @@ const HALF_SPEED = 0.5;
 export const DEMO_SPEEDS = [HALF_SPEED, 1, 2] as const;
 export type DemoSpeed = (typeof DEMO_SPEEDS)[number];
 
+/** The colour picked before the reader picks one. */
+export const DEMO_FIRST_COLOUR: LedColour = 0x0040ff;
+
 /** What {@link useFeedbackDemo} hands the card. */
 export interface DemoController {
   /** Every LED the device lists, by index. */
@@ -39,6 +43,10 @@ export interface DemoController {
   frame: DemoFrame | null;
   speed: DemoSpeed;
   setSpeed: (speed: DemoSpeed) => void;
+  /** The colour picked, for an effect that picks one (Breathe). */
+  colour: LedColour;
+  /** Picks it; a running effect shows it from the next frame. */
+  setColour: (colour: LedColour) => void;
   /** Starts an effect (stopping the one running). */
   start: (id: string) => void;
   /** Stops and hands every LED and display back to the device (FB_RELEASE 0). */
@@ -70,6 +78,8 @@ export function useFeedbackDemo(client: SysexClient, feedback: FeedbackControlle
   const [frame, setFrame] = useState<DemoFrame | null>(null);
   const [speed, setSpeedState] = useState<DemoSpeed>(1);
   const speedRef = useRef<DemoSpeed>(1);
+  const [colour, setColourState] = useState<LedColour>(DEMO_FIRST_COLOUR);
+  const colourRef = useRef<LedColour>(DEMO_FIRST_COLOUR);
   /** What the device was last sent; null makes the next frame send everything. */
   const sentRef = useRef<DemoFrame | null>(null);
 
@@ -91,7 +101,7 @@ export function useFeedbackDemo(client: SysexClient, feedback: FeedbackControlle
       return;
     }
     const canvas = { leds: leds.length, displays: displays.map((d) => d.cols) };
-    const step: EffectRun = running.start(canvas, Math.random);
+    const step: EffectRun = running.start(canvas, Math.random, { colour: () => colourRef.current });
     let t = 0;
     sentRef.current = null;
     const tick = () => {
@@ -143,5 +153,10 @@ export function useFeedbackDemo(client: SysexClient, feedback: FeedbackControlle
     setSpeedState(next);
   }, []);
 
-  return { leds, displays, running, frame, speed, setSpeed, start, stop };
+  const setColour = useCallback((next: LedColour) => {
+    colourRef.current = next;
+    setColourState(next);
+  }, []);
+
+  return { leds, displays, running, frame, speed, setSpeed, colour, setColour, start, stop };
 }

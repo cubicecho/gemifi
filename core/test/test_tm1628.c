@@ -28,7 +28,7 @@
 #include "gm_feedback.h"
 #include "gm_vpin.h"
 
-#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 22
+#if !defined(GM_TM1628_RAM) || GM_TM1628_RAM != 32
 #error "test_tm1628.c needs the tm1628-test.yaml config"
 #endif
 
@@ -278,6 +278,15 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags)
     return 1;
 }
 
+#ifdef RGB_ACK_TEST
+/* The simulated pad board: answers each LED message with 0x40 + LED once it
+ * is up (BOARD_UP_MS), unless told to lose the next one. */
+#define BOARD_UP_MS 300u
+static int board_drop;              /* lose this many LED messages */
+static uint8_t ack_q[64];
+static int ack_in, ack_out;
+#endif
+
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
 {
     work();
@@ -289,7 +298,25 @@ int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n)
         memcpy(ser_log[ser_n].b, b, n);
         ser_n++;
     }
+#ifdef RGB_ACK_TEST
+    if (n == 6 && now_ms >= BOARD_UP_MS) {
+        if (board_drop)
+            board_drop--;
+        else if (ack_in - ack_out < (int)sizeof ack_q)
+            ack_q[ack_in++ % (int)sizeof ack_q] = (uint8_t)(0x40u + (b[1] - 0x80u));
+    }
+#endif
     return 1;
+}
+
+int hal_serial_read(uint16_t tx_pin)
+{
+#ifdef RGB_ACK_TEST
+    if (tx_pin == ser_pin && ack_out < ack_in)
+        return ack_q[ack_out++ % (int)sizeof ack_q];
+#endif
+    (void)tx_pin;
+    return -1;
 }
 
 /* Messages (not keepalives) since index from, and the smallest gap between
@@ -473,11 +500,94 @@ int main(void)
     gm_led_script(3, 0);
     run_ms(20);
     CHECK(chip[0].ram[13] == 0x00, "FB_LED off");
+#ifdef RGB_ACK_TEST
+    /* fade: (chip A in the ack build): the chip's brightness follows the
+     * brightest LED on it, in its 8 steps up to intensity 3; too dim for
+     * the dimmest step is display off. Chip B has no fade:. */
+    gm_led_script_rgb(3, 127, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: full red, intensity 3 (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 100, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8A && chip[0].ram[13] == 0x01, "fade: 100 of 127, step 2 (%02X %02X)",
+          chip[0].ctl, chip[0].ram[13]);
+    gm_led_script_rgb(3, 61, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x89, "fade: 61 of 127, step 1 (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 40, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x88, "fade: 40 of 127, the dimmest step (%02X)", chip[0].ctl);
+    gm_led_script_rgb(3, 10, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x80 && chip[0].ram[13] == 0x01, "fade: 10 of 127, display off (%02X %02X)",
+          chip[0].ctl, chip[0].ram[13]);
+    /* the button LED (A, lit full by its toggle) doesn't hold the chip at
+     * full while a host colour is lit */
+    level[PIN_BTN] = 0;
+    run_ms(30);
+    level[PIN_BTN] = 1;
+    run_ms(30);
+    CHECK(chip[0].ram[4] == 0x20 && chip[0].ctl == 0x80, "fade: a host colour wins over a lit button (%02X %02X)",
+          chip[0].ram[4], chip[0].ctl);
+    /* a breath: the host's colour changes every 50 ms while the button is
+     * lit; the chip never jumps to full in between. Each change lands just
+     * before an LED update (on the device it comes in in the same pass), so
+     * the update sees it before the LED is drawn again. */
+    {
+        int full_seen = 0;
+        for (int f = 0; f < 20; f++) {
+            while (now_ms % 10u != 9u)
+                run_ms(1);
+            gm_led_script_rgb(3, (uint32_t)(40 + (f & 1) * 5), 0, 0, 0);
+            for (int ms = 0; ms < 50; ms++) {
+                run_ms(1);
+                full_seen += chip[0].ctl == 0x8B;
+            }
+        }
+        CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a changing host colour never jumps to full (%d ms, %02X)",
+              full_seen, chip[0].ctl);
+    }
+    /* a blinking dim host colour: the chip stays at its step through the
+     * blink's dark half too (the lit button doesn't pull it to full) */
+    {
+        gm_led_script_rgb(3, 40, 0, 0, 1);
+        run_ms(20);
+        int full_seen = 0;
+        for (int ms = 0; ms < 1500; ms++) {
+            run_ms(1);
+            full_seen += chip[0].ctl == 0x8B;
+        }
+        CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a blinking dim colour doesn't pump the chip (%d ms full)",
+              full_seen);
+    }
+    /* a host's black (FB_LED_RGB 0, 0, 0) is a colour at brightness 0: the
+     * chip goes dark, not to full for the lit button */
+    gm_led_script_rgb(3, 0, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x80, "fade: a host's black: dark, not full (%02X)", chip[0].ctl);
+    gm_led_script(3, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: FB_LED off is no colour: the lit button, full (%02X)", chip[0].ctl);
+    level[PIN_BTN] = 0;
+    run_ms(30);
+    level[PIN_BTN] = 1;
+    run_ms(30);
+    gm_led_script(3, 127);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x8B, "fade: FB_LED on, full again (%02X)", chip[0].ctl);
+    CHECK(chip[1].ctl == 0x8F, "no fade: chip B stays at intensity 7 (%02X)", chip[1].ctl);
+    gm_led_script(3, 0);
+    run_ms(20);
+#endif
 
     /* rgb_serial: opened on PA2 at 115200; every LED sent once at start
      * (all off, after the lamp test), one message per >= 5 ms; A5 every 50 ms */
     CHECK(ser_pin == 2 && ser_baud == 115200u, "serial opened on PA2 at 115200 (%u, %u)", ser_pin, ser_baud);
+#ifdef RGB_ACK_TEST
+    CHECK(ser_flags == (HAL_UART_DMA | HAL_UART_RX), "rgb_serial: by DMA, receiving (rx_pin)");
+#else
     CHECK(ser_flags == HAL_UART_DMA, "rgb_serial: by DMA (the default)");
+#endif
     uint32_t gap;
     int n0 = ser_msgs(0, &gap);
     CHECK(n0 >= 4, "every LED sent at start (%d messages)", n0);
@@ -492,29 +602,130 @@ int main(void)
             ka++;
         }
     CHECK(ka >= 10 && ka_gap <= 55u, "A5 keepalive every 50 ms (%d, max gap %u)", ka, ka_gap);
+#ifdef RGB_ACK_TEST
+    /* rx_pin: before the board answers, unanswered LEDs are sent again with
+     * a growing pause (little traffic while it starts); its first answer
+     * (BOARD_UP_MS) means it's up: every LED is sent again then, not at 2 s. */
+    if (now_ms < 2100u)
+        run_ms(2100u - now_ms);
+    int early = 0, rep = 0, seen[4] = { 0 };
+    uint32_t first_up = 0xFFFFFFFFu;
+    for (int i = 0; i < ser_n; i++) {
+        if (ser_log[i].n != 6)
+            continue;
+        if (ser_log[i].t < BOARD_UP_MS)
+            early++;
+        else if (first_up == 0xFFFFFFFFu)
+            first_up = ser_log[i].t;
+        if (ser_log[i].t >= BOARD_UP_MS && ser_log[i].t < 1000u && ser_log[i].b[1] >= 0x80 &&
+            ser_log[i].b[1] < 0x84 && !seen[ser_log[i].b[1] - 0x80]++)
+            rep++;
+    }
+    CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+    CHECK(early >= 1 && early <= 5, "before the board is up: a few tries only (%d LED messages)", early);
+    CHECK(first_up < BOARD_UP_MS + 400u, "tried again soon after it's up (%u ms)", first_up);
+    CHECK(rep == 4, "every LED sent once the board answers, before 1 s (%d of 4)", rep);
+    {
+        int late = 0;
+        for (int i = 0; i < ser_n; i++)
+            late += ser_log[i].n == 6 && ser_log[i].t >= 1000u && ser_log[i].t < 2100u;
+        CHECK(late == 0, "all answered: nothing more, no 2 s repaint (%d)", late);
+    }
+#else
+    /* The first colours are lost at power-on, so every LED goes out once
+     * more at 2 s; nothing else is resent (a steady resend left the Code 61
+     * pad board deaf after a cold start). */
+    if (now_ms < 2100u)
+        run_ms(2100u - now_ms);
+    int rep = 0, seen[4] = { 0 };
+    for (int i = 0; i < ser_n; i++)
+        if (ser_log[i].n == 6 && ser_log[i].t >= 2000u && ser_log[i].t < 2100u && ser_log[i].b[1] >= 0x80 &&
+            ser_log[i].b[1] < 0x84 && !seen[ser_log[i].b[1] - 0x80]++)
+            rep++;
+    CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+    CHECK(rep == 4, "every LED sent once more at 2 s (%d of 4)", rep);
+#endif
     int from = ser_n;
-    run_ms(100);
-    int again = ser_msgs(from, 0);
-    CHECK(again >= 1 && again <= 3, "nothing changes: one LED sent again every 50 ms (%d in 100 ms)", again);
-    /* a full round sends every LED again: a lost message heals */
-    from = ser_n;
-    run_ms(20 * 50 + 50);
-    CHECK(ser_msgs(from, 0) >= 16, "every LED sent again within a round (%d)", ser_msgs(from, 0));
-    /* LED 4 = serial LED 2: red, then white, then off */
+    run_ms(1000);
+    CHECK(ser_msgs(from, 0) == 0, "nothing changes: nothing sent again (%d in 1 s)", ser_msgs(from, 0));
+    /* LED 4 = serial LED 2: red, then white, then off. With white: (the
+     * ack build: [255, 200, 220]) full white sends that. */
+#ifdef RGB_ACK_TEST
+#define WHITE_G 200
+#define WHITE_B 220
+#else
+#define WHITE_G 0xFF
+#define WHITE_B 0xFF
+#endif
     gm_led_script_rgb(4, 127, 0, 0, 0);
     run_ms(20);
     CHECK(ser_last_is(2, 0xFF, 0, 0), "serial LED 2 red");
+    /* Any colour: a DAW's 0..127 per channel goes out at 0..255 (an LED
+     * that can show any colour), through gamma: and white: if set. */
+    gm_led_script_rgb(4, 127, 64, 16, 0);
+    run_ms(20);
+#ifdef RGB_ACK_TEST
+    CHECK(ser_last_is(2, 0xFF, 45, 3), "serial LED 2 orange, through gamma 2.2 and white");
+#else
+    CHECK(ser_last_is(2, 0xFF, 129, 32), "serial LED 2 orange, all 8 bits");
+#endif
+    gm_led_script_rgb(4, 127, 70, 16, 0);
+    run_ms(20);
+#ifndef RGB_ACK_TEST
+    CHECK(ser_last_is(2, 0xFF, 141, 32), "a new colour at the same level is sent too");
+#endif
     gm_led_script(4, 127);
     run_ms(20);
-    CHECK(ser_last_is(2, 0xFF, 0xFF, 0xFF), "serial LED 2 on: white");
+    CHECK(ser_last_is(2, 0xFF, WHITE_G, WHITE_B), "serial LED 2 on: white");
     /* busy UART: held back, then sent */
     ser_busy = 1;
     gm_led_script(4, 0);
     run_ms(20);
-    CHECK(ser_last_is(2, 0xFF, 0xFF, 0xFF), "nothing new while the UART is busy");
+    CHECK(ser_last_is(2, 0xFF, WHITE_G, WHITE_B), "nothing new while the UART is busy");
     ser_busy = 0;
     run_ms(20);
-    CHECK(ser_last_is(2, 0, 0, 0), "serial LED 2 off once the UART is free");
+    /* Off shows its full-colour idle look ("#000010"; through gamma 2.2
+     * and white in the ack build: the faintest blue, never 0). */
+#ifdef RGB_ACK_TEST
+    CHECK(ser_last_is(2, 0, 0, 1), "serial LED 2 off once the UART is free: its idle look, dim blue");
+#else
+    CHECK(ser_last_is(2, 0, 0, 0x10), "serial LED 2 off once the UART is free: its idle look, dim blue");
+#endif
+#ifdef RGB_ACK_TEST
+    /* A lost message isn't answered: it goes out again. */
+    {
+        run_ms(100);
+        int lost_from = ser_n;
+        board_drop = 1;
+        gm_led_script(4, 127);
+        run_ms(150);
+        int twice = 0;
+        for (int i = lost_from; i < ser_n; i++)
+            twice += ser_log[i].n == 6 && ser_log[i].b[1] == 0x82 && ser_log[i].b[2] == 0xFF &&
+                     ser_log[i].b[3] == WHITE_G;
+        CHECK(twice == 2, "lost, not answered: sent again (%d times)", twice);
+        int idle_from = ser_n;
+        run_ms(500);
+        CHECK(ser_msgs(idle_from, 0) == 0, "answered: nothing more (%d)", ser_msgs(idle_from, 0));
+    }
+#endif
+    /* The board loses a write right after another, an A5 included. A stall
+     * (here the busy UART; on the Code 61 the start-up) leaves the A5 and an
+     * LED both due: they must not go out back to back, nor stay 50 ms
+     * apart in step afterwards, or every resend is lost. */
+    {
+        int busy_end = ser_n;
+        ser_busy = 1;
+        run_ms(120);                        /* the A5 and a resend both overdue */
+        ser_busy = 0;
+        run_ms(300);
+        uint32_t any_gap = 0xFFFFFFFFu;
+        for (int i = busy_end + 1; i < ser_n; i++)
+            if (ser_log[i].t - ser_log[i - 1].t < any_gap)
+                any_gap = ser_log[i].t - ser_log[i - 1].t;
+        CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+        CHECK(any_gap >= 5u, "after a stall: every write, A5 included, 5 ms after the last (%u)", any_gap);
+    }
 
     /* A display-sized change: bytes 0-11 of A, but not byte 4 (the LEDs').
      * One run (byte 4 is a single unchanged byte, rewritten as it is), cut

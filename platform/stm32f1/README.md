@@ -1,6 +1,6 @@
 # platform/stm32f1
 
-Bare-metal gemifi platform for STM32F103-class chips (Cortex-M3, 72 MHz) that run **behind a bootloader in the first 9 KB** of flash. The first board is the M-Audio Code 61 (`boards/m-audio-code61.h`, board id `0x0002`). Its chip is a genuine STM32F103RBT6 (128 KB flash, 1 KB pages, 20 KB RAM, 8 MHz HSE; confirmed on hardware 2026-11-03, #24). The test unit runs the gemifi bootloader ([`bootloader/stm32f1`](../../bootloader/stm32f1/)), which replaced the vendor's and keeps the same app address, so the app layout below didn't change. Parts of this file still describe the vendor bootloader the platform was first brought up behind. The 60-slot vector table is kept anyway, so the header stays at 0x130 for the tools.
+Bare-metal gemifi platform for STM32F103-class chips (Cortex-M3, 72 MHz) that run **behind a bootloader in the first 9 KB** of flash. The first board is the M-Audio Code 61 (`boards/m-audio-code61.h`, board id `0x0002`). Its chip is a genuine STM32F103RBT6 (128 KB flash, 1 KB pages, 20 KB RAM, 8 MHz HSE; confirmed on hardware 2026-11-03, #24). It runs the gemifi bootloader ([`bootloader/stm32f1`](../../bootloader/stm32f1/)), put on once over SWD. It replaced the vendor's and keeps the same app address, so an app built for one runs under the other. The 60-slot vector table stays, so the header stays at 0x130 for the tools.
 
 Background: [research/devices/m-audio-code61/analysis/custom-firmware-path.md](../../research/devices/m-audio-code61/analysis/custom-firmware-path.md).
 
@@ -10,22 +10,23 @@ Apps: `firmware/stm32f1/probe` (the first hardware test) and `firmware/stm32f1/m
 
 | Range | Use |
 |---|---|
-| 0x08000000–0x080023FF | the bootloader: now the gemifi bootloader (`bootloader/stm32f1`, written once over SWD), first the vendor's. The app never writes it |
+| 0x08000000–0x080023FF | the bootloader: the gemifi bootloader (`bootloader/stm32f1`, written once over SWD), or the vendor's on a unit that still has it. The app never writes it |
 | 0x08002400–0x0801AFFF | gemifi image (`ld/app.ld`): vectors 0x000–0x12F (16 core + 60 IRQ), `.gfw` header at +0x130 (0x08002530), then code |
-| 0x0801B000–0x0801B3FF | vendor "app valid" page. The host packer writes the whole-image checksum at 0x0801B3FE (the negated 16-bit byte sum of 0x08002400–0x0801B3FD). The app never writes it |
+| 0x0801B000–0x0801B3FF | vendor "app valid" page. Only the vendor route uses it: its host packer writes the whole-image checksum at 0x0801B3FE (the negated 16-bit byte sum of 0x08002400–0x0801B3FD). The gemifi bootloader ignores it; the app never writes it |
 | 0x0801B400–0x0801FBFF | vendor settings "EEPROM". The gemifi profile uses `BOARD_CONFIG_BASE`/`BOARD_CONFIG_PAGES` in here (Code 61: 0x0801EC00, 0x0801F000 and 0x0801F400, the pages the stock app never uses; never 0x0801F800, the vendor's preset names) |
-| 0x0801FC00–0x0801FFFF | vendor update-request flag page |
+| 0x0801FC00–0x0801FFFF | update-request flag page, read by both bootloaders |
 | 0x20000000–0x20004FFF | RAM, taken as 20 KB. The stack starts at the top. `.noinit` is not zeroed |
 
-The linker checks that the image starts at 0x08002400, that the header sits at 0x08002530 and that the image ends below 0x0801B000. `mk/app.mk` calls `tools/host/mkimage.py --hdr-offset 0x130 --base 0x08002400 --max-size 102398`. The `.gfw` file is not what the bootloader takes. The host packer turns it into the vendor record stream.
+The linker checks that the image starts at 0x08002400, that the header sits at 0x08002530 and that the image ends below 0x0801B000. `mk/app.mk` calls `tools/host/mkimage.py --hdr-offset 0x130 --base 0x08002400 --max-size 102398`. The gemifi bootloader takes the `.gfw` as it is (`protocol/sysex.md` §4.2); for a unit on the vendor bootloader, the host packer turns it into the vendor record stream (`tools/README.md`, "M-Audio Code 61").
 
 ## Update requests and recovery
 
-- **REBOOT(1)**, from `hal_reboot(1)`: writes the vendor magic `55 5A A5 AA 59 95 3A A3` to 0x0801FC00 (the rest of the page stays FF), disconnects USB and resets with SYSRESETREQ. The vendor bootloader then stays in update mode. This is the same request the stock app makes. **REBOOT(0)** is a plain reset.
+- **REBOOT(1)**, from `hal_reboot(1)`: writes the update flag `55 5A A5 AA 59 95 3A A3` to 0x0801FC00 (the rest of the page stays FF), disconnects USB and resets with SYSRESETREQ. The gemifi bootloader clears the flag and stays in update mode; the vendor bootloader reads the same flag. **REBOOT(0)** is a plain reset.
+- **HELLO caps bit 7** (`hal_extra_caps`): set when the gemifi bootloader's mark is in flash, so hosts know REBOOT(1) leads to a gemifi bootloader and send the gemifi upload, not the vendor one.
 - **Recovery combo**, in `src/recovery.c`: runs first in `Reset_Handler`, before `.data`/`.bss`, VTOR, clocks or USB. If the board's `BOARD_RECOVERY_*` buttons are held, it writes the same flag and resets. It uses only registers and its own flash routines.
-  - **Code 61**: JTAG off (SWD kept), PB3–PB7 driven low (decoder row 16), PB8–PB15 pulled up, recovery when PB8 and PB9 both read low in 8 samples over ~20 ms. The pins are then put back to input floating. The button labels (probably Octave −/+) are unverified.
-- **IWDG**: about 1 s (the stock values, PR 3 and RLR 0x4E2). Apps start it first thing and kick it in the main loop, so a hang becomes a reset.
-- There is no SRAM mailbox or boot-loop guard as on the NUC. The vendor bootloader doesn't have one.
+  - **Code 61**: JTAG off (SWD kept), PB3–PB7 driven low (decoder row 16), PB8–PB15 pulled up, recovery when PB8 and PB9 both read low in 8 samples over ~20 ms: **Up + Down** (verified on hardware 2026-11-03). The pins are then put back to input floating. The gemifi bootloader checks the same combo itself, so it works even with a broken app.
+- **IWDG**: about 1 s (PR 3, RLR 0x4E2). Apps start it first thing and kick it in the main loop, so a hang becomes a reset.
+- **SRAM mailbox and boot-loop guard** (`protocol/sysex.md` §6), with the gemifi bootloader from 0.1.2: 16 bytes at 0x2000_4FF0, above the stack top (`include/sys.h`). The bootloader counts hand-offs of a gemifi image and stays in update mode after the third without a clear (`reason` 2); a POR or low-power reset zeroes the count; M-Audio's app isn't counted. It also leaves `RCC_CSR` there and clears it. The app (`hal_boot_capture`, `src/hal.c`) reads the reset reason and `reason` from it, clears `boot_count` after 5 s and sets `reason` 1 on REBOOT(1). Under M-Audio's bootloader, or a gemifi one before 0.1.2, the app ignores the mailbox and reads `RCC_CSR` itself. Host test: `test/boot-sim` (`make -C platform/stm32f1/test/boot-sim test`).
 
 ## Files
 
@@ -45,7 +46,5 @@ The linker checks that the image starts at 0x08002400, that the header sits at 0
 
 ## Unverified (needs hardware)
 
-- Whether the vendor bootloader accepts our image, and whether it checks the flag after a soft reset or only at power-on. If only at power-on, REBOOT(1) needs a power cycle.
-- The recovery combo (row 16 PB8/PB9; which buttons those are), and the config pages (0x0801EC00/0x0801F000 come from static analysis only).
+- The vendor route on a unit that still has M-Audio's bootloader: whether it takes a gemifi image (it has taken the stock image back, 2026-11-03), and whether a soft reset with the flag set is enough or it always needs a power cycle.
 - `DBGMCU_IDCODE` reads 0 without a debugger on genuine ST F103s (errata). The probe also reports SCB CPUID: r1p1 on ST, r2p1 on GD32.
-- The fault-safe SRAM probe (FAULTMASK + `CCR.BFHFNMIGN`). If it ever crashes, a `.noinit` marker makes the next boot skip it.

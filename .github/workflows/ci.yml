@@ -27,17 +27,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      # gcc-arm-none-eabi: host-sim links a real NUC firmware image (hello-led.gfw). Without its
-      # recommended newlib, as in the Dockerfile: the NUC firmware is -nostdlib.
-      - name: Toolchain
+      # arm-none-eabi-gcc: the firmware and bootloader builds, and host-sim, which links a real
+      # NUC firmware image (hello-led.gfw). From Arm's releases, cached between runs, instead of
+      # apt: the Ubuntu mirror download hung for 20 minutes more than once. 14.2.Rel1 is the
+      # version the Ubuntu package on dev machines has. make is already on the runner image.
+      - name: Arm toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        timeout-minutes: 5
+        with:
+          release: "14.2.Rel1"
+
+      - name: Python packages
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi make
+          arm-none-eabi-gcc --version | head -1
+          make --version | head -1
           pip install pyyaml==6.0.3 pytest
 
       - name: Builder
         working-directory: tools/builder
         run: python -m pytest -q tests
+
+      # The device YAML's JSON schema is generated from the validator: a validator change without a
+      # regenerated site/src/schema/device.json fails here (the site publishes that file).
+      - name: Device YAML schema up to date
+        run: python tools/builder/gemifi_build.py schema --check site/src/schema/device.json
 
       - name: Core
         run: make -C core/test test
@@ -58,6 +71,9 @@ jobs:
 
       - name: STM32F1 config store (simulated flash)
         run: make -C platform/stm32f1/test/cs-test test
+
+      - name: STM32F1 bootloader boot decision (boot-loop guard)
+        run: make -C platform/stm32f1/test/boot-sim test
 
       - name: NUC host-sim (bootloader, app, end to end)
         run: make -C platform/nuvoton-nuc1xx/test/host-sim test

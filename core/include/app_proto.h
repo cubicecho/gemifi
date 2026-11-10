@@ -3,9 +3,10 @@
  *
  * Handles HELLO, REBOOT (via the SRAM mailbox), the Universal Identity
  * Request, the config commands (GET_SCHEMA, GET/SET_PARAM(S), COMMIT,
- * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h) and answers FW_*
- * with BAD_STATE. Sends LOG, EVENT, PARAM_CHANGED, PRESET_CHANGED and,
- * with host feedback, BOOTED (once, 1.5 s after app_proto_init).
+ * FACTORY_RESET, PRESET_*; see params.h and gm_presets.h), UNLOCK (with
+ * physical unlock, gm_safety.h) and answers FW_* with BAD_STATE. Sends
+ * LOG, EVENT, PARAM_CHANGED, PRESET_CHANGED, UNLOCKED and, with host
+ * feedback, BOOTED (once, 1.5 s after app_proto_init).
  *
  * Platform independent: it talks to the chip only through gm_hal.h (and
  * the store through gm_presets.h). FW_* go to hal_fw_ops() when the platform has one (A/B
@@ -58,6 +59,25 @@ void app_event(uint8_t type, uint32_t index, uint32_t value);
 void app_param_changed(uint16_t id, uint16_t index);
 /* Unsolicited PRESET_CHANGED (slot u14, dirty byte). */
 void app_preset_changed(uint32_t slot, uint32_t dirty);
+
+/* Unsolicited UNLOCKED (sysex.md 4.9): 1 unlocked, 0 locked again or the
+ * unlock window closed. */
+void app_unlocked(uint8_t state);
+/* An unsolicited message (cmd 0x60-0x7F) with a payload of 7-bit bytes,
+ * framed with the running device seq. */
+void app_send_unsolicited(uint8_t cmd, const uint8_t *payload, uint32_t n);
+
+/* Raw readings (sysex.md 4.8): MONITOR and RAW. On by default; a build can
+ * set GM_MONITOR 0 to leave them out. The controller (controller.c) streams
+ * them from gm_poll. */
+#ifndef GM_MONITOR
+#define GM_MONITOR 1
+#endif
+#define GM_MONITOR_INTERVAL_MS 20u      /* one RAW message per 20 ms at most */
+#define GM_MONITOR_TIMEOUT_MS  5000u    /* stops this long after the last MONITOR */
+/* MONITOR: start, renew or (kinds 0) stop the stream. Returns the kinds
+ * (GSX_MON_*) the device has of those asked for, which it now sends. */
+uint32_t gm_monitor(uint32_t kinds);
 
 /* Optional hook (weak, default does nothing): a param changed through
  * SET_PARAM(S) or FACTORY_RESET. id 0 = everything changed. */

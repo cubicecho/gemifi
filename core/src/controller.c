@@ -29,6 +29,11 @@
 #include "gm_mcu.h"
 #include "gm_display.h"
 #include "gm_din.h"
+#include "gm_safety.h"
+
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
 
 #define BTN_SAMPLE_MS   1u
 /* A press counts at the first sample that read it closed throughout (every
@@ -50,6 +55,9 @@
 #define NE GM_ARR(GM_N_ENCODERS)
 #define NK GM_ARR(GM_MATRIX_KEYS)
 
+#ifndef GM_STATUS_LED
+#define GM_STATUS_LED (-1)              /* status_led: (gm_safety.h) */
+#endif
 #ifndef GM_N_MODES
 #define GM_N_MODES 0                /* a config generated before modes */
 #endif
@@ -120,7 +128,8 @@ static void midi2(uint8_t status, uint32_t a)
 }
 #endif
 
-static void cc(uint32_t num, uint32_t value)
+/* unused when every kind of control has its own channel: (GM_*_CTL) */
+__attribute__((unused)) static void cc(uint32_t num, uint32_t value)
 {
     midi3(0xB0 | chan(), num, value);
 }
@@ -131,6 +140,149 @@ static void event(uint8_t type, uint32_t index, uint32_t value)
     if (gm_cfg.events)
         app_event(type, index, value);
 }
+
+/* ---- MIDI messages (core/README.md "MIDI messages") -------------------- */
+
+#ifndef GM_BTN_CTL
+#define GM_BTN_CTL 0                /* gm_button_ctl[]: channel:, min:, max: */
+#endif
+#ifndef GM_ANALOG_CTL
+#define GM_ANALOG_CTL 0             /* gm_analog_ctl[] */
+#endif
+#ifndef GM_ENC_CTL
+#define GM_ENC_CTL 0                /* gm_encoder_ctl[] */
+#endif
+#ifndef GM_BTN_BANK
+#define GM_BTN_BANK 0               /* gm_button_bank[] */
+#endif
+#define GM_CTL (GM_BTN_CTL || GM_ANALOG_CTL || GM_ENC_CTL)
+/* Analog inputs and encoders that can send more than a 7-bit CC. */
+#define GM_MSG_KINDS (GM_MSG_WIDE || GM_N_SYSEX)
+
+#if GM_CTL
+/* A control's channel: its channel:, else midi.channel. */
+static uint8_t ctl_chan(const gm_ctl_t *t)
+{
+    return t->channel ? (uint8_t)((t->channel - 1u) & 0x0Fu) : chan();
+}
+
+static int32_t ctl_hi(const gm_ctl_t *t, int32_t top)
+{
+    return t->max == GM_CTL_TOP ? top : (int32_t)t->max;
+}
+
+/* v of 0..top as the control's min..max, rounded (min > max: inverted). */
+static uint32_t ctl_out(const gm_ctl_t *t, int32_t v, int32_t top)
+{
+    int32_t lo = t->min, d = ctl_hi(t, top) - lo;
+    return (uint32_t)(lo + (v * d + (d < 0 ? -top : top) / 2) / top);
+}
+#endif
+
+#if GM_MSG_KINDS
+/* A kind whose values are 14-bit (a SysEx string with msb / lsb in it). */
+static int kind_wide(uint32_t kind, uint32_t num)
+{
+#if GM_N_SYSEX
+    if (kind == K_SYSEX)
+        return num < GM_N_SYSEX && (gm_sysex[num].flags & GM_SX_WIDE);
+#endif
+    (void)num;
+    return kind == K_CC14 || kind == K_NRPN14 || kind == K_RPN14;
+}
+#endif
+
+#if GM_N_SYSEX || GM_MSG_MMC
+static void sysex_out(const uint8_t *m, uint32_t n)
+{
+    INPUT_NOW();
+    hal_midi_send(m, n);
+    gm_din_local(m, n);
+}
+#endif
+
+#if GM_N_SYSEX
+/* SysEx string k with value v and channel ch (0..15) filled in. */
+static void sysex_send(uint32_t k, uint32_t v, uint8_t ch)
+{
+    const gm_sysex_t *s = &gm_sysex[k];
+    uint8_t m[GM_SYSEX_MAX];
+    uint32_t n = 0, sum = 0;
+    for (uint32_t i = 0; i < s->len && n < GM_SYSEX_MAX; i++) {
+        uint32_t b = s->data[i];
+        switch (b) {
+        case GM_SX_VALUE:
+        case GM_SX_LSB:
+            b = v & 0x7Fu;
+            break;
+        case GM_SX_MSB:
+            b = (v >> 7) & 0x7Fu;
+            break;
+        case GM_SX_CHANNEL:
+            b = ch;
+            break;
+        case GM_SX_SUM_START:
+            sum = 0;
+            continue;
+        case GM_SX_SUM:
+            b = (128u - (sum & 127u)) & 127u;      /* Roland */
+            break;
+        default:
+            break;
+        }
+        sum += b;
+        m[n++] = (uint8_t)b;
+    }
+    sysex_out(m, n);
+}
+#endif
+
+#if GM_MSG_KINDS
+/* Value v (7- or 14-bit, as kind wants) as kind on channel ch: num is the
+ * CC, the (N)RPN number or the SysEx index. */
+static void send_value(uint32_t kind, uint8_t ch, uint32_t num, uint32_t v)
+{
+    uint8_t st = (uint8_t)(0xB0u | ch);
+    switch (kind) {
+#if GM_MSG_CC14
+    case K_CC14:                    /* MSB, then the LSB on cc + 32 */
+        midi3(st, num, v >> 7);
+        midi3(st, num + 32u, v);
+        return;
+#endif
+#if GM_MSG_NRPN
+    case K_NRPN:
+    case K_NRPN14:
+    case K_RPN:
+    case K_RPN14: {
+        uint32_t sel = kind >= K_RPN ? 101u : 99u;     /* the number's MSB; LSB one below */
+        midi3(st, sel, num >> 7);
+        midi3(st, sel - 1u, num);
+        if (kind == K_NRPN14 || kind == K_RPN14) {
+            midi3(st, 6, v >> 7);   /* data entry MSB, LSB */
+            midi3(st, 38, v);
+        } else {
+            midi3(st, 6, v);
+        }
+#if GM_NULL_RPN
+        midi3(st, 101, 127);        /* the null RPN: later data entry goes nowhere */
+        midi3(st, 100, 127);
+#endif
+        return;
+    }
+#endif
+#if GM_N_SYSEX
+    case K_SYSEX:
+        if (num < GM_N_SYSEX)
+            sysex_send(num, v, ch);
+        return;
+#endif
+    default:
+        midi3(st, num, v);
+        return;
+    }
+}
+#endif
 
 /* ---- key matrix (scan side) ------------------------------------------ */
 
@@ -236,9 +388,16 @@ static void layers_update(void);
 #endif
 
 /* LED levels (see led_show below): LV_BLINK | level blinks it; LV_RGB | m
- * lights the pins in mask m (an RGB colour, or a cycle step's colour). */
+ * lights the pins in mask m (an RGB colour, or a cycle step's colour);
+ * LV_RGB | LV_COLOUR | m shows led_colour[] (a DAW's colour, FB_LED_RGB) on
+ * an LED that can show any colour (rgb_serial), else mask m. */
 #define LV_BLINK 0x80u
 #define LV_RGB 0x40u
+#define LV_COLOUR 0x20u
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* defined with leds_update() */
+#if GM_HOST_FB
+static uint32_t led_colour[GM_ARR(GM_N_LEDS)];  /* 0xRRGGBB, 8 bits a colour */
+#endif
 
 static volatile uint32_t ticks;
 volatile uint32_t gm_scan_period_us;
@@ -267,26 +426,38 @@ static void poll_part_done(uint32_t i, uint32_t *t)
 }
 
 #if GM_HAS_MATRIX
-static void kq_push(uint32_t key, int on, uint32_t dt)
+/* A key change that didn't fit (the queue was full): matrix_row leaves its
+ * bits as they were, so the next scan sees the change again; the hardware
+ * scan also takes its next frame as changed (gm_scan_frames). */
+static volatile uint8_t kq_retry;
+
+/* 1 if queued, 0 if the queue is full (the main loop stalled for > 31
+ * events): the caller keeps the key's old state, to try again. */
+static int kq_push(uint32_t key, int on, uint32_t dt)
 {
     uint8_t next = (uint8_t)((kq_head + 1u) & (KQ - 1u));
-    if (next == kq_tail)
-        return;                     /* full: main loop stalled for > 32 events */
+    if (next == kq_tail) {
+        kq_retry = 1;
+        return 0;
+    }
     kq[kq_head].key = (uint8_t)key;
     kq[kq_head].on = (uint8_t)on;
     kq[kq_head].dt = (uint16_t)(dt > 0xFFFFu ? 0xFFFFu : dt);
     kq_head = next;
+    return 1;
 }
 
 /* Two-contact key: whichever contact closes first starts the timer, both
- * closed = note on, both open = note off. */
-static void key_update(uint32_t k, uint32_t c)
+ * closed = note on, both open = note off. 0 if its event didn't fit: the
+ * key stays as it was (a note on then gets a later time: a little slower). */
+static int key_update(uint32_t k, uint32_t c)
 {
     switch (kstate[k]) {
     case K_IDLE:
         if (c == 3u) {
-            kstate[k] = K_ON;       /* both at once: as fast as we can see */
-            kq_push(k, 1, 0);
+            if (!kq_push(k, 1, 0))  /* both at once: as fast as we can see */
+                return 0;
+            kstate[k] = K_ON;
         } else if (c) {
             kstate[k] = K_TIMING;
             kt0[k] = (uint16_t)ticks;
@@ -294,19 +465,22 @@ static void key_update(uint32_t k, uint32_t c)
         break;
     case K_TIMING:
         if (c == 3u) {
+            if (!kq_push(k, 1, (uint16_t)(ticks - kt0[k])))
+                return 0;
             kstate[k] = K_ON;
-            kq_push(k, 1, (uint16_t)(ticks - kt0[k]));
         } else if (!c) {
             kstate[k] = K_IDLE;
         }
         break;
     default:
         if (!c) {
+            if (!kq_push(k, 0, 0))
+                return 0;
             kstate[k] = K_IDLE;
-            kq_push(k, 0, 0);
         }
         break;
     }
+    return 1;
 }
 
 /* One key per scan tick: a key still timing after KT0_MAX ticks stays at
@@ -365,39 +539,41 @@ static void matrix_row(const gm_matrix_t *m, uint32_t r, uint32_t s, uint32_t ro
         uint32_t diff = (*even ^ mprev[r - 1u]) | (s ^ mprev[r]);
         if (!diff)
             return;
-        mprev[r - 1u] = *even;
-        mprev[r] = s;
+        uint32_t keep = 0;              /* columns whose event didn't fit: as they were */
         uint32_t pair = r / 2u;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             if (!((diff >> c) & 1u))
                 continue;
             uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
-            if (k < m->n_keys)
-                key_update(k, ((*even >> c) & 1u) | (((s >> c) & 1u) << 1));
+            if (k < m->n_keys && !key_update(k, ((*even >> c) & 1u) | (((s >> c) & 1u) << 1)))
+                keep |= 1u << c;
         }
+        mprev[r - 1u] = (*even & ~keep) | (mprev[r - 1u] & keep);
+        mprev[r] = (s & ~keep) | (mprev[r] & keep);
         return;
     }
     uint32_t diff = s ^ mprev[r];
     if (!diff)
         return;
-    mprev[r] = s;
+    uint32_t keep = 0;                  /* bits whose event didn't fit: as they were */
     if (m->kind == GM_MATRIX_KIND_VELOCITY) {
         for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
             if (!((diff >> (2u * p)) & 3u))
                 continue;
             uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
-            if (k < m->n_keys)
-                key_update(k, (s >> (2u * p)) & 3u);
+            if (k < m->n_keys && !key_update(k, (s >> (2u * p)) & 3u))
+                keep |= 3u << (2u * p);
         }
     } else {
         for (uint32_t c = 0; c < m->n_cols; c++) {
             if (!((diff >> c) & 1u))
                 continue;
             uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
-            if (k < m->n_keys)
-                kq_push(k, (s >> c) & 1u, 0);
+            if (k < m->n_keys && !kq_push(k, (s >> c) & 1u, 0))
+                keep |= 1u << c;
         }
     }
+    mprev[r] = (s & ~keep) | (mprev[r] & keep);
 }
 
 #if SCAN_FAST
@@ -525,11 +701,78 @@ static uint8_t enc_live[NE];        /* per scanned encoder: the index its turns 
 #define ENC_LIVE(i) (i)
 #endif
 
+#if GM_N_ENCODERS > 0
+/* An encoder's channel; min / max (channel:, min:, max:). */
+#if GM_ENC_CTL
+#define ENC_CH(i) ctl_chan(&gm_encoder_ctl[i])
+#else
+#define ENC_CH(i) chan()
+#endif
+
+/* The top of encoder i's values: 127, or 16383 in a 14-bit mode. */
+static int32_t enc_top(uint32_t i)
+{
+#if GM_MSG_KINDS
+    int32_t mode = gm_cfg.enc_mode[i];
+    if (mode >= ENC_CC14 && kind_wide((uint32_t)mode - 3u, (uint32_t)gm_cfg.enc_cc[i]))
+        return 16383;
+#else
+    (void)i;
+#endif
+    return 127;
+}
+
+/* In an absolute mode, enc_value is the position 0..span along min..max
+ * (0..top without them); 0: a relative mode. */
+static int32_t enc_span(uint32_t i, int32_t top)
+{
+    int32_t mode = gm_cfg.enc_mode[i];
+    if (mode != ENC_ABSOLUTE && mode < ENC_CC14)
+        return 0;
+#if GM_ENC_CTL
+    int32_t s = ctl_hi(&gm_encoder_ctl[i], top) - gm_encoder_ctl[i].min;
+    return s < 0 ? -s : s;
+#else
+    return top;
+#endif
+}
+
+/* The value position p sends, and the position of a value v. */
+static uint32_t enc_out(uint32_t i, int32_t p, int32_t top)
+{
+#if GM_ENC_CTL
+    const gm_ctl_t *t = &gm_encoder_ctl[i];
+    return (uint32_t)(ctl_hi(t, top) >= t->min ? t->min + p : t->min - p);
+#else
+    (void)i;
+    (void)top;
+    return (uint32_t)p;
+#endif
+}
+
+static void enc_at(uint32_t i, int32_t v, int32_t top, int32_t span)
+{
+#if GM_ENC_CTL
+    const gm_ctl_t *t = &gm_encoder_ctl[i];
+    v = ctl_hi(t, top) >= t->min ? v - t->min : t->min - v;
+#else
+    (void)top;
+#endif
+    enc_value[i] = (int16_t)(v < 0 ? 0 : v > span ? span : v);
+}
+#endif
+
+/* FB_VALUE: value 0..16383 over the encoder's range. */
 void gm_encoder_host(uint32_t i, uint32_t value)
 {
 #if GM_N_ENCODERS > 0
-    if (i < GM_N_ENCODERS && gm_cfg.enc_mode[i] == ENC_ABSOLUTE)
-        enc_value[i] = (int16_t)(value > 127 ? 127 : value);
+    if (i >= GM_N_ENCODERS)
+        return;
+    int32_t span = enc_span(i, enc_top(i));
+    if (span == 127)
+        enc_value[i] = (int16_t)(value >> 7);
+    else if (span)
+        enc_value[i] = (int16_t)((int32_t)value * span / 16383);
 #else
     (void)i;
     (void)value;
@@ -688,6 +931,12 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
                 hw_prev[k] = x;
             }
         }
+#if GM_HAS_MATRIX
+        if (kq_retry) {                 /* a key change didn't fit: every key row again */
+            kq_retry = 0;
+            chg |= (1u << ((key_rows + 1u) / 2u)) - 1u;
+        }
+#endif
         if (!chg)
             continue;
 #if GM_HAS_MATRIX
@@ -807,6 +1056,8 @@ static uint32_t velocity(uint16_t dt_ticks)
             vk_slow = slow;
             vk_lf = (int16_t)log2_q8((uint32_t)fast);
             vk_ls = (int16_t)log2_q8((uint32_t)slow);
+            if (vk_ls <= vk_lf)         /* fast and slow in one log step (above ~32 ms): no divide by 0 */
+                vk_ls = (int16_t)(vk_lf + 1);
         }
         int32_t lf = vk_lf, ls = vk_ls;
         v = 127 - 126 * (log2_q8(t) - lf) / (ls - lf);
@@ -904,6 +1155,49 @@ static uint8_t btn_note[NB], btn_chan[NB];
 static int32_t bend, bend_target, bend_sent = 0x7FFFFFFF;
 static int32_t program;
 
+/* A button's channel and its CC values (min:, max:; 0 and 127 by default). */
+#if GM_BTN_CTL
+#define BTN_CH(i) ctl_chan(&gm_button_ctl[i])
+#define BTN_OUT(i, v, top) ctl_out(&gm_button_ctl[i], (int32_t)(v), (top))
+#define BTN_CC(i, num, v) midi3((uint8_t)(0xB0u | BTN_CH(i)), (num), BTN_OUT(i, v, 127))
+#else
+#define BTN_CH(i) chan()
+#define BTN_OUT(i, v, top) ((uint32_t)(v))
+#define BTN_CC(i, num, v) cc((num), (v))
+#endif
+
+/* The Program Change of a program action, after the button's bank: if it
+ * has one. */
+static void program_send(uint32_t i, uint32_t pc)
+{
+    uint8_t ch = BTN_CH(i);
+#if GM_BTN_BANK
+    uint32_t bank = gm_button_bank[i];
+    if (bank != GM_BANK_NONE) {
+        midi3((uint8_t)(0xB0u | ch), 0, bank >> 7);
+        midi3((uint8_t)(0xB0u | ch), 32, bank);
+    }
+#else
+    (void)i;
+#endif
+    midi2((uint8_t)(0xC0u | ch), pc);
+}
+
+#if GM_MSG_PANIC
+/* Panic: let go of every note gemifi holds (keys, buttons, pads, CCs held
+ * on, pitch bend), as a preset switch does, then All Sound Off, All Notes
+ * Off and Reset All Controllers on every channel. */
+static void panic(void)
+{
+    gm_release_all();
+    for (uint32_t c = 0; c < 16u; c++) {
+        midi3((uint8_t)(0xB0u | c), 120, 0);
+        midi3((uint8_t)(0xB0u | c), 123, 0);
+        midi3((uint8_t)(0xB0u | c), 121, 0);
+    }
+}
+#endif
+
 /* Pressed in every scan since the last sample; *any: in any of them. A
  * button on a switch matrix is scanned many times a sample (each frame of
  * a hardware scan), others are read once. */
@@ -958,18 +1252,18 @@ static void button_changed(uint32_t i, int down)
     app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? " down" : " up");
     switch (act) {
     case ACT_CC_MOMENTARY:
-        cc(num, down ? 127 : 0);
+        BTN_CC(i, num, down ? 127 : 0);
         break;
     case ACT_CC_TOGGLE:
         if (down) {
             btn_toggled ^= 1ull << i;
-            cc(num, ((btn_toggled >> i) & 1u) ? 127 : 0);
+            BTN_CC(i, num, ((btn_toggled >> i) & 1u) ? 127 : 0);
         }
         break;
     case ACT_NOTE:
         if (down) {
             btn_note[i] = (uint8_t)num;
-            btn_chan[i] = chan();
+            btn_chan[i] = BTN_CH(i);
             midi3(0x90 | btn_chan[i], num, (uint32_t)gm_cfg.vel_fixed);
         } else if (btn_note[i] != NOTE_NONE) {
             midi3(0x80 | btn_chan[i], btn_note[i], 0);
@@ -998,9 +1292,41 @@ static void button_changed(uint32_t i, int down)
     case ACT_PROGRAM_PREV:
         if (down) {
             program = (program + (act == ACT_PROGRAM_NEXT ? 1 : 127)) & 127;
-            midi2(0xC0 | chan(), (uint32_t)program);
+            program_send(i, (uint32_t)program);
         }
         break;
+#if GM_MSG_PROGRAM
+    case ACT_PROGRAM:
+        if (down) {
+            program = (int32_t)(num & 127u);    /* program next / previous go on from it */
+            program_send(i, num);
+        }
+        break;
+#endif
+#if GM_MSG_PANIC
+    case ACT_PANIC:
+        if (down)
+            panic();
+        break;
+#endif
+#if GM_MSG_MMC
+    case ACT_MMC:
+        if (down) {
+            const uint8_t m[6] = { 0xF0, 0x7F, GM_MMC_DEVICE, 0x06, (uint8_t)(num & 0x7Fu), 0xF7 };
+            sysex_out(m, 6);
+        }
+        break;
+#endif
+#if GM_N_SYSEX
+    case ACT_SYSEX:
+        /* press: the value max: (top by default), release: min: (0), if the
+         * string has a value at all */
+        if (num < GM_N_SYSEX && (down || (gm_sysex[num].flags & GM_SX_HAS_VALUE))) {
+            uint32_t top = (gm_sysex[num].flags & GM_SX_WIDE) ? 16383u : 127u;
+            sysex_send(num, BTN_OUT(i, down ? top : 0u, (int32_t)top), BTN_CH(i));
+        }
+        break;
+#endif
     case ACT_PRESET_NEXT:
     case ACT_PRESET_PREV:
         if (down)
@@ -1365,6 +1691,8 @@ static void buttons_sample(void)
             if (!((diff >> i) & 1u))
                 continue;
             int down = (s >> i) & 1u;
+            if (gm_safety_button(i, down))
+                continue;                     /* an unlock / factory-reset combo's (gm_safety.h) */
             if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
             if (down)
@@ -1410,7 +1738,7 @@ static void ramps_ms(uint32_t now)
         int16_t v = (int16_t)(ramp_q8[i] >> 8);
         if (v != ramp_sent[i]) {
             ramp_sent[i] = v;
-            cc((uint32_t)gm_cfg.btn_number[i], (uint32_t)v);
+            BTN_CC(i, (uint32_t)gm_cfg.btn_number[i], (uint32_t)v);
         }
     }
     int32_t step = gm_cfg.bend_glide > 0 ? 8192 / gm_cfg.bend_glide : 16384;
@@ -1483,6 +1811,43 @@ static void touch_poll(void)
 }
 #endif
 
+/* An input's channel and output range (channel:, min:, max:). */
+#if GM_ANALOG_CTL
+#define AN_CH(i) ctl_chan(&gm_analog_ctl[i])
+#define AN_OUT(i, v, top) ctl_out(&gm_analog_ctl[i], (int32_t)(v), (top))
+#else
+#define AN_CH(i) chan()
+#define AN_OUT(i, v, top) ((uint32_t)(v))
+#endif
+#if GM_MSG_KINDS
+/* What analog.mode sends: K_CC for cc, 0xFF for pitch bend and pressure. */
+static uint32_t an_kind(int32_t mode)
+{
+    return mode >= AN_MODE_CC14 ? (uint32_t)mode - 2u : mode == AN_MODE_CC ? K_CC : 0xFFu;
+}
+
+/* pos (0..4095) in 14 bits, the last BEND_END of each end at the end. */
+static int32_t an_wide(int32_t pos)
+{
+    return pos <= BEND_END ? 0 : pos >= 4095 - BEND_END ? 16383 : pos * 16383 / 4095;
+}
+#endif
+
+#if GM_ANALOG_PICKUP
+/* 1: input i at q (0..127) hasn't picked up the host's value yet, so it
+ * sends nothing. Reaching or crossing it picks it up. */
+static int not_picked(uint32_t i, int32_t q)
+{
+    if (a_pick[i] < 0)
+        return 0;
+    int side = q < a_pick[i] ? -1 : q > a_pick[i] ? 1 : 0;
+    if (side == a_side[i])
+        return 1;
+    a_pick[i] = -1;
+    return 0;
+}
+#endif
+
 /* A value EVENT (pos 0..4095), after a touch EVENT if this starts a movement. */
 static void analog_event(uint32_t i, int32_t pos)
 {
@@ -1551,10 +1916,40 @@ static void analog_bend(uint32_t i, int32_t pos)
     analog_event(i, pos);
 }
 
+#if GM_MSG_KINDS
+/* A 14-bit kind (cc14, nrpn14, rpn14, a SysEx with msb / lsb): pos as
+ * 0..16383, sent when it moves by half pitch bend's noise step (3 raw
+ * counts) or reaches an end. a_bend holds the last value, a_sent its top 7
+ * bits (pick-up, the host's value). */
+static void analog_wide(uint32_t i, int32_t pos, uint32_t kind, uint32_t num)
+{
+    int32_t b = an_wide(pos);
+    int32_t last = a_bend[i], d = b > last ? b - last : last - b;
+    if (d == 0 || (d < (a_step[i] >> 1) && b != 0 && b != 16383))
+        return;
+    a_bend[i] = (int16_t)b;
+    a_sent[i] = (int16_t)(b >> 7);
+#if GM_ANALOG_PICKUP
+    if (not_picked(i, b >> 7))
+        return;
+#endif
+    send_value(kind, AN_CH(i), num, AN_OUT(i, b, 16383));
+    analog_event(i, pos);
+}
+#endif
+
+#if GM_MONITOR
+static int16_t a_raw[NA];           /* the last reading, -1 = none: RAW (sysex.md 4.8) */
+#define A_RAW(i, r) (a_raw[i] = (int16_t)(r))
+#else
+#define A_RAW(i, r) ((void)0)
+#endif
+
 static void analog_read(uint32_t i)
 {
     const gm_analog_t *a = &gm_device.analogs[i];
     int32_t raw = vpin_analog(a->pin);
+    A_RAW(i, raw < 0 ? -1 : raw);
     if (raw < 0)
         return;
     int32_t lo = a->raw_min, hi = a->raw_max, v;
@@ -1567,11 +1962,20 @@ static void analog_read(uint32_t i)
     /* An XY pad reads nothing untouched; a touch jumps to where it is, and
      * the first touch sends (it isn't the power-up reading). */
     int jump = vpin_analog_jump(a->pin);
+    int32_t mode = gm_cfg.analog_mode[i];
+#if GM_MSG_KINDS
+    uint32_t kind = an_kind(mode), num = (uint32_t)gm_cfg.analog_cc[i];
+    int wide = kind != 0xFFu && kind_wide(kind, num);
+#endif
     if (a_sent[i] < 0 && !jump) {
         a_filt[i] = v << 2;                 /* first reading: no message */
         a_sent[i] = (int16_t)(v >> 5);
         a_center[i] = (int16_t)v;
         a_bend[i] = 8192;
+#if GM_MSG_KINDS
+        if (wide)
+            a_bend[i] = (int16_t)an_wide(v);
+#endif
         return;
     }
     if (jump)
@@ -1579,10 +1983,16 @@ static void analog_read(uint32_t i)
     else
         a_filt[i] += v - (a_filt[i] >> 2); /* 4-sample moving average */
     int32_t pos = a_filt[i] >> 2;           /* 0..4095 */
-    if (gm_cfg.analog_mode[i] == AN_MODE_BEND) {
+    if (mode == AN_MODE_BEND) {
         analog_bend(i, pos);
         return;
     }
+#if GM_MSG_KINDS
+    if (wide) {
+        analog_wide(i, pos, kind, num);
+        return;
+    }
+#endif
     int32_t center = a_sent[i] * 32 + 16;
     if (pos - center > 24 || center - pos > 24 ||
         (pos >= 4088 && a_sent[i] != 127) || (pos <= 8 && a_sent[i] != 0)) {
@@ -1590,22 +2000,24 @@ static void analog_read(uint32_t i)
         if (q != a_sent[i]) {
             a_sent[i] = q;
 #if GM_ANALOG_PICKUP
-            if (a_pick[i] >= 0) {
-                int side = q < a_pick[i] ? -1 : q > a_pick[i] ? 1 : 0;
-                if (side == a_side[i])
-                    return;                 /* not picked up yet */
-                a_pick[i] = -1;
-            }
+            if (not_picked(i, q))
+                return;
 #endif
 #if GM_MCU
             if (gm_analog_mcu[i] != GM_MCU_NONE)
                 gm_mcu_fader(gm_analog_mcu[i], (uint32_t)pos << 2);
             else
 #endif
-            if (gm_cfg.analog_mode[i] == AN_MODE_PRESSURE)
-                midi2(0xD0 | chan(), (uint32_t)q);   /* channel pressure (aftertouch) */
+            if (mode == AN_MODE_PRESSURE)
+                midi2((uint8_t)(0xD0u | AN_CH(i)), AN_OUT(i, q, 127));   /* channel pressure (aftertouch) */
             else
+#if GM_MSG_KINDS
+                send_value(kind, AN_CH(i), num, AN_OUT(i, q, 127));
+#elif GM_ANALOG_CTL
+                midi3((uint8_t)(0xB0u | AN_CH(i)), (uint32_t)gm_cfg.analog_cc[i], AN_OUT(i, q, 127));
+#else
                 cc((uint32_t)gm_cfg.analog_cc[i], (uint32_t)q);
+#endif
             analog_event(i, pos);
         }
     }
@@ -1630,7 +2042,11 @@ static void analog_poll(void)
     a_next = (uint8_t)((a_next + 1u) % GM_N_ANALOGS);
     analog_read(i);
     for (uint32_t k = 0; k < GM_N_ANALOGS; k++)
+#if GM_MSG_KINDS
+        if (k != i && (gm_cfg.analog_mode[k] == AN_MODE_BEND || gm_cfg.analog_mode[k] == AN_MODE_PRESSURE))
+#else
         if (k != i && gm_cfg.analog_mode[k] != AN_MODE_CC)
+#endif
             analog_read(k);
 }
 #endif
@@ -1644,13 +2060,17 @@ static void analog_poll(void)
  * scan interrupt would race with the main loop's reads. A hit: the reading
  * crosses pad.threshold, the peak over the next pad.window ms gives the
  * velocity (pad.threshold..pad.full -> 1..127, then pad.curve), and the pad
- * is let go below pad.release. pad.retrigger ms after a release must pass
- * before the next hit. A pad that reads high at start-up stays silent until
+ * is let go below pad.release. A soft one (peak under twice pad.threshold)
+ * that falls below pad.release again within PAD_MIN_MS is noise, not a hit:
+ * the Code 61's pads see such spikes (velocity 1-3) while the pad board's
+ * LEDs change. A hard short strike still counts.
+ * pad.retrigger ms after a release must pass before the next hit. A pad that reads high at start-up stays silent until
  * it first reads below pad.release (wrong polarity, or held). */
 #if GM_N_PADS > 0
 #define NP GM_N_PADS
 #define PAD_MS 1u
 #define PAD_AT_MS 10u               /* poly aftertouch: at most once per 10 ms per pad */
+#define PAD_MIN_MS 3u               /* a soft hit stays at or above pad.release this long */
 enum { PAD_BLOCKED, PAD_IDLE, PAD_PEAK, PAD_ON };
 
 static uint8_t pad_state[NP], pad_note[NP], pad_ch[NP], pad_at[NP];
@@ -1767,6 +2187,13 @@ static void pad_pressure(uint32_t i, int32_t r, uint32_t now)
     midi3(0xA0 | pad_ch[i], pad_note[i], (uint32_t)v);
 }
 
+#if GM_MONITOR
+static uint16_t pad_raw[NP];        /* the last reading: RAW (sysex.md 4.8) */
+#define PAD_RAW(i, r) (pad_raw[i] = (uint16_t)(r))
+#else
+#define PAD_RAW(i, r) ((void)0)
+#endif
+
 static void pads_scan(uint32_t now)
 {
     int32_t on = gm_cfg.pad_threshold, off = gm_cfg.pad_release;
@@ -1778,6 +2205,7 @@ static void pads_scan(uint32_t now)
         int32_t r = vpin_analog_peak(gm_pads[i].pin);
         if (r < 0)
             continue;
+        PAD_RAW(i, r);
         switch (pad_state[i]) {
         case PAD_IDLE:
             if (r < on || now - pad_t[i] < (uint32_t)gm_cfg.pad_retrigger)
@@ -1787,6 +2215,10 @@ static void pads_scan(uint32_t now)
             pad_peak[i] = (uint16_t)r;
             break;
         case PAD_PEAK:
+            if (r < off && now - pad_t[i] < PAD_MIN_MS && pad_peak[i] < 2 * on) {
+                pad_state[i] = PAD_IDLE;    /* a soft spike, gone again at once */
+                break;
+            }
             if (r > pad_peak[i])
                 pad_peak[i] = (uint16_t)r;
             if (r >= off && now - pad_t[i] < (uint32_t)gm_cfg.pad_window)
@@ -1914,19 +2346,37 @@ static void encoders_poll(uint32_t now)
         if (gm_cfg.enc_cc[i] < 0)
             continue;               /* a twin's cc: none: the EVENT only */
         uint32_t num = (uint32_t)gm_cfg.enc_cc[i];
+        uint8_t st = (uint8_t)(0xB0u | ENC_CH(i));
+        int32_t r = d;
+#if GM_ENC_CTL
+        const gm_ctl_t *t = &gm_encoder_ctl[i];
+        if (t->max != GM_CTL_TOP && t->max < t->min)
+            r = -r;                 /* relative, min > max: the other way */
+#endif
+        r = r > 63 ? 63 : r < -64 ? -64 : r;
         switch (gm_cfg.enc_mode[i]) {
         case ENC_REL_TWOS:
-            cc(num, (uint32_t)(d > 63 ? 63 : d < -64 ? -64 : d) & 0x7F);
+            midi3(st, num, (uint32_t)r & 0x7F);
             break;
         case ENC_REL_OFFSET:
-            cc(num, (uint32_t)(64 + (d > 63 ? 63 : d < -64 ? -64 : d)));
+            midi3(st, num, (uint32_t)(64 + r));
+            break;
+        case ENC_REL_SIGN:          /* 1..63 up, 65..127 down */
+            midi3(st, num, r < 0 ? 0x40u | (uint32_t)(r < -63 ? 63 : -r) : (uint32_t)r);
             break;
         default: {
-            int32_t v = enc_value[i] + d;
-            v = v < 0 ? 0 : v > 127 ? 127 : v;
+            /* absolute: 1 step per detent, 1/256 of the range in 14 bits */
+            int32_t top = enc_top(i), span = enc_span(i, top);
+            int32_t v = enc_value[i] + d * (span > 255 ? span >> 8 : 1);
+            v = v < 0 ? 0 : v > span ? span : v;
             if (v != enc_value[i]) {
                 enc_value[i] = (int16_t)v;
-                cc(num, (uint32_t)v);
+#if GM_MSG_KINDS
+                int32_t mode = gm_cfg.enc_mode[i];
+                send_value(mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC, ENC_CH(i), num, enc_out(i, v, top));
+#else
+                midi3(st, num, enc_out(i, v, top));
+#endif
             }
             break;
         }
@@ -1965,6 +2415,17 @@ static uint32_t led_look(const gm_led_t *l, int active)
     return active ? (l->looks >> 3) & 7u : l->looks & 7u;
 }
 
+#if GM_HOST_FB
+/* An RGB LED whose pins are one rgb_serial LED (red, green, blue in a row):
+ * it can show any colour (vpin_rgb). */
+static int led_full_colour(const gm_led_t *l)
+{
+    return l->pin.hub && gm_device.hubs[l->pin.hub - 1u].type == GM_HUB_RGB_SERIAL &&
+           l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
+           l->pin2.num == l->pin.num + 1u && l->pin3.num == l->pin.num + 2u;
+}
+#endif
+
 static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 {
 #if GM_HOST_LEDS
@@ -1972,16 +2433,24 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
         level = blink_on ? level & ~LV_BLINK : 0;
 #endif
     uint32_t m;
+    int look = -1;                  /* 0 idle, 1 active: m is that look */
     if (level == 0)
-        m = led_look(l, 0);
-    else if (level & LV_RGB)
+        m = led_look(l, look = 0);
+    else if (level & LV_RGB) {
+#if GM_HOST_FB
+        if ((level & LV_COLOUR) && led_full_colour(l) &&
+            vpin_rgb(l->pin, led_colour[(uint32_t)(l - gm_device.leds)]))
+            return;
+#endif
         m = level & 7u;             /* these pins, whatever the kind */
-    else if (!vpin_is_none(l->pin3))
-        m = led_look(l, 1);
+    } else if (!vpin_is_none(l->pin3))
+        m = led_look(l, look = 1);
     else if (vpin_is_none(l->pin2) || level == 1)
-        m = led_look(l, 1);
+        m = led_look(l, look = 1);
     else                            /* bicolour 2 both, 3 pin2, 4+ pin2 blinking */
-        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, 0);
+        m = level == 2 ? 3u : (level == 3 || blink_on) ? 2u : led_look(l, look = 0);
+    if (look >= 0 && l->rgb[look] && vpin_rgb(l->pin, l->rgb[look]))
+        return;                     /* a full-colour look (rgb_serial LEDs) */
     led_pins(l, m);
 }
 
@@ -1991,7 +2460,8 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
 static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
 #if GM_HOST_FB
-static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout       */
+static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout;
+                                       2 = its FB_LED_RGB black (leds_fade) */
 #endif
 
 void gm_led_host(uint32_t led, uint32_t value)
@@ -2036,13 +2506,30 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
     if (b > m)
         m = b;
     if (!vpin_is_none(gm_device.leds[led].pin3)) {
-        /* on/off per channel: lit if at least half the brightest one */
-        if (m)
+        /* on/off per channel: lit if at least half the brightest one; an
+         * LED that can show any colour gets the colour itself (0..127 per
+         * channel to 0..255) */
+        if (m) {
             lv = LV_RGB | (2u * r >= m) | (2u * g >= m) << 1 | (2u * b >= m) << 2;
+            /* fade: chips dim with the colour too (leds_fade) */
+            int full = led_full_colour(&gm_device.leds[led]);
+            if (full || GM_TM_FADE) {
+                uint32_t c = (r * 2u + (r >> 6)) << 16 | (g * 2u + (g >> 6)) << 8 | (b * 2u + (b >> 6));
+                /* A new colour at the same level: draw it. Not on an on/off
+                 * LED (fade: its pins don't change, and leds_fade must keep
+                 * seeing it, or the chip jumps to full until it is drawn). */
+                if (c != led_colour[led] && full)
+                    led_shown[led] = 0xFFFFu;
+                led_colour[led] = c;
+                lv |= LV_COLOUR;
+            }
+        }
     } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
     led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
+    if (!lv)
+        led_host_hold[led] = 2;     /* black: a colour at brightness 0 */
 }
 #endif
 
@@ -2092,7 +2579,7 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
 /* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
  * (start, after the lamp test). leds_update() runs every 10 ms over every
  * LED; an LED whose level and phase didn't change isn't written again. */
-static uint16_t led_shown[GM_ARR(GM_N_LEDS)];
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* (declared above) */
 
 /* Whether level shows differently in the two blink phases (led_show). */
 static int led_blinks(const gm_led_t *l, uint32_t level)
@@ -2113,6 +2600,12 @@ static void led_set(uint32_t i, uint32_t level, int blink_on)
 #if GM_LAYERS
     if (led_dead[i])
         return;                     /* its twin has the pins */
+#endif
+#if GM_STATUS_LED >= 0
+    if (i == (uint32_t)GM_STATUS_LED && gm_status_level() >= 0) {
+        level = (uint32_t)gm_status_level();    /* a blink code (gm_safety.h) */
+        blink_on = 0;
+    }
 #endif
     /* The blink phase is only part of the key for a blinking level: a
      * steady LED isn't written again every 500 ms. */
@@ -2264,13 +2757,63 @@ static void leds_walk(uint32_t now)
 }
 #endif
 
+#if GM_TM_FADE && GM_HOST_FB
+/* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
+ * from led_shown: a DAW's colour at its brightest channel (these win), any
+ * other lit level or look full. */
+static void leds_fade(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        const gm_led_t *l = &gm_device.leds[i];
+        uint32_t key = led_shown[i], level = key >> 1;
+        if (key == 0xFFFFu)
+            continue;
+#if GM_HOST_LEDS
+        /* A blink's dark half shows the idle look, but a host colour's keeps
+         * its brightness: else the whole chip pumps with the blink. */
+        if ((level & LV_BLINK) && !(key & 1u) && !(level & LV_COLOUR))
+            level = 0;
+        level &= ~LV_BLINK;
+#endif
+        uint32_t v = 255u, colour = (level & LV_COLOUR) != 0;
+        if (colour) {
+            uint32_t c = led_colour[i], r = c >> 16, g = (c >> 8) & 0xFFu, b = c & 0xFFu;
+            v = r > g ? r : g;
+            if (b > v)
+                v = b;
+        } else if (level == 0 && led_host_hold[i] == 2u && led_host_lv[i] == 0) {
+            colour = 1;             /* a host's black: brightness 0, not its idle look */
+            v = 0;
+        } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
+            continue;               /* dark */
+        vpin_fade(l->pin, v, (int)colour);
+    }
+    vpin_fade_apply();
+}
+#else
+#define leds_fade() ((void)0)
+#endif
+
 static void leds_update(uint32_t now)
 {
 #if GM_LED_WALK_MS
     leds_walk(now);
     return;
 #endif
+    leds_fade();
     int blink_on = (now / 500u) & 1u;
+#if GM_STATUS_LED >= 0
+    /* A blink code on the status LED (gm_safety.h): drawn every update;
+     * once it ends, the LED's own level is drawn again. */
+    static uint8_t status_was;
+    if (GM_STATUS_LED < (int)gm_device.n_leds) {
+        if (gm_status_active())
+            led_set(GM_STATUS_LED, 0, blink_on);
+        else if (status_was)
+            led_shown[GM_STATUS_LED] = 0xFFFFu;
+        status_was = (uint8_t)gm_status_active();
+    }
+#endif
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
         local[i] = has_local[i] = 0;
@@ -2458,12 +3001,26 @@ static int fb_used(uint32_t type, uint32_t num)
         }
 #endif
 #if GM_N_ANALOGS > 0
-        for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
+        for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
             fb_mark(fb_cc_used, gm_cfg.analog_cc[i]);
+#if GM_MSG_CC14
+            fb_mark(fb_cc_used, gm_cfg.analog_cc[i] + 32);     /* a cc14's LSB */
+#endif
+        }
 #endif
 #if GM_N_ENCODERS > 0
-        for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
+        for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
             fb_mark(fb_cc_used, gm_cfg.enc_cc[i]);
+#if GM_MSG_CC14
+            fb_mark(fb_cc_used, gm_cfg.enc_cc[i] + 32);
+#endif
+        }
+#endif
+#if GM_MSG_NRPN
+        for (int32_t n = 98; n <= 101; n++)
+            fb_mark(fb_cc_used, n);                             /* (N)RPN number */
+        fb_mark(fb_cc_used, 6);                                 /* data entry */
+        fb_mark(fb_cc_used, 38);
 #endif
         fb_used_gen = params_gen;
     }
@@ -2492,6 +3049,83 @@ static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value
 }
 #else
 #define leds_from(source, num, ch, value) ((void)0)
+#endif
+
+#if GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
+/* The host's value v for the analog inputs (pick-up) and absolute encoders
+ * that send kind with number num on channel ch. part: 0 a 7-bit CC; 1 data
+ * entry MSB (a 7-bit (N)RPN's whole value) or a cc14's MSB; 2 an LSB. A
+ * 14-bit MSB alone is taken as MSB << 7. */
+static void fb_value(uint32_t kind, uint32_t ch, uint32_t num, uint32_t v, uint32_t part)
+{
+#if GM_N_ANALOGS > 0
+    for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
+#if GM_MCU
+        if (gm_analog_mcu[i] != GM_MCU_NONE)
+            continue;                       /* an MCU fader follows pitch bend */
+#endif
+#if GM_MSG_KINDS
+        if (an_kind(gm_cfg.analog_mode[i]) != kind)
+            continue;
+#else
+        if (gm_cfg.analog_mode[i] != AN_MODE_CC)
+            continue;
+#endif
+        if ((uint32_t)gm_cfg.analog_cc[i] != num || part == 2u)
+            continue;                       /* pick-up takes the top 7 bits */
+#if GM_CTL
+        if (AN_CH(i) != ch)
+            continue;
+#endif
+#if GM_ANALOG_CTL
+        const gm_ctl_t *t = &gm_analog_ctl[i];
+#if GM_MSG_KINDS
+        int32_t top = kind_wide(kind, num) ? 16383 : 127;
+#else
+        int32_t top = 127;
+#endif
+        int32_t x = top == 127 ? (int32_t)v : (int32_t)v << 7;
+        int32_t lo = t->min, d = ctl_hi(t, top) - lo, q = d ? ((x - lo) * top + d / 2) / d : 0;
+        q = q < 0 ? 0 : q > top ? top : q;
+        gm_analog_host(i, (uint32_t)(top == 127 ? q : q >> 7));
+#else
+        gm_analog_host(i, v);
+#endif
+    }
+#endif
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+        int32_t mode = gm_cfg.enc_mode[i];
+        if ((uint32_t)gm_cfg.enc_cc[i] != num || (mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC) != kind)
+            continue;
+#if GM_CTL
+        if (ENC_CH(i) != ch)
+            continue;
+#endif
+        int32_t top = enc_top(i), span = enc_span(i, top), x = (int32_t)v;
+        if (!span)
+            continue;                       /* relative */
+        if (top != 127) {
+            if (part == 2u)
+                x = ((int32_t)enc_out(i, enc_value[i], top) & 0x3F80) | x;
+            else
+                x <<= 7;
+        } else if (part == 2u) {
+            continue;
+        }
+        enc_at(i, x, top, span);            /* absolute: carry on from the host's value */
+    }
+#endif
+    (void)kind;
+    (void)ch;
+    (void)part;
+}
+#endif
+
+#if GM_MSG_NRPN
+/* The (N)RPN number the host last chose, per channel; NR_RPN: an RPN. */
+#define NR_RPN 0x4000u
+static uint16_t nr_sel[16];
 #endif
 
 void gm_fb_msg(const uint8_t *m, uint32_t n)
@@ -2524,12 +3158,21 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
     if (type != 0x90 && type != 0xB0)
         return;                     /* pitch bend, poly pressure: nothing yet */
     leds_from(type == 0x90 ? GM_FB_NOTE : GM_FB_CC, num, ch, v);
+#if GM_CTL
+    if (!fb_used(type, num))
+        return;                     /* the channel is each control's */
+#else
     if (ch != chan() || !fb_used(type, num))
         return;
+#endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
         if ((uint32_t)gm_cfg.btn_number[i] != num)
             continue;
+#if GM_CTL
+        if (BTN_CH(i) != ch)
+            continue;
+#endif
         int32_t act = gm_cfg.btn_action[i];
         int8_t li = gm_device.buttons[i].led;
         if (type == 0xB0 && act == ACT_CC_TOGGLE) {
@@ -2546,20 +3189,25 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
 #endif
     if (type != 0xB0)
         return;
-#if GM_N_ANALOGS > 0
-    for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
-#if GM_MCU
-        if (gm_analog_mcu[i] != GM_MCU_NONE)
-            continue;                       /* an MCU fader follows pitch bend */
-#endif
-        if (gm_cfg.analog_mode[i] == AN_MODE_CC && (uint32_t)gm_cfg.analog_cc[i] == num)
-            gm_analog_host(i, v);
+#if GM_MSG_NRPN
+    if (num >= 98 && num <= 101) {          /* 99 / 101: the number's MSB, 98 / 100 its LSB */
+        uint32_t s = nr_sel[ch];
+        s = (num & 1u) ? (v << 7) | (s & 0x7Fu) : (s & 0x3F80u) | v;
+        nr_sel[ch] = (uint16_t)(s | (num >= 100 ? NR_RPN : 0u));
+    } else if (num == 6 || num == 38) {     /* data entry MSB, LSB */
+        uint32_t s = nr_sel[ch], rpn = (s & NR_RPN) != 0, part = num == 6 ? 1u : 2u;
+        fb_value(rpn ? K_RPN : K_NRPN, ch, s & 0x3FFFu, v, part);
+        fb_value(rpn ? K_RPN14 : K_NRPN14, ch, s & 0x3FFFu, v, part);
     }
 #endif
-#if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++)
-        if ((uint32_t)gm_cfg.enc_cc[i] == num && gm_cfg.enc_mode[i] == ENC_ABSOLUTE)
-            enc_value[i] = (int16_t)v;      /* absolute: carry on from the host's value */
+#if GM_MSG_CC14
+    if (num < 32)
+        fb_value(K_CC14, ch, num, v, 1);
+    else if (num < 64)
+        fb_value(K_CC14, ch, num - 32u, v, 2);
+#endif
+#if GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
+    fb_value(K_CC, ch, num, v, 0);
 #endif
 }
 #endif
@@ -2595,13 +3243,13 @@ void gm_release_all(void)
             btn_note[i] = NOTE_NONE;
         }
         if (held && act == ACT_CC_MOMENTARY)
-            cc((uint32_t)gm_cfg.btn_number[i], 0);
+            BTN_CC(i, (uint32_t)gm_cfg.btn_number[i], 0);
 #if GM_MCU
         if (held && act == ACT_MCU)
             gm_mcu_note((uint32_t)gm_cfg.btn_number[i], 0);
 #endif
         if (act == ACT_CC_RAMP && ramp_sent[i] != 0)
-            cc((uint32_t)gm_cfg.btn_number[i], 0);
+            BTN_CC(i, (uint32_t)gm_cfg.btn_number[i], 0);
         ramp_q8[i] = 0;
         ramp_sent[i] = 0;
     }
@@ -2788,6 +3436,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 
     gm_settings_init();
     presets_boot(safe);
+    gm_safety_init(presets_boot_state());
 #if GM_N_CYCLES
     for (uint32_t g = 0; g < GM_N_CYCLES; g++)
         cyc_cur[g] = (uint8_t)cycle_after(g + 1u, GM_MODE_NONE);   /* the first enabled step */
@@ -2811,6 +3460,173 @@ void gm_init(uint32_t fw_version, int safe_mode)
     vpin_flush_i2c();
     vpin_flush_tm1628();
 }
+
+/* ---- raw readings (sysex.md 4.8) ---------------------------------------- */
+
+/* MONITOR turns the stream on for a few seconds; gm_poll sends one RAW
+ * message per GM_MONITOR_INTERVAL_MS, the kinds in turn, each its next
+ * chunk. The readings are what the scan last saw (it isn't stopped or
+ * locked: a reading a scan tick old is fine for a tester). */
+#if GM_MONITOR
+#define MON_CHUNK 32u               /* values per message */
+#define MON_BITS 512u               /* key-matrix contacts per message */
+#define MON_KINDS 5u                /* GSX_MON_* bits */
+static uint8_t mon_kinds;           /* the kinds streaming, 0 = off */
+static uint8_t mon_turn;            /* the kind (bit) sending next */
+static uint16_t mon_first;          /* its next chunk: first index (key matrix: row) */
+static uint32_t mon_until, mon_t;
+static const uint8_t mon_raw_kind[MON_KINDS] = { EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER, EV_PAD };
+
+/* How many values (key matrix: rows) a kind has. */
+static uint32_t mon_count(uint32_t b)
+{
+    switch (b) {
+    case 0:
+        return GM_N_OWN_BUTTONS;
+#if GM_HAS_MATRIX
+    case 1:
+        return gm_device.matrix ? (gm_device.matrix->n_rows > FAST_ROWS ? FAST_ROWS : gm_device.matrix->n_rows) : 0u;
+#endif
+    case 2:
+        return GM_N_ANALOGS;
+    case 3:
+        return NE_HW;
+#if GM_N_PADS > 0
+    case 4:
+        return GM_N_PADS;
+#endif
+    default:
+        return 0;
+    }
+}
+
+uint32_t gm_monitor(uint32_t kinds)
+{
+    uint32_t have = 0;
+    for (uint32_t b = 0; b < MON_KINDS; b++)
+        if (mon_count(b))
+            have |= 1u << b;
+    kinds &= have;
+    if (kinds != mon_kinds) {
+        mon_turn = 0;
+        mon_first = 0;
+    }
+    mon_kinds = (uint8_t)kinds;
+    mon_until = hal_millis() + GM_MONITOR_TIMEOUT_MS;
+    return kinds;
+}
+
+/* Bits into 7-bit bytes, 7 per byte (bit i of byte j = bit 7j + i). */
+static uint32_t mon_bits(uint8_t *p, uint32_t nbits, uint32_t (*bit)(uint32_t))
+{
+    uint32_t n = (nbits + 6u) / 7u;
+    for (uint32_t j = 0; j < n; j++)
+        p[j] = 0;
+    for (uint32_t b = 0; b < nbits; b++)
+        if (bit(b))
+            p[b / 7u] |= (uint8_t)(1u << (b % 7u));
+    return n;
+}
+
+#if GM_N_BUTTONS > 0
+static uint32_t mon_first_bit;      /* mon_bits callbacks: index of bit 0 */
+static uint32_t mon_button(uint32_t b)
+{
+    return (btn_hist[0] >> (mon_first_bit + b)) & 1u;
+}
+#endif
+#if GM_HAS_MATRIX
+static uint32_t mon_cols;
+static uint32_t mon_contact(uint32_t b)
+{
+    return (mprev[mon_first_bit + b / mon_cols] >> (b % mon_cols)) & 1u;
+}
+#endif
+
+/* One kind's value i (analog, encoder, pad) as a u14. */
+static uint32_t mon_value(uint32_t b, uint32_t i)
+{
+    switch (b) {
+#if GM_N_ANALOGS > 0
+    case 2:
+        return a_raw[i] < 0 ? 0x3FFFu : (uint32_t)a_raw[i];
+#endif
+#if GM_N_ENCODERS > 0
+    case 3:
+        return enc_count[i] & 0x3FFFu;
+#endif
+#if GM_N_PADS > 0
+    case 4:
+        return pad_raw[i];
+#endif
+    default:
+        return 0;
+    }
+}
+
+static void monitor_poll(uint32_t now)
+{
+    if (!mon_kinds)
+        return;
+    if ((int32_t)(now - mon_until) >= 0) {
+        mon_kinds = 0;              /* the host stopped renewing it */
+        return;
+    }
+    if (now - mon_t < GM_MONITOR_INTERVAL_MS)
+        return;
+    mon_t = now;
+    uint32_t b = mon_turn;
+    while (!((mon_kinds >> b) & 1u))
+        b = (b + 1u) % MON_KINDS;
+    uint32_t total = mon_count(b), first = mon_first, n, cols = 1;
+#if GM_HAS_MATRIX
+    if (b == 1u) {
+        cols = gm_device.matrix->n_cols > 32u ? 32u : gm_device.matrix->n_cols;
+        if (!cols)
+            cols = 1;
+    }
+#endif
+    uint32_t chunk = b == 1u ? MON_BITS / cols : MON_CHUNK;
+    n = total - first < chunk ? total - first : chunk;
+    uint8_t p[4 + (MON_BITS + 6u) / 7u];
+    _Static_assert(4u + 2u * MON_CHUNK <= sizeof(p), "RAW values");
+    uint32_t len = 0;
+    p[len++] = mon_raw_kind[b];
+    if (b == 1u) {
+#if GM_HAS_MATRIX
+        p[len++] = (uint8_t)first;
+        p[len++] = (uint8_t)n;
+        p[len++] = (uint8_t)cols;
+        mon_first_bit = first;
+        mon_cols = cols;
+        len += mon_bits(p + len, n * cols, mon_contact);
+#endif
+    } else {
+        p[len++] = (uint8_t)(first & 0x7Fu);
+        p[len++] = (uint8_t)(first >> 7);
+        p[len++] = (uint8_t)n;
+        if (b == 0u) {
+#if GM_N_BUTTONS > 0
+            mon_first_bit = first;
+            len += mon_bits(p + len, n, mon_button);
+#endif
+        } else {
+            for (uint32_t i = 0; i < n; i++) {
+                uint32_t v = mon_value(b, first + i);
+                p[len++] = (uint8_t)(v & 0x7Fu);
+                p[len++] = (uint8_t)(v >> 7);
+            }
+        }
+    }
+    app_send_unsolicited(GSX_MSG_RAW, p, len);
+    if (first + n < total) {
+        mon_first = (uint16_t)(first + n);    /* the rest of this kind next time */
+        return;
+    }
+    mon_first = 0;
+    mon_turn = (uint8_t)((b + 1u) % MON_KINDS);
+}
+#endif
 
 void gm_poll(void)
 {
@@ -2851,6 +3667,11 @@ void gm_poll(void)
     poll_part_done(1, &tc);
 
     app_proto_poll();
+#if GM_N_BUTTONS > 0
+    gm_safety_poll(now, btn_stable);   /* the combos, the status LED, diag.* (gm_safety.h) */
+#else
+    gm_safety_poll(now, 0);
+#endif
 #if GM_LAYER_PARAMS
     if (report_due) {               /* debug.events set to 1: every mode that is on */
         report_due = 0;
@@ -2885,6 +3706,12 @@ void gm_poll(void)
 #if GM_N_ENCODERS > 0
     encoders_poll(now);
 #endif
+#if GM_MONITOR
+    monitor_poll(now);
+#endif
+#if GM_HAS_MATRIX
+    keys_poll();                    /* keys the scan queued since the top: not a whole pass later */
+#endif
     hal_midi_poll();                /* analog, pads, encoders, DIN merged in: before the LEDs too */
     poll_part_done(4, &tc);
     int led_pass = 0;
@@ -2912,5 +3739,8 @@ void gm_poll(void)
         pads_report();
 #endif
     }
+#if GM_HAS_MATRIX
+    keys_poll();                    /* and after the LEDs and the TM1628 bus */
+#endif
     hal_midi_poll();
 }

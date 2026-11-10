@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # M-Audio Keystation Mini 32 MK3 with gemifi (Nuvoton NUC120LC1BN).
 # Pins: research/devices/m-audio-keystation-mini32-mk3/analysis/hw-map.md
 gemifi: 2
@@ -12,6 +13,14 @@ chip: NUC120LC1BN
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 125us       # stock rate; the scan takes ~20 us of it
 boot_combo: [pitch_down, pitch_up]
+# Recovery (core/README.md "Factory-reset combo", "Physical unlock", "Status LED"):
+# Oct - + Oct + held at power-up for 5 s wipe the settings (not the firmware). The Edit
+# LED shows the blink codes. The physical unlock is off. With the line below, uploads,
+# reboot to the bootloader and factory reset over SysEx wait until Pitch down + Pitch up
+# (the boot_combo) are held for 2 s; the Edit LED blinks fast meanwhile.
+factory_reset_combo: [oct_down, oct_up]
+# unlock: { combo: [pitch_down, pitch_up] }
+status_led: edit_led
 
 # Buttons: PA1..PA7, active-low, external pull-ups (NUC120 has no internal pulls).
 # The names show in the web config page and are the CLI's index keys (button.action:Oct -);
@@ -105,3 +114,16 @@ modes:
     parent: edit
     led: { edit_led: blink }
     keys: { from: C4, action: channel }                  # C4..D#5 = channels 1..16
+
+# Where the controls are, for the web page's drawing (core/README.md "Layout"): units of about
+# 5 mm from the top left. The keys go under the controls by themselves. Approximate.
+layout:
+  controls:
+    volume:     { x: 1, y: 1, w: 4, h: 4 }
+    oct_down:   [7, 2]
+    oct_up:     [11, 2]
+    pitch_down: [16, 2]
+    pitch_up:   [20, 2]
+    mod:        [25, 2]
+    sustain:    [30, 2]
+    edit:       [35, 2]

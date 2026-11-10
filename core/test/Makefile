@@ -4,15 +4,19 @@
 #                the Python parser (tools/host/gemifi_proto.py)
 #
 # test_controller: the Keystation config (devices/keystation-mini32-mk3.yaml),
-#                  with its presets
-# test_controller_wtf: the same with write_to_flash: { last_preset: true }
-#                  (the YAML plus that line, written into the build dir)
+#                  with its presets, plus `unlock: true` (the physical unlock
+#                  is opt-in; written into the build dir)
+# test_controller_wtf: the Keystation as shipped (unlock off, compiled out)
+#                  with write_to_flash: { last_preset: true }
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
 # test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml); run again with
 #                  GM_TEST_BSRR=1 for the set/reset store path, and with
-#                  GM_TEST_NO_CYCLES=1 too for stores without a cycle counter
+#                  GM_TEST_NO_CYCLES=1 too for stores without a cycle counter;
+#                  test_tm1628_ack: the same with rgb_serial rx_pin, gamma
+#                  and white, and a simulated pad board that answers
+#                  (RGB_ACK_TEST)
 # test_pads:       velocity pads on shared-select muxes (pads-test.yaml)
 # test_matrix_hw:  test_matrix.c with the hardware scan's frames
 #                  (matrix-hw-test.yaml)
@@ -25,13 +29,16 @@
 # test_leds_local: the same with feedback off (leds-local-test.yaml)
 # test_encoders:   encoder acceleration on fake time (encoders-test.yaml)
 # test_i2c:        MCP23017 / PCF8574 hubs on a fake bus (i2c-test.yaml)
+# test_msg:        the MIDI message kinds: 14-bit CC, (N)RPN, bank, panic,
+#                  MMC, SysEx, per-control channel / range (msg-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
 CC    ?= gcc
 # Device configs, generated from their YAML by tools/builder (only
 # rewritten when they change).
-DEVICE := $(ROOT)/devices/keystation-mini32-mk3.yaml
+KS_YAML := $(ROOT)/devices/keystation-mini32-mk3.yaml
+DEVICE := $(BUILD)/keystation-unlock.yaml
 DEV    := $(BUILD)/device
 FB_DEVICE := feedback-test.yaml
 FB_DEV    := $(BUILD)/device-feedback
@@ -41,6 +48,8 @@ HW_DEVICE := matrix-hw-test.yaml
 HW_DEV    := $(BUILD)/device-matrix-hw
 TM_DEVICE := tm1628-test.yaml
 TM_DEV    := $(BUILD)/device-tm1628
+TMA_DEVICE := $(BUILD)/tm1628-ack-test.yaml
+TMA_DEV    := $(BUILD)/device-tm1628-ack
 LED_DEVICE := leds-test.yaml
 LED_DEV    := $(BUILD)/device-leds
 LEDL_DEVICE := leds-local-test.yaml
@@ -57,9 +66,13 @@ ENC_DEVICE := encoders-test.yaml
 ENC_DEV    := $(BUILD)/device-encoders
 I2C_DEVICE := i2c-test.yaml
 I2C_DEV    := $(BUILD)/device-i2c
+MSG_DEVICE := msg-test.yaml
+MSG_DEV    := $(BUILD)/device-msg
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
-GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'unlock: true'; } > $(DEVICE).new && \
+                     { cmp -s $(DEVICE).new $(DEVICE) || mv $(DEVICE).new $(DEVICE); } && rm -f $(DEVICE).new && \
+                     python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
@@ -79,6 +92,11 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TM_D
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(TM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+# The same device with the pad board's answers (rgb_serial rx_pin).
+GEN_OUT := $(shell mkdir -p $(BUILD) && sed -e 's/{ id: pads, tx_pin: PA2, count: 4 }/{ id: pads, tx_pin: PA2, rx_pin: PA3, count: 4, gamma: 2.2, white: [255, 200, 220] }/' -e 's/^    grids: 7$$/    grids: 7\n    fade: true/' $(TM_DEVICE) > $(TMA_DEVICE) && grep -q 'rx_pin: PA3' $(TMA_DEVICE) && grep -q 'fade: true' $(TMA_DEVICE) && python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TMA_DEVICE) -o $(TMA_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(TMA_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(PAD_DEVICE) -o $(PAD_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
@@ -96,7 +114,7 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(DINM
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(DINM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
-GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(DEVICE); echo 'write_to_flash: { last_preset: true }'; } > $(WTF_DEVICE).new && \
+GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'write_to_flash: { last_preset: true }'; } > $(WTF_DEVICE).new && \
                      { cmp -s $(WTF_DEVICE).new $(WTF_DEVICE) || mv $(WTF_DEVICE).new $(WTF_DEVICE); } && rm -f $(WTF_DEVICE).new && \
                      python3 $(ROOT)/tools/builder/gemifi_build.py generate $(WTF_DEVICE) -o $(WTF_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
@@ -118,13 +136,17 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(I2C_
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(I2C_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(MSG_DEVICE) -o $(MSG_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(MSG_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
 
 CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/app_proto.c \
              $(ROOT)/core/src/settings.c $(ROOT)/core/src/vpin.c $(ROOT)/core/src/display.c $(ROOT)/core/src/din.c $(ROOT)/core/src/controller.c \
-             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c \
+             $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c $(ROOT)/core/src/safety.c \
              fake_config_store.c
 
 SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
@@ -135,6 +157,7 @@ FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
 MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c
 HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c
 TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
+TMA_SRCS := test_tm1628.c $(CORE_SRCS) $(TMA_DEV)/gm_device_config.c
 PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
 PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c
 DINP_SRCS := test_din.c $(CORE_SRCS) $(DINP_DEV)/gm_device_config.c
@@ -143,9 +166,10 @@ LED_SRCS := test_leds.c $(CORE_SRCS) $(LED_DEV)/gm_device_config.c
 LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
 ENC_SRCS := test_encoders.c $(CORE_SRCS) $(ENC_DEV)/gm_device_config.c
 I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c
+MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_encoders $(BUILD)/test_i2c
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -159,6 +183,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_tm1628
 	GM_TEST_BSRR=1 $(BUILD)/test_tm1628
 	GM_TEST_BSRR=1 GM_TEST_NO_CYCLES=1 $(BUILD)/test_tm1628
+	$(BUILD)/test_tm1628_ack
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
 	$(BUILD)/test_display
@@ -168,6 +193,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_leds_local
 	$(BUILD)/test_encoders
 	$(BUILD)/test_i2c
+	$(BUILD)/test_msg
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -192,6 +218,10 @@ $(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(HW_DE
 $(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DGM_TEST_STORE -I$(TM_DEV) $(TM_SRCS) -o $@
+
+$(BUILD)/test_tm1628_ack: $(TMA_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TMA_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DGM_TEST_STORE -DRGB_ACK_TEST -I$(TMA_DEV) $(TMA_SRCS) -o $@
 
 $(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -231,3 +261,7 @@ clean:
 $(BUILD)/test_i2c: $(I2C_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(I2C_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(I2C_DEV) $(I2C_SRCS) -o $@
+
+$(BUILD)/test_msg: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MSG_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(MSG_DEV) $(MSG_SRCS) -o $@

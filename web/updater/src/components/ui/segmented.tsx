@@ -1,20 +1,28 @@
 import type { ReactNode } from "react";
 import * as React from "react";
 import { IconClassContext } from "@/components/ui/icons-base";
-import { cn, type SlotNode } from "@/lib/utils";
+import { cn, hasSlot, type SlotNode, touchRowClass, touchTarget } from "@/lib/utils";
+
+/**
+ * A plain pill's drawn height, its label's 20px line and its `py-1.5`: 32px. Grown to a finger's
+ * 44pt by a `hitSlop` on device (#470), and only the height: pills sit side by side, where a wider
+ * target would take a neighbour's. A framed pill is 44pt itself and takes none.
+ */
+const DRAWN = { height: 32 } as const;
 
 /**
  * The container class, for a pill the caller renders itself.
  *
  * `hover:` and `transition-colors` are no-ops on device and real on web, which
  * is the intended asymmetry: a pointer exists on one platform and not the other.
+ * Focused, a pill looks as it does under the pointer, and draws no ring.
  */
 export function segmentedItemClass(active: boolean, className?: string) {
   return cn(
-    "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+    "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none",
     active
-      ? "bg-active text-active-foreground"
-      : "text-foreground/60 hover:bg-hover hover:text-foreground",
+      ? "bg-active/40 text-foreground hover:bg-active/60 focus-visible:bg-active/60"
+      : "text-foreground/60 hover:bg-hover hover:text-foreground focus-visible:bg-hover focus-visible:text-foreground",
     className,
   );
 }
@@ -28,19 +36,21 @@ export function segmentedItemClass(active: boolean, className?: string) {
 export function segmentedTextClass(active: boolean, className?: string) {
   return cn(
     "text-sm font-semibold",
-    active
-      ? "text-active-foreground group-focus-visible/pill:text-foreground"
-      : ["text-foreground/60", HOVER_INK],
+    active ? "text-foreground" : ["text-foreground/60", HOVER_INK],
     className,
   );
 }
 
 /**
- * A quiet label lifted to full ink under the pointer, as the web halves' `hover:text-foreground`
- * does. The colour sits on each `Text`, which a container's `hover:` cannot reach, so it reads the
- * pressable's `group` instead. Web only: a device has no pointer to hover with.
+ * A quiet label lifted to full ink under the pointer and focused, as the web halves'
+ * `hover:text-foreground` does. The colour sits on each `Text`, which a container's `hover:` cannot
+ * reach, so it reads the pressable's `group` instead. Web only: a device has no pointer to hover
+ * with, and no keyboard focus to show.
  */
-const HOVER_INK = "group-hover:text-foreground";
+const HOVER_INK = "group-hover:text-foreground group-focus-visible:text-foreground";
+
+/** The same lift on the container, for an element child that takes its colour from there. */
+const CONTAINER_HOVER_INK = "hover:text-foreground focus-visible:text-foreground";
 
 /**
  * Where a pill with an `iconSlot` stops drawing its label: at every width, or under
@@ -79,12 +89,16 @@ type SegmentedGroupContextValue = {
 const SegmentedGroupContext = React.createContext<SegmentedGroupContextValue | null>(null);
 
 /**
- * The row's two looks. `framed` is an input-height box, so a segmented control
- * beside a select or an input lines up with it; `plain` is the pills on the
- * page with nothing round them, for a toolbar or a nav bar.
+ * The row's two looks. `framed` is a frame around pills as tall as an input, the
+ * same box a `TabsList` draws round its tabs, so the two are one height side by
+ * side; `plain` is the pills on the page with nothing round them, for a toolbar
+ * or a nav bar.
+ *
+ * No height of its own (#537). It was the 40px box an `Input` is, which left a
+ * pill 28px inside it, while a tab had grown to 40px in a frame round it (#535).
  */
 const SEGMENTED_GROUP_VARIANTS = {
-  framed: "h-10 rounded-md border border-foreground/50 bg-background p-1",
+  framed: "rounded-md border border-foreground/50 bg-background p-1",
   plain: "",
 } as const;
 
@@ -103,8 +117,12 @@ export type SegmentedGroupProps<TValue extends string = string> = Omit<
    * and the caller neither looks it up again nor asserts it.
    */
   onValueChange?: ((value: TValue) => void) | undefined;
+  /** The row's element, for a caller that has to measure it. */
   ref?: React.Ref<HTMLDivElement> | undefined;
-  /** `framed` (the default) draws the input-height box; `plain` draws the row alone. */
+  /**
+   * `framed` (the default) draws a frame round pills as tall as an input, as a `TabsList` does;
+   * `plain` draws the row alone, its pills 32px.
+   */
   variant?: keyof typeof SEGMENTED_GROUP_VARIANTS | undefined;
   /**
    * Under this width a pill with an `iconSlot` draws the icon alone; `always` is a
@@ -120,7 +138,9 @@ export type SegmentedGroupProps<TValue extends string = string> = Omit<
   "aria-label"?: string | undefined;
   /** The id of a visible heading that names the group, in place of `aria-label`. */
   "aria-labelledby"?: string | undefined;
+  /** On the row the pills sit in, after the variant's classes. */
   className?: string | undefined;
+  /** The `SegmentedButton` pills, one per choice. */
   children: ReactNode;
 };
 
@@ -232,13 +252,10 @@ const SegmentedButton = React.forwardRef<HTMLButtonElement, SegmentedButtonProps
   ({ active, value, iconSlot, className, children, onClick: onPress, ...props }, ref) => {
     const group = React.useContext(SegmentedGroupContext);
     const current = active ?? (group !== null && value !== undefined && group.value === value);
-    // The pill's own ink, for the container and the icon. A `group-*/pill` variant selects what is
-    // inside the pill, so on the pill itself it would never apply: the container turns its own ink
-    // with `focus-visible:`, and only the label takes the group variant.
-    const ink = current ? "text-active-foreground" : "text-foreground/60";
+    // The pill's own ink, for the container and the icon.
+    const ink = current ? "text-foreground" : "text-foreground/60";
     // Only a pill with an icon has something left to draw once its label is gone.
-    const labelHideBelow = iconSlot ? group?.labelHideBelow : undefined;
-    const iconOnlyHeight = group?.framed ? "min-h-7" : "min-h-8";
+    const labelHideBelow = hasSlot(iconSlot) ? group?.labelHideBelow : undefined;
     return (
       <button
         type="button"
@@ -263,31 +280,40 @@ const SegmentedButton = React.forwardRef<HTMLButtonElement, SegmentedButtonProps
           onPress?.(event);
         }}
         className={cn(
-          // Inside the frame a pill is 4px shorter, so it fits the input-height
-          // box instead of spilling past its padding.
-          // Inside the frame, `rounded-sm`: the radius nested in the frame's, as a tab's is.
+          // Inside the frame a pill is a tab, with `rounded-sm`, the radius nested in the frame's:
+          // 30px on the web, so the frame is 40px, the height of an `Input` and a default
+          // `Button`; 44pt on device, that tall itself rather than by a `hitSlop`, as a tab is. A
+          // framed segmented control and a tab list are then one height side by side (#537).
           "cube-rn-view cube-rn-pressable",
-          group?.framed ? "rounded-sm px-3 py-1" : "rounded-md px-3 py-1.5",
-          // Focused, the current pill looks hovered, as every focused thing does.
+          group?.framed
+            ? cn("justify-center rounded-sm px-3", "h-7.5", touchRowClass())
+            : "rounded-md px-3 py-1.5",
+          // The current pill is the chosen tint, a step further under the pointer, focused and
+          // pressed; another looks hovered then, as `RadioGroup`'s segments do. Neither draws a ring.
+          "focus-visible:outline-none",
           current
-            ? "group/pill bg-active focus-visible:bg-hover focus-visible:text-foreground"
-            : "group hover:bg-hover",
+            ? "bg-active/40 hover:bg-active/60 focus-visible:bg-active/60 active:bg-active/60"
+            : "group hover:bg-hover focus-visible:bg-hover active:bg-hover",
           // The label colour on the container too, which native ignores and web
           // reads: an element child passes through untouched below, so on web its
           // colour can only come from inheriting it here.
           ink,
-          iconSlot ? WITH_ICON : undefined,
-          // The label's line is what gives a pill its height, and an icon is
+          current ? undefined : CONTAINER_HOVER_INK,
+          hasSlot(iconSlot) ? WITH_ICON : undefined,
+          // The label's line is what gives a plain pill its height, and an icon is
           // shorter than it: with the label hidden the pill would shrink, so it
           // is held at the height a labelled pill beside it has.
-          iconSlot ? iconOnlyHeight : undefined,
+          hasSlot(iconSlot) && group?.framed !== true ? "min-h-8" : undefined,
           className,
         )}
+        {...(group?.framed ? {} : touchTarget(DRAWN))}
         {...(props as React.ComponentPropsWithoutRef<"button">)}
       >
         {/* Colour does not inherit on device, so the icon is handed the label's. */}
-        {iconSlot ? (
-          <IconClassContext.Provider value={cn("size-4 shrink-0", ink)}>
+        {hasSlot(iconSlot) ? (
+          <IconClassContext.Provider
+            value={cn("size-4 shrink-0", ink, current ? undefined : HOVER_INK)}
+          >
             {iconSlot}
           </IconClassContext.Provider>
         ) : null}

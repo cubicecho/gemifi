@@ -87,7 +87,7 @@ function RenameDialog({ controller, preset, onOpenChange }: DialogProps & { pres
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
           <form.AppForm>
-            <form.SubmitButton requireChanges content="Rename" pendingLabel="Renaming…" />
+            <form.SubmitButton requireChanges createLabel="Rename" loadingLabel="Renaming…" />
           </form.AppForm>
         </>
       )}
@@ -169,7 +169,7 @@ function NewPresetDialog({
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
           <form.AppForm>
-            <form.SubmitButton content="Make preset" pendingLabel="Making…" />
+            <form.SubmitButton createLabel="Make preset" loadingLabel="Making…" />
           </form.AppForm>
         </>
       )}

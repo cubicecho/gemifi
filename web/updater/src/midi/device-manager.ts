@@ -263,6 +263,14 @@ export class DeviceManager implements DeviceLink {
     });
   };
 
+  /**
+   * Every connected MIDI input, the device's own and any other (a synth, a DAW), for the MIDI
+   * monitor and MIDI learn. Listen with {@link subscribe}: it fires when ports come and go.
+   *
+   * @returns The inputs, in the browser's order.
+   */
+  inputs = (): MIDIInput[] => [...this.#access.inputs.values()].filter((port) => port.state === 'connected');
+
   /** Stops following ports and closes the client. */
   close(): void {
     this.#access.removeEventListener('statechange', this.#onStateChange);

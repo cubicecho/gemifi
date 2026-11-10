@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import * as React from "react";
-import { cn, type SlotNode } from "@/lib/utils";
+import { actionGap, cn, hasSlot, type SlotNode } from "@/lib/utils";
 
 type Layout = "inline" | "stacked";
 
@@ -55,7 +55,7 @@ function asText(node: ReactNode, className: string) {
   );
 }
 
-type DescriptionListProps = {
+type PropertyListProps = {
   /**
    * The rows: `PropertyRow`s, as an array or a fragment. Nothing else belongs here — on the web
    * this is a `<dl>`, which may hold only term-and-description groups.
@@ -68,6 +68,7 @@ type DescriptionListProps = {
    * only true on a wide screen is the kind rule 11 renames later.
    */
   layout?: Layout | undefined;
+  /** On the list, the `<dl>` on the web. The gap between the rows is here. */
   className?: string | undefined;
 };
 
@@ -85,14 +86,10 @@ type DescriptionListProps = {
  *
  * No state, no data, no `children` — the rows are `contentSlot`, like every other shell's body.
  */
-export function DescriptionList({
-  contentSlot,
-  layout = "inline",
-  className,
-}: DescriptionListProps) {
+export function PropertyList({ contentSlot, layout = "inline", className }: PropertyListProps) {
   return (
     <LayoutContext.Provider value={layout}>
-      <dl data-slot="description-list" className={cn("cube-rn-view", "min-w-0 gap-3", className)}>
+      <dl data-slot="property-list" className={cn("cube-rn-view", "min-w-0 gap-3", className)}>
         {contentSlot}
       </dl>
     </LayoutContext.Provider>
@@ -119,7 +116,9 @@ type PropertyRowProps = {
    * of what is said about it.
    */
   actionSlot?: SlotNode | undefined;
+  /** On the row, the label and value together. */
   className?: string | undefined;
+  /** On the label's own `Text`, the `<dt>` on the web. */
   labelClassName?: string | undefined;
   /**
    * A string or number value's own `Text`, so a path, a version or an id is `value={path}
@@ -135,9 +134,9 @@ type PropertyRowProps = {
 };
 
 /**
- * One fact in a `DescriptionList`: a label, a value, a hint under the value, an action beside it.
+ * One fact in a `PropertyList`: a label, a value, a hint under the value, an action beside it.
  *
- * Only ever inside a `DescriptionList`, which is what gives it a layout and a parent list — a
+ * Only ever inside a `PropertyList`, which is what gives it a layout and a parent list — a
  * `<dt>` with no `<dl>` around it is markup axe rejects, as is a list item with no list.
  *
  * The row is a `<div>` on the web, not an `<li>`: `webAs` names the element, and `role="listitem"`
@@ -173,8 +172,11 @@ export function PropertyRow({
       <dd
         data-slot="property-row-value"
         className={cn(
+          // `items-start`, so the value keeps to its label and the action sits level with its top,
+          // as the heading rhythm puts every action. Centred, a 36px button pushed the value 8px
+          // down: off its label's line inline, and away from the label over it when stacked.
           "cube-rn-view",
-          "min-w-0 flex-row items-center gap-2",
+          "min-w-0 flex-row items-start gap-2",
           VALUES[layout],
           // A string's class is on its `Text`, below. Left here as well, a `font-mono` would reach
           // the hint and the action on the web, by inheritance, and neither of them on device.
@@ -189,10 +191,10 @@ export function PropertyRow({
             </span>
           ) : null}
         </div>
-        {actionSlot ? (
+        {hasSlot(actionSlot) ? (
           <div
             data-slot="property-row-action"
-            className="cube-rn-view shrink-0 flex-row items-center gap-1"
+            className={cn("cube-rn-view", "shrink-0 flex-row items-center", actionGap(actionSlot))}
           >
             {actionSlot}
           </div>
@@ -201,3 +203,6 @@ export function PropertyRow({
     </div>
   );
 }
+
+/** @deprecated Use `PropertyList`; this name goes in the next release. */
+export const DescriptionList = PropertyList;

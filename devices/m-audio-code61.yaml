@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
 # M-Audio Code 61 with gemifi (STM32F103RBT6), run by the gemifi bootloader
 # (bootloader/stm32f1).
 #
@@ -36,11 +37,20 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.89
+  version: 0.2.104
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
 usb: { vid: 0x1209, pid: 0x0002 }
+# Recovery (core/README.md "Factory-reset combo", "Physical unlock", "Status LED"):
+# Octave - + Octave + held at power-up for 5 s wipe the settings (not the firmware;
+# Up + Down at power-up is the bootloader's). The Edit LED shows the blink codes.
+# The physical unlock is off. With the line below, uploads, reboot to the bootloader
+# and factory reset over SysEx wait until Up + Down are held for 2 s (the display says
+# HOLD UP+DOWN and the Edit LED blinks fast meanwhile).
+factory_reset_combo: [octave_down, octave_up]
+# unlock: { combo: [up, down] }
+status_led: edit_led
 # write_to_flash: (core/README.md "Writes the device makes on its own"): what
 # the device saves without a host asking. Left out = off: a preset picked on
 # the device isn't remembered, and power-up is preset 1. A flash page erase
@@ -118,14 +128,26 @@ tm1628:
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
     ram_bytes: 6
+    # Only the 16 RGB buttons are on this chip, so its brightness (8 steps,
+    # all of them at once) can follow a DAW's colours: fade:. [tried 2026-11-10: fades, no flicker]
+    fade: true
 # Pad LEDs: not on the TM1628s but on the pad board, a small controller fed by
-# USART2 TX on PA2 at 115200 baud [sure]: one message per LED, 02, 0x80 + LED,
-# R, G, B, 03, and an A5 keepalive (core/README.md "RGB serial LEDs"). Its
-# LED index counts from the top row, like the pad mux slots: pad k
-# (1 = bottom left) is LED (3 - (k-1) / 4) * 4 + (k-1) % 4.
+# USART2 TX on PA2 at 115200 baud [sure, found in the stock app and tried
+# 2026-11-03]: one message per LED, 02, 0x80 + LED, R, G, B, 03, and an A5
+# keepalive (core/README.md "RGB serial LEDs"). Its LED index counts from the
+# top row, like the pad mux slots: pad k (1 = bottom left) is LED
+# (3 - (k-1) / 4) * 4 + (k-1) % 4. The board answers each LED message with
+# 0x40 + LED on PA3 [sure, logged on hardware 2026-11-09]: rx_pin lets the
+# core resend what wasn't answered and repaint once the board is up.
 rgb_serial:
   - id: pad_leds
     tx_pin: PA2
+    rx_pin: PA3
+    # Calibrated by eye on the Code 61 (2026-11-09, test builds 98-99): the
+    # LEDs dim smoothly (8-bit PWM), a 64 looks about half of 255 (gamma),
+    # and 255/255/255 looks green: 255/200/220 looks white.
+    gamma: 2.2
+    white: [255, 200, 220]
     count: 16
 
 # The rear 5-pin MIDI jacks: USART1 at 31250 baud, TX PA9, RX PA10 [sure].
@@ -168,15 +190,19 @@ displays:
       - { tm1628: leds_a, number: 16 }
       - { tm1628: leds_a, number: 32 }
 
-# LEDs, mapped on hardware with the LED-map build
-# (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display,
-# bits 96-102 single-colour button LEDs. Chip B bit n (0-15) is an RGB LED's
-# blue, n+16 its green, n+32 its red. Shift has no LED [sure]: no LED-driver
-# bit, pad board LED 16-31 or unused GPIO (PC6-8, PC14, PD2) lights one.
-# Looks (core/README.md "LED looks"): every LED is lit while idle so the
-# panel is easy to see, and changes while active. RGB LEDs (buttons, pads)
-# idle blue and go white; the single-colour ones (Channel, Edit, Zone, 1-4)
-# are lit and go dark. Change them here, or per LED with idle: / active:.
+# LEDs, mapped on hardware (2026-11-03) with the LED-map build
+# (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display;
+# bits 96-102 are single-colour button LEDs.
+# Chip B bit n (0-15) is an RGB LED's blue, n+16 its green, n+32 its red.
+# Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
+# LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
+# the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
+# Looks (core/README.md "LED looks"), the user's request (2026-11-03): every
+# LED lit while idle so the panel is easy to see, and changed while active.
+# RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
+# (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
+# LED with idle: / active:. The pads can show any brightness, so they idle a
+# dim blue (blue 25%) and a hit stands out (the user's request, 2026-11-09).
 led_defaults: { idle: blue, active: white }
 leds:
   - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
@@ -202,22 +228,22 @@ leds:
   - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 }, idle: blue, active: red }
   - { id: x_mode_led, name: "X mode", pin: { tm1628: leds_b, number: 46 }, pin2: { tm1628: leds_b, number: 30 }, pin3: { tm1628: leds_b, number: 14 } }
   - { id: y_mode_led, name: "Y mode", pin: { tm1628: leds_b, number: 47 }, pin2: { tm1628: leds_b, number: 31 }, pin3: { tm1628: leds_b, number: 15 } }
-  - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
-  - { id: pad_2_led, name: "Pad 2", pin: { rgb_serial: pad_leds, number: 39 }, pin2: { rgb_serial: pad_leds, number: 40 }, pin3: { rgb_serial: pad_leds, number: 41 } }
-  - { id: pad_3_led, name: "Pad 3", pin: { rgb_serial: pad_leds, number: 42 }, pin2: { rgb_serial: pad_leds, number: 43 }, pin3: { rgb_serial: pad_leds, number: 44 } }
-  - { id: pad_4_led, name: "Pad 4", pin: { rgb_serial: pad_leds, number: 45 }, pin2: { rgb_serial: pad_leds, number: 46 }, pin3: { rgb_serial: pad_leds, number: 47 } }
-  - { id: pad_5_led, name: "Pad 5", pin: { rgb_serial: pad_leds, number: 24 }, pin2: { rgb_serial: pad_leds, number: 25 }, pin3: { rgb_serial: pad_leds, number: 26 } }
-  - { id: pad_6_led, name: "Pad 6", pin: { rgb_serial: pad_leds, number: 27 }, pin2: { rgb_serial: pad_leds, number: 28 }, pin3: { rgb_serial: pad_leds, number: 29 } }
-  - { id: pad_7_led, name: "Pad 7", pin: { rgb_serial: pad_leds, number: 30 }, pin2: { rgb_serial: pad_leds, number: 31 }, pin3: { rgb_serial: pad_leds, number: 32 } }
-  - { id: pad_8_led, name: "Pad 8", pin: { rgb_serial: pad_leds, number: 33 }, pin2: { rgb_serial: pad_leds, number: 34 }, pin3: { rgb_serial: pad_leds, number: 35 } }
-  - { id: pad_9_led, name: "Pad 9", pin: { rgb_serial: pad_leds, number: 12 }, pin2: { rgb_serial: pad_leds, number: 13 }, pin3: { rgb_serial: pad_leds, number: 14 } }
-  - { id: pad_10_led, name: "Pad 10", pin: { rgb_serial: pad_leds, number: 15 }, pin2: { rgb_serial: pad_leds, number: 16 }, pin3: { rgb_serial: pad_leds, number: 17 } }
-  - { id: pad_11_led, name: "Pad 11", pin: { rgb_serial: pad_leds, number: 18 }, pin2: { rgb_serial: pad_leds, number: 19 }, pin3: { rgb_serial: pad_leds, number: 20 } }
-  - { id: pad_12_led, name: "Pad 12", pin: { rgb_serial: pad_leds, number: 21 }, pin2: { rgb_serial: pad_leds, number: 22 }, pin3: { rgb_serial: pad_leds, number: 23 } }
-  - { id: pad_13_led, name: "Pad 13", pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 } }
-  - { id: pad_14_led, name: "Pad 14", pin: { rgb_serial: pad_leds, number: 3 }, pin2: { rgb_serial: pad_leds, number: 4 }, pin3: { rgb_serial: pad_leds, number: 5 } }
-  - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 } }
-  - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 } }
+  - { id: pad_1_led, name: "Pad 1", pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 }, idle: blue 25% }
+  - { id: pad_2_led, name: "Pad 2", pin: { rgb_serial: pad_leds, number: 39 }, pin2: { rgb_serial: pad_leds, number: 40 }, pin3: { rgb_serial: pad_leds, number: 41 }, idle: blue 25% }
+  - { id: pad_3_led, name: "Pad 3", pin: { rgb_serial: pad_leds, number: 42 }, pin2: { rgb_serial: pad_leds, number: 43 }, pin3: { rgb_serial: pad_leds, number: 44 }, idle: blue 25% }
+  - { id: pad_4_led, name: "Pad 4", pin: { rgb_serial: pad_leds, number: 45 }, pin2: { rgb_serial: pad_leds, number: 46 }, pin3: { rgb_serial: pad_leds, number: 47 }, idle: blue 25% }
+  - { id: pad_5_led, name: "Pad 5", pin: { rgb_serial: pad_leds, number: 24 }, pin2: { rgb_serial: pad_leds, number: 25 }, pin3: { rgb_serial: pad_leds, number: 26 }, idle: blue 25% }
+  - { id: pad_6_led, name: "Pad 6", pin: { rgb_serial: pad_leds, number: 27 }, pin2: { rgb_serial: pad_leds, number: 28 }, pin3: { rgb_serial: pad_leds, number: 29 }, idle: blue 25% }
+  - { id: pad_7_led, name: "Pad 7", pin: { rgb_serial: pad_leds, number: 30 }, pin2: { rgb_serial: pad_leds, number: 31 }, pin3: { rgb_serial: pad_leds, number: 32 }, idle: blue 25% }
+  - { id: pad_8_led, name: "Pad 8", pin: { rgb_serial: pad_leds, number: 33 }, pin2: { rgb_serial: pad_leds, number: 34 }, pin3: { rgb_serial: pad_leds, number: 35 }, idle: blue 25% }
+  - { id: pad_9_led, name: "Pad 9", pin: { rgb_serial: pad_leds, number: 12 }, pin2: { rgb_serial: pad_leds, number: 13 }, pin3: { rgb_serial: pad_leds, number: 14 }, idle: blue 25% }
+  - { id: pad_10_led, name: "Pad 10", pin: { rgb_serial: pad_leds, number: 15 }, pin2: { rgb_serial: pad_leds, number: 16 }, pin3: { rgb_serial: pad_leds, number: 17 }, idle: blue 25% }
+  - { id: pad_11_led, name: "Pad 11", pin: { rgb_serial: pad_leds, number: 18 }, pin2: { rgb_serial: pad_leds, number: 19 }, pin3: { rgb_serial: pad_leds, number: 20 }, idle: blue 25% }
+  - { id: pad_12_led, name: "Pad 12", pin: { rgb_serial: pad_leds, number: 21 }, pin2: { rgb_serial: pad_leds, number: 22 }, pin3: { rgb_serial: pad_leds, number: 23 }, idle: blue 25% }
+  - { id: pad_13_led, name: "Pad 13", pin: { rgb_serial: pad_leds, number: 0 }, pin2: { rgb_serial: pad_leds, number: 1 }, pin3: { rgb_serial: pad_leds, number: 2 }, idle: blue 25% }
+  - { id: pad_14_led, name: "Pad 14", pin: { rgb_serial: pad_leds, number: 3 }, pin2: { rgb_serial: pad_leds, number: 4 }, pin3: { rgb_serial: pad_leds, number: 5 }, idle: blue 25% }
+  - { id: pad_15_led, name: "Pad 15", pin: { rgb_serial: pad_leds, number: 6 }, pin2: { rgb_serial: pad_leds, number: 7 }, pin3: { rgb_serial: pad_leds, number: 8 }, idle: blue 25% }
+  - { id: pad_16_led, name: "Pad 16", pin: { rgb_serial: pad_leds, number: 9 }, pin2: { rgb_serial: pad_leds, number: 10 }, pin3: { rgb_serial: pad_leds, number: 11 }, idle: blue 25% }
 
 # Faders: 12-bit ADC, 80..4000 used as the range [likely]. Eight are on the
 # mux and one (PA6) is direct; which mux slot is which fader is [guess].
@@ -561,3 +587,88 @@ modes:
           encoder_6: { cc: none, daw: pan_6 }
           encoder_7: { cc: none, daw: pan_7 }
           encoder_8: { cc: none, daw: pan_8 }
+
+# Where the controls are, for the web page's drawing (core/README.md "Layout"): units of about
+# 5 mm from the top left; [x, y] or [x, y, w, h]. Approximate, from the panel as the user
+# described it: the XY pad top left with the wheels under it, left of the keys; the display,
+# preset and transport buttons; the 16 pads (pad 1 bottom left, pad 13 top left); the encoders
+# over the faders, B1 under the master fader and B2-B9 under faders 1-8. Sustain is a jack and
+# aftertouch is under the keys, so they aren't drawn; nor are slots 38 and 39.
+layout:
+  keys: [18, 30, 144, 22]
+  controls:
+    xy_x:         { x: 2, y: 2, w: 12, h: 12, shape: xy }
+    x_mode:       [15, 2]
+    x_button:     [15, 5]
+    y_mode:       [15, 9]
+    y_button:     [15, 12]
+    pitch_wheel:  { x: 3, y: 30, w: 4, h: 14, shape: wheel }
+    mod_wheel:    { x: 10, y: 30, w: 4, h: 14, shape: wheel }
+    display:      [22, 2, 16, 5]
+    down:         [40, 3]
+    up:           [44, 3]
+    channel:      [22, 9]
+    edit:         [26, 9]
+    zone:         [30, 9]
+    num_1:        [34, 9]
+    num_2:        [38, 9]
+    num_3:        [42, 9]
+    num_4:        [46, 9]
+    shift:        [22, 13]
+    transpose:    [26, 13]
+    octave_down:  [30, 13]
+    octave_up:    [34, 13]
+    pad_octave_down: [40, 13]
+    pad_octave_up:   [44, 13]
+    rewind:       [22, 18, 4, 3]
+    fast_forward: [27, 18, 4, 3]
+    stop:         [32, 18, 4, 3]
+    play:         [37, 18, 4, 3]
+    record:       [42, 18, 4, 3]
+    pad_13: [54, 2, 6, 6]
+    pad_14: [61, 2, 6, 6]
+    pad_15: [68, 2, 6, 6]
+    pad_16: [75, 2, 6, 6]
+    pad_9:  [54, 9, 6, 6]
+    pad_10: [61, 9, 6, 6]
+    pad_11: [68, 9, 6, 6]
+    pad_12: [75, 9, 6, 6]
+    pad_5:  [54, 16, 6, 6]
+    pad_6:  [61, 16, 6, 6]
+    pad_7:  [68, 16, 6, 6]
+    pad_8:  [75, 16, 6, 6]
+    pad_1:  [54, 23, 6, 6]
+    pad_2:  [61, 23, 6, 6]
+    pad_3:  [68, 23, 6, 6]
+    pad_4:  [75, 23, 6, 6]
+    encoder_1: [90, 2, 4, 4]
+    encoder_2: [97, 2, 4, 4]
+    encoder_3: [104, 2, 4, 4]
+    encoder_4: [111, 2, 4, 4]
+    encoder_5: [118, 2, 4, 4]
+    encoder_6: [125, 2, 4, 4]
+    encoder_7: [132, 2, 4, 4]
+    encoder_8: [139, 2, 4, 4]
+    fader_1: { x: 91, y: 8, w: 2, h: 14, shape: fader }
+    fader_2: { x: 98, y: 8, w: 2, h: 14, shape: fader }
+    fader_3: { x: 105, y: 8, w: 2, h: 14, shape: fader }
+    fader_4: { x: 112, y: 8, w: 2, h: 14, shape: fader }
+    fader_5: { x: 119, y: 8, w: 2, h: 14, shape: fader }
+    fader_6: { x: 126, y: 8, w: 2, h: 14, shape: fader }
+    fader_7: { x: 133, y: 8, w: 2, h: 14, shape: fader }
+    fader_8: { x: 140, y: 8, w: 2, h: 14, shape: fader }
+    fader_9: { x: 147, y: 8, w: 2, h: 14, shape: fader }
+    b2: [90, 24, 4, 2]
+    b3: [97, 24, 4, 2]
+    b4: [104, 24, 4, 2]
+    b5: [111, 24, 4, 2]
+    b6: [118, 24, 4, 2]
+    b7: [125, 24, 4, 2]
+    b8: [132, 24, 4, 2]
+    b9: [139, 24, 4, 2]
+    b1: [146, 24, 4, 2]
+    encoder_mode: [153, 2, 4, 2]
+    fader_mode:   [153, 6, 4, 2]
+    button_mode:  [153, 10, 4, 2]
+    bank_left:    [153, 14, 4, 2]
+    bank_right:   [153, 18, 4, 2]

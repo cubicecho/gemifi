@@ -185,6 +185,12 @@ static int continuous(const uint8_t *m, uint32_t n)
         return n == 3;
     if (t == 0xD0)
         return n == 2;
+#if GM_MSG_CC14
+    /* A 14-bit CC's LSB (32-63) must follow its MSB: kept in order, which
+     * sends any MSB waiting in a slot first. */
+    if (t == 0xB0 && c >= 32 && c < 64)
+        return 0;
+#endif
     return t == 0xB0 && n == 3 && c != 0 && c != 6 && c != 32 && c != 38 && c != 88 && (c < 64 || c > 69) &&
            (c < 96 || c > 101) && c < 120;
 }
@@ -230,6 +236,7 @@ static int coalesce(const uint8_t *m, uint32_t n)
 static void sysex_done(void)
 {
     sx_owner = SRC_NONE;
+    drain(1);                       /* the slots first, as outside a SysEx: an MSB before its LSB */
     for (uint32_t i = 0; i < pend_n; i++)
         put(pend[i] + 1, pend[i][0] & 3u, q_lim[pend[i][0] >> 2]);
     pend_n = 0;
@@ -500,8 +507,16 @@ void gm_din_poll(uint32_t now)
 
 void gm_din_local(const uint8_t *m, uint32_t n)
 {
-    if (gm_cfg.din_out)
-        send_short(SRC_LOCAL, m, n);
+    if (!gm_cfg.din_out)
+        return;
+#if GM_N_SYSEX || GM_MSG_MMC
+    if (n && m[0] == 0xF0) {                /* MMC, the YAML's SysEx strings */
+        for (uint32_t i = 0; i < n; i++)
+            send_sysex(SRC_LOCAL, m[i]);
+        return;
+    }
+#endif
+    send_short(SRC_LOCAL, m, n);
 }
 
 int gm_din_usb(const uint8_t ev[4])

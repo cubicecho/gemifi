@@ -319,13 +319,62 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
                          r"rgb_serial, which can't be an input")
         self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
-        # its RAM goes in with the TM1628s'; 16 LEDs default = 6 bytes
+        # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
-        self.assertIn("#define GM_TM1628_RAM 6 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_TM1628_RAM 48 ", files["gm_device_config.h"])
         self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
-        self.assertIn(".ram_bytes = 6,", files["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48,", files["gm_device_config.c"])
+        self.assertIn(".rgb_white = { 255, 255, 255 }, .rgb_curve = 0,", files["gm_device_config.c"])
+        self.assertIn("{ 0, 0 } }, /* l0", files["gm_device_config.c"])         # no full-colour looks
+        self.assertIn(".latch = GM_NO_PIN,", files["gm_device_config.c"])     # no rx_pin: no answers
+        # rx_pin: the board's answers, on USART2 RX (PA3) only
+        self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
+        self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA4, count: 4"), r"rx_pin on stm32f1 is PA3",
+                         path="rgb_serial[0].rx_pin")
+        self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA1, count: 4"), r"PA1")     # PA1 is the test's analog
+        dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        self.assertIn(".latch = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
+
+    def test_rgb_serial_colours(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(hub="", look="", pins=(0, 1, 2)):
+            a, b, c = pins
+            return (stm + f"rgb_serial:\n  - {{ id: p, tx_pin: PA2, count: 4{hub} }}\n"
+                    f"leds:\n  - {{ id: l0, pin: {{ rgb_serial: p, number: {a} }}, "
+                    f"pin2: {{ rgb_serial: p, number: {b} }}, pin3: {{ rgb_serial: p, number: {c} }}{look} }}\n")
+
+        # gamma: and white: (the calibration)
+        self.assertClean(dev(", gamma: 2.2, white: [255, 200, 220]"))
+        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="rgb_serial[0].gamma")
+        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="rgb_serial[0].white")
+        self.assertError(dev(", white: [255, 0, 220]"), r"each 1\.\.255")
+        dev_, diags = load(dev(", gamma: 2.2, white: [255, 200, 220]"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
+        self.assertIn(".rgb_white = { 255, 200, 220 }, .rgb_curve = rgb_curve_1,", c)
+        self.assertIn("static const uint8_t rgb_curve_1[256] = {", c)
+        curve = gd.rgb_curve(2.2)
+        self.assertEqual((curve[0], curve[1], curve[255]), (0, 1, 255))     # above 0 stays above 0
+        self.assertEqual(curve[128], 56)                                      # half as seen: about 22%
+        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one rgb_serial LED
+        self.assertClean(dev(look=', idle: "#000030", active: white'))
+        self.assertClean(dev(look=", idle: blue 20%", pins=(3, 4, 5)))
+        dev_, diags = load(dev(look=', idle: "#102030", active: red 50%'))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
+        self.assertIn("{ GM_LED_RGB(0x102030), GM_LED_RGB(0x800000) } }, /* l0", c)
+        self.assertIn("GM_LED_LOOKS(6, 1)", c)              # on/off fallback: cyan idle, red active
+        self.assertError(dev(look=", idle: blue 20%", pins=(1, 2, 3)), r"needs an LED that can show any colour",
+                         path="leds[0].idle")                                   # not one LED's red, green, blue
+        self.assertError(dev(look=", idle: blue 120%"), r"unknown look 'blue 120%'")
+        on_tm = MINIMAL_NUC + ("tm1628:\n  - { id: t, clk_pin: PA0, dio_pin: PA1, stb_pin: PA2 }\n"
+                               "leds:\n  - { id: l0, pin: { tm1628: t, number: 0 }, pin2: { tm1628: t, number: 1 }, "
+                               "pin3: { tm1628: t, number: 2 }, idle: blue 20% }\n")
+        self.assertError(on_tm, r"needs an LED that can show any colour")
 
     def test_analog_mode(self):
         base = MINIMAL_NUC + "analog:\n"
@@ -384,7 +433,7 @@ class TestValidation(unittest.TestCase):
                      "GM_SCAN_TICK_TIM 2 "):
             self.assertIn("#define " + line, h)
         self.assertIn("#define GM_DIN_DMA 0 ", h)
-        self.assertIn(".ram_bytes = 6, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
         # DIN by DMA: with precharge the scans need 6 channels (ADC1, mux, 4 matrix steps), DIN 2:
         # no timer choice fits; the error says what would
         din_dma = c61.replace(*self.C61_DIN_DMA)
@@ -407,7 +456,7 @@ class TestValidation(unittest.TestCase):
         files = gd.generate(d, "t.yaml")
         self.assertIn("#define GM_DIN_DMA 1 ", files["gm_device_config.h"])
         self.assertNotIn("GM_HW_SCAN_TIM", files["gm_device_config.h"])
-        self.assertIn(".ram_bytes = 6, .dma = 0,", files["gm_device_config.c"])
+        self.assertIn(".ram_bytes = 48, .dma = 0,", files["gm_device_config.c"])
         # the matrix scan without precharge leaves 2 and 6
         d, _ = load(c61.replace("    precharge: true\n", ""))
         self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 3, 4, 5, 7])
@@ -664,6 +713,13 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(extra_a=", intensity: 8"), r"8 is out of range \(0\.\.7\)")
         self.assertError(dev(extra_a=", grids: 3"), r"3 is out of range \(4\.\.7\)")
         self.assertClean(dev(extra_a=", intensity: 0, grids: 7"))
+        # fade: the chip's brightness follows its LEDs' host colours
+        for fade, n in (("", 0), (", fade: true", 1)):
+            dev_, diags = load(dev(extra_a=fade))
+            self.assertIsNotNone(dev_, [str(d) for d in diags])
+            files = gd.generate(dev_, "t.yaml")
+            self.assertIn(f".grids = 0, .fade = {n},", files["gm_device_config.c"])
+            self.assertEqual("#define GM_TM_FADE 1" in files["gm_device_config.h"], n == 1)
         # outputs only
         self.assertError(dev().replace("pin: PA1", "pin: { tm1628: ta, number: 0 }"),
                          r"tm1628, which can't be an input")
@@ -734,9 +790,9 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(gen_dir(dev, tmp), "gm_device_config.c")) as f:
                 c = f.read()
-        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0), 0, 0 }, /* s: PB0 */", c)
-        self.assertRegex(c, r"GM_NO_PIN, 0, 0, 0 \}, /\* bi: PB1 \*/")
-        self.assertIn("GM_LED_LOOKS(4, 7), 0, 0 }, /* rgb: PB3 */", c)
+        self.assertIn("GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS(1, 0), 0, 0, { 0, 0 } }, /* s: PB0 */", c)
+        self.assertRegex(c, r"GM_NO_PIN, 0, 0, 0, \{ 0, 0 \} \}, /\* bi: PB1 \*/")
+        self.assertIn("GM_LED_LOOKS(4, 7), 0, 0, { 0, 0 } }, /* rgb: PB3 */", c)
 
     def test_mux(self):
         mux = "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: %s }\n"
@@ -1114,6 +1170,50 @@ class TestValidation(unittest.TestCase):
         self.assertError(MINIMAL_NUC + "boot_combo: [a, z]\n", r"no button with id 'z'", path="boot_combo[1]")
         self.assertError(MINIMAL_NUC + "boot_combo: [a, no]\n", r"YAML reads `no` as the boolean False")
         self.assertClean(MINIMAL_NUC + "boot_combo: [a]\n")
+
+    def test_safety_keys(self):
+        """factory_reset_combo:, unlock:, status_led: (core/README.md "Factory-reset combo", "Physical unlock",
+        "Status LED")."""
+        two = MINIMAL_NUC + "  - { id: b, pin: PA2 }\n  - { id: c, pin: PA3 }\n"
+        hdr = lambda text: gd.generate(load(text)[0])["gm_device_config.h"]   # noqa: E731
+        # unlock: opt-in. Left out = off, even with a boot_combo; `true` takes the boot_combo
+        h = hdr(two + "boot_combo: [a, b]\n")
+        self.assertIn("#define GM_UNLOCK 0", h)
+        self.assertNotIn("GM_UNLOCK_COMBO", h)
+        h = hdr(two + "boot_combo: [a, b]\nunlock: true\n")
+        self.assertIn("#define GM_UNLOCK 1", h)
+        self.assertIn("#define GM_UNLOCK_COMBO 0x3u /* a + b */", h)
+        self.assertIn("#define GM_UNLOCK_HOLD_MS 2000", h)
+        self.assertIn("#define GM_UNLOCK_REPLY 9 ", h)            # 5 + (1 + 1) x 2
+        self.assertIn("#define GM_RESET_COMBO 0", h)
+        self.assertIn("#define GM_STATUS_LED (-1)", h)
+        self.assertIn("#define GM_UNLOCK 0", hdr(two))
+        self.assertIn("#define GM_UNLOCK 0", hdr(two + "boot_combo: [a, b]\nunlock: false\n"))
+        h = hdr(two + "unlock: { combo: [c], hold: 0s }\n")
+        self.assertIn("#define GM_UNLOCK_COMBO 0x4u /* c */", h)
+        self.assertIn("#define GM_UNLOCK_HOLD_MS 0", h)
+        self.assertIn("#define GM_UNLOCK_COMBO 0x3u", hdr(two + "boot_combo: [b, a]\nunlock: { hold: 3s }\n"))
+        self.assertError(two + "unlock: true\n", r"unlock: true needs a combo")
+        self.assertError(two + "unlock: { hold: 1s }\n", r"needs `combo:`")
+        self.assertError(two + "unlock: { combo: [a], hold: 11s }\n", r"out of range")
+        self.assertError(two + "unlock: { combo: [a], wait: 1s }\n", r"unknown key")
+        self.assertError(two + "unlock: { combo: [] }\n", r"at least one button")
+        self.assertError(two + "unlock: { combo: [a, zz] }\n", r"no button with id 'zz'", path="unlock.combo[1]")
+        # the factory-reset combo, and its overlap with boot_combo
+        h = hdr(two + "factory_reset_combo: [b, c]\n")
+        self.assertIn("#define GM_RESET_COMBO 0x6u /* b + c */", h)
+        self.assertIn("#define GM_RESET_HOLD_MS 5000", h)
+        self.assertIn("#define GM_RESET_HOLD_MS 8000", hdr(two + "factory_reset_combo: { combo: [c], hold: 8s }\n"))
+        self.assertClean(two + "boot_combo: [a, b]\nfactory_reset_combo: [b, c]\n")
+        for combo, how in (("[a, b]", "the same buttons as"), ("[a]", "inside"), ("[a, b, c]", "a superset of")):
+            self.assertError(two + f"boot_combo: [a, b]\nfactory_reset_combo: {combo}\n", how,
+                             path="factory_reset_combo")
+        self.assertError(two + "factory_reset_combo: { combo: [a], hold: 0s }\n", r"out of range")
+        self.assertError(two + "factory_reset_combo: { hold: 5s }\n", r"needs `combo:`")
+        # status_led: an LED id
+        led = two + "leds: [{ id: st, pin: PA4 }]\n"
+        self.assertIn("#define GM_STATUS_LED 0 /* st */", hdr(led + "status_led: st\n"))
+        self.assertError(led + "status_led: a\n", r"'a' is the id of buttons\[0\] \(a button\), not of an LED")
 
     def test_id_required_and_unique(self):
         self.assertError(MINIMAL_NUC.replace("id: a, ", ""), r"needs id: or name:", path="buttons[0]")
@@ -1988,7 +2088,7 @@ class TestModes(unittest.TestCase):
         # the twin: after the YAML's buttons, the mute switch and a new LED (index 2), layer 1 (mode 0 + 1),
         # base 4 (mute); its LED the lamp's pins, base LED 1
         self.assertIn('{ { 0, 0, 5 }, "Mute arm", 2, 1, 4 }, /* mute_arm: PA5 */', c)
-        self.assertRegex(c, r"\{ \{ 0, 0, 13 \}, GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS\(1, 0\), 1, 1 \}, /\* lamp_arm")
+        self.assertRegex(c, r"\{ \{ 0, 0, 13 \}, GM_NO_PIN, GM_NO_PIN, GM_LED_LOOKS\(1, 0\), 1, 1, \{ 0, 0 \} \}, /\* lamp_arm")
         self.assertIn('{ "mute_arm", "Mute arm", "arm_1" }', c)
         # it keeps cc_toggle (action 2), with CC 7; sel (5) toggles with shift (3 + 1) held, sel keeps CC 8
         self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 1, 0, 4, 1, 2, 1, 2 }", c)
@@ -2145,6 +2245,11 @@ class TestModes(unittest.TestCase):
         self.assertIn('"E1 dev", 4, 2, 0 }', c)
         self.assertIn('"E1 pan", 4, 3, 0 }', c)
         self.assertIn("gm_encoder_cc_defaults[GM_N_ENCODERS] = { 20, 21, -1, 41, -1, 50 }", c)
+        # the cycle's LED (2) always shows its step: reported owner local (2), so hosts leave it alone
+        rows = gd.led_fb_rows(dev)
+        self.assertIsNotNone(rows)
+        self.assertEqual(rows[2][1], gd.LED_OWNERS["local"])
+        self.assertTrue(all(r[1] == dev.led_owner for i, r in enumerate(rows) if i != 2))
         # params: the YAML's own components per preset, the layer.* globals (counted once in the budget)
         counts = {n: cnt(dev) for n, _i, _s, cnt in gd.PARAMS}
         self.assertEqual((counts["encoder.cc"], counts["layer.encoder.cc"], counts["layer.encoder.mode"]), (2, 4, 4))
@@ -2659,6 +2764,185 @@ class TestEncoderAcceleration(unittest.TestCase):
         self.assertError(ENC_NUC + pre, r"acceleration: is the same in every preset")
 
 
+MSG_NUC = MINIMAL_NUC + """\
+analog:
+  - { id: fader, pin: PA2, cc: 7 }
+encoders:
+  - { id: e1, pin_a: PB6, pin_b: PB7, cc: 20 }
+"""
+MSG_SYSEX = """\
+midi_messages:
+  sysex:
+    - { id: vol, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }
+    - { id: wide, data: F0 43 ch msb lsb F7 }
+"""
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestMidiMessages(unittest.TestCase):
+    """core/README.md "MIDI messages": the kinds compile in only when used, numbers follow the mode, SysEx
+    strings, per-control channel / min / max, bank select."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return dev, files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def test_off_unless_used(self):
+        """A YAML that uses none of them: every switch 0 and no table, so the image stays as it was."""
+        _dev, h, c = self.gen(MSG_NUC)
+        for m in ("GM_MSG_CC14", "GM_MSG_NRPN", "GM_MSG_PROGRAM", "GM_MSG_PANIC", "GM_MSG_MMC", "GM_N_SYSEX",
+                  "GM_BTN_CTL", "GM_ANALOG_CTL", "GM_ENC_CTL", "GM_BTN_BANK", "GM_ENC_MODES"):
+            self.assertIn(f"#define {m} 0", h)
+        for t in ("gm_button_ctl", "gm_analog_ctl", "gm_encoder_ctl", "gm_button_bank", "gm_sysex",
+                  "gm_encoder_mode_defaults"):
+            self.assertNotIn(t, c)
+        self.assertNotIn("GM_NULL_RPN", h)
+
+    def test_used_turns_on(self):
+        text = MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7 }").replace(
+            "action: cc_momentary, cc: 1", "action: panic") + "midi_messages: { enable: [rpn, mmc] }\n"
+        dev, h, _c = self.gen(text)
+        self.assertEqual(dev.msg, {"cc14", "panic", "nrpn", "mmc"})
+        self.assertIn("#define GM_MSG_CC14 1", h)
+        self.assertIn("#define GM_MSG_NRPN 1", h)
+        self.assertIn("#define GM_MMC_DEVICE 0x7F", h)
+        self.assertIn("#define GM_MSG_PROGRAM 0", h)
+        self.assertError(MSG_NUC + "midi_messages: { enable: [nrpm] }\n", r"unknown message kind 'nrpm'.*did you mean 'nrpn'")
+
+    def test_mode_numbers(self):
+        enc = lambda x: MSG_NUC.replace("cc: 20 }", x)   # noqa: E731
+        self.assertClean(enc("mode: nrpn14, nrpn: 16383 }"))
+        self.assertClean(enc("mode: relative_sign, cc: 20 }"))
+        self.assertError(enc("mode: nrpn, nrpn: 16384 }"), r"16384 is out of range \(0..16383\)")
+        self.assertError(enc("mode: nrpn, cc: 20 }"), r"mode nrpn takes nrpn:, not cc:")
+        self.assertError(enc("mode: rpn }"), r"mode rpn needs rpn: \(0..16383\)")
+        self.assertError(enc("nrpn: 5 }"), r"nrpn: goes with mode: nrpn / nrpn14")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 40 }"), r"40 is out of range \(0..31\)")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "mode: sysex, sysex: vol }"),
+                         r"mode sysex sends one of the midi_messages.sysex strings, and there are none")
+        dev, _h, c = self.gen(MSG_SYSEX + MSG_NUC.replace("cc: 7 }", "mode: sysex, sysex: wide }"))
+        self.assertEqual(dev.analogs[0].cc, 1)
+        self.assertIn("gm_analog_mode_defaults[GM_N_ANALOGS] = { 8 }", c)
+        _dev, _h, c = self.gen(enc("mode: rpn14, rpn: 0 }"))
+        self.assertIn("gm_encoder_mode_defaults[GM_N_ENCODERS] = { 8 }; /* rpn14 */", c)
+
+    def test_sysex_strings(self):
+        dev, h, c = self.gen(MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1", "action: sysex, sysex: vol"))
+        self.assertEqual(dev.sysex[0].data, [0xF0, 0x41, 0x10, 0x42, 0x12, 0x84, 0x40, 0x00, 0x04, 0x80, 0x85, 0xF7])
+        self.assertEqual((dev.sysex[0].flags, dev.sysex[1].flags), (2, 3))
+        self.assertIn("#define GM_N_SYSEX 2", h)
+        self.assertIn("#define GM_SYSEX_MAX 11", h)
+        self.assertIn("{ sysex_1, 6, 3 },", c)
+        bad = lambda d: MINIMAL_NUC + f"midi_messages:\n  sysex:\n    - {{ id: s, data: \"{d}\" }}\n"   # noqa: E731
+        self.assertError(bad("41 10 F7"), r"starts with 41: a SysEx message starts with F0")
+        self.assertError(bad("F0 41 10"), r"ends with 10")
+        self.assertError(bad("F0 80 F7"), r"80 is over 7F")
+        self.assertError(bad("F0 [41 10 F7"), r"needs its cs")
+        self.assertError(bad("F0 [41] 10 cs F7"), r"cs .* goes right after the \]")
+        self.assertError(bad("F0 v msb F7"), r"use v .* or msb / lsb")
+        self.assertError(bad("F0 zz F7"), r"'zz' is not a hex byte")
+        self.assertError(bad("F0 " + "01 " * 70 + "F7"), r"72 bytes: at most 64")
+        self.assertError(MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1", "action: sysex, sysex: vlo"),
+                         r"no SysEx string with id 'vlo'.*did you mean 'vol'")
+        self.assertError(MSG_SYSEX + MSG_NUC.replace("id: fader", "id: vol"), r"id 'vol' .* is already the id")
+
+    def test_button_actions(self):
+        btn = lambda x: MSG_NUC.replace("action: cc_momentary, cc: 1", x)   # noqa: E731
+        dev, _h, c = self.gen(btn("action: mmc, mmc: fast_forward"))
+        self.assertEqual((dev.buttons[0].action, dev.buttons[0].number), (19, 4))
+        self.assertError(btn("action: mmc, mmc: ffwd"), r"unknown MMC command 'ffwd'")
+        self.assertError(btn("action: mmc"), r"action mmc needs mmc: \(an MMC command: stop, play")
+        self.assertError(btn("action: panic, mmc: play"), r"action panic takes no")
+        dev, h, c = self.gen(btn("action: program, program: 9, bank: { msb: 2, lsb: 1 }"))
+        self.assertEqual((dev.buttons[0].action, dev.buttons[0].number, dev.buttons[0].bank), (17, 9, 257))
+        self.assertIn("#define GM_BTN_BANK 1", h)
+        self.assertIn("    257, /* a */", c)
+        self.assertError(btn("action: note, note: 1, bank: 3"), r"bank: goes with the actions program, program_next")
+        self.assertError(btn("action: program, program: 128"), r"128 is out of range")
+
+    def test_channel_and_range(self):
+        dev, h, c = self.gen(MSG_NUC.replace("cc: 7 }", "cc: 7, min: 127, max: 0, channel: 16 }").replace(
+            "cc: 20 }", "cc: 20, max: 64 }"))
+        self.assertIn("#define GM_ANALOG_CTL 1", h)
+        self.assertIn("#define GM_ENC_CTL 1", h)
+        self.assertIn("#define GM_BTN_CTL 0", h)
+        self.assertIn("    { 127, 0, 16 }, /* fader */", c)
+        self.assertIn("    { 0, 64, 0 }, /* e1 */", c)
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, max: 200 }"), r"200 is out of range \(0..127\)")
+        self.assertClean(MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7, max: 16000 }"))
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, min: 5, max: 5 }"), r"min and max are both 5")
+        self.assertError(MSG_NUC.replace("cc: 7 }", "cc: 7, channel: 17 }"), r"17 is out of range \(1..16\)")
+        pre = "presets:\n  list:\n    - name: A\n    - { name: B, analog: { fader: { channel: 3 } } }\n"
+        self.assertError(MSG_NUC + pre, r"channel: is the same in every preset")
+
+    def test_presets(self):
+        pre = ("presets:\n  list:\n    - { name: A, program: 1, bank: 5 }\n"
+               "    - { name: B, program: 2, analog: { fader: { mode: nrpn, nrpn: 300 } }, "
+               "encoders: { e1: { mode: relative_sign } } }\n")
+        dev, h, c = self.gen(MSG_NUC + pre)
+        self.assertEqual(dev.msg, {"program", "nrpn"})
+        self.assertIn("{ 41, 0, 5 }, /* preset.bank = 5 (MSB 0, LSB 5) */", c)
+        self.assertIn("{ 8, 0, 300 }, /* analog.cc[fader] = 300 */", c)
+        self.assertIn("{ 16, 0, 3 }, /* encoder.mode[e1] = relative_sign */", c)
+        self.assertError(MSG_NUC + "presets:\n  list:\n    - { name: A, bank: 5 }\n    - { name: B }\n",
+                         r"bank: is sent before the preset's Program Change: give program: too")
+        self.assertError(MSG_NUC + pre.replace("nrpn: 300", "cc: 300"), r"mode nrpn takes nrpn:, not cc:")
+
+    def test_budget_widens_with_nrpn(self):
+        """With NRPN on, analog.cc / encoder.cc are int16 in the packed stm32f1 record."""
+        stm = MSG_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        narrow, _ = load(stm)
+        wide, _ = load(stm + "midi_messages: { enable: [nrpn] }\n")
+        self.assertGreater(wide.budget["preset_record"], narrow.budget["preset_record"])
+        bank, _ = load(stm + "presets:\n  list:\n    - { name: A, program: 1, bank: 5 }\n    - { name: B }\n")
+        self.assertEqual(bank.budget["preset_values"], gd.stored_counts(bank)[0])
+        self.assertIn("preset.bank", {n for n, _i, _s, cnt in gd.PARAMS if cnt(bank)})
+
+    def test_twins_keep_the_base_channel(self):
+        text = MSG_NUC.replace("cc: 20 }", "cc: 20, channel: 2 }").replace("buttons:", "buttons:\n  - { id: t, pin: PA3 }") + """\
+key_matrix: { type: switch, rows: [PA4], columns: [PA5], keys: 1, first_note: 60 }
+modes:
+  - id: m
+    toggle: t
+    layer: { e1: { cc: 30 } }
+"""
+        dev, _h, c = self.gen(text)
+        self.assertEqual(dev.encoders[1].ctl, (0, gd.CTL_TOP, 2))
+        self.assertIn("{ 0, GM_CTL_TOP, 2 }, /* e1_m */", c)
+
+
+@unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
+class TestMidiMessagesCompile(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    compile_with_core = TestGenerateCompiles.compile_with_core
+    gcc = TestGenerateCompiles.gcc
+
+    def test_everything_compiles(self):
+        """Every message kind, and each alone, compiles warning-free with the core."""
+        full = MSG_SYSEX.replace("  sysex:", "  enable: [panic, mmc]\n  null_rpn: true\n  sysex:") + MSG_NUC.replace(
+            "cc: 7 }", "mode: nrpn14, nrpn: 9, min: 1, max: 9000, channel: 2 }").replace(
+            "action: cc_momentary, cc: 1", "action: program, program: 3, bank: 7, channel: 4").replace(
+            "cc: 20 }", "cc: 20, mode: cc14, max: 1000 }")
+        for tag, text in (("full", full), ("cc14", MSG_NUC.replace("cc: 7 }", "mode: cc14, cc: 7 }")),
+                          ("sysex", MSG_SYSEX + MSG_NUC.replace("action: cc_momentary, cc: 1",
+                                                                "action: sysex, sysex: wide")),
+                          ("ctl", MSG_NUC.replace("cc: 7 }", "cc: 7, channel: 3 }"))):
+            with self.subTest(tag):
+                dev, diags = load(text)
+                self.assertIsNotNone(dev, [str(d) for d in diags])
+                self.compile_with_core(gen_dir(dev, self.tmp, tag))
+
+
 @unittest.skipUnless(gd.yaml, "needs PyYAML")
 class TestYamlReference(unittest.TestCase):
     """web/updater/src/builder/yaml-reference.json: the examples the web editor shows must validate, and the
@@ -3152,6 +3436,134 @@ class TestDashboardServing(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+LAYOUT_NUC = MINIMAL_NUC + """\
+  - { id: b, pin: PA2 }
+analog:
+  - { id: vol, pin: PA0, cc: 7 }
+key_matrix:
+  type: velocity
+  rows: [PA8, PA9, PC0, PC1, PC2, PC3, PC6, PC7]
+  columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]
+  keys: 32
+  first_note: 48
+"""
+
+
+def layout(body, base=LAYOUT_NUC):
+    """base + a layout: block (body: the lines under it, indented by 2)."""
+    return base + "layout:\n" + "".join(f"  {ln}\n" for ln in body.strip("\n").split("\n"))
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestLayout(unittest.TestCase):
+    """layout: (core/README.md "Layout") and the GET_LAYOUT blob it becomes (sysex.md 4.7)."""
+    errs = TestValidation.errs
+    assertError = TestValidation.assertError
+    assertClean = TestValidation.assertClean
+
+    def gen(self, text):
+        dev, diags = load(text)
+        self.assertIsNotNone(dev, [str(d) for d in diags])
+        files = gd.generate(dev, "t.yaml")
+        return dev, files["gm_device_config.h"], files["gm_device_config.c"]
+
+    def test_none_without_layout(self):
+        """No layout: no blob and no GM_LAYOUT_BYTES, so the firmware has no GET_LAYOUT (no flash cost)."""
+        dev, h, c = self.gen(LAYOUT_NUC)
+        self.assertIsNone(dev.layout)
+        self.assertNotIn("GM_LAYOUT_BYTES", h)
+        self.assertNotIn("gm_layout", c)
+
+    def test_controls_and_generated_keys(self):
+        """Controls where the YAML puts them, default sizes by shape, and the keys under them: 19 white keys of 4
+        units from C3, with the key count and first note."""
+        dev, h, c = self.gen(layout("controls:\n  vol: { x: 1, y: 1 }\n  a: [6, 1]\n  b: [10, 1, 4, 3]\n"))
+        width, height, items = dev.layout
+        got = [(it.kind, it.index, it.shape, it.x, it.y, it.w, it.h, it.extra) for it in items]
+        self.assertEqual(got, [(3, 0, 2, 1, 1, 3, 3, []), (1, 0, 0, 6, 1, 3, 2, []), (1, 1, 0, 10, 1, 4, 3, []),
+                               (2, 0, 8, 0, 5, 76, 14, [32, 48])])
+        self.assertEqual((width, height), (76, 19))
+        blob = gd.layout_blob(dev)
+        self.assertEqual(blob[:5], bytes([1, 76, 19, 4, 0]))
+        self.assertEqual(blob[5:13], bytes([7, 3, 0, 2, 1, 1, 3, 3]))
+        self.assertEqual(blob[-10:], bytes([9, 2, 0, 8, 0, 5, 76, 14, 32, 48]))
+        self.assertIn(f"#define GM_LAYOUT_BYTES {len(blob)} ", h)
+        self.assertIn("const uint8_t gm_layout[GM_LAYOUT_BYTES] = {", c)
+        self.assertIn("    9, 2, 0, 8, 0, 5, 76, 14, 32, 48, /* keys: keys */", c)
+        # the host codec reads it back
+        sys.path.insert(0, os.path.join(REPO, "tools", "host"))
+        import gemifi_proto as gp
+        lay = gp.parse_layout(blob)
+        self.assertEqual(gp.build_layout(lay), blob)
+
+    def test_keys_placed_and_size(self):
+        dev, _h, _c = self.gen(layout("size: [90, 30]\nkeys: { x: 2, y: 10, w: 80, h: 18 }\ncontrols:\n  a: [0, 0]\n"))
+        width, height, items = dev.layout
+        self.assertEqual((width, height), (90, 30))
+        self.assertEqual((items[-1].x, items[-1].y, items[-1].w, items[-1].h), (2, 10, 80, 18))
+        self.assertError(layout("size: [20, 10]\ncontrols:\n  a: [0, 0]\n"),
+                         r"20 x 10 is smaller than what is placed \(76 x 17\)")
+        self.assertError(layout("keys: { x: 0, y: 0, shape: knob }\n"), r"the keys are always drawn as keys")
+        self.assertError(layout("controls:\n  a: [0, 0]\n", MINIMAL_NUC + "  - { id: b, pin: PA2 }\n") +
+                         "  keys: [0, 4]\n", r"the device has no key_matrix")
+        # only keys: the keyboard alone is a layout
+        dev, _h, _c = self.gen(layout("keys: [0, 0]\n"))
+        self.assertEqual(len(dev.layout[2]), 1)
+
+    def test_errors(self):
+        # an unknown id only warns (a package's control may have been removed) and isn't drawn
+        text = layout("controls:\n  volume: [0, 0]\n  vol: [0, 4]\n")
+        self.assertEqual(self.errs(text), [])
+        self.assertTrue(any(re.search(r"no control with id 'volume': not drawn; did you mean 'vol'", d.msg)
+                            for d in self.errs(text, level="warning")))
+        self.assertEqual([it.id for it in self.gen(text)[0].layout[2]], ["vol", "keys"])
+        self.assertError(layout("controls:\n  vol: [0]\n"), r"must be \[x, y\] or \[x, y, w, h\]")
+        self.assertError(layout("controls:\n  vol: { x: 0 }\n"), r"is required", path="layout.controls.vol.y")
+        self.assertError(layout("controls:\n  vol: { x: 0, y: 0, shape: slider }\n"), r"unknown shape 'slider'")
+        self.assertError(layout("controls:\n  a: { x: 0, y: 0, shape: fader }\n"),
+                         r"a button can't be drawn as 'fader' \(use button \| round_button \| pad\)")
+        self.assertError(layout("controls:\n  vol: { x: 0, y: 0, shape: xy }\n"), r"isn't on an xy_pad hub")
+        self.assertError(layout("controls:\n  a: [250, 0, 10, 2]\n"), r"reaches past 255 units")
+        self.assertError(layout("controls:\n  a: [0, 0, 0, 2]\n"), r"out of range|at least 1")
+        self.assertError(layout("bogus: 1\n"), r"unknown key")
+        led = LAYOUT_NUC + "leds:\n  - { id: l, pin: PA12 }\n"
+        self.assertError(layout("controls:\n  l: [0, 0]\n", led), r"'l' is an LED: layout: places buttons")
+
+    def test_xy_pad(self):
+        """One entry with shape: xy draws both axes: index = the X analog, then y_index."""
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        base = (stm + "xy_pad:\n  - { id: xy, x_plus_pin: PB1, x_minus_pin: PC5, y_plus_pin: PC4, y_minus_pin: PB10 }\n"
+                "analog:\n  - { id: knob, pin: PA0, cc: 7 }\n  - { id: ay, pin: { xy_pad: xy, number: y }, cc: 17 }\n"
+                "  - { id: ax, pin: { xy_pad: xy, number: x }, cc: 16 }\n")
+        dev, _h, _c = self.gen(layout("controls:\n  ay: { x: 0, y: 0, w: 10, h: 10, shape: xy }\n", base))
+        it = dev.layout[2][0]
+        self.assertEqual((it.kind, it.index, it.shape, it.extra), (3, 2, 9, [1]))
+        self.assertError(layout("controls:\n  ax: { x: 0, y: 0, shape: xy }\n  ay: { x: 9, y: 0, shape: xy }\n", base),
+                         r"xy_pad 'xy' is already placed")
+        self.assertError(layout("controls:\n  ax: { x: 0, y: 0, shape: xy }\n  ay: [9, 0]\n", base),
+                         r"'ay' is already placed")
+
+    def test_layer_twin_refused(self):
+        text = modes(TestModes.GRID + "    kick: { daw: clip_1_1 }\n", TestModes.LAYER_BASE)
+        self.assertClean(layout("controls:\n  kick: [0, 0]\n  sel: [5, 0]\n", text))
+        self.assertError(layout("controls:\n  kick_grid: [0, 0]\n", text), r"'kick_grid' is a layer twin")
+        self.assertError(layout("controls:\n  sel_grid: [0, 0]\n", modes(TestModes.GRID + "    sel: { cc: 9 }\n",
+                                                                           TestModes.LAYER_BASE)),
+                         r"'sel_grid' is a layer twin")
+
+    def test_devices(self):
+        """The Keystation and the Code 61 have layouts: every control drawn once, inside the drawing."""
+        for name, n in (("keystation-mini32-mk3.yaml", 9), ("m-audio-code61.yaml", 76)):
+            dev, diags = gd.load_device(os.path.join(REPO, "devices", name))
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            width, height, items = dev.layout
+            self.assertEqual(len(items), n, name)
+            self.assertTrue(all(it.x + it.w <= width and it.y + it.h <= height for it in items))
+            keys = [it for it in items if it.shape == gd.LAYOUT_SHAPES["keys"]]
+            self.assertEqual(len(keys), 1)
+            self.assertEqual(keys[0].extra, [dev.matrix.keys, dev.matrix.first_note])
 
 
 if __name__ == "__main__":

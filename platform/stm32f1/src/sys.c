@@ -157,6 +157,15 @@ void sys_iwdg_start(void)
 
 /* ---- reset ------------------------------------------------------------ */
 
+void sys_jump(uint32_t sp, uint32_t pc)
+{
+    __asm__ volatile (
+        "msr msp, %0\n\t"
+        "bx %1\n\t"
+        :: "r" (sp), "r" (pc) : "memory");
+    __builtin_unreachable();
+}
+
 void sys_reset(void)
 {
     __asm__ volatile ("dsb" ::: "memory");

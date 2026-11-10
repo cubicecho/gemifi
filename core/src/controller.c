@@ -81,11 +81,10 @@
 #endif
 
 static uint32_t fw_ver;
-static uint8_t has_sr_hubs;         /* any 74HC595/165 hub: refresh in the tick */
+static uint8_t has_sr_hubs;         /* any VPIN_SCAN_IO hub (74HC595/165): refresh in the tick */
 static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick */
-static uint8_t has_i2c_hubs;
-static uint8_t has_tm_hubs;         /* TM1628: written after each LED update */
-static uint8_t has_rgb_hubs;        /* RGB_SERIAL: polled on every pass */
+static uint8_t has_i2c_hubs;        /* any VPIN_BUS_IO hub (I2C): every I2C_MS */
+static uint8_t has_main_hubs;       /* any VPIN_MAIN hub (TM1628, RGB_SERIAL): vpin_poll every pass */
 
 /* ---- MIDI out --------------------------------------------------------- */
 
@@ -501,10 +500,7 @@ static void kt0_age(void)
  * around each row. (A decoder row is written at once; nothing to flush.) */
 static int on_sr_hub(gm_pin_t p)
 {
-    if (p.hub == 0 || p.hub > gm_device.n_hubs)
-        return 0;
-    uint8_t t = gm_device.hubs[p.hub - 1].type;
-    return t == GM_HUB_HC595 || t == GM_HUB_HC165;
+    return (vpin_pin_caps(p) & VPIN_SCAN_IO) != 0;
 }
 
 /* Key number at matrix position pos (gm_matrix_t.key_map), or dflt without a
@@ -831,7 +827,7 @@ typedef uint32_t __attribute__((may_alias)) u32_alias;
 
 static int on_swmatrix(gm_pin_t p)
 {
-    return p.hub != 0 && p.hub <= gm_device.n_hubs && gm_device.hubs[p.hub - 1].type == GM_HUB_SWMATRIX;
+    return (vpin_pin_caps(p) & VPIN_MATRIX) != 0;
 }
 #endif
 
@@ -2439,11 +2435,11 @@ static uint32_t led_look(const gm_led_t *l, int active)
 }
 
 #if GM_HOST_FB
-/* An RGB LED whose pins are one rgb_serial LED (red, green, blue in a row):
- * it can show any colour (vpin_rgb). */
+/* An RGB LED whose pins are one LED of a full-colour hub (VPIN_RGB: red,
+ * green, blue in a row): it can show any colour (vpin_rgb). */
 static int led_full_colour(const gm_led_t *l)
 {
-    return l->pin.hub && gm_device.hubs[l->pin.hub - 1u].type == GM_HUB_RGB_SERIAL &&
+    return (vpin_pin_caps(l->pin) & VPIN_RGB) &&
            l->pin2.hub == l->pin.hub && l->pin3.hub == l->pin.hub &&
            l->pin2.num == l->pin.num + 1u && l->pin3.num == l->pin.num + 2u;
 }
@@ -3324,19 +3320,11 @@ void gm_init(uint32_t fw_version, int safe_mode)
     fw_ver = fw_version;
     safe = (uint8_t)safe_mode;
     gm_scan_period_us = gm_device.scan_us;
-    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
-        uint8_t t = gm_device.hubs[i].type;
-        if (t == GM_HUB_HC595 || t == GM_HUB_HC165)
-            has_sr_hubs = 1;
-        if (t == GM_HUB_MCP23017 || t == GM_HUB_PCF8574)
-            has_i2c_hubs = 1;
-        if (t == GM_HUB_SWMATRIX)
-            has_matrices = 1;
-        if (t == GM_HUB_TM1628)
-            has_tm_hubs = 1;
-        if (t == GM_HUB_RGB_SERIAL)
-            has_rgb_hubs = 1;
-    }
+    uint32_t caps = vpin_caps();
+    has_sr_hubs = (caps & VPIN_SCAN_IO) != 0;
+    has_i2c_hubs = (caps & VPIN_BUS_IO) != 0;
+    has_matrices = (caps & VPIN_MATRIX) != 0;
+    has_main_hubs = (caps & VPIN_MAIN) != 0;
     vpin_init();
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
@@ -3500,7 +3488,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
         led_pins(&gm_device.leds[i], 7u);
     vpin_flush();
     vpin_flush_i2c();
-    vpin_flush_tm1628();
+    vpin_send_all();
     hal_delay_us(200000);
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         led_pins(&gm_device.leds[i], 0);
@@ -3508,7 +3496,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
     }
     vpin_flush();
     vpin_flush_i2c();
-    vpin_flush_tm1628();
+    vpin_send_all();
 }
 
 /* ---- raw readings (sysex.md 4.8) ---------------------------------------- */
@@ -3774,18 +3762,17 @@ void gm_poll(void)
         leds_apply();               /* then the LEDs, a few per pass */
     }
     poll_part_done(5, &tc);
-    /* Changed TM1628 bytes, a few per pass, and not on the LED update's
-     * pass, so the two never add up in one pass. With fade: chips, not
-     * while a round is being shown either (leds_fade). */
+    /* The main-loop hubs: changed TM1628 bytes, a few per pass, and not on
+     * the LED update's pass (busy), so the two never add up in one pass.
+     * With fade: chips, not while a round is being shown either (leds_fade).
+     * The polls (RGB_SERIAL) run on every pass. */
 #if LEDS_FADE
     int round_open = led_next != 0xFFu;
 #else
     int round_open = 0;
 #endif
-    if (has_tm_hubs && !led_pass && !round_open)
-        vpin_poll_tm1628();
-    if (has_rgb_hubs)
-        vpin_poll_rgb_serial(now);
+    if (has_main_hubs)
+        vpin_poll(now, led_pass || round_open);
     poll_part_done(6, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;

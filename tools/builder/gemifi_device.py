@@ -323,6 +323,9 @@ HUB_ENUM = {"sn74hc595": "GM_HUB_HC595", "sn74hc165": "GM_HUB_HC165", "cd74hc405
             "decoder": "GM_HUB_DECODER", "switch_matrix": "GM_HUB_SWMATRIX",
             "tm1628": "GM_HUB_TM1628", "rgb_serial": "GM_HUB_RGB_SERIAL", "xy_pad": "GM_HUB_XY"}
 HUB_TYPES = list(HUB_ENUM)
+# gm_device.h's GM_HUB_* values: GM_HUB_TYPES (gm_device_config.h) has a bit per type used
+HUB_TYPE_NUM = {"GM_HUB_HC595": 1, "GM_HUB_HC165": 2, "GM_HUB_MUX": 3, "GM_HUB_MCP23017": 4, "GM_HUB_PCF8574": 5,
+                "GM_HUB_DECODER": 6, "GM_HUB_TM1628": 7, "GM_HUB_SWMATRIX": 8, "GM_HUB_RGB_SERIAL": 9, "GM_HUB_XY": 10}
 HUB_PIN_KEY = {t: ("mcp23xxx" if t == "mcp23017" else t) for t in HUB_TYPES}
 PIN_KEY_HUB = {k: t for t, k in HUB_PIN_KEY.items()}
 I2C_HUBS = {"mcp23017", "pcf8574"}
@@ -1653,6 +1656,14 @@ def validate(data, file=None):
     if not (dev.buttons or dev.analogs or dev.encoders or dev.matrix or dev.pads):
         v.warn("", data.line, "the device has no inputs (buttons, analog, encoders, pads or key_matrix)")
     return (None if errors(v.diags) else dev), v.diags
+
+
+def hub_types_mask(dev):
+    """GM_HUB_TYPES: a bit per hub type the device has (bit n = GM_HUB_* value n)."""
+    m = 0
+    for h in dev.hubs:
+        m |= 1 << HUB_TYPE_NUM[HUB_ENUM[h.type]]
+    return m
 
 
 def tim_req(t, q):
@@ -5066,6 +5077,8 @@ def generate(dev, source="device.yaml"):
          f"#define GM_USB_VID 0x{dev.usb[0]:04X}",
          f"#define GM_USB_PID 0x{dev.usb[1]:04X}",
          f"#define GM_N_HUBS {len(dev.hubs)}",
+         f"#define GM_HUB_TYPES 0x{hub_types_mask(dev):04X}u /* hub types used, bit = GM_HUB_*: "
+         "vpin.c links only their drivers */",
          f"#define GM_N_BUTTONS {len(dev.buttons)}",
          f"#define GM_N_LEDS {len(dev.leds)}",
          f"#define GM_N_ANALOGS {len(dev.analogs)}",

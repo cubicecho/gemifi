@@ -1,20 +1,20 @@
 /*
  * gm_vpin.h: virtual pins (gm_device.h): MCU pins through the HAL, expander
- * hubs in software.
+ * hubs in software, each hub type a driver (core/src/gm_hub.h).
  *
  * Levels are *logical*: 1 = active (pressed, lit, row driven), with
  * GM_PIN_INVERT applied. Hub I/O is cached:
- *   - HC165 / MCP23017 / PCF8574 inputs are read by vpin_refresh();
- *   - HC595 / MCP23017 / PCF8574 outputs are written by vpin_flush(),
- *     TM1628 outputs by vpin_flush_tm1628();
+ *   - HC165 inputs are read by vpin_refresh(), HC595 outputs written by
+ *     vpin_flush(), from the scan tick (fast GPIO): VPIN_SCAN_IO hubs;
+ *   - MCP23017 / PCF8574 by vpin_refresh_i2c() / vpin_flush_i2c(), only from
+ *     the main loop, because I2C can't run in an interrupt on most
+ *     platforms: VPIN_BUS_IO hubs;
+ *   - TM1628 and RGB_SERIAL outputs by vpin_poll() on every main-loop pass
+ *     (VPIN_MAIN hubs): only what changed, a few bytes per pass, since a
+ *     whole TM1628 takes a few hundred us of bit-banging (too long for the
+ *     scan tick, or one pass);
  *   - switch-matrix hubs are scanned by vpin_scan_matrices() (scan tick).
  * A decoder hub's output is written straight away: "on" selects it.
- * Shift-register hubs are refreshed/flushed from the scan tick (fast GPIO);
- * I2C hubs only from the main loop (vpin_refresh_i2c / vpin_flush_i2c),
- * because I2C can't run in an interrupt on most platforms. TM1628 hubs are
- * also written from the main loop (vpin_poll_tm1628): only the bytes that
- * changed, a few per main-loop pass, since a whole chip takes a few hundred
- * us of bit-banging (too long for the scan tick, or one pass).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -41,8 +41,20 @@ int32_t vpin_analog(gm_pin_t p);   /* 0..4095, or -1 (not analog-capable)   */
  * so a smoothing filter should start over from it. 0 for other pins. */
 int vpin_analog_jump(gm_pin_t p);
 
-int vpin_on_i2c(gm_pin_t p);       /* pin lives on an I2C hub               */
+int vpin_on_i2c(gm_pin_t p);       /* pin lives on an I2C hub (VPIN_BUS_IO) */
 int vpin_is_none(gm_pin_t p);
+
+/* What the hubs need from the controller: where their I/O runs, and what
+ * their pins can do. vpin_caps() = every hub's, vpin_pin_caps(p) = p's
+ * hub's (0 for an MCU pin or no pin). From the config: callable before
+ * vpin_init. */
+#define VPIN_SCAN_IO (1u << 0)     /* vpin_refresh / vpin_flush, in the scan tick */
+#define VPIN_BUS_IO  (1u << 1)     /* vpin_refresh_i2c / vpin_flush_i2c, main loop */
+#define VPIN_MAIN    (1u << 2)     /* vpin_poll, every main-loop pass          */
+#define VPIN_MATRIX  (1u << 3)     /* a switch matrix: vpin_scan_matrices      */
+#define VPIN_RGB     (1u << 4)     /* any colour per LED: vpin_rgb             */
+uint32_t vpin_caps(void);
+uint32_t vpin_pin_caps(gm_pin_t p);
 
 void vpin_refresh(void);           /* shift-register inputs                  */
 void vpin_flush(void);             /* shift-register outputs (if changed)    */
@@ -81,16 +93,20 @@ int vpin_read_span(gm_pin_t p, int *any);
  * vpin_analog(p). */
 void vpin_analog_peaks(void);
 int32_t vpin_analog_peak(gm_pin_t p);
-void vpin_flush_tm1628(void);      /* TM1628 RAM: everything that changed    */
-/* The same, a few bytes per call (about 150 us at most): call it on every
- * main-loop pass; a big change goes out over a few passes. */
+/* Main loop, every pass: each hub's poll (RGB_SERIAL: one changed LED at
+ * most every 5 ms, the keepalive every 50 ms), and what changed on the
+ * bit-banged ones (TM1628), a few bus bytes (about 50 us) per call; a big
+ * change goes out over a few passes. busy: this pass already did a lot (an
+ * LED update): only the polls, no bus bytes. */
+void vpin_poll(uint32_t now_ms, int busy);
+/* Everything that changed on the main-loop hubs, now (the lamp test). */
+void vpin_send_all(void);
+/* The same as vpin_send_all / vpin_poll's bus part, by their old names. */
+void vpin_flush_tm1628(void);
 void vpin_poll_tm1628(void);
-/* RGB_SERIAL hubs: send one changed LED (at most every 5 ms) and the
- * keepalive (every 50 ms). Call it on every main-loop pass. */
-void vpin_poll_rgb_serial(uint32_t now_ms);
 /* Set a whole colour (0xRRGGBB, 8 bits a colour) on the LED whose red pin
- * is p, if p is the red pin of an RGB_SERIAL hub's LED (number LED * 3):
- * 1, else 0 (the caller shows it with vpin_write). */
+ * is p, if p is the red pin of a full-colour LED (VPIN_RGB; on RGB_SERIAL,
+ * number LED * 3): 1, else 0 (the caller shows it with vpin_write). */
 int vpin_rgb(gm_pin_t p, uint32_t rgb);
 
 /* TM1628 hubs with fade: (core/README.md "TM1628 LED drivers"): the chip

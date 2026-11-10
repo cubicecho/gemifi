@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.40.0](https://github.com/cubicecho/gemifi/compare/v0.39.0...v0.40.0) (2026-11-10)
+
+
+### Features
+
+* **builder:** require a key_matrix only for keys: and sub-modes ([#117](https://github.com/cubicecho/gemifi/issues/117)) ([8393914](https://github.com/cubicecho/gemifi/commit/8393914751f133a76ff0fb9433a5de0071af6aba))
+* **core:** modes without a key matrix ([#117](https://github.com/cubicecho/gemifi/issues/117)) ([13b159e](https://github.com/cubicecho/gemifi/commit/13b159e72c5b63b87a72b68984940bf2e6f496c8)), closes [#error](https://github.com/cubicecho/gemifi/issues/error)
+
 # [0.39.0](https://github.com/cubicecho/gemifi/compare/v0.38.3...v0.39.0) (2026-11-10)
 
 

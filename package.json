@@ -1,6 +1,6 @@
 {
   "name": "gemifi",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "private": true,
   "description": "Release tooling only: semantic-release reads the commit log, picks the next version, writes CHANGELOG.md and tags it. Nothing here is published to npm.",
   "license": "MIT",

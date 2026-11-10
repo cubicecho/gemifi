@@ -2,6 +2,25 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.38.0](https://github.com/cubicecho/gemifi/compare/v0.37.1...v0.38.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **leds:** Code 61 pad LEDs dead after a cold start ([6906eb5](https://github.com/cubicecho/gemifi/commit/6906eb5cbb5143e6cda447ba42d58aa2ac0ffc3b))
+* **leds:** fade: host colours set the chip's brightness, not idle looks ([400dafc](https://github.com/cubicecho/gemifi/commit/400dafc6640538fa3b041806bba20a3373f298bf))
+* **leds:** fade: no jump to full while a host colour is being drawn ([46454b7](https://github.com/cubicecho/gemifi/commit/46454b77d13069c6846792a00505b94ae1eec3b5))
+* **pads:** ignore soft spikes; cycle LEDs report owner local ([a79381f](https://github.com/cubicecho/gemifi/commit/a79381f5b09225c7edc843518ce45b7efc5e8711))
+
+
+### Features
+
+* **leds:** full-colour rgb_serial LEDs, with gamma and white balance ([c732bfa](https://github.com/cubicecho/gemifi/commit/c732bfa3e51b18de10528ed1f33f92047b692199))
+* **leds:** rgb_serial rx_pin: resend only what the board didn't answer ([0ac22a7](https://github.com/cubicecho/gemifi/commit/0ac22a75923007ee58f817f153dc50d3d9470b62))
+* **leds:** tm1628 fade: chip brightness follows host colours; Code 61 pads idle dim blue ([b3e84f6](https://github.com/cubicecho/gemifi/commit/b3e84f64ecfff16a4196a4cea6285c2924a370cb))
+* **web:** demo Breathe in a picked colour; the staggered one is Waves ([76bbd73](https://github.com/cubicecho/gemifi/commit/76bbd73c6806e801f629d02415a96e286b39cfef))
+* **web:** feedback demo in full colour ([7d59b7a](https://github.com/cubicecho/gemifi/commit/7d59b7a01930932edbcda6cebd231a8d46cd0562))
+
 ## [0.37.1](https://github.com/cubicecho/gemifi/compare/v0.37.0...v0.37.1) (2026-11-09)
 
 

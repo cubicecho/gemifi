@@ -355,16 +355,9 @@ class HubType:
         return []
 
     def c_fields(self, hub):
-        """The C lines of the entry's type-specific fields (inside its braces, after .type)."""
-        sel = [s.c() for s in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
-        return [f"        .chain = {hub.chain}, .n_sel = {hub.n_sel}, .i2c_addr = 0x{hub.addr:02X},",
-                f"        .data = {hub.data.c()}, .clock = {hub.clock.c()}, .latch = {hub.latch.c()},",
-                f"        .sel = {{ {', '.join(sel)} }},",
-                f"        .common = {(hub.common or NO_PIN).c()}, .enable = {hub.enable.c()},",
-                f"        .settle_us = {hub.settle_us},", *self.c_extra(hub)]
-
-    def c_extra(self, hub):
-        return []
+        """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
+        `.sr = { ... },`. The first line goes after .type."""
+        raise NotImplementedError(self.key)
 
 
 class ShiftRegister(HubType):

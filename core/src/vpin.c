@@ -1812,7 +1812,7 @@ static const gm_hub_ops_t xy_ops = {
 static const gm_hub_ops_t no_ops = { 0 };
 
 #define HUB(t, ops) [t] = USES(t) ? &(ops) : 0
-static const gm_hub_ops_t *const hub_ops[] = {
+static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_HC595, hc595_ops),
     HUB(GM_HUB_HC165, hc165_ops),
     HUB(GM_HUB_MUX, mux_ops),
@@ -1829,6 +1829,6 @@ static const gm_hub_ops_t *const hub_ops[] = {
 
 static const gm_hub_ops_t *hub_ops_of(uint32_t type)
 {
-    const gm_hub_ops_t *o = type < sizeof hub_ops / sizeof hub_ops[0] ? hub_ops[type] : 0;
+    const gm_hub_ops_t *o = type < GM_HUB_N_TYPES ? hub_ops[type] : 0;
     return o ? o : &no_ops;
 }

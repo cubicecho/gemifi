@@ -26,9 +26,7 @@ typedef struct {
 static void hub(unsigned i, const gm_hub_t *h)
 {
     static const gm_pin_t none = GM_NO_PIN;
-    flat_t f = { h->chain, h->n_sel, h->i2c_addr, h->settle_us, h->ram_bytes, h->brightness, h->grids,
-                 h->data, h->clock, h->latch, { h->sel[0], h->sel[1], h->sel[2], h->sel[3] }, h->common,
-                 h->enable };
+    flat_t f = { 0, 0, 0, 0, 0, 0, 0, none, none, none, { none, none, none, none }, none, none };
     unsigned j;
     switch (h->type) {
     case GM_HUB_HC595:
@@ -38,7 +36,6 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.clock = h->sr.clock;
         f.latch = h->sr.latch;
         f.enable = h->sr.oe;
-        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = f.common = none;
         break;
     case GM_HUB_MUX:
         f.n_sel = h->mux.n_sel;
@@ -46,17 +43,17 @@ static void hub(unsigned i, const gm_hub_t *h)
         for (j = 0; j < 4; j++) f.sel[j] = h->mux.sel[j];
         f.common = h->mux.common;
         f.enable = h->mux.enable;
-        f.data = f.clock = f.latch = none;
+        break;
+    case GM_HUB_MCP23017:
+    case GM_HUB_PCF8574:
+        f.addr = h->i2c.addr;
         break;
     case GM_HUB_DECODER:
         f.n_sel = h->dec.n_addr;
         for (j = 0; j < 4; j++) f.sel[j] = h->dec.addr[j];
-        f.data = f.clock = f.latch = f.common = f.enable = none;
         break;
     case GM_HUB_SWMATRIX:
         f.settle = h->sm.settle_us;
-        f.data = f.clock = f.latch = f.common = f.enable = none;
-        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
     case GM_HUB_TM1628:
         f.ram = h->tm.ram_bytes;
@@ -65,28 +62,17 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.data = h->tm.dio;
         f.clock = h->tm.clk;
         f.latch = h->tm.stb;
-        f.common = f.enable = none;
-        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
     case GM_HUB_RGB_SERIAL:
         f.chain = h->rgb.count;
         f.ram = 3u * h->rgb.count;
         f.data = h->rgb.tx;
         f.latch = h->rgb.rx;
-        f.clock = f.common = f.enable = none;
-        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
     case GM_HUB_XY:
         for (j = 0; j < 4; j++) f.sel[j] = h->xy.drive[j];
         f.data = h->xy.sense[0];
         f.clock = h->xy.sense[1];
-        f.latch = f.common = f.enable = none;
-        break;
-    case GM_HUB_MCP23017:
-    case GM_HUB_PCF8574:
-        f.addr = h->i2c.addr;
-        f.data = f.clock = f.latch = f.common = f.enable = none;
-        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
     default:
         break;

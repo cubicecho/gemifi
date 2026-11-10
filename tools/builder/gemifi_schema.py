@@ -95,7 +95,7 @@ HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("int
 
 def hub(typ, alias=None):
     keys = gd.HUB_KEYS[typ]
-    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_")}
+    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
     types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
     types.update({k: v for k, v in matrix_lines().items() if k in keys})
     if typ in gd.ROW_HUBS:

@@ -112,6 +112,12 @@ struct gm_hub_state {
             uint8_t misses;       /* ... unanswered in a row          */
             uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
         } mpads;
+        struct {          /* WS2812 */
+            uint32_t t_frame;     /* ms the last frame went out       */
+            uint8_t dirty;        /* a colour changed since           */
+            uint8_t open;         /* hal_ledstrip_open took the pin   */
+            uint8_t tried;        /* a frame went out (t_frame is set) */
+        } ws;
         struct {          /* XY */
             uint16_t raw[2];      /* last X / Y reading, 0xFFFF = none */
             uint8_t touch;        /* readings in a row with both in the window */

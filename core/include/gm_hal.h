@@ -134,6 +134,22 @@ int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 int hal_serial_read(uint16_t tx_pin);
 
+/* An addressable LED chain on MCU pin pin, for ws2812 hubs (WS2812B,
+ * SK6812): 800 kHz, each byte MSB first. The core sends wire bytes (its
+ * colour order, gamma and white balance applied), whole frames, from the
+ * main loop and never from the scan interrupt.
+ * hal_ledstrip_open sets the pin up for frames of up to n bytes: 1, or 0
+ * if it can't be one (the builder checks the pin per platform).
+ * hal_ledstrip_write starts a frame of n bytes in the background and
+ * returns 1, or 0 without sending if the last one is still going (b may
+ * change once it returns: the HAL keeps its own copy or encoding).
+ * hal_ledstrip_busy: the last frame, or the latch after it (the line low
+ * for at least 280 us, so the LEDs show it), is still going.
+ * Weak defaults in vpin.c: no strip (open returns 0). */
+int hal_ledstrip_open(uint16_t pin, uint32_t n);
+int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n);
+int hal_ledstrip_busy(uint16_t pin);
+
 /* Optional: mask interrupts for a few instructions, so the main loop can
  * read and reset what the scan interrupt collects (vpin_span_take) in one
  * go; hal_irq_save() returns what hal_irq_restore() needs. Weak defaults

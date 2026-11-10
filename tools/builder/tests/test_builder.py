@@ -190,6 +190,14 @@ class TestGenerateCompiles(unittest.TestCase):
         self.assertIn("pad hub=6 flags=1 num=2\n  name=Snare\n  note=38", out)
         self.assertIn("pad hub=5 flags=0 num=1\n  name=Pad 3\n  note=42", out)
 
+    def test_ws2812_compiles(self):
+        for order in ("GRB", "GRBW"):
+            dev, diags = load(STM32_BASE + f"ws2812:\n  - {{ id: s, pin: PB15, count: 4, order: {order}, gamma: 2.2 }}\n"
+                              "leds:\n  - { id: l0, pin: { ws2812: s, number: 0 }, pin2: { ws2812: s, number: 1 }, "
+                              "pin3: { ws2812: s, number: 2 }, idle: blue 20% }\n")
+            self.assertIsNotNone(dev, [str(d) for d in diags])
+            self.compile_with_core(gen_dir(dev, self.tmp, order))
+
     def test_presets_compile(self):
         for name, path, *_ in gb.list_presets():
             dev, diags = gd.load_device(path)
@@ -367,6 +375,71 @@ class TestValidation(unittest.TestCase):
         self.assertError(stm + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
                          "rgb_serial:\n  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
                          r"a second maudio_pad_leds hub", path="rgb_serial[0]")
+
+    def test_ws2812(self):
+        """ws2812: an addressable LED strip on one MCU pin; pin = LED * 3 (4 on RGBW) + colour."""
+        def dev(hub="pin: PB15, count: 4", leds="", base=STM32_BASE):
+            return (base + f"ws2812:\n  - {{ id: s, {hub} }}\n"
+                    "leds:\n  - { id: l0, pin: { ws2812: s, number: 0 }, pin2: { ws2812: s, number: 1 }, "
+                    "pin3: { ws2812: s, number: 2 }, idle: blue 20% }\n" + leds)
+
+        self.assertClean(dev())
+        self.assertClean(dev("pin: PA7, count: 4, order: rgb"))
+        self.assertClean(dev(leds="  - { id: l1, pin: { ws2812: s, number: 11 } }\n"))
+        self.assertError(dev(leds="  - { id: l1, pin: { ws2812: s, number: 12 } }\n"),
+                         r"pin 12 is out of range for hub 's' \(ws2812 \(4 LEDs x 3; pin = LED \* 3 \+ colour, "
+                         r"0 red 1 green 2 blue\)")
+        self.assertError(dev("pin: PB15"), r"is required", path="ws2812[0].count")
+        self.assertError(dev("pin: PB15, count: 257"), r"257 is out of range \(1\.\.256\)")
+        self.assertError(dev("count: 4"), r"is required", path="ws2812[0].pin")
+        self.assertError(dev("pin: PB15, count: 4, order: GBX"), r"unknown order 'GBX'", path="ws2812[0].order")
+        self.assertError(dev().replace("pin: PA1", "pin: { ws2812: s, number: 5 }"), r"ws2812, which can't be an input")
+        # stm32f1: an SPI's MOSI, one strip each; its DMA channel through the allocator
+        self.assertError(dev("pin: PB14, count: 4"), r"PA7 \(SPI1\) or PB15 \(SPI2\)", path="ws2812[0].pin")
+        self.assertError(STM32_BASE + "ws2812:\n  - { id: s, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n"
+                         "  - { id: t, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n",
+                         r"PB15 has a ws2812 strip already", path="ws2812[1].pin")
+        dev_, _ = load(dev())
+        self.assertIn((5, "SPI2_TX", "ws2812 's'"), dev_.dma_map)
+        self.assertError(dev() + "din_midi: { tx_pin: PA9, rx_pin: PA10, dma: true }\n",
+                         r"needs DMA1 channel 5 \(USART1_RX\), which ws2812 's' uses \(SPI2_TX\)", path="din_midi.dma")
+        self.assertClean(dev("pin: PA7, count: 4") + "din_midi: { tx_pin: PA9, rx_pin: PA10, dma: true }\n")
+        # other platforms: ESP32 / S2 / S3 by RMT (a channel a strip); not ESP8266, NUC (yet)
+        esp = MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons:\n  - { id: a, pin: GPIO1, action: cc_momentary, cc: 1 }\n"
+        self.assertClean(dev("pin: GPIO48, count: 16", base=esp))
+        five = esp + "ws2812:\n" + "".join(f"  - {{ id: s{k}, pin: GPIO{38 + k}, count: 1 }}\n" for k in range(5))
+        self.assertError(five + "leds:\n" + "".join(f"  - {{ id: l{k}, pin: {{ ws2812: s{k}, number: 0 }} }}\n"
+                                                   for k in range(5)),
+                         r"5 ws2812 strips: esp32s3 has 4 RMT TX channels", path="ws2812[4].pin")
+        self.assertError(dev("pin: GPIO4, count: 4", base=MINIMAL_ESP.format(plat="esp8266", tr="serial") +
+                             "buttons:\n  - { id: a, pin: GPIO5, action: cc_momentary, cc: 1 }\n"),
+                         r"ws2812 isn't supported on esp8266: it has no RMT")
+        self.assertError(dev("pin: PA2, count: 4", base=MINIMAL_NUC), r"ws2812 isn't supported on nuvoton-nuc1xx yet")
+        # RGBW: 4 pins an LED, white: 4 entries; a full-colour LED starts at LED * 4
+        self.assertClean(dev("pin: PB15, count: 2, order: GRBW, white: [255, 200, 220, 128]"))
+        self.assertError(dev("pin: PB15, count: 2, order: GRBW, white: [255, 200, 220]"),
+                         r"must be \[red, green, blue, white\]", path="ws2812[0].white")
+        rgbw = dev("pin: PB15, count: 2, order: GRBW").replace("number: 0 }, pin2: { ws2812: s, number: 1 }, "
+                                                               "pin3: { ws2812: s, number: 2 }",
+                                                               "number: 3 }, pin2: { ws2812: s, number: 4 }, "
+                                                               "pin3: { ws2812: s, number: 5 }")
+        self.assertError(rgbw, r"needs an LED that can show any colour", path="leds[0].idle")
+        self.assertClean(rgbw.replace("number: 3 }", "number: 4 }").replace("number: 4 }, pin3", "number: 5 }, pin3")
+                         .replace("number: 5 }, idle", "number: 6 }, idle"))
+        # generated: .ws, the hub RAM, the frame size for the platform, the hub type bit
+        dev_, diags = load(dev("pin: PB15, count: 4, order: GRBW, gamma: 2.2, white: [255, 200, 220, 128]"))
+        self.assertIsNotNone(dev_, [str(d) for d in diags])
+        files = gd.generate(dev_, "t.yaml")
+        c, h = files["gm_device_config.c"], files["gm_device_config.h"]
+        self.assertIn(".type = GM_HUB_WS2812, .ws = { .pin = { 0, 0, 31 }, .count = 4, .channels = 4, "
+                      ".order = 0xE1 /* GRBW */,", c)
+        self.assertIn(".white = { 255, 200, 220, 128 }, .curve = rgb_curve_1 }", c)
+        self.assertIn("#define GM_HUB_RAM 16 ", h)
+        self.assertIn("#define GM_LEDSTRIP_SPI2_BYTES 16 ", h)
+        self.assertIn(f"#define GM_HUB_TYPES 0x{1 << 11:04X}u", h)
+        self.assertIn("{ GM_LED_RGB(0x000033), 0 } }, /* l0", c)
+        dev_, _ = load(dev("pin: PB15, count: 4, order: BRG"))
+        self.assertIn(".order = 0x12 /* BRG */", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
     def test_maudio_pad_leds_colours(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
@@ -1291,9 +1364,9 @@ class TestValidation(unittest.TestCase):
 
     def test_unknown_hub_key_in_pin(self):
         """#115: a pin naming a hub type gemifi lacks is reported once, not as an MCU pin too."""
-        es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { ws2812: strip, number: 0 } }]\n")
+        es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { apa102: strip, number: 0 } }]\n")
         self.assertEqual(len(es), 1, [str(e) for e in es])
-        self.assertEqual(es[0].path, "leds[0].pin.ws2812")
+        self.assertEqual(es[0].path, "leds[0].pin.apa102")
         self.assertRegex(es[0].msg, r"^unknown key")
 
     # -- ids, names, references --

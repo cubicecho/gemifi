@@ -141,7 +141,7 @@ PARAMS = [  # (name, id, scope, count(dev))
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, maudio_pad_leds, din_midi dma:) may not share one.
 # Timer requests are TIMn_UP (update) and TIMn_CHk (compare k); TIM3_CH2 and TIM4_CH4 have none.
-STM32F1_DMA = {"ADC1": 1, "USART1_TX": 4, "USART1_RX": 5, "USART2_TX": 7,
+STM32F1_DMA = {"ADC1": 1, "USART1_TX": 4, "USART1_RX": 5, "USART2_TX": 7, "SPI1_TX": 3, "SPI2_TX": 5,
                "TIM1_UP": 5, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM1_CH3": 6, "TIM1_CH4": 4,
                "TIM2_UP": 2, "TIM2_CH1": 5, "TIM2_CH2": 7, "TIM2_CH3": 1, "TIM2_CH4": 7,
                "TIM3_UP": 3, "TIM3_CH1": 6, "TIM3_CH3": 2, "TIM3_CH4": 3,
@@ -612,6 +612,72 @@ class MaudioPadLeds(HubType):
                 f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
 
 
+# Addressable LED chains (WS2812B, SK6812 RGB / RGBW) on one MCU pin: pin = LED * channels + colour (0 red,
+# 1 green, 2 blue, 3 white). A byte per colour in the hub RAM; the platform sends frames (hal_ledstrip_*).
+WS2812_MAX = 256
+WS2812_ORDERS = sorted({"".join(p) for p in itertools.permutations("RGB")}) + \
+    sorted({"".join(p) for p in itertools.permutations("RGBW")})
+
+
+class WS2812(HubType):
+    """An addressable LED strip (WS2812B / SK6812, RGB or RGBW): pin = LED * 3 (4) + colour."""
+    key, enum, num = "ws2812", "GM_HUB_WS2812", 11
+    keys = ("id", "pin", "count", "order", "gamma", "white")
+    lines = {"pin": "ledstrip"}
+    roles = frozenset({"out"})
+    ram = True
+    full_colour = True
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        hub.chain = v.integer(h, "count", p, 1, WS2812_MAX, required=True) or 1
+        order = h.get("order", "GRB")
+        order = order.strip().upper() if isinstance(order, str) else order
+        if order not in WS2812_ORDERS:
+            close = difflib.get_close_matches(str(order).upper(), WS2812_ORDERS, 1)
+            hint = f"did you mean {close[0]}? " if close else ""
+            v.err(f"{p}.order", h.line_of("order"), f"unknown order '{h.raw_of('order')}' ({hint}the colours as the "
+                                                    "LED takes them: GRB (WS2812B, the default), RGB, BRG, ...; "
+                                                    "GRBW / RGBW for RGBW LEDs, e.g. SK6812 RGBW)")
+            order = "GRB"
+        hub.order = order
+        hub.channels = len(order)
+        hub.n_pins = hub.channels * hub.chain
+        hub.ram_bytes = hub.n_pins                       # a byte per colour
+        hub.gamma, hub.white = validate_rgb_calibration(v, h, p, white_n=hub.channels)
+        hub.data = ctl("pin", "out")
+        if hub.data.hub == 0 and h.get("pin") is not None:
+            why = v.plat.ledstrip(hub.data.num, [x.data.num for x in dev.hubs if x.type == self.key and
+                                                 x is not hub and x.data.hub == 0])
+            if why:
+                v.err(f"{p}.pin", h.line_of("pin"), why)
+
+    def colour_pins(self, hub):
+        return hub.channels
+
+    def range_text(self, hub):
+        names = " ".join(f"{k} {c}" for k, c in enumerate(("red", "green", "blue", "white")[:hub.channels]))
+        return f" ({hub.chain} LEDs x {hub.channels}; pin = LED * {hub.channels} + colour, {names})"
+
+    def wire_order(self, hub):
+        """gm_hub_ws2812_t.order: byte k of an LED is colour (order >> 2k) & 3."""
+        return sum("RGBW".index(ch) << (2 * k) for k, ch in enumerate(hub.order))
+
+    def c_tables(self, hub):
+        if hub.gamma == 1:
+            return []
+        t = rgb_curve(hub.gamma)
+        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
+                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
+                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
+
+    def c_fields(self, hub):
+        white = list(hub.white) + [255] * (4 - len(hub.white))
+        return [f"        .ws = {{ .pin = {hub.data.c()}, .count = {hub.chain}, .channels = {hub.channels}, "
+                f".order = 0x{self.wire_order(hub):02X} /* {hub.order} */,",
+                f"                .white = {{ {', '.join(str(x) for x in white)} }}, "
+                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
+
+
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
@@ -642,7 +708,7 @@ HUB_DEFS = {t.key: t for t in (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad())}
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812())}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
@@ -1014,6 +1080,11 @@ class Platform:
         """-> None if tx / rx (None: no MIDI In) can be the DIN MIDI UART, else why not."""
         return f"din_midi isn't supported on {self.name} yet"
 
+    def ledstrip(self, num, others):
+        """-> None if MCU pin num can drive a ws2812 strip (others: the other strips' pins), else why not."""
+        return (f"ws2812 isn't supported on {self.name} yet (the platform has no LED strip driver, "
+                "hal_ledstrip_*)")
+
     def adc(self, num):
         """-> (ok, warning or None)"""
         return False, None
@@ -1104,6 +1175,17 @@ class Stm32F1Platform(Platform):
             return "din_midi on stm32f1 is USART1: tx_pin PA9, rx_pin PA10"
         return None
 
+    # ws2812 on stm32f1: the bits are an SPI's MOSI (platform/stm32f1/src/hal.c), so a strip goes on PA7
+    # (SPI1) or PB15 (SPI2), one strip each.
+    LEDSTRIP_SPI = {7: 1, 31: 2}
+
+    def ledstrip(self, num, others):
+        if num not in self.LEDSTRIP_SPI:
+            return "a ws2812 strip on stm32f1 is on an SPI's MOSI: PA7 (SPI1) or PB15 (SPI2)"
+        if num in others:
+            return f"{self.pin_name(num)} has a ws2812 strip already: one strip per SPI (PA7, PB15)"
+        return None
+
     # M-Audio Code 61: PA8 switches the USB D+ pull-up (usbd.c), PC13 / PC15 are the soft power button
     # and latch (startup.c, main.c): errors. The recovery combo (recovery.c), before any gemifi code
     # runs, drives PB3-PB7 low and reads PB8 / PB9 (pulled up; both low = the bootloader). A plain
@@ -1137,6 +1219,7 @@ class EspPlatform(Platform):
         self.uart0, self.psram = set(uart0), set(psram)
         self.transports, self.default_transport = transports, default_transport
         self.native_usb = "usb" in transports
+        self.rmt_tx = {"esp32": 8, "esp32s2": 4, "esp32s3": 4}.get(name, 0)   # RMT TX channels (ws2812)
 
     def valid_text(self):
         return _ranges(self.valid - {17} if self.name == "esp8266" else self.valid,
@@ -1188,6 +1271,14 @@ class EspPlatform(Platform):
                 if num != 16 and flags & PULLDOWN:
                     out.append(("error", f"{nm} on esp8266 has no internal pull-down (only GPIO16 has one)"))
         return out
+
+    def ledstrip(self, num, others):
+        if self.name == "esp8266":
+            return ("ws2812 isn't supported on esp8266: it has no RMT, and bit-banging a strip would stop "
+                    "the scan for 30 us an LED (use an ESP32, S2 or S3)")
+        if len(others) + 1 > self.rmt_tx:
+            return f"{len(others) + 1} ws2812 strips: {self.name} has {self.rmt_tx} RMT TX channels, one a strip"
+        return None
 
     def adc(self, num):
         if num in self.adc1:
@@ -2100,12 +2191,25 @@ def allocate_dma(v, dev, data):
             line = h.raw.line_of("dma") if "dma" in h.raw else h.line
             serial.append((f"maudio_pad_leds '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
                            "set dma: false on it (interrupt-driven)"))
+        if h.type == "ws2812" and h.data.hub == 0 and h.data.num in Stm32F1Platform.LEDSTRIP_SPI:
+            spi = Stm32F1Platform.LEDSTRIP_SPI[h.data.num]
+            other = {1: "PB15 (SPI2, DMA1 channel 5)", 2: "PA7 (SPI1, DMA1 channel 3)"}[spi]
+            line = h.raw.line_of("pin") if "pin" in h.raw else h.line
+            serial.append((f"ws2812 '{h.id}'", f"{h.path}.pin", line, [f"SPI{spi}_TX"], f"move it to {other}"))
     if dev.din is not None and dev.din.dma:
         d = data["din_midi"]
         serial.append(("din_midi", "din_midi.dma", d.line_of("dma"),
                        ["USART1_TX"] + (["USART1_RX"] if dev.din.rx is not None else []),
                        "set din_midi dma: false (interrupt-driven, the default)"))
-    taken = {STM32F1_DMA[r]: (user, r) for user, _p, _l, reqs, _h in serial for r in reqs}
+    taken = {}
+    for user, path, line, reqs, how in serial:
+        for r in reqs:
+            ch = STM32F1_DMA[r]
+            if ch in taken:             # two fixed requests on one channel (an LED strip's SPI and DIN)
+                other, oreq = taken[ch]
+                v.err(path, line, f"needs DMA1 channel {ch} ({r}), which {other} uses ({oreq}): {how}")
+                return
+            taken[ch] = (user, r)
     scans = [s for s, on in (("matrix", dev.hw_scan), ("analog", dev.hw_adc)) if on]
     pick = dma_search(scan_choices(dev, scans), set(taken))
     if pick is None:
@@ -5540,6 +5644,12 @@ def generate(dev, source="device.yaml"):
     hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if hub_ram:
         h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (vpin.c hub_ram): its tm1628 and LED hubs' */")
+    if dev.platform.name == "stm32f1":
+        for x in dev.hubs:
+            spi = Stm32F1Platform.LEDSTRIP_SPI.get(x.data.num) if x.type == "ws2812" and x.data.hub == 0 else None
+            if spi:
+                h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{_comment(x.id)}' on "
+                         f"{x.data.desc}: a frame's bytes (platform/stm32f1/src/hal.c) */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     if m and getattr(m, "vel_fast", None) is not None:

@@ -97,6 +97,7 @@ def hub(typ, alias=None):
     keys = gd.HUB_KEYS[typ]
     types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
     types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
+    types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in gd.HUB_DEFS[typ].schema.items()})
     types.update({k: v for k, v in matrix_lines().items() if k in keys})
     if typ in gd.ROW_HUBS:
         types["address"] = lst(ref("pin"), "the address pins, A0 first")
@@ -255,8 +256,13 @@ def device_schema():
                                                    "window": PERIOD, "retrigger": PERIOD}),
         "presets": presets(),
         "modes": modes(),
-        "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES),
-                                              "chars": lst(ref("pin"), "each character's first pin")})),
+        "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES), "shows": enum(gd.DISPLAY_SHOWS),
+                                              "segment_step": T("integer", minimum=1, maximum=64),
+                                              "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
+                                                                                for n in ns})),
+                                                                   "the segments in pin order"),
+                                              "chars": lst(one_of(ref("pin"), lst(ref("pin"))),
+                                                           "each character's first pin, or its segments' pins")})),
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
                                       "port_name": STR, "thru": BOOL, "controller_out": BOOL,
                                       "usb_to_din": BOOL}),

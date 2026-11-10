@@ -1,5 +1,7 @@
 /*
- * display.c: character displays (gm_display.h).
+ * display.c: segment displays (gm_display.h): the 14- and 7-segment fonts,
+ * what each display shows of its own (shows:), and the changed segments to
+ * their pins.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -107,16 +109,71 @@ uint16_t gm_seg14_glyph(char c)
     return font[c - 0x20];
 }
 
+
+/* 7 segments: a b c d e f g, then the point. */
+#define S7A  0x01u
+#define S7B  0x02u
+#define S7C  0x04u
+#define S7D  0x08u
+#define S7E  0x10u
+#define S7F  0x20u
+#define S7G  0x40u
+#define S7DP 0x80u
+
+/* ' ' (0x20) .. '_' (0x5F); what 7 segments can't show is blank. */
+static const uint8_t font7[64] = {
+    0, S7B | S7C | S7DP, S7B | S7F, 0, 0x6D, 0, 0, S7B,        /*  !"#$%&' */
+    0x39, 0x0F, 0, 0, S7DP, S7G, S7DP, S7B | S7E | S7G,        /* ()*+,-./ */
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07,            /* 0-7      */
+    0x7F, 0x6F, 0, 0, 0, S7D | S7G, 0, 0x53,                   /* 89:;<=>? */
+    0, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71, 0x3D,               /* @ABCDEFG: b d */
+    0x76, 0x30, 0x1E, 0x75, 0x38, 0x37, 0x54, 0x3F,            /* HIJKLMNO: n   */
+    0x73, 0x67, 0x50, 0x6D, 0x78, 0x3E, 0x1C, 0x7E,            /* PQRSTUVW: r t */
+    0x76, 0x6E, 0x5B, 0x39, 0x64, 0x0F, 0x23, S7D,             /* XYZ[\]^_ */
+};
+
+uint8_t gm_seg7_glyph(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        c = (char)(c - 'a' + 'A');
+    if (c < 0x20 || c > 0x5F)
+        return 0;
+    return font7[c - 0x20];
+}
+
 #if GM_N_DISPLAYS > 0
 
-#define MAXC 16                         /* the builder allows at most 16 */
+#ifndef GM_DISPLAY_CHARS
+#define GM_DISPLAY_CHARS 16             /* the widest display (the builder allows 16) */
+#endif
+#define MAXC GM_DISPLAY_CHARS
+/* The shows: values some display has (bit = GM_SHOWS_*): only their code is
+ * built. */
+#ifndef GM_DISPLAY_SHOWS
+#define GM_DISPLAY_SHOWS 0x1Fu
+#endif
+#define SHOWS(k) ((GM_DISPLAY_SHOWS >> (k)) & 1u)
+/* The types (bit = GM_DISPLAY_*), and whether a display has a segment map:
+ * only what is used is built. */
+#ifndef GM_DISPLAY_TYPES
+#define GM_DISPLAY_TYPES ((1u << GM_DISPLAY_SEG14) | (1u << GM_DISPLAY_SEG7))
+#endif
+#ifndef GM_DISPLAY_MAP
+#define GM_DISPLAY_MAP 1
+#endif
+#define HAS_SEG7 ((GM_DISPLAY_TYPES >> GM_DISPLAY_SEG7) & 1u)
+#define HAS_SEG14 ((GM_DISPLAY_TYPES >> GM_DISPLAY_SEG14) & 1u)
+#define IS_SEG7(type) (HAS_SEG7 && (!HAS_SEG14 || (type) == GM_DISPLAY_SEG7))
 
 extern const gm_display_t gm_displays[GM_N_DISPLAYS];   /* generated config */
 
-static uint16_t want[GM_N_DISPLAYS][MAXC];  /* segments the device shows   */
-static uint16_t host[GM_N_DISPLAYS][MAXC];  /* segments a host set (FB_TEXT) */
-static uint8_t host_on[GM_N_DISPLAYS];      /* the host's text is showing   */
-static uint16_t shown[GM_N_DISPLAYS][MAXC]; /* segments written to the pins */
+/* A cell: the character (0x20..0x7E, 0 = blank) and CELL_DOT, its dot lit
+ * by a '.' after it. Segments are worked out when the cell is written. */
+#define CELL_DOT 0x80u
+static uint8_t want[GM_N_DISPLAYS][MAXC];   /* what the device shows         */
+static uint8_t host[GM_N_DISPLAYS][MAXC];   /* what a host set (FB_TEXT)     */
+static uint8_t host_on[GM_N_DISPLAYS];      /* the host's text is showing    */
+static uint16_t shown[GM_N_DISPLAYS][MAXC]; /* segments written to the pins  */
 static uint8_t dirty;
 static uint8_t inited;
 static volatile uint32_t midi_msg;      /* seq << 24 | status << 16 | a << 8 | b */
@@ -126,25 +183,66 @@ static uint32_t midi_seen;
 #define MSG_HOLD_MS 1000u               /* a scrolling message: start and end */
 #define MSG_STEP_MS 300u                /* ... and one character */
 static char msg[MSG_MAX + 1];
-static uint8_t msg_len, msg_pos;
+static uint8_t msg_len;
 static uint8_t msg_new;                 /* set by gm_display_message */
-static uint8_t msg_scroll;              /* 1 scrolling, 2 holding the end */
-static uint32_t msg_t;
+
+/* A display's scrolling text: the message, or the preset's name. */
+#define SRC_MSG 0u
+#define SRC_NAME 1u
+typedef struct {
+    uint8_t src;                        /* SRC_*                          */
+    uint8_t pos;                        /* first character shown          */
+    uint8_t state;                      /* 0 still, 1 scrolling, 2 holding the end */
+    uint32_t t;                         /* the last step                  */
+} scroll_t;
+static scroll_t scr[GM_N_DISPLAYS];
+
+#define HAS_PRESET (SHOWS(GM_SHOWS_PRESET_NUMBER) || SHOWS(GM_SHOWS_PRESET_NAME))
+#if HAS_PRESET
+static uint16_t preset_num;
+static uint8_t preset_new;
+static char pname[MSG_MAX + 1];
+static uint8_t pname_len;
+#endif
+#if SHOWS(GM_SHOWS_CHANNEL)
+static uint8_t chan, chan_new;
+#endif
+
+static uint32_t width(uint32_t d)
+{
+    return gm_displays[d].n_chars > MAXC ? MAXC : gm_displays[d].n_chars;
+}
+
+/* A display type's dot / point bit, and its segments for a cell. */
+static uint32_t dot_bit(uint32_t type)
+{
+    return IS_SEG7(type) ? S7DP : SDOT;
+}
+
+static uint16_t segs(uint32_t type, uint32_t cell)
+{
+    char c = (char)(cell & 0x7Fu);
+    uint16_t g = IS_SEG7(type) ? gm_seg7_glyph(c) : gm_seg14_glyph(c);
+    return (uint16_t)(g | ((cell & CELL_DOT) ? dot_bit(type) : 0u));
+}
+
+static uint8_t cell_of(char c)
+{
+    return c >= 0x20 && c <= 0x7E ? (uint8_t)c : 0u;
+}
 
 void gm_display_text(uint32_t d, const char *s)
 {
     if (d >= GM_N_DISPLAYS)
         return;
-    uint32_t n = gm_displays[d].n_chars, i = 0;
-    if (n > MAXC)
-        n = MAXC;
+    uint32_t n = width(d), i = 0, type = gm_displays[d].type;
     while (*s && i <= n) {
-        if (*s == '.' && i > 0 && !(want[d][i - 1] & SDOT)) {
-            want[d][i - 1] |= SDOT;
+        if (*s == '.' && i > 0 && !(segs(type, want[d][i - 1]) & dot_bit(type))) {
+            want[d][i - 1] |= CELL_DOT;
         } else {
             if (i == n)
                 break;
-            want[d][i++] = gm_seg14_glyph(*s);
+            want[d][i++] = cell_of(*s);
         }
         s++;
     }
@@ -159,25 +257,98 @@ void gm_display_midi(uint8_t status, uint8_t a, uint8_t b)
     midi_msg = (seq << 24) | ((uint32_t)status << 16) | ((uint32_t)a << 8) | b;
 }
 
-void gm_display_message(const char *s)
+/* Copy s (at most MSG_MAX) into t; returns its length. */
+static uint8_t copy_text(char *t, const char *s)
 {
     uint32_t n = 0;
     while (s[n] && n < MSG_MAX) {
-        msg[n] = s[n];
+        t[n] = s[n];
         n++;
     }
-    msg[n] = 0;
-    msg_len = (uint8_t)n;
+    t[n] = 0;
+    return (uint8_t)n;
+}
+
+void gm_display_message(const char *s)
+{
+    msg_len = copy_text(msg, s);
     msg_new = 1;
 }
 
-/* Characters pos.. of the message, every one taking a place. */
-static void msg_show(uint32_t pos)
+void gm_display_preset(uint32_t number, const char *name)
 {
-    uint32_t n = gm_displays[0].n_chars > MAXC ? MAXC : gm_displays[0].n_chars;
+#if HAS_PRESET
+    preset_num = (uint16_t)number;
+    if (name)
+        pname_len = copy_text(pname, name);
+    preset_new = 1;
+#else
+    (void)number;
+    (void)name;
+#endif
+}
+
+void gm_display_channel(uint32_t channel)
+{
+#if SHOWS(GM_SHOWS_CHANNEL)
+    if (channel != chan) {
+        chan = (uint8_t)channel;
+        chan_new = 1;
+    }
+#else
+    (void)channel;
+#endif
+}
+
+static int shows(uint32_t d, uint32_t what)
+{
+    return gm_displays[d].shows == what;
+}
+
+/* Display d's scrolling text from its pos, every character taking a place. */
+static void scroll_show(uint32_t d)
+{
+    const char *t = msg;
+    uint32_t len = msg_len, pos = scr[d].pos, n = width(d);
+#if SHOWS(GM_SHOWS_PRESET_NAME)
+    if (scr[d].src == SRC_NAME) {
+        t = pname;
+        len = pname_len;
+    }
+#endif
     for (uint32_t i = 0; i < n; i++)
-        want[0][i] = pos + i < msg_len ? gm_seg14_glyph(msg[pos + i]) : 0;
+        want[d][i] = pos + i < len ? cell_of(t[pos + i]) : 0u;
     dirty = 1;
+}
+
+static void scroll_start(uint32_t d, uint32_t src, uint32_t len, uint32_t now)
+{
+    scroll_t *s = &scr[d];
+    s->src = (uint8_t)src;
+    s->pos = 0;
+    s->t = now;
+    s->state = len > gm_displays[d].n_chars ? 1u : 0u;
+    scroll_show(d);
+}
+
+static void scroll_step(uint32_t d, uint32_t now)
+{
+    scroll_t *s = &scr[d];
+    uint32_t len = msg_len;
+#if SHOWS(GM_SHOWS_PRESET_NAME)
+    if (s->src == SRC_NAME)
+        len = pname_len;
+#endif
+    if (!s->state || now - s->t < (s->pos == 0 || s->state == 2 ? MSG_HOLD_MS : MSG_STEP_MS))
+        return;
+    s->t = now;
+    if (s->state == 2) {
+        s->state = 0;                   /* done: back to the start */
+        s->pos = 0;
+    } else if (++s->pos + gm_displays[d].n_chars >= len) {
+        s->state = 2;                   /* the end: hold it */
+    }
+    scroll_show(d);
 }
 
 /* Decimal digits of v (0..999) into p, no padding; returns the count. */
@@ -191,20 +362,18 @@ static uint32_t dec(char *p, uint32_t v)
     return n;
 }
 
-/* Left text, then right text right-aligned, on display 0; a dot ends the
+/* Left text, then right text right-aligned, on display d; a dot ends the
  * left part when the two would touch. The right part is left out when it
  * doesn't fit. */
-static void show_pair(const char *l, uint32_t nl, const char *r, uint32_t nr)
+static void show_pair(uint32_t d, const char *l, uint32_t nl, const char *r, uint32_t nr)
 {
     char s[MAXC * 2 + 2];
-    uint32_t n = gm_displays[0].n_chars, j = 0;
-    if (n > MAXC)
-        n = MAXC;
+    uint32_t n = width(d), j = 0;
     for (uint32_t i = 0; i < nl && j < n; i++)
         s[j++] = l[i];
     uint32_t cells = j;
     if (nr && cells + nr <= n) {
-        if (cells + nr == n)
+        if (cells && cells + nr == n)
             s[j++] = '.';                   /* no gap left: a dot separates them */
         for (uint32_t i = cells; i + nr < n; i++)
             s[j++] = ' ';
@@ -212,9 +381,20 @@ static void show_pair(const char *l, uint32_t nl, const char *r, uint32_t nr)
             s[j++] = r[i];
     }
     s[j] = 0;
-    gm_display_text(0, s);
+    gm_display_text(d, s);
 }
 
+#if SHOWS(GM_SHOWS_PRESET_NUMBER) || SHOWS(GM_SHOWS_CHANNEL)
+/* v right-aligned on display d (its last digits, if it is too narrow). */
+static void show_number(uint32_t d, uint32_t v)
+{
+    char r[4];
+    uint32_t nr = dec(r, v), n = width(d), k = nr > n ? nr - n : 0u;
+    show_pair(d, "", 0, r + k, nr - k);
+}
+#endif
+
+/* The last MIDI message, on each last_message display. */
 static void format_midi(uint32_t m)
 {
     static const char names[12][2] = { {'C', 0}, {'C', '#'}, {'D', 0}, {'D', '#'}, {'E', 0}, {'F', 0},
@@ -226,7 +406,6 @@ static void format_midi(uint32_t m)
     case 0xB0:                              /* CC: number.value */
         nl = dec(l, a);
         nr = dec(r, b);
-        show_pair(l, nl, r, nr);
         break;
     case 0x90:                              /* note on: name, velocity */
         if (b == 0)
@@ -238,17 +417,61 @@ static void format_midi(uint32_t m)
             l[nl++] = '-';
         nl += dec(l + nl, a < 12u ? 1u : a / 12u - 1u);
         nr = dec(r, b);
-        show_pair(l, nl, r, nr);
         break;
     case 0xC0:                              /* program change */
         l[0] = 'P';
         l[1] = 'G';
+        nl = 2;
         nr = dec(r, a);
-        show_pair(l, 2, r, nr);
         break;
     default:
+        return;
+    }
+    for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+        if (shows(d, GM_SHOWS_LAST_MESSAGE))
+            show_pair(d, l, nl, r, nr);
+}
+
+/* What a preset_* or channel display shows, now. */
+static void show_value(uint32_t d, uint32_t now)
+{
+    (void)now;
+    switch (gm_displays[d].shows) {
+#if SHOWS(GM_SHOWS_PRESET_NUMBER)
+    case GM_SHOWS_PRESET_NUMBER:
+        show_number(d, preset_num);
+        break;
+#endif
+#if SHOWS(GM_SHOWS_PRESET_NAME)
+    case GM_SHOWS_PRESET_NAME:
+        scroll_start(d, SRC_NAME, pname_len, now);
+        break;
+#endif
+#if SHOWS(GM_SHOWS_CHANNEL)
+    case GM_SHOWS_CHANNEL: {
+        char r[4];
+        uint32_t nr = dec(r, chan);
+        if (2u + nr <= width(d))
+            show_pair(d, "CH", 2, r, nr);   /* "CH 5", or "CH.5" on 3 characters */
+        else
+            show_number(d, chan);
         break;
     }
+#endif
+    default:                                /* none: blank */
+        gm_display_text(d, "");
+        break;
+    }
+}
+
+/* The pin of segment s of character i on display dp (ns segments each). */
+static gm_pin_t seg_pin(const gm_display_t *dp, uint32_t i, uint32_t s, uint32_t ns)
+{
+    if (GM_DISPLAY_MAP && dp->map)
+        return dp->map[i * ns + s];
+    gm_pin_t p = dp->chars[i];
+    p.num = (uint16_t)(p.num + s);
+    return p;
 }
 
 void gm_display_poll(uint32_t now)
@@ -258,49 +481,66 @@ void gm_display_poll(uint32_t now)
         for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
             for (uint32_t i = 0; i < MAXC; i++)
                 shown[d][i] = 0x8000u;      /* not written yet: write every segment */
-        if (!dirty)
-            gm_display_text(0, "gemifi");
+        int own = dirty;                    /* text set before the first poll stays */
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++) {
+            if (!shows(d, GM_SHOWS_LAST_MESSAGE))
+                show_value(d, now);
+            else if (!own)
+                gm_display_text(d, "gemifi");
+        }
     }
     uint32_t m = midi_msg;
     if (m != midi_seen) {
         midi_seen = m;
-        msg_scroll = 0;
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+            if (shows(d, GM_SHOWS_LAST_MESSAGE))
+                scr[d].state = 0;
         format_midi(m);
     }
-    if (msg_new) {                      /* a message wins over MIDI in the same poll */
+    int started = msg_new;              /* a message wins over MIDI in the same poll */
+    if (msg_new) {
         msg_new = 0;
-        msg_pos = 0;
-        msg_t = now;
-        msg_scroll = msg_len > gm_displays[0].n_chars ? 1u : 0u;
-        msg_show(0);
-    } else if (msg_scroll && now - msg_t >= (msg_pos == 0 || msg_scroll == 2 ? MSG_HOLD_MS : MSG_STEP_MS)) {
-        msg_t = now;
-        if (msg_scroll == 2) {
-            msg_scroll = 0;             /* done: back to the start */
-            msg_pos = 0;
-        } else if (++msg_pos + gm_displays[0].n_chars >= msg_len) {
-            msg_scroll = 2;             /* the end: hold it */
-        }
-        msg_show(msg_pos);
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+            if (shows(d, GM_SHOWS_LAST_MESSAGE))
+                scroll_start(d, SRC_MSG, msg_len, now);
     }
+#if HAS_PRESET
+    if (preset_new) {
+        preset_new = 0;
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+            if (shows(d, GM_SHOWS_PRESET_NUMBER) || shows(d, GM_SHOWS_PRESET_NAME))
+                show_value(d, now);
+    }
+#endif
+#if SHOWS(GM_SHOWS_CHANNEL)
+    if (chan_new) {
+        chan_new = 0;
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+            if (shows(d, GM_SHOWS_CHANNEL))
+                show_value(d, now);
+    }
+#endif
+    if (!started)
+        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+            scroll_step(d, now);
     if (!dirty)
         return;
     dirty = 0;
     for (uint32_t d = 0; d < GM_N_DISPLAYS; d++) {
         const gm_display_t *dp = &gm_displays[d];
-        uint32_t n = dp->n_chars > MAXC ? MAXC : dp->n_chars;
+        uint32_t n = width(d), ns = IS_SEG7(dp->type) ? 8u : 15u;
         for (uint32_t i = 0; i < n; i++) {
-            uint16_t w = host_on[d] ? host[d][i] : want[d][i];
+            uint16_t w = segs(dp->type, host_on[d] ? host[d][i] : want[d][i]);
             uint16_t diff = (shown[d][i] & 0x8000u) ? 0x7FFFu : (uint16_t)(w ^ shown[d][i]);
             if (!diff)
                 continue;
             shown[d][i] = w;
-            for (uint32_t s = 0; s < 15u; s++) {
+            for (uint32_t s = 0; s < ns; s++) {
                 if (!(diff & (1u << s)))
                     continue;
-                gm_pin_t p = dp->chars[i];
-                p.num = (uint16_t)(p.num + s);
-                vpin_write(p, (w >> s) & 1u);
+                gm_pin_t p = seg_pin(dp, i, s, ns);
+                if (p.hub != GM_HUB_NONE)
+                    vpin_write(p, (w >> s) & 1u);
             }
         }
     }
@@ -315,7 +555,7 @@ void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text
 {
     if (d >= GM_N_DISPLAYS || row != 0)
         return;
-    uint32_t w = gm_displays[d].n_chars > MAXC ? MAXC : gm_displays[d].n_chars;
+    uint32_t w = width(d);
     if (col >= w)
         return;
     if (!host_on[d]) {
@@ -323,10 +563,8 @@ void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text
         for (uint32_t i = 0; i < MAXC; i++)
             host[d][i] = 0;
     }
-    for (uint32_t i = 0; i < n && col + i < w; i++) {
-        uint8_t c = text[i];
-        host[d][col + i] = c >= 0x20 && c <= 0x7E ? gm_seg14_glyph((char)c) : 0;
-    }
+    for (uint32_t i = 0; i < n && col + i < w; i++)
+        host[d][col + i] = cell_of((char)text[i]);
     dirty = 1;
 }
 
@@ -351,6 +589,8 @@ void gm_display_host_release(void) {}
 void gm_display_text(uint32_t d, const char *s) { (void)d; (void)s; }
 void gm_display_midi(uint8_t status, uint8_t a, uint8_t b) { (void)status; (void)a; (void)b; }
 void gm_display_message(const char *s) { (void)s; }
+void gm_display_preset(uint32_t number, const char *name) { (void)number; (void)name; }
+void gm_display_channel(uint32_t channel) { (void)channel; }
 void gm_display_poll(uint32_t now) { (void)now; }
 
 #endif

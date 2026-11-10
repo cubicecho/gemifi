@@ -3795,7 +3795,10 @@ void gm_poll(void)
     if (now - t_led >= LED_MS) {
         t_led = now;
         leds_update(now);           /* the buttons' and pads' levels */
-        gm_display_poll(now);       /* the display's segments: written with the LEDs */
+#if defined(GM_DISPLAY_SHOWS) && ((GM_DISPLAY_SHOWS >> GM_SHOWS_CHANNEL) & 1)
+        gm_display_channel((uint32_t)gm_cfg.channel);   /* a channel display: redrawn on a change */
+#endif
+        gm_display_poll(now);       /* the displays' segments: written with the LEDs */
         led_pass = 1;
     } else {
         leds_apply();               /* then the LEDs, a few per pass */

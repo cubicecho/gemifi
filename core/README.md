@@ -35,7 +35,7 @@ What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the 
 Every pin in a device is a `gm_pin_t { hub, flags, num }`:
 - `hub = 0`: a pin of the MCU. `num` is the platform's pin number: NUC1xx `port * 16 + bit` (`PA0` = 0, `PB12` = 28, `PC7` = 39); ESP32/ESP8266 the GPIO number.
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
-- `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` `dio_pin`, platform mode `HAL_OUT_OD`).
+- `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` or `tm1637` `dio_pin`, platform mode `HAL_OUT_OD`).
 
 Hubs are declared ESPHome style, one top-level list per chip, named like the ESPHome component:
 
@@ -53,6 +53,9 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `ws2812` | `GM_HUB_WS2812` | `pin` (an MCU pin; stm32f1: PA7 or PB15); `count` (1–256 LEDs); `order` (`GRB`, the default, `RGB`, `BRG`, ...; `GRBW`, `RGBW`, ... for RGBW LEDs); `gamma`, `white` (`[r, g, b]`, `[r, g, b, w]` on RGBW) | 3 × count outputs (4 × on RGBW): pin = LED × 3 + colour (0 red, 1 green, 2 blue, 3 white). WS2812B / SK6812 strips; see "WS2812 LED strips" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
+| `max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see "MAX7219, TM1637 and HT16K33") |
+| `tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see "MAX7219, TM1637 and HT16K33") |
+| `ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; the `i2c:` pins), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see "MAX7219, TM1637 and HT16K33") |
 
 A pin on a hub names the hub by its chip key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
@@ -87,7 +90,7 @@ Each hub type is a driver in `src/vpin.c` behind one interface, `gm_hub_ops_t` (
 | `analog` | `vpin_analog` | the main loop: 0..4095 on a channel (mux, XY pad) |
 | `rgb` | `vpin_rgb` | a whole colour on an LED (maudio_pad_leds, ws2812); a hub with it is full-colour: its LEDs take full-colour looks ("Full-colour LEDs") |
 | `refresh`, `flush` | `vpin_refresh` / `vpin_flush` in the scan tick (HC165 / HC595), or with `GM_HUBF_BUS` `vpin_refresh_i2c` / `vpin_flush_i2c` from the main loop (I2C) | inputs into `in`; `out` to the chip if it changed |
-| `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
+| `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628, MAX7219, TM1637), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
 | `poll` | `vpin_poll` every main-loop pass | protocol timing (maudio_pad_leds: one LED per 5 ms, the keepalive, acks; ws2812: a frame when something changed) |
 
 `flags` say what else the core needs to know: `GM_HUBF_IN_REG` (`in` holds the pins' levels, so a key scan can read a column with one load), `GM_HUBF_NO_READ` (outputs only), `GM_HUBF_BUS`, `GM_HUBF_SELECT` (decoder outputs: "off" does nothing), `GM_HUBF_MATRIX`. The controller asks `vpin_caps()` / `vpin_pin_caps(pin)` (`VPIN_SCAN_IO`, `VPIN_BUS_IO`, `VPIN_MAIN`, `VPIN_MATRIX`, `VPIN_RGB`) which loops to run and what a pin can do, instead of looking at hub types.
@@ -140,6 +143,26 @@ leds:
 ```
 
 Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
+
+### MAX7219, TM1637 and HT16K33
+
+Three more LED drivers for segment digits (and single LEDs), written from the main loop like the TM1628: the MAX7219 and TM1637 bit-banged on any platform, the HT16K33 on the I2C bus (ESP only for now). Their pins are kept in the hub RAM (`GM_HUB_RAM` counts them too), and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. All three are untested on hardware.
+
+- **`max7219`** (also the MAX7221; ESPHome's keys): a chain of `num_chips` chips on one `din_pin` / `clk_pin` / `cs_pin`. Chip 0 is the one whose DIN is the MCU's. Pin = chip × 64 + digit × 8 + segment, with segment 0–6 = A–G and 7 = DP, and digit 0 = DIG0, so a `segment7` character is its digit's first pin (`number: 0`, `8`, `16`, ...) and every chip is also 64 single LEDs. The chips' own decode is off: the core sends segments. The first write sets the chain up (display test off, no decode, scan limit `scan_limit - 1`, intensity) and writes every digit before turning it on (shutdown off), so nothing random shows. After that, a digit that changed in any chip is one frame: that digit register of every chip, the last chip's word first, taken on CS rising. Words go MSB first, DIN set while CLK is low and taken on the rising edge, each phase ≥ 100 ns on `hal_cycles()` (`MX_PHASE_NS`; 1 µs a phase on a platform without a cycle counter, the ESP and NUC builds). A frame counts 2 a chip against the budget, and at least one goes out per pass. Several chains can share `clk_pin` and `din_pin` (`allow_other_uses: true` on each), each with its own `cs_pin`. A low `scan_limit` lights each digit longer: the datasheet's "Scan-Limit Register" says how to choose RSET for fewer than 4.
+- **`tm1637`** (ESPHome's keys, `length` = grids): a 2-wire chip, one per `clk_pin` / `dio_pin` pair (there's no chip select, so they can't be shared). Pin = grid × 8 + segment, bit 0 = SEG1 (a on the usual 4- and 6-digit modules) to bit 7 = SEG8 (the point, or the colon on clock modules). Start (DIO falls while CLK is high), bytes LSB first, each followed by the chip's ACK clock, stop (DIO rises while CLK is high), each phase 3 µs (`TM37_HALF_US`; the chip's clock is slow and modules often have capacitors on both lines), about 60 µs a byte. The ACK isn't read: DIO is driven low through it, the level the chip pulls it to, so a push-pull DIO never fights the chip (`OUTPUT_OPEN_DRAIN` with a pull-up works too). The first write is 0x40 (write, auto-increment), every grid from 0xC0, then 0x88 | `intensity` (on); after that each pass sends the first run of changed grids, 0x40 then 0xC0 | its address and as many bytes as the budget has room for (a byte counts 5), at least one.
+- **`ht16k33`** (the Adafruit 14-segment and 7-segment backpacks and similar boards): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
+
+```yaml
+max7219:
+  - { id: digits, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, intensity: 8, scan_limit: 3 }
+tm1637:
+  - { id: clock, clk_pin: PB6, dio_pin: PB7, length: 4 }
+displays:
+  - { id: preset_display, type: segment7, shows: preset_number,
+      chars: [{ max7219: digits, number: 0 }, { max7219: digits, number: 8 }, { max7219: digits, number: 16 }] }
+  - { id: text, type: segment7, shows: last_message,
+      chars: [{ tm1637: clock, number: 0 }, { tm1637: clock, number: 8 }, { tm1637: clock, number: 16 }, { tm1637: clock, number: 24 }] }
+```
 
 ### Full-colour LEDs
 
@@ -453,26 +476,49 @@ The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and 
 
 ## Displays
 
-A 14-segment character display (like the Code 61's 6-character one) is a row of characters on output pins of a hub, usually a TM1628. Each character is 15 pins in a row from its first one: segments a b c d e f g1 g2 h i j k l m, then the dot (the layout is drawn in `core/include/gm_display.h`). `chars:` lists each character's first pin, left to right, so characters can sit anywhere on the hub.
+A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...). Up to 4 displays, of up to 16 characters each, one row.
+
+- **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
+- **Pins.** Each item of `chars:` is a character, left to right:
+  - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
+  - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
+  - or a list of its segments' pins, in segment order (the dot may be left out): any other wiring.
+
+  `segment_order:` on the display names the segments in pin order from each first pin, for a module whose segments are in a row but in another order: `[dp, a, b, c, d, e, f, g]` (segment7: `a`–`g`, `dp`; segment14: `a`–`f`, `g1`, `g2`, `h`–`m`, `dot`; `dot` and `dp` are the same). Segments it leaves out aren't wired, and their pins stay free.
+  Every segment pin counts as used, so an LED on one is an error. Segments are hub pins (the display writes them from the main loop through the hub).
+- **What it shows** of its own, `shows:`, while no host is writing to it:
+
+  | `shows:` | |
+  |---|---|
+  | `last_message` | display 0's default. "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`; Note Offs, pitch bend and pressure leave it as it is; when the two parts would touch, a dot separates them. And the device's messages (below) |
+  | `preset_number` | the active preset's number, right-aligned (`  3` on 3 digits; the last digits if it's too narrow). A floor board's display |
+  | `preset_name` | its name (from the YAML or the editor), scrolled once if it's longer |
+  | `channel` | `CH <n>` (`CH.5` on 3 characters), or the number where that won't fit |
+  | `none` | the others' default: blank, for a host's text only |
+
+- **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts, and the safety prompts (`HOLD ...`, `RESET?`) show too, on the `last_message` displays. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again (a `preset_name` display scrolls its name the same way). `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
+- **From a host.** GET_COMPONENT lists each display (kind 6, by index in YAML order: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to display n from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own, which carries on underneath. FB_RELEASE 0 or 3 hands every display back.
+- **Text.** `gm_display_text(d, "...")` sets display d's text; `gm_display_preset()` and `gm_display_channel()` give it the values (presets.c and the controller call them only when a display shows them).
+- **Timing.** MIDI messages are only recorded where they're sent (the main loop, keys too). The main loop formats them, steps scrolling text, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next send or flush puts them out.
+- **Generated code:** `GM_N_DISPLAYS`, `GM_DISPLAY_CHARS` (the widest display: the RAM is sized by it, 4 bytes a character a display), `GM_DISPLAY_SHOWS` and `GM_DISPLAY_TYPES` (bits of the `shows:` values and types used: only their code is built) and `GM_DISPLAY_MAP` in `gm_device_config.h`; `gm_displays[]` (`gm_display_t`: type, character count, first pins or the segment map, `shows`) in `gm_device_config.c`.
 
 ```yaml
 displays:
   - id: display
-    type: segment14            # the only type so far (the default)
+    type: segment14            # the default
     daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
     chars:                     # left to right: each character's segment a
       - { tm1628: leds_a, number: 48 }
       - { tm1628: leds_a, number: 64 }
       - { tm1628: leds_a, number: 0 }
+  - id: bank                   # 2 digits with their segments on a TM1628's grids
+    type: segment7
+    shows: preset_number
+    segment_step: 16
+    chars: [{ tm1628: leds_b, number: 0 }, { tm1628: leds_b, number: 1 }]
 ```
 
-- **What it shows.** "GEMIFI" at boot, then the last MIDI message the device sent: a CC as its number and value (`74 127`), a Note On as its name and velocity (`C#4.127`, middle C = C4), a program change as `PG 12`. Note Offs, pitch bend and pressure leave it as it is. When the two parts would touch, a dot separates them.
-- **Messages.** A preset switch (from a button, a mode or the editor) shows the preset's name, and a channel change on the device (a mode's `channel`, `channel_up`, `channel_down`) shows `CH <n>`, also when a hold mode that changes the channel starts. A message stays until the next MIDI message. One longer than the display scrolls once: the start for 1 s, a character every 300 ms, the end for 1 s, then the start again. `gm_display_message()` shows one; in a message every character takes a place, a `.` too.
-- **From a host.** GET_COMPONENT lists each display (kind 6: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to it from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own (MIDI values, messages), which carries on underneath. FB_RELEASE 0 or 3 hands the display back, showing the device's text again.
-- **Text.** `gm_display_text(0, "...")` sets the text. Letters show as capitals, a `.` lights the previous character's dot, and characters with no glyph are blank. The font is `gm_seg14_glyph()` in `core/src/display.c`.
-- **Timing.** MIDI messages are only recorded where they're sent (the main loop, keys too). The main loop formats them, steps a scrolling message, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next flush sends them.
-- **Pins.** The 15 pins of each character count as used, so an LED on one of them is an error. The builder allows one display for now, of up to 16 characters.
-- **Generated code:** `GM_N_DISPLAYS` in `gm_device_config.h`, and `gm_displays[]` (`gm_display_t`: type, character count, first pins) in `gm_device_config.c`.
+Not yet: `text` displays (HD44780 characters, SSD1306 / SH1106 OLEDs), more than one row, and the TM1640. See #120.
 
 ## Layout
 
@@ -673,7 +719,7 @@ A profile is data: the crystal (the clock setup is derived from it: on stm32f1 t
 |---|---|---|
 | `m-audio-code61` | 0x0002 (its own) | the vendor layout: app 0x08002400-0x0801AFFF, config pages in the vendor settings area, soft power PC13/PC15, USB pull-up PA8, Up + Down recovery combo |
 | `keystation-mini32-mk3` | 0x0001 (its own) | NUC120LC1BN: 32 KB APROM, 4 KB data flash, 4 KB RAM, 12 MHz |
-| `generic-stm32f103c8` | the YAML's, 0x3F00-0x3FFF | a Blue Pill / C8 DIY board: 64 KB (52 KB of app), no soft power, no switched pull-up, no recovery combo, the update LED on PC13 (active low). `devices/diy-bluepill.yaml` uses it |
+| `generic-stm32f103c8` | the YAML's, 0x3F00-0x3FFF | a Blue Pill / C8 DIY board: 64 KB (52 KB of app), no soft power, no switched pull-up, no recovery combo, the update LED on PC13 (active low). `devices/diy-bluepill.yaml` and `devices/diy-floorboard.yaml` use it |
 
 A vendor board has its own `board_id`, and the YAML's must match it when `board:` is given (without `board:` a mismatch only stops the build). A DIY profile has none: the YAML picks one in the DIY range (protocol/sysex.md §7). Its image's layout isn't in the tools' board table, so the build writes it next to the `.gfw` as `<name>.board.json`; `mkimage.py --check`, `gemifi.py flash` and the web updater (drop both files) check the image against it. For another board, copy `generic-stm32f103c8.json`, change what differs and set `board:` to its name; a board with soft power also needs a board header whose `board_gpio_init()` latches the power at reset.
 

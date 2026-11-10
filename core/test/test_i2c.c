@@ -2,7 +2,8 @@
  * test_i2c.c: host test of the I2C hubs (core/src/vpin.c) with
  * core/test/i2c-test.yaml, on a fake bus: MCP23017 led_io (0x20, LEDs
  * only), MCP23017 mixed_io (0x21, button play on GPA0, its LED on GPB0) and
- * PCF8574 btn_io (0x38, button stop on P0).
+ * PCF8574 btn_io (0x38, button stop on P0), and HT16K33 alpha (0x70), a
+ * 4-character 14-segment display with Adafruit's segment order.
  *
  * A chip with no input on it is never read; the others are read every ms,
  * and outputs are written only when they change.
@@ -16,8 +17,9 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 #include "app_proto.h"
+#include "gm_display.h"
 
-#if !(GM_N_HUBS == 3 && GM_N_BUTTONS == 2 && GM_N_LEDS == 3)
+#if !(GM_N_HUBS == 4 && GM_N_BUTTONS == 2 && GM_N_LEDS == 3 && GM_N_DISPLAYS == 1)
 #error "test_i2c.c needs the i2c-test.yaml config"
 #endif
 
@@ -45,8 +47,47 @@ typedef struct {
     int reads, writes;                  /* reads, register writes (not pointer-only) */
 } mcp_t;
 static mcp_t mcp[2] = { { .addr = 0x20, .gpio = { 0xFF, 0xFF } }, { .addr = 0x21, .gpio = { 0xFF, 0xFF } } };
-static uint8_t pcf_in = 0xFF, pcf_out;
+static uint8_t pcf_in = 0xFF, pcf_out = 0xFF;   /* outputs high at power-up, as the chip */
 static int pcf_reads, pcf_writes;
+
+/* The HT16K33: its commands and RAM writes, logged as "21|00 xx xx ..|". */
+static uint8_t ht_ram[16];
+static int ht_ram_writes, ht_bytes;
+static char ht_log[2048];
+static size_t ht_len;
+
+static void ht_write(const uint8_t *p, uint32_t n)
+{
+    for (uint32_t k = 0; k < n && ht_len + 4 < sizeof ht_log; k++)
+        ht_len += (size_t)sprintf(ht_log + ht_len, k ? " %02X" : "%02X", p[k]);
+    if (ht_len + 2 < sizeof ht_log) {
+        ht_log[ht_len++] = '|';
+        ht_log[ht_len] = 0;
+    }
+    ht_bytes += (int)n + 1;
+    if (n > 1 || (n == 1 && p[0] < 0x10)) {   /* a RAM address, then data */
+        ht_ram_writes++;
+        for (uint32_t k = 1, a = p[0]; k < n; k++, a++)
+            if (a < 16)
+                ht_ram[a] = p[k];
+    }
+}
+
+/* A 14-segment glyph in Adafruit's order: bits 11 and 13 (the lower
+ * diagonals) swapped. */
+static uint16_t ada(char c)
+{
+    uint16_t g = gm_seg14_glyph(c);
+    return (uint16_t)((g & ~0x2800u) | ((g >> 11) & 1u) << 13 | ((g >> 13) & 1u) << 11);
+}
+
+static int ht_shows(const char *t)
+{
+    for (int i = 0; i < 4; i++)
+        if ((ht_ram[2 * i] | ht_ram[2 * i + 1] << 8) != ada(t[i]))
+            return 0;
+    return 1;
+}
 
 static mcp_t *mcp_at(uint8_t a)
 {
@@ -71,6 +112,10 @@ int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n)
     if (a == 0x38 && n == 1) {
         pcf_writes++;
         pcf_out = p[0];
+        return 0;
+    }
+    if (a == 0x70) {
+        ht_write(p, n);
         return 0;
     }
     return -1;
@@ -141,7 +186,10 @@ static int sent_cc(int num, int val)
 int main(void)
 {
     gm_init(0x01000000u, 0);
+    CHECK(strncmp(ht_log, "21|00 ", 6) == 0 && strstr(ht_log, "|E9|81|") != NULL,
+          "HT16K33: oscillator on, the RAM from 0, dimming 9, display on: %s", ht_log);
     run_ms(2000);
+    CHECK(ada('0') == 0x0C3F, "the order: 0 = a-f and the K / L slash, as Adafruit's font (%04X)", ada('0'));
 
     CHECK(mcp[0].reg[0x00] == 0xFE && mcp[0].reg[0x01] == 0x7F, "led_io: IODIR set, GPA0 and GPB7 outputs (%02X %02X)",
           mcp[0].reg[0x00], mcp[0].reg[0x01]);
@@ -149,13 +197,16 @@ int main(void)
 
     /* Reads: none of the LED-only chip, one per ms of the others. */
     mcp[0].reads = mcp[1].reads = pcf_reads = 0;
-    mcp[0].writes = mcp[1].writes = pcf_writes = 0;
+    mcp[0].writes = mcp[1].writes = pcf_writes = ht_ram_writes = 0;
+    ht_len = 0;
+    ht_log[0] = 0;
     run_ms(100);
     CHECK(mcp[0].reads == 0, "led_io (LEDs only) isn't read (%d reads in 100 ms)", mcp[0].reads);
     CHECK(mcp[1].reads >= 99 && mcp[1].reads <= 101, "mixed_io read every ms (%d in 100 ms)", mcp[1].reads);
     CHECK(pcf_reads >= 99 && pcf_reads <= 101, "btn_io read every ms (%d in 100 ms)", pcf_reads);
     CHECK(mcp[0].writes == 0 && mcp[1].writes == 0 && pcf_writes == 0,
           "nothing changed: no writes (%d %d %d)", mcp[0].writes, mcp[1].writes, pcf_writes);
+    CHECK(ht_ram_writes == 0, "HT16K33: nothing changed, nothing written (%d): %s", ht_ram_writes, ht_log);
 
     /* play (GPA0 low = pressed): CC 20, and its LED on GPB0. */
     out_n = 0;
@@ -166,6 +217,16 @@ int main(void)
     mcp[1].gpio[0] = 0xFF;
     run_ms(30);
     CHECK(sent_cc(20, 0), "play released: CC 20 0");
+    CHECK(ht_shows("20 0"), "the display: CC 20 0 (%02X%02X %02X%02X %02X%02X %02X%02X)", ht_ram[1], ht_ram[0],
+          ht_ram[3], ht_ram[2], ht_ram[5], ht_ram[4], ht_ram[7], ht_ram[6]);
+    ht_len = 0;
+    ht_log[0] = 0;
+    ht_bytes = 0;
+    gm_display_message("20 5");
+    run_ms(20);
+    CHECK(ht_shows("20 5"), "a message: 20 5");
+    CHECK(strcmp(ht_log, "06 ED|07 00|") == 0 && ht_bytes == 6,
+          "only the changed character's bytes, one a pass within the budget: %s (%d bus bytes)", ht_log, ht_bytes);
 
     /* stop on the PCF8574 (P0 low = pressed). */
     out_n = 0;

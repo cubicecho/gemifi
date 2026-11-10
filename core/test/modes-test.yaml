@@ -1,0 +1,61 @@
+# Test device for core/test/test_modes.c: modes without a key matrix (#117),
+# a pad-box / floor-board style panel: buttons and an encoder only. A
+# layer-only toggle, a Shift + button toggle with a layer, a toggle with
+# buttons:, a hold mode with buttons: and a cycle. Not a real board; the
+# pins only need to be distinct for the simulated HAL.
+gemifi: 2
+name: modes-test
+friendly_name: Modes Test
+board_id: 0x3F16
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+buttons:
+  - { id: b_a, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 20 }
+  - { id: mute, pin: { number: PB1, inverted: true }, action: cc_toggle, cc: 24, led: mute_led }
+  - { id: shift, pin: { number: PB2, inverted: true }, action: cc_momentary, cc: 22 }
+  - { id: lmode, pin: { number: PB3, inverted: true }, action: cc_momentary, cc: 23 }   # Shift + it: the arm layer
+  - { id: fx, pin: { number: PB4, inverted: true } }        # toggles the fx layer
+  - { id: chan, pin: { number: PB5, inverted: true } }      # holds the channel mode
+  - { id: emode, pin: { number: PB6, inverted: true } }     # the next step of the cycle
+  - { id: up, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 25 }
+  - { id: menu, pin: { number: PB8, inverted: true } }      # toggles the menu mode
+
+leds:
+  - { id: mute_led, pin: PD4 }
+  - { id: arm_led, pin: PD3 }
+  - { id: emode_led, pin: PD0, pin2: PD1, pin3: PD2 }       # RGB: the cycle step's colour
+
+encoders:
+  - { id: enc, pin_a: PC0, pin_b: PC1, cc: 30 }
+
+modes:
+  # fx alone: b_a is CC 40 while it is on
+  - id: fx
+    toggle: fx
+    layer: { b_a: { cc: 40 } }
+  # Shift + lmode (lmode alone: CC 23): mute is CC 26 with its own state,
+  # the encoder CC 31
+  - id: arm
+    toggle: { button: lmode, with: shift }
+    led: arm_led
+    layer:
+      mute: { cc: 26 }
+      enc: { cc: 31 }
+  # while chan is held, up raises the channel; in the menu mode it lowers it
+  - id: chan
+    hold: chan
+    buttons: { up: channel_up }
+  - id: menu
+    toggle: menu
+    buttons: { up: channel_down }
+  # emode: ONE, TWO (encoder CC 33), THREE (mute CC 27), round again
+  - id: encs
+    cycle: emode
+    led: emode_led
+    steps:
+      - { id: s_one, name: ONE, colour: red }
+      - { id: s_two, name: TWO, colour: green, layer: { enc: { cc: 33 } } }
+      - { id: s_three, name: THREE, colour: blue, layer: { mute: { cc: 27 } } }

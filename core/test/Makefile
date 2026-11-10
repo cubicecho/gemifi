@@ -32,6 +32,8 @@
 # test_i2c:        MCP23017 / PCF8574 hubs on a fake bus (i2c-test.yaml)
 # test_msg:        the MIDI message kinds: 14-bit CC, (N)RPN, bank, panic,
 #                  MMC, SysEx, per-control channel / range (msg-test.yaml)
+# test_modes:      layers, cycles, hold modes and buttons: without a key
+#                  matrix (modes-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
@@ -71,6 +73,8 @@ I2C_DEVICE := i2c-test.yaml
 I2C_DEV    := $(BUILD)/device-i2c
 MSG_DEVICE := msg-test.yaml
 MSG_DEV    := $(BUILD)/device-msg
+MODES_DEVICE := modes-test.yaml
+MODES_DEV    := $(BUILD)/device-modes
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
 GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'unlock: true'; } > $(DEVICE).new && \
@@ -153,6 +157,10 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(MSG_
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(MSG_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(MODES_DEVICE) -o $(MODES_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(MODES_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
@@ -181,9 +189,10 @@ LEDM_SRCS := test_leds.c $(CORE_SRCS) $(LEDM_DEV)/gm_device_config.c
 ENC_SRCS := test_encoders.c $(CORE_SRCS) $(ENC_DEV)/gm_device_config.c
 I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c
 MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c
+MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg $(BUILD)/test_modes
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -209,6 +218,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_encoders
 	$(BUILD)/test_i2c
 	$(BUILD)/test_msg
+	$(BUILD)/test_modes
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -284,3 +294,7 @@ $(BUILD)/test_i2c: $(I2C_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(I2C_DEV)/g
 $(BUILD)/test_msg: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MSG_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MSG_DEV) $(MSG_SRCS) -o $@
+
+$(BUILD)/test_modes: $(MODES_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MODES_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(MODES_DEV) $(MODES_SRCS) -Wl,--wrap=gm_display_message -o $@

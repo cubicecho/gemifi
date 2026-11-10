@@ -811,8 +811,15 @@ static void encoder_step(uint32_t i)
 static uint8_t hw_on;               /* the platform scans; frames come to gm_scan_frames */
 #if GM_HW_SCAN
 static uint32_t hw_frame_q4;        /* frame period, 1/16 us */
+/* The most plan rows this device can have (the builder's GM_HW_SCAN_ROWS):
+ * platform rings are sized for it. */
+#ifdef GM_HW_SCAN_ROWS
+#define HW_ROWS GM_HW_SCAN_ROWS
+#else
+#define HW_ROWS GM_SCAN_MAX_ROWS
+#endif
 static gm_scan_plan_t plan;
-static uint32_t hw_prev[GM_SCAN_MAX_ROWS / 2u];   /* the last frame that differed */
+static uint32_t hw_prev[HW_ROWS / 2u];   /* the last frame that differed */
 static uint32_t hw_mask;            /* column bits of both halfwords of a frame word */
 #if GM_N_ENCODERS > 0
 static uint8_t enc_fed[NE];         /* both pins on switch matrices: stepped per frame */
@@ -844,7 +851,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
     const gm_matrix_t *m = gm_device.matrix;
     if (m) {
         /* Key rows are plan slots 0..n_rows-1, in order (gm_scan_frames). */
-        if (!rows_sel || !cols_fast || m_hubs || m->n_rows > GM_SCAN_MAX_ROWS) {
+        if (!rows_sel || !cols_fast || m_hubs || m->n_rows > HW_ROWS) {
             app_log(LOG_WARN, "hardware scan: key matrix rows need one-store selects and ",
                     "columns on one input register; scanning in software");
             return 0;
@@ -866,7 +873,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
         plan.n_rows = m->n_rows;
     }
 #endif
-    if (!vpin_scan_plan(&plan.sel_reg, plan.sel_word, &plan.n_rows, GM_SCAN_MAX_ROWS,
+    if (!vpin_scan_plan(&plan.sel_reg, plan.sel_word, &plan.n_rows, HW_ROWS,
                         &plan.in_reg, &plan.in_mask))
         goto mixed;
     if (!plan.n_rows || !plan.sel_reg || !plan.in_reg || (plan.in_mask >> 16)) {
@@ -875,7 +882,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
         return 0;
     }
     if (plan.n_rows & 1u) {
-        if (plan.n_rows >= GM_SCAN_MAX_ROWS)
+        if (plan.n_rows >= HW_ROWS)
             goto mixed;
         plan.sel_word[plan.n_rows] = plan.sel_word[plan.n_rows - 1u];
         plan.n_rows++;
@@ -893,7 +900,7 @@ void gm_scan_hw_started(uint32_t frame_q4)
 #if GM_HW_SCAN
     hw_frame_q4 = frame_q4;
     hw_mask = (plan.in_mask & 0xFFFFu) * 0x10001u;
-    for (uint32_t i = 0; i < GM_SCAN_MAX_ROWS / 2u; i++)
+    for (uint32_t i = 0; i < HW_ROWS / 2u; i++)
         hw_prev[i] = 0xFFFFFFFFu;   /* the first frame always counts */
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < NE_HW; i++)

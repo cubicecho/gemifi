@@ -74,8 +74,19 @@ _Static_assert(GM_HW_ADC_MUX != 0 && GM_HW_ADC_MUX != TRIG_CC && CH_MUX != CH_AD
 #define MARGIN_NS 2000u
 #define LATENCY_NS 500u             /* DMA store -> trigger, trigger -> sampling */
 
-static uint32_t ring[2u * GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS / 2u];   /* 16-bit readings */
-static uint32_t steps[GM_ADC_MAX_STEPS];
+/* Sized for this device's plan (the builder's GM_HW_ADC_PINS / _STEPS:
+ * the most it can get), else for the largest. */
+#ifdef GM_HW_ADC_PINS
+#define ADC_PINS GM_HW_ADC_PINS
+#define ADC_STEPS GM_HW_ADC_STEPS
+#else
+#define ADC_PINS GM_ADC_MAX_PINS
+#define ADC_STEPS GM_ADC_MAX_STEPS
+#endif
+_Static_assert(ADC_PINS >= 1u && ADC_PINS <= GM_ADC_MAX_PINS && ADC_STEPS >= 1u &&
+               ADC_STEPS <= GM_ADC_MAX_STEPS, "hardware analog scan sizes");
+static uint32_t ring[(2u * ADC_STEPS * ADC_PINS + 1u) / 2u];   /* 16-bit readings */
+static uint32_t steps[ADC_STEPS];
 static const gm_adc_plan_t *plan;
 static uint32_t n_cells, n_steps, ticks, ccr2, ccr4, done, mhz;
 static uint8_t running;
@@ -181,10 +192,10 @@ void adc_dma_stop(void)
 
 int adc_dma_start(const gm_adc_plan_t *p)
 {
-    if (!p || p->n_pins < 1u || p->n_pins > GM_ADC_MAX_PINS || p->n_steps < 1u ||
-        p->n_steps > GM_ADC_MAX_STEPS || (p->n_steps > 1u && (!p->sel_reg || !is_bsrr(p->sel_reg))))
+    if (!p || p->n_pins < 1u || p->n_pins > ADC_PINS || p->n_steps < 1u ||
+        p->n_steps > ADC_STEPS || (p->n_steps > 1u && (!p->sel_reg || !is_bsrr(p->sel_reg))))
         return 0;
-    int ch[GM_ADC_MAX_PINS];
+    int ch[ADC_PINS];
     for (uint32_t k = 0; k < p->n_pins; k++)
         if ((ch[k] = adc_channel(p->pin[k])) < 0)
             return 0;

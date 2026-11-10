@@ -590,7 +590,16 @@ int vpin_rgb(gm_pin_t p, uint32_t rgb)
 #define GM_HW_ADC 0                 /* a config generated before hardware_scan: */
 #endif
 #if GM_HW_ADC
-#define ADC_CELLS (GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS)
+/* Sized for this device's plan (the builder's GM_HW_ADC_PINS / _STEPS),
+ * else for the largest. */
+#ifdef GM_HW_ADC_PINS
+#define ADC_PINS GM_HW_ADC_PINS
+#define ADC_STEPS GM_HW_ADC_STEPS
+#else
+#define ADC_PINS GM_ADC_MAX_PINS
+#define ADC_STEPS GM_ADC_MAX_STEPS
+#endif
+#define ADC_CELLS (ADC_STEPS * ADC_PINS)
 static gm_adc_plan_t aplan;
 static uint8_t adc_on;
 static volatile uint8_t adc_swept;     /* a whole sweep is in adc_last[] since the start */
@@ -609,7 +618,7 @@ static int adc_add_pin(uint16_t pin)
     for (uint32_t k = 0; k < aplan.n_pins; k++)
         if (aplan.pin[k] == pin)
             return (int)k;
-    if (aplan.n_pins >= GM_ADC_MAX_PINS)
+    if (aplan.n_pins >= ADC_PINS)
         return -1;
     aplan.pin[aplan.n_pins] = pin;
     return (int)aplan.n_pins++;
@@ -634,7 +643,7 @@ static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
         return 0;
     if (!*group) {
         uint32_t steps = 1u << h->n_sel;
-        if (steps > GM_ADC_MAX_STEPS)
+        if (steps > ADC_STEPS)
             return 0;
         volatile uint32_t *reg = 0;
         uint32_t bit[4];

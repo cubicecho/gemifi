@@ -72,8 +72,16 @@ _Static_assert(CH_SEL != CH_RD, "select and read on one channel");
                                        then be up to 8 frames late (the scan tick shares
                                        its level) */
 
-static uint32_t ring[RING_FRAMES * GM_SCAN_MAX_ROWS / 2u];  /* 16-bit readings */
-static uint32_t sel_next[GM_SCAN_MAX_ROWS];                 /* row r + 1's select at r */
+/* Sized for this device's plan (the builder's GM_HW_SCAN_ROWS: the most
+ * rows it can get), else for the largest. */
+#ifdef GM_HW_SCAN_ROWS
+#define SCAN_ROWS GM_HW_SCAN_ROWS
+#else
+#define SCAN_ROWS GM_SCAN_MAX_ROWS
+#endif
+_Static_assert(SCAN_ROWS >= 2u && SCAN_ROWS <= GM_SCAN_MAX_ROWS && !(SCAN_ROWS & 1u), "hardware scan rows");
+static uint32_t ring[RING_FRAMES * SCAN_ROWS / 2u];  /* 16-bit readings */
+static uint32_t sel_next[SCAN_ROWS];                 /* row r + 1's select at r */
 static uint32_t cr_in, cr_out;
 static volatile uint32_t *cr_reg;   /* precharge: the columns' CRL/CRH, else 0 */
 static uint32_t n_rows, row_ticks, mhz, frame_cycles, last_isr;
@@ -124,7 +132,7 @@ void scan_dma_stop(void)
 
 int scan_dma_start(const gm_scan_plan_t *p)
 {
-    if (!p || p->n_rows < 2u || p->n_rows > GM_SCAN_MAX_ROWS || (p->n_rows & 1u))
+    if (!p || p->n_rows < 2u || p->n_rows > SCAN_ROWS || (p->n_rows & 1u))
         return 0;
     int in_port = gpio_port(p->in_reg, 0x08u);          /* IDR */
     int sel_port = gpio_port(p->sel_reg, 0x10u);        /* BSRR */

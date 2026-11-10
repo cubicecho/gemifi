@@ -1529,6 +1529,24 @@ int main(int argc, char **argv)
                     bad++;
             }
         CHECK(bad == 0 && params_schema_size() == ssize, "every schema window matches the whole (%d differ)", bad);
+        /* a download in order (each read resumes where the last stopped),
+         * then backwards (each falls back to the walk from byte 0) */
+        bad = 0;
+        for (uint32_t m = 0; m < sizeof maxes / sizeof maxes[0]; m++) {
+            for (uint32_t off = 0; off < ssize; off += maxes[m]) {
+                uint8_t data[64];
+                uint32_t want = ssize - off < maxes[m] ? ssize - off : maxes[m];
+                if (params_schema_read(off, data, maxes[m]) != want || memcmp(data, schema + off, want))
+                    bad++;
+            }
+            for (uint32_t off = ssize; off-- > 0;) {
+                uint8_t data[64];
+                uint32_t want = ssize - off < maxes[m] ? ssize - off : maxes[m];
+                if (params_schema_read(off, data, maxes[m]) != want || memcmp(data, schema + off, want))
+                    bad++;
+            }
+        }
+        CHECK(bad == 0, "schema windows in order and backwards match the whole (%d differ)", bad);
     }
 
     /* keys and velocity */

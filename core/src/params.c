@@ -5,8 +5,10 @@
  * byte from the param table, and a window [offset, offset + max) is copied
  * out. A read walks the table only up to the end of its window, and the
  * size is worked out once (the table doesn't change after
- * gm_settings_init), so a whole download walks it about half as often as
- * it has windows.
+ * gm_settings_init). A read also remembers where the last param it
+ * started begins, so the next window (a download asks for them in order)
+ * starts there instead of at byte 0: each window costs about its own
+ * length, not the whole schema up to it.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -104,15 +106,27 @@ static void sw_str(sw_t *w, const char *s)
         sw_byte(w, (uint8_t)s[i] & 0x7Fu);
 }
 
-static void schema_walk(sw_t *w)
+/* Resume point: param resume_k starts at byte resume_pos (0 = none yet;
+ * the header comes first, so no param starts at 0). */
+static uint32_t resume_k, resume_pos;
+
+/* Generates from param k0, which starts at w->pos; k0 = 0 with w->pos = 0
+ * is the whole blob, header first. */
+static void schema_walk(sw_t *w, uint32_t k0)
 {
     const param_table_t *t = &app_params;
-    sw_byte(w, PARAMS_SCHEMA_VERSION);
-    sw_byte(w, t->group_count);
-    sw_le(w, t->param_count, 2);
-    for (uint32_t g = 0; g < t->group_count; g++)
-        sw_str(w, t->groups[g]);
-    for (uint32_t k = 0; k < t->param_count; k++) {
+    if (!k0 && !w->pos) {
+        sw_byte(w, PARAMS_SCHEMA_VERSION);
+        sw_byte(w, t->group_count);
+        sw_le(w, t->param_count, 2);
+        for (uint32_t g = 0; g < t->group_count; g++)
+            sw_str(w, t->groups[g]);
+    }
+    for (uint32_t k = k0; k < t->param_count; k++) {
+        if (w->pos <= w->end) {     /* the last param starting by the end */
+            resume_k = k;
+            resume_pos = w->pos;
+        }
         if (w->pos >= w->end)
             return;                 /* past the window: the rest isn't copied */
         const param_def_t *p = &t->params[k];
@@ -153,8 +167,9 @@ static uint32_t schema_bytes;     /* 0 = not worked out yet */
 void params_schema_measure(void)
 {
     sw_t w = { 0, 0, 0, 0, 0, 0xFFFFFFFFu };
-    schema_walk(&w);
+    schema_walk(&w, 0);
     schema_bytes = w.pos;
+    resume_k = resume_pos = 0;      /* the table may have changed */
 }
 
 uint32_t params_schema_size(void)
@@ -168,6 +183,11 @@ uint32_t params_schema_read(uint32_t offset, uint8_t *dst, uint32_t max)
 {
     uint32_t end = offset + max;
     sw_t w = { 0, offset, dst, max, 0, end < offset ? 0xFFFFFFFFu : end };
-    schema_walk(&w);
+    uint32_t k0 = 0;
+    if (resume_pos && offset >= resume_pos) {
+        k0 = resume_k;              /* at or after the last window */
+        w.pos = resume_pos;
+    }
+    schema_walk(&w, k0);
     return w.n;
 }

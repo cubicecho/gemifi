@@ -133,7 +133,7 @@ tm1628:
     stb_pin: PC12
     ram_bytes: 6
     # Only the 16 RGB buttons are on this chip, so its brightness (8 steps,
-    # all of them at once) can follow a DAW's colours: fade:. [untested, 2026-11-09]
+    # all of them at once) can follow a DAW's colours: fade:. [tried 2026-11-10: fades, no flicker]
     fade: true
 # Pad LEDs: not on the TM1628s but on the pad board, a small controller fed by
 # USART2 TX on PA2 at 115200 baud [sure, found in the stock app and tried

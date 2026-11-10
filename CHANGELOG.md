@@ -2,6 +2,15 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.38.2](https://github.com/cubicecho/gemifi/compare/v0.38.1...v0.38.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **buttons:** judge a button sample by every scan since the last (0.2.87) ([8b3616a](https://github.com/cubicecho/gemifi/commit/8b3616a0aae34bb57f68214c87b65890e3300e07))
+* **buttons:** release after 16 ms open, not 10 (0.2.86) ([51d3c71](https://github.com/cubicecho/gemifi/commit/51d3c717f9d972f5b26506ec558cee48118e7b34))
+* **code61:** matrix settle 3 us for the panel buttons (0.2.85) ([b1956d0](https://github.com/cubicecho/gemifi/commit/b1956d01c1021b90bed2c9aa6a3d95276864a8b6))
+
 ## [0.38.1](https://github.com/cubicecho/gemifi/compare/v0.38.0...v0.38.1) (2026-11-10)
 
 

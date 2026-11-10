@@ -219,8 +219,9 @@ typedef struct {
     uint8_t looks;        /* GM_LED_LOOKS(idle, active), 0 = defaults */
     uint8_t layer;        /* a layer twin of leds[base] (as gm_button_t), 0 = none */
     uint8_t base;
-    /* Full-colour idle and active looks (idle: "#RRGGBB" on an LED of an
-     * maudio_pad_leds hub): GM_LED_RGB(colour), 0 = the looks mask above. */
+    /* Full-colour idle and active looks (idle: "#RRGGBB" on an LED of a
+     * full-colour hub: ws2812, maudio_pad_leds): GM_LED_RGB(colour), 0 =
+     * the looks mask above. */
     uint32_t rgb[2];
 } gm_led_t;
 #define GM_LED_RGB(c) (0x1000000u | ((c) & 0xFFFFFFu))

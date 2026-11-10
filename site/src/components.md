@@ -324,9 +324,13 @@ leds:
 {% endraw %}
 
 An LED can sit on an MCU pin, a 74HC595, an MCP23017 or PCF8574, a
-**TM1628**-family LED driver (and relatives with the same commands), or an
-**`maudio_pad_leds`** board (the Code 61's pad LED board, on the STM32F1;
-called `rgb_serial` before, which still works). Levels are worked out every 10 ms and only changes are written:
+**TM1628**-family LED driver (and relatives with the same commands), a
+**`ws2812`** strip (WS2812B / SK6812, RGB or RGBW, on one pin: ESP32, S2, S3
+and STM32F1), or the **`maudio_pad_leds`** board (the Code 61's pad LED
+board, on the STM32F1; called `rgb_serial` before, which still works). LEDs
+on the last two show any colour: `idle: blue 20%`, `active: "#ff8000"`, in
+`led_defaults:` too, with the hub's `gamma:` and `white:`. Levels are worked
+out every 10 ms and only changes are written:
 
 | Where | Cost |
 |---|---|
@@ -334,6 +338,7 @@ called `rgb_serial` before, which still works). Levels are worked out every 10 m
 | 74HC595 | the chain is shifted out in the next scan tick |
 | MCP23017 / PCF8574 | one I2C write when it changes, about 80 / 50 µs |
 | TM1628 | at most 9 bus bytes per main-loop pass, about 110 µs; one LED about 40 µs (STM32F1) |
+| `ws2812` | one frame when something changed, at most every 5 ms, sent in the background (RMT on ESP32, SPI + DMA on STM32F1): 30 µs an LED on the wire |
 | `maudio_pad_leds` | one LED every 5 ms: 16 pads all changing take 80 ms |
 
 **Ownership.** When both the device and the DAW want an LED, `owner:`
@@ -384,6 +389,7 @@ use.
 | `decoder` | 74HC138-style row selects for a matrix | one register write per row on STM32F1 |
 | `switch_matrix` | up to 32 buttons or encoder contacts on a matrix | scanned with the key matrix |
 | `tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
+| `ws2812` | an addressable LED strip, any colour per LED | see LEDs |
 | `maudio_pad_leds` | the M-Audio Code pad LED board (was `rgb_serial`) | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 

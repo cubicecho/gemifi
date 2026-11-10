@@ -730,8 +730,8 @@ int main(void)
     }
 
     /* A display-sized change: bytes 0-11 of A, but not byte 4 (the LEDs').
-     * One run (byte 4 is a single unchanged byte, rewritten as it is), cut
-     * by the 9-byte budget and taken up at its next address. */
+     * Cut by the 4-byte budget (0x40, an address, 2 bytes) and taken up at
+     * its next changed address: 6 passes. */
     {
         int passes = 0, most = 0;
         uint8_t want[16];
@@ -750,8 +750,9 @@ int main(void)
         for (int k = 0; k < 12; k++)
             want[k] = k == 4 ? chip[0].ram[4] : 0xFF;
         CHECK(memcmp(chip[0].ram, want, 12) == 0, "11 changed bytes all reach chip A");
-        CHECK(passes == 2 && most == 9, "2 passes, at most 9 bus bytes each (%d, %d)", passes, most);
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF 00 FF FF|A:40|A:C7 FF FF FF FF FF|") == 0,
+        CHECK(passes == 6 && most == 4, "6 passes, at most 4 bus bytes each (%d, %d)", passes, most);
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF|A:40|A:C2 FF FF|A:40|A:C5 FF FF|A:40|A:C7 FF FF|"
+                              "A:40|A:C9 FF FF|A:40|A:CB FF|") == 0,
               "the run, split: %s", bus_log);
         set_bytes(0, 0x0FEFu, 0);
         bus_clear();
@@ -760,21 +761,22 @@ int main(void)
               "a full flush of 11 bytes is one auto-increment write: %s", bus_log);
     }
 
-    /* Two runs: bytes 0-3 and 8-10 (four unchanged bytes between). The budget
-     * ends the second run after two bytes; the next pass sends the third. */
+    /* Two runs: bytes 0-3 and 8-10 (four unchanged bytes between): one
+     * command each when the budget allows (a flush), else 2 bytes a pass. */
     {
         set_bytes(0, 0x070Fu, 1);
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF|A:C8 FF FF|") == 0, "two runs, 9 bytes: %s", bus_log);
+        vpin_flush_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF|A:C8 FF FF FF|") == 0, "two runs: %s", bus_log);
+        set_bytes(0, 0x070Fu, 0);
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:CA FF|") == 0, "the rest next pass: %s", bus_log);
+        for (int i = 0; i < 4; i++)
+            vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 00 00|A:40|A:C2 00 00|A:40|A:C8 00 00|A:40|A:CA 00|") == 0,
+              "by the budget, 4 passes: %s", bus_log);
         bus_clear();
         vpin_poll_tm1628();
         CHECK(bus_log[0] == 0, "then nothing: %s", bus_log);
-        set_bytes(0, 0x070Fu, 0);
-        vpin_flush_tm1628();
     }
 
     /* Bytes 2 and 4: one unchanged byte between, so one run (C2 and 3 bytes,
@@ -783,8 +785,17 @@ int main(void)
     {
         set_bytes(0, 0x0014u, 1);
         bus_clear();
-        vpin_poll_tm1628();
+        vpin_flush_tm1628();
         CHECK(strcmp(bus_log, "A:40|A:C2 FF 00 FF|") == 0, "gap of one: one run (%s)", bus_log);
+        /* by the budget: no room for byte 4 after byte 3, so byte 3 isn't
+         * rewritten for nothing */
+        set_bytes(0, 0x0014u, 0);
+        bus_clear();
+        vpin_poll_tm1628();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C2 00|A:40|A:C4 00|") == 0, "gap of one, by the budget (%s)", bus_log);
+        set_bytes(0, 0x0014u, 1);
+        vpin_flush_tm1628();
         set_bytes(0, 0x0014u, 0);
         set_bytes(0, 0x0024u, 1);
         bus_clear();
@@ -814,11 +825,13 @@ int main(void)
 
     /* Both chips change: one budget for the pass, A first, B's turn next. */
     {
-        set_bytes(0, 0x003Fu, 1);           /* A 0-5: 0x40, C0 + 6 = 8 */
+        set_bytes(0, 0x003Fu, 1);           /* A 0-5: 3 passes of 0x40, an address and 2 bytes */
         set_bytes(1, 0x0006u, 1);           /* B 1-2: 4 */
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF FF FF|") == 0, "A takes 8 of 9 (%s)", bus_log);
+        for (int i = 0; i < 3; i++)
+            vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF|A:40|A:C2 FF FF|A:40|A:C4 FF FF|") == 0,
+              "A first, 3 passes (%s)", bus_log);
         bus_clear();
         vpin_poll_tm1628();
         CHECK(strcmp(bus_log, "B:40|B:C1 FF FF|") == 0, "then B (%s)", bus_log);

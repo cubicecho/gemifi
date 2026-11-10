@@ -1260,9 +1260,10 @@ static void tm_cmd(const tm_io_t *io, uint32_t cmd)
  * the chip). After that: the data command 0x40 (write, auto-increment), then
  * each run of changed bytes as one command, 0xC0 | its first address and its
  * bytes. A run goes on over one unchanged byte (rewriting it costs a bus
- * byte, as a new address command would, and saves the strobe); two or more
- * end it. A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a
- * fixed address. A run the budget cuts short goes on at its next address
+ * byte, as a new address command would, and saves the strobe) when the
+ * budget has room for the changed byte after it too; two or more end it.
+ * A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a fixed
+ * address. A run the budget cuts short goes on at its next address
  * (a new 0xC0 | address) on the next call. */
 static void tm_flush(uint32_t budget)
 {
@@ -1312,7 +1313,7 @@ static void tm_flush(uint32_t budget)
                 k++;
                 budget--;
             } while (budget && k < n &&
-                     (ram[k] != sent[k] || (k + 1u < n && ram[k + 1u] != sent[k + 1u])));
+                     (ram[k] != sent[k] || (budget >= 2u && k + 1u < n && ram[k + 1u] != sent[k + 1u])));
             tm_end(io);
         }
         s->tm_dirty = k < n;
@@ -1405,10 +1406,14 @@ void vpin_fade_apply(void)
 }
 #endif
 
-/* 9 bus bytes: ~110 us at most per main-loop pass on the STM32 (a byte is
+/* 4 bus bytes: ~50 us at most per main-loop pass on the STM32 (a byte is
  * ~11 us, a command ~3 us more), and a single LED change (3 bytes in two
- * commands, ~40 us) always goes out at once. */
-#define TM_POLL_BUDGET 9u
+ * commands, ~40 us) always goes out at once. A run goes on 2 bytes a pass:
+ * the display's 12 bytes take 6 passes, a whole 14-byte chip 7 (a few ms
+ * at the main loop's rate, within one 10 ms LED round). */
+#ifndef TM_POLL_BUDGET
+#define TM_POLL_BUDGET 4u
+#endif
 
 void vpin_poll_tm1628(void)
 {

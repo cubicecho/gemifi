@@ -3,7 +3,7 @@
  * before sending anything, and the order its chunks are uploaded in (§4.2).
  */
 
-import { type Board, boardById, formatBoardId, HEADER_OFFSETS } from './boards.ts';
+import { type Board, boardById, formatBoardId, HEADER_OFFSETS, isDiyBoardId } from './boards.ts';
 import { CHUNK_ALIGN_BYTES, HEX_RADIX, PAGE_BYTES, PROTOCOL_VERSION } from './wire.ts';
 
 /**
@@ -137,22 +137,26 @@ export function readHeader(bytes: Uint8Array, offset = HEADER_OFFSET): ImageHead
  *
  * @param bytes - The whole file.
  * @param expectedBoardId - The connected device's board, when known.
+ * @param extra - DIY boards known from their layout files.
  * @returns The header and its offset; the header at the first offset tried when none matches.
  */
 export function findHeader(
   bytes: Uint8Array,
   expectedBoardId?: number,
+  extra: readonly Board[] = [],
 ): { header: ImageHeader | null; offset: number } {
-  const expected = expectedBoardId === undefined ? undefined : boardById(expectedBoardId)?.headerOffset;
+  const expected = expectedBoardId === undefined ? undefined : boardById(expectedBoardId, extra)?.headerOffset;
   const offsets = [...new Set([...(expected === undefined ? [] : [expected]), ...HEADER_OFFSETS])];
   for (const offset of offsets) {
     const header = readHeader(bytes, offset);
-    const isHere = header?.magic === IMAGE_MAGIC && boardById(header.boardId)?.headerOffset === offset;
+    const isHere = header?.magic === IMAGE_MAGIC && boardById(header.boardId, extra)?.headerOffset === offset;
     if (isHere) {
       return { header, offset };
     }
   }
-  const first = offsets[0] ?? HEADER_OFFSET;
+  // A board this page doesn't know (a DIY board without its layout): wherever the magic is.
+  const withMagic = offsets.find((offset) => readHeader(bytes, offset)?.magic === IMAGE_MAGIC);
+  const first = withMagic ?? offsets[0] ?? HEADER_OFFSET;
   return { header: readHeader(bytes, first), offset: first };
 }
 
@@ -181,10 +185,12 @@ export function hex(value: number, digits = 8): string {
  *
  * @param bytes - The whole file.
  * @param expectedBoardId - The connected device's board, when known.
+ * @param extra - DIY boards known from their layout files (`boardFromLayout`): a DIY board id has no
+ *   table entry, so its image is only checked with the layout its build wrote.
  * @returns The image, or every problem found.
  */
-export function validateImage(bytes: Uint8Array, expectedBoardId?: number): ImageResult {
-  const { header, offset } = findHeader(bytes, expectedBoardId);
+export function validateImage(bytes: Uint8Array, expectedBoardId?: number, extra: readonly Board[] = []): ImageResult {
+  const { header, offset } = findHeader(bytes, expectedBoardId, extra);
   if (header === null) {
     return {
       ok: false,
@@ -202,8 +208,12 @@ export function validateImage(bytes: Uint8Array, expectedBoardId?: number): Imag
   if (header.protoVersion !== PROTOCOL_VERSION) {
     problems.push(`The image speaks protocol ${header.protoVersion}; this page speaks ${PROTOCOL_VERSION}.`);
   }
-  const board = boardById(header.boardId);
-  if (board === undefined) {
+  const board = boardById(header.boardId, extra);
+  if (board === undefined && isDiyBoardId(header.boardId)) {
+    problems.push(
+      `Board id ${formatBoardId(header.boardId)} is a DIY board: add the .board.json its build wrote next to the .gfw, so the image can be checked against its layout.`,
+    );
+  } else if (board === undefined) {
     problems.push(`Board id ${formatBoardId(header.boardId)} is not a known gemifi board.`);
   }
   if (board !== undefined && board.headerOffset !== offset) {

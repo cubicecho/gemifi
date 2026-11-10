@@ -3,24 +3,81 @@
  * as a DAW script would send it. Framework-free and deterministic for a given random source, so
  * the effects can be tested without a device.
  *
- * gemifi LEDs are on/off per colour channel (`protocol/sysex.md` §4.6.2), with no brightness. So a
- * colour here is 3 bits (red, green, blue) and "dimmer" means fewer LEDs lit. The LEDs are a strip
- * in their component order; a display is a row of characters.
+ * A colour is 8 bits a channel, as eyes see it (the firmware applies the LED's gamma). An LED that
+ * can show any colour (an `rgb_serial` one, like the Code 61 pads) shows it as it is; an on/off
+ * RGB LED lights each channel that is at least half the brightest (`protocol/sysex.md` §4.6.2), so
+ * a dim colour there is the same colour at full. The effects fade where they can and also light
+ * fewer LEDs, so they look right either way. The LEDs are a strip in their component order; a
+ * display is a row of characters.
  */
 
-/** A colour: bit 0 red, bit 1 green, bit 2 blue. 0 is off. */
+/** A colour: 0xRRGGBB, 8 bits a channel. 0 is off. */
 export type LedColour = number;
 
 export const Colour = {
   Off: 0,
-  Red: 1,
-  Green: 2,
-  Yellow: 3,
-  Blue: 4,
-  Magenta: 5,
-  Cyan: 6,
-  White: 7,
+  Red: 0xff0000,
+  Green: 0x00ff00,
+  Yellow: 0xffff00,
+  Blue: 0x0000ff,
+  Magenta: 0xff00ff,
+  Cyan: 0x00ffff,
+  White: 0xffffff,
 } as const;
+
+/** The largest channel value. */
+const FULL = 255;
+
+/**
+ * @param r - Red, 0..1.
+ * @param g - Green, 0..1.
+ * @param b - Blue, 0..1.
+ * @returns The colour.
+ */
+function rgb(r: number, g: number, b: number): LedColour {
+  const ch = (x: number) => Math.round(Math.max(0, Math.min(1, x)) * FULL);
+  return (ch(r) << 16) | (ch(g) << 8) | ch(b);
+}
+
+/**
+ * @param colour - A colour.
+ * @returns Its red, green and blue, 0..255.
+ */
+export function channels(colour: LedColour): [number, number, number] {
+  return [(colour >> 16) & FULL, (colour >> 8) & FULL, colour & FULL];
+}
+
+/**
+ * @param colour - A colour.
+ * @param k - How bright, 0..1.
+ * @returns The colour at that brightness.
+ */
+function dim(colour: LedColour, k: number): LedColour {
+  const [r, g, b] = channels(colour);
+  return rgb((r / FULL) * k, (g / FULL) * k, (b / FULL) * k);
+}
+
+/** Sixths of the colour wheel: red, yellow, green, cyan, blue, magenta. */
+const HUE_SECTORS = 6;
+
+/**
+ * @param h - A hue, 0..1 (wraps): 0 red, 1/3 green, 2/3 blue.
+ * @returns That hue at full saturation and brightness.
+ */
+function hue(h: number): LedColour {
+  const x = (((h % 1) + 1) % 1) * HUE_SECTORS;
+  const f = x - Math.floor(x);
+  const parts: [number, number, number][] = [
+    [1, f, 0],
+    [1 - f, 1, 0],
+    [0, 1, f],
+    [0, 1 - f, 1],
+    [f, 0, 1],
+    [1, 0, 1 - f],
+  ];
+  const [r, g, b] = parts[Math.floor(x) % HUE_SECTORS] ?? [1, 0, 0];
+  return rgb(r, g, b);
+}
 
 /** What the device should show at one moment. */
 export interface DemoFrame {
@@ -56,12 +113,6 @@ export interface DemoEffect {
    */
   start(canvas: DemoCanvas, random: () => number): EffectRun;
 }
-
-/** The colours of a rainbow, in hue order. */
-const WHEEL: readonly LedColour[] = [Colour.Red, Colour.Yellow, Colour.Green, Colour.Cyan, Colour.Blue, Colour.Magenta];
-
-/** Burst colours for fireworks: anything but white, which is the flash. */
-const BURST_COLOURS: readonly LedColour[] = WHEEL;
 
 /** Breathing colours, one per breath. */
 const BREATH_COLOURS: readonly LedColour[] = [Colour.Blue, Colour.Cyan, Colour.Magenta, Colour.Green];
@@ -130,7 +181,7 @@ function shuffled(n: number, random: () => number): number[] {
   return order;
 }
 
-/** One firework: a flash, then a ring of its colour spreading out, then sparkles. */
+/** One firework: a flash, then a ring of its colour spreading out and fading, then sparkles. */
 interface Burst {
   at: number;
   born: number;
@@ -152,21 +203,22 @@ const FW_SPARK_WHITE = 0.3; // a spark is white instead of the burst's colour
 const FW_SPARK_SHOWN = 0.7; // a dying spark is lit in a frame (it flickers)
 const FW_SPARK_MIN_MS = 200; // a spark lasts at least this
 const FW_SPARK_SPREAD_MS = 500; // ... plus up to this
+const FW_RING_LAST = 0.25; // the ring fades to this brightness at the end of its life
 const FW_DISPLAY_SPREAD = 3; // the display's ring reaches a third of its width
 
 /** Fireworks: random launches, a white flash, a coloured ring spreading out, sparkles fading. */
 const fireworks: DemoEffect = {
   id: 'fireworks',
   name: 'Fireworks',
-  description: 'Random launches: a white flash, a coloured ring spreading out, then sparkles that die away.',
+  description: 'Random launches: a white flash, a coloured ring spreading out and fading, then sparkles that die away.',
   start({ leds, displays }, random) {
     let bursts: Burst[] = [];
-    const sparks = new Map<number, { colour: LedColour; until: number }>();
+    const sparks = new Map<number, { colour: LedColour; born: number; until: number }>();
     let nextLaunch = 0;
     return (t) => {
       if (t >= nextLaunch) {
         const radius = 1 + pick(random, Math.max(FW_MIN_MAX_RADIUS, Math.ceil(leds / FW_LEDS_PER_RADIUS)));
-        const colour = BURST_COLOURS[pick(random, BURST_COLOURS.length)] ?? Colour.Red;
+        const colour = hue(random()); // any colour but white, which is the flash
         bursts.push({ at: pick(random, leds), born: t, colour, radius });
         nextLaunch = t + FW_LAUNCH_MIN_MS + random() * FW_LAUNCH_SPREAD_MS;
       }
@@ -176,7 +228,8 @@ const fireworks: DemoEffect = {
         if (t >= spark.until) {
           sparks.delete(i);
         } else if (random() < FW_SPARK_SHOWN) {
-          out[i] = spark.colour; // flickers as it dies
+          const left = (spark.until - t) / Math.max(1, spark.until - spark.born);
+          out[i] = dim(spark.colour, left); // fades, and flickers, as it dies
         }
       }
       const alive: Burst[] = [];
@@ -196,10 +249,10 @@ const fireworks: DemoEffect = {
         const r = Math.min(burst.radius, 1 + Math.floor((age - FW_FLASH_MS) / FW_STEP_MS));
         for (const i of [burst.at - r, burst.at + r]) {
           if (i >= 0 && i < leds) {
-            out[i] = burst.colour;
+            out[i] = dim(burst.colour, 1 - (1 - FW_RING_LAST) * (age / FW_LIFE_MS));
             if (random() < FW_SPARK_CHANCE) {
               const colour = random() < FW_SPARK_WHITE ? Colour.White : burst.colour;
-              sparks.set(i, { colour, until: t + FW_SPARK_MIN_MS + random() * FW_SPARK_SPREAD_MS });
+              sparks.set(i, { colour, born: t, until: t + FW_SPARK_MIN_MS + random() * FW_SPARK_SPREAD_MS });
             }
           }
         }
@@ -227,20 +280,44 @@ const FIRE_COOL = 0.12; // ... and loses up to this
 const FIRE_FLARE = 0.08; // a step flares an LED up
 const FIRE_FLARE_MIN = 0.75; // to at least this heat
 const FIRE_FLARE_SPREAD = 0.25; // ... plus up to this
-const FIRE_HOT = 0.72; // hotter: yellow (white now and then); the display shows '*'
-const FIRE_WARM = 0.38; // hotter: red (yellow now and then)
-const FIRE_EMBER = 0.25; // hotter: red now and then
-const FIRE_HOT_WHITE = 0.2;
-const FIRE_WARM_YELLOW = 0.15;
-const FIRE_EMBER_RED = 0.3;
+const FIRE_HOT = 0.72; // the display shows '*' above this
+const FIRE_EMBER = 0.25; // cooler: dark
+const FIRE_FLICKER = 0.2; // each frame an LED is up to this much dimmer
 const FIRE_GLOW = 0.5; // the display: '^' above this
 const FIRE_SMOKE = 0.3; // the display: "'" above this
 
-/** Fire: every LED flickers with its own heat, red when warm, yellow when hot. */
+/**
+ * The colour of a heat: dim red embers, then brighter red, orange, yellow and a touch of white at
+ * the hottest. On an on/off LED that is red, then yellow (green past half of red), then white.
+ *
+ * @param h - The heat, 0..1.
+ * @returns Its colour, off below FIRE_EMBER.
+ */
+function heatColour(h: number): LedColour {
+  if (h <= FIRE_EMBER) {
+    return Colour.Off;
+  }
+  const t = (h - FIRE_EMBER) / (1 - FIRE_EMBER);
+  const RED_FROM = 0.25; // an ember's red
+  const RED_RISE = 1.5;
+  const GREEN_AT = 0.3; // green comes in from here...
+  const GREEN_RISE = 1.4;
+  const GREEN_MAX = 0.85; // ... up to this
+  const WHITE_AT = 0.85; // and blue (white) from here
+  const WHITE_RISE = 4;
+  const WHITE_MAX = 0.6;
+  return rgb(
+    RED_FROM + t * RED_RISE,
+    Math.min(1, Math.max(0, (t - GREEN_AT) * GREEN_RISE)) * GREEN_MAX,
+    Math.min(1, Math.max(0, (t - WHITE_AT) * WHITE_RISE)) * WHITE_MAX,
+  );
+}
+
+/** Fire: every LED flickers with its own heat, from dim red embers to bright yellow. */
 const fire: DemoEffect = {
   id: 'fire',
   name: 'Fire',
-  description: 'Every LED has its own heat: it flares up at random, cools down and flickers red and yellow.',
+  description: 'Every LED has its own heat: it flares up at random, cools down and flickers from dim red to yellow.',
   start({ leds, displays }, random) {
     const heat = Array.from({ length: leds }, () => random() * FIRE_START_HEAT);
     let last = 0;
@@ -260,15 +337,7 @@ const fire: DemoEffect = {
           heat[i] = Math.max(0, Math.min(1, next));
         }
       }
-      const out = heat.map((h) => {
-        if (h > FIRE_HOT) {
-          return random() < FIRE_HOT_WHITE ? Colour.White : Colour.Yellow;
-        }
-        if (h > FIRE_WARM) {
-          return random() < FIRE_WARM_YELLOW ? Colour.Yellow : Colour.Red;
-        }
-        return h > FIRE_EMBER && random() < FIRE_EMBER_RED ? Colour.Red : Colour.Off;
-      });
+      const out = heat.map((h) => dim(heatColour(h), 1 - random() * FIRE_FLICKER));
       const texts = displays.map((cols) => {
         const row = blankRow(cols);
         for (let c = 0; c < cols; c++) {
@@ -292,14 +361,17 @@ const fire: DemoEffect = {
 const SCAN_SWEEP_MS = 1400;
 const SCAN_MIN_STEP_MS = 25;
 const SCAN_MAX_STEP_MS = 90;
-/** The tail's LEDs behind the eye, farthest first. */
-const SCAN_TAIL = [2, 1] as const;
+/** The tail behind the eye: how bright each LED is, nearest first (fading out). */
+const SCAN_TAIL_NEAR = 0.6;
+const SCAN_TAIL_MID = 0.3;
+const SCAN_TAIL_FAR = 0.12;
+const SCAN_TAIL = [SCAN_TAIL_NEAR, SCAN_TAIL_MID, SCAN_TAIL_FAR] as const;
 
-/** Scanner: a white eye with a red tail sweeping back and forth. */
+/** Scanner: a white eye with a fading red tail sweeping back and forth. */
 const scanner: DemoEffect = {
   id: 'scanner',
   name: 'Scanner',
-  description: 'A white eye with a red tail sweeping from end to end and back.',
+  description: 'A white eye with a fading red tail sweeping from end to end and back.',
   start({ leds, displays }) {
     const STEP_MS = Math.max(SCAN_MIN_STEP_MS, Math.min(SCAN_MAX_STEP_MS, SCAN_SWEEP_MS / Math.max(1, leds)));
     return (t) => {
@@ -309,10 +381,10 @@ const scanner: DemoEffect = {
       const at = Math.min(Math.max(0, leds - 1), isForward ? step : 2 * span - step);
       const back = isForward ? -1 : 1; // the tail trails behind the eye
       const out: LedColour[] = Array.from({ length: leds }, () => Colour.Off);
-      for (const k of SCAN_TAIL) {
-        const i = at + back * k;
+      for (const [d, bright] of SCAN_TAIL.entries()) {
+        const i = at + back * (d + 1);
         if (i >= 0 && i < leds) {
-          out[i] = Colour.Red;
+          out[i] = dim(Colour.Red, bright);
         }
       }
       if (leds > 0) {
@@ -330,8 +402,10 @@ const scanner: DemoEffect = {
   },
 };
 
-/** Rainbow: the wheel moves one LED this often, the text one character this often. */
+/** Rainbow: the wheel moves one LED this often (smoothly), the text one character this often. */
 const RAINBOW_STEP_MS = 160;
+/** LEDs for the whole wheel. */
+const RAINBOW_LEDS = 6;
 const RAINBOW_TEXT_STEP_MS = 280;
 const RAINBOW_TEXT = 'GEMIFI FEEDBACK DEMO   ';
 
@@ -342,11 +416,8 @@ const rainbow: DemoEffect = {
   description: 'The colour wheel rolling slowly along every LED, with a line of text scrolling on the display.',
   start({ leds, displays }) {
     return (t) => {
-      const shift = Math.floor(t / RAINBOW_STEP_MS);
-      const out = Array.from(
-        { length: leds },
-        (_, i) => WHEEL[(((i - shift) % WHEEL.length) + WHEEL.length) % WHEEL.length] ?? Colour.Red,
-      );
+      const shift = t / RAINBOW_STEP_MS;
+      const out = Array.from({ length: leds }, (_, i) => hue((i - shift) / RAINBOW_LEDS));
       const start = Math.floor(t / RAINBOW_TEXT_STEP_MS);
       const texts = displays.map((cols) =>
         Array.from({ length: cols }, (_, c) => RAINBOW_TEXT[(start + c) % RAINBOW_TEXT.length] ?? ' ').join(''),
@@ -359,22 +430,26 @@ const rainbow: DemoEffect = {
 /** Breathe: one breath takes this long; past this much of a breath the display shows '='. */
 const BREATH_MS = 4000;
 const BREATH_DEEP = 0.6;
+/** The LEDs start fading in, one after another, over this much of the in-breath. */
+const BREATH_STAGGER = 0.6;
 
-/** Breathe: more and more LEDs light, then fewer, a new colour each breath. */
+/** Breathe: the LEDs fade in one after another and out again, a new colour each breath. */
 const breathe: DemoEffect = {
   id: 'breathe',
   name: 'Breathe',
-  description: 'A slow breath: LEDs light one by one, then go out again, in a new colour each time.',
+  description: 'A slow breath: the LEDs fade in one after another, then fade out again, in a new colour each time.',
   start({ leds, displays }, random) {
     const order = shuffled(leds, random);
     return (t) => {
       const breath = Math.floor(t / BREATH_MS);
       const phase = (1 - Math.cos((2 * Math.PI * (t % BREATH_MS)) / BREATH_MS)) / 2;
-      const lit = Math.round(phase * leds);
       const colour = BREATH_COLOURS[breath % BREATH_COLOURS.length] ?? Colour.Blue;
       const out: LedColour[] = Array.from({ length: leds }, () => Colour.Off);
-      for (let k = 0; k < lit; k++) {
-        out[order[k] ?? 0] = colour;
+      // The k-th LED in the order starts at its own point and is full at the top of the breath, so
+      // an on/off LED still lights one by one.
+      for (let k = 0; k < leds; k++) {
+        const from = (BREATH_STAGGER * k) / Math.max(1, leds);
+        out[order[k] ?? 0] = dim(colour, (phase - from) / (1 - from));
       }
       const texts = displays.map((cols) => {
         const row = blankRow(cols);
@@ -412,32 +487,39 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
-/** The 0..127 value FB_LED_RGB gets for a colour channel that is on. */
-const CHANNEL_ON = 127;
+/** FB_LED_RGB's largest channel value. */
+const CHANNEL_MAX = 127;
 
 /**
  * @param colour - A demo colour.
- * @returns Its FB_LED_RGB parts.
+ * @returns Its FB_LED_RGB parts, 0..127 each.
  */
 export function colourToRgb(colour: LedColour): { r: number; g: number; b: number } {
-  return {
-    r: (colour & 1) === 0 ? 0 : CHANNEL_ON,
-    g: (colour & 2) === 0 ? 0 : CHANNEL_ON,
-    b: (colour & 4) === 0 ? 0 : CHANNEL_ON,
-  };
+  const [r, g, b] = channels(colour).map((c) => Math.round((c * CHANNEL_MAX) / FULL)) as [number, number, number];
+  return { r, g, b };
 }
 
-/** CSS colours for the on-page preview, by demo colour. */
-export const PREVIEW_CSS: Readonly<Record<number, string>> = Object.freeze({
-  [Colour.Off]: 'color-mix(in oklab, currentColor 12%, transparent)',
-  [Colour.Red]: '#ef4444',
-  [Colour.Green]: '#22c55e',
-  [Colour.Yellow]: '#facc15',
-  [Colour.Blue]: '#3b82f6',
-  [Colour.Magenta]: '#d946ef',
-  [Colour.Cyan]: '#22d3ee',
-  [Colour.White]: '#f8fafc',
-});
+/** How an LED that is off looks in the preview. */
+const PREVIEW_OFF = 'color-mix(in oklab, currentColor 12%, transparent)';
+const PERCENT = 100;
+
+/**
+ * The on-page preview of a colour: its hue at full, mixed into the off look by its brightness, so
+ * a dim LED reads as dim in both themes.
+ *
+ * @param colour - A demo colour.
+ * @returns A CSS colour.
+ */
+export function previewCss(colour: LedColour): string {
+  const [r, g, b] = channels(colour);
+  const top = Math.max(r, g, b);
+  if (top === 0) {
+    return PREVIEW_OFF;
+  }
+  const full = (c: number) => Math.round((c * FULL) / top);
+  const pct = Math.round((top / FULL) * PERCENT);
+  return `color-mix(in oklab, rgb(${full(r)} ${full(g)} ${full(b)}) ${pct}%, ${PREVIEW_OFF})`;
+}
 
 /** What changed between two frames, for sending only differences. */
 export interface FrameChanges {

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ColorDot } from '@/components/ui/color-dot';
 import { Play, Square } from '@/components/ui/icons';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
-import { DEMO_EFFECTS, PREVIEW_CSS } from '../demo/effects.ts';
+import { DEMO_EFFECTS, previewCss } from '../demo/effects.ts';
 import type { SysexClient } from '../protocol/client.ts';
 import { hostDrives } from '../protocol/feedback.ts';
 import type { FeedbackController } from './use-feedback.ts';
@@ -91,8 +91,8 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
                 {demo.displays.length > 0
                   ? ` and ${demo.displays.length} display${demo.displays.length === 1 ? '' : 's'}`
                   : ''}
-                {skipped > 0 ? `; ${skipped} with owner: local are left alone` : ''}. The LEDs are on/off per colour, so
-                "dimmer" means fewer LEDs lit.
+                {skipped > 0 ? `; ${skipped} with owner: local are left alone` : ''}. LEDs that can show any colour fade
+                smoothly; on/off ones show the nearest of 7 colours, and a fade lights fewer of them.
               </p>
               <Section
                 title={isRunning ? 'Sending' : 'Preview (stopped)'}
@@ -105,7 +105,7 @@ export function FeedbackDemoCard({ client, feedback }: FeedbackDemoCardProps) {
                         const isDriven = hostDrives(led);
                         return (
                           <li key={led.index} title={led.name} className={isDriven ? '' : 'opacity-30'}>
-                            <ColorDot color={PREVIEW_CSS[isDriven ? colour : 0] ?? ''} label={led.name} />
+                            <ColorDot color={previewCss(isDriven ? colour : 0)} label={led.name} />
                           </li>
                         );
                       })}

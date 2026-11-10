@@ -285,8 +285,8 @@ void vpin_output(gm_pin_t p)
     vpin_write(p, 0);
 }
 
-static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch);
-static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n);
+static void mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch);
+static void decoder_select(const gm_hub_t *h, uint32_t i, uint32_t n);
 
 __attribute__((weak)) const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
 {
@@ -315,7 +315,7 @@ int vpin_read(gm_pin_t p)
     if (h->type == GM_HUB_MUX) {
         if (h->mux.common.hub != 0)
             return 0;
-        mux_select(h, s, p.num);
+        mux_select(h, p.hub - 1u, p.num);
         return hal_pin_read(h->mux.common.num) ^ inv;
     }
     if (s->flags & (GM_HUBF_NO_READ | GM_HUBF_READ)) {
@@ -338,12 +338,12 @@ void vpin_write(gm_pin_t p, int active)
     const gm_hub_t *h = hub_of(p);
     if (!h)
         return;
-    hub_state_t *s = &hs[p.hub - 1];
     if (h->type == GM_HUB_DECODER) {
         if (active)
-            decoder_select(h, s, p.num);
+            decoder_select(h, p.hub - 1u, p.num);
         return;
     }
+    hub_state_t *s = &hs[p.hub - 1];
     if (s->flags & GM_HUBF_WRITE) {
         hub_ops_of(h->type)->write(h, s, p.num, level);
         return;
@@ -613,7 +613,7 @@ int vpin_analog_jump(gm_pin_t p)
  * itself (the scan's path), as analog by the analog op or the hardware
  * analog scan. */
 static uint32_t mux_same[N_HUBS], mux_some[N_HUBS];
-#define MUX_MASKS (gm_device.n_hubs <= 32u)
+static uint8_t mux_masks;
 
 static void mux_pair(const gm_hub_t *h, const gm_hub_t *o, int *any, int *same)
 {
@@ -635,9 +635,10 @@ static void mux_init(const gm_hub_t *h, hub_state_t *s)
         mcu_out(h->mux.sel[k], 0);
     mcu_out(h->mux.enable, 0);
     mcu_in(h->mux.common);
-    uint32_t i = (uint32_t)(h - gm_device.hubs);
+    uint32_t i = (uint32_t)(s - hs);
+    mux_masks = gm_device.n_hubs <= 32u;
     mux_same[i] = mux_some[i] = 0;
-    for (uint32_t j = 0; MUX_MASKS && j < gm_device.n_hubs; j++) {
+    for (uint32_t j = 0; mux_masks && j < gm_device.n_hubs; j++) {
         const gm_hub_t *o = &gm_device.hubs[j];
         int any, same;
         if (j == i || o->type != GM_HUB_MUX)
@@ -648,10 +649,9 @@ static void mux_init(const gm_hub_t *h, hub_state_t *s)
     }
 }
 
-static void mux_shared(const gm_hub_t *h, uint32_t ch)
+static void mux_shared(const gm_hub_t *h, uint32_t i, uint32_t ch)
 {
-    uint32_t i = (uint32_t)(h - gm_device.hubs);
-    if (MUX_MASKS) {
+    if (mux_masks) {
         for (uint32_t m = mux_same[i]; m; m &= m - 1u)
             hs[__builtin_ctz(m)].channel = (int8_t)ch;
         for (uint32_t m = mux_some[i]; m; m &= m - 1u)
@@ -669,15 +669,16 @@ static void mux_shared(const gm_hub_t *h, uint32_t ch)
     }
 }
 
-static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
+/* Hub i (h) to channel ch. */
+static void mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch)
 {
-    if (s->channel == (int8_t)ch)
+    if (hs[i].channel == (int8_t)ch)
         return;
     for (uint32_t k = 0; k < h->mux.n_sel && k < 4; k++)
         if (h->mux.sel[k].hub == 0)
             hal_pin_write(h->mux.sel[k].num, (ch >> k) & 1u);
-    s->channel = (int8_t)ch;
-    mux_shared(h, ch);
+    hs[i].channel = (int8_t)ch;
+    mux_shared(h, i, ch);
     hal_delay_us(h->mux.settle_us ? h->mux.settle_us : 2);
 }
 
@@ -685,7 +686,7 @@ static int32_t mux_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 {
     if (h->mux.common.hub != 0)
         return -1;
-    mux_select(h, s, ch);
+    mux_select(h, (uint32_t)(s - hs), ch);
     return hal_adc_read(h->mux.common.num);
 }
 
@@ -704,11 +705,12 @@ static void decoder_init(const gm_hub_t *h, hub_state_t *s)
 
 /* Decoder: address lines = n's low bits, enable lines = its group's levels.
  * Written only when the selection changes. */
-static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n)
+static void decoder_select(const gm_hub_t *h, uint32_t i, uint32_t n)
 {
     /* One store: always written, so a key scan that selects rows itself
      * (vpin_select_word) never leaves this out of date. */
-    int8_t slot = dec_slot[s - hs];
+    hub_state_t *s = &hs[i];
+    int8_t slot = dec_slot[i];
     if (slot >= 0 && n < DEC_OUT) {
         *dec_reg[slot] = dec_word[slot][n];
         return;

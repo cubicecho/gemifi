@@ -105,7 +105,7 @@ static void usb(uint8_t b0, uint8_t b1, uint8_t b2)
 int main(void)
 {
     level[B_SINGLE] = level[B_BI] = level[B_OCT] = level[B_DEF] = level[B_RGB] = 1;   /* released */
-    printf("LED looks (%s)\n", GM_HOST_LEDS ? "host LEDs" : "local only");
+    printf("LED looks (%s, %u LEDs)\n", GM_HOST_LEDS ? "host LEDs" : "local only", (unsigned)GM_N_LEDS);
 
     gm_init(0x01000000u, 0);
     CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");

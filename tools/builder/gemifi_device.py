@@ -23,7 +23,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.38.2"
+VERSION = "0.38.3"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
@@ -655,12 +655,31 @@ def _ranges(nums, fmt):
     return ", ".join(out)
 
 
+class BoardPin:
+    """A pin the board itself uses (Platform.board_pins). why: what for, as 'the ...' (the message is
+    '<pin> is <why>'). ok: the uses that match the board's, so they get no message: 'in', 'out',
+    'analog' ('in_pulldown' etc. with a pull-down). level: 'error' or 'warning' for any other use."""
+
+    def __init__(self, level, why, ok=()):
+        self.level, self.why, self.ok = level, why, frozenset(ok)
+
+
+def _board_pins(pins, level, why, ok=()):
+    return {n: BoardPin(level, why, ok) for n in pins}
+
+
 class Platform:
     name = ""
+    # The board the platform's firmware is built for (platform/<name>/boards/<board>.h) and the pins it
+    # uses itself: pin number -> BoardPin. One table per platform until board profiles (#116) hold it.
+    board = None
+    board_pins = {}
     native_usb = False
     transports = ("usb",)
     default_transport = "usb"
     is_esp = False
+    # Features the platform's HAL implements (a hub that needs one is refused where it's missing):
+    i2c = False             # hal_i2c_write / hal_i2c_read (mcp23017, pcf8574)
 
     def parse_pin(self, v):
         """-> pin number, or raise ValueError(friendly message)."""
@@ -672,6 +691,15 @@ class Platform:
     def check(self, num, role, flags, transport):
         """-> list of (level, message) for using pin num as role ('in' | 'out' | 'analog')."""
         return []
+
+    def check_board(self, num, role, flags):
+        """-> list of (level, message) if the board uses pin num itself, other than as role."""
+        bp = self.board_pins.get(num)
+        use = role + ("_pulldown" if flags & PULLDOWN else "")
+        if bp is None or use in bp.ok:
+            return []
+        return [(bp.level, f"{self.pin_name(num)} is {bp.why} (board {self.board}: "
+                           f"platform/{self.name}/boards/{self.board}.h)")]
 
     def serial_tx(self, num):
         """-> None if num can be an rgb_serial tx_pin, else why not."""
@@ -715,6 +743,14 @@ class NucPlatform(Platform):
 
     def adc(self, num):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
+
+    # Keystation Mini 32 MK3: the bootloader reads Pitch down + Pitch up (PA5, PA6, active-low, external
+    # pull-ups) at reset (BOARD_BOOT_COMBO); the app drives no pins of its own. Buttons there (the
+    # Keystation's own) and outputs are fine; an analog input (a pot) can hold the pin low at power-up.
+    board = "keystation-mini32-mk3"
+    board_pins = _board_pins((5, 6), "warning", "read at reset by the bootloader (BOARD_BOOT_COMBO: PA5 and "
+                             "PA6 both low = update mode), so a pot turned down at power-up can start the "
+                             "bootloader", ok=("in", "out"))
 
 
 class Stm32F1Platform(Platform):
@@ -767,9 +803,30 @@ class Stm32F1Platform(Platform):
             return "din_midi on stm32f1 is USART1: tx_pin PA9, rx_pin PA10"
         return None
 
+    # M-Audio Code 61: PA8 switches the USB D+ pull-up (usbd.c), PC13 / PC15 are the soft power button
+    # and latch (startup.c, main.c): errors. The recovery combo (recovery.c), before any gemifi code
+    # runs, drives PB3-PB7 low and reads PB8 / PB9 (pulled up; both low = the bootloader). A plain
+    # input or an output there is fine (the Code 61's matrix row selects and columns are wired so);
+    # an input with a pull-down (a button to VCC) is what conflicts: a warning.
+    board = "m-audio-code61"
+    board_pins = {
+        8: BoardPin("error", "the board's USB D+ pull-up switch (BOARD_USB_PULLUP_PIN): the platform drives it"),
+        45: BoardPin("error", "the board's soft power button (BOARD_POWER_BTN_PIN): the firmware reads it "
+                              "(held 2 s = switch off)"),
+        47: BoardPin("error", "the board's power latch (BOARD_POWER_LATCH_PIN): the firmware drives it high "
+                              "to stay on"),
+        **_board_pins(range(19, 24), "warning", "driven low at reset by the recovery combo "
+                      "(BOARD_RECOVERY_DRIVE_MASK, PB3-PB7), so a button to VCC on it shorts the pin while "
+                      "held at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+        **_board_pins((24, 25), "warning", "read at reset by the recovery combo (BOARD_RECOVERY_MASK: PB8 "
+                      "and PB9 both low = the bootloader), so a button to VCC held low by a pull-down "
+                      "starts the bootloader at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+    }
+
 
 class EspPlatform(Platform):
     is_esp = True
+    i2c = True              # Wire (platform/esp/hal_esp.cpp)
 
     def __init__(self, name, valid, flash, strapping, input_only, adc1, adc2, usb_pins=(),
                  uart0=(), psram=(), transports=("serial",), default_transport="serial"):
@@ -910,6 +967,7 @@ class Device:
         self.din = None              # Hub(tx, rx, mode, port_name, thru, out, usb) for din_midi:
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
         self.n_presets = 1
+        self.slots_invalid = False   # preset_slots: presets.slots is given but invalid
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
@@ -1178,6 +1236,9 @@ class _V:
                 return None
             if any(k in v for k in RENAMED_PIN):
                 return None        # format 1 pin: already reported
+            if any(k not in PIN_KEYS for k in v):
+                return None        # an unknown key (a hub type gemifi lacks, say): already reported,
+                #                    and its number: isn't an MCU pin
             if self.boolean(v, "inverted", path):
                 flags |= INVERT
             mode = self.mode(v, path, role, open_drain)
@@ -1220,7 +1281,8 @@ class _V:
                                          f"({adc_text(self.plat)}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
-            for lvl, msg in self.plat.check(num, "in" if role == "common" else role, flags, self.transport):
+            r = "in" if role == "common" else role
+            for lvl, msg in self.plat.check(num, r, flags, self.transport) + self.plat.check_board(num, r, flags):
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
             self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)
@@ -1572,6 +1634,12 @@ def validate(data, file=None):
 
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
+    if need_i2c and not plat.i2c:
+        for h in dev.hubs:
+            if h.type in I2C_HUBS:
+                v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
+                                      "the platform's hal_i2c_* are stubs)")
+        need_i2c = False        # don't also ask for the i2c: pins
     if "i2c" in data:
         i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
         if i2c is not None:
@@ -2854,6 +2922,11 @@ def validate_version(v, data):
     return ver
 
 
+# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
+# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
+MATRIX_MAX = 32
+
+
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
     d = v.mapping(d, p, line, MATRIX_KEYS, renamed=RENAMED_MATRIX)
@@ -2873,14 +2946,18 @@ def validate_matrix(v, dev, d, line):
         if "cols" not in d:
             v.err(f"{p}.columns", d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
         lst = LList()
-    if len(lst) > 255:
-        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most 255")
+    if len(lst) > MATRIX_MAX:
+        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most {MATRIX_MAX} (the core "
+                                                    "keeps a row's columns in 32 bits)")
     # MCU columns are a "column" line, so a switch_matrix can share them (allow_other_uses)
     pins["columns"] = [v.pin(x, f"{p}.columns[{i}]", lst.line_of(i), "in", hubs={"sn74hc165"}, why=why,
                              line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_KEY_HUB)
                              else "column", owner="key_matrix") or NO_PIN
                        for i, x in enumerate(lst)]
     nr, nc = len(pins["rows"]), len(pins["columns"])
+    if nr > MATRIX_MAX:
+        v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: at most {MATRIX_MAX} (the core scans up to "
+                                              f"{MATRIX_MAX} rows; {MATRIX_MAX} x {MATRIX_MAX} is enough for 88 keys)")
     contacts = d.get("contacts", "columns")
     if contacts not in ("columns", "rows"):
         v.err(f"{p}.contacts", d.line_of("contacts"), f"{contacts!r} is unknown (columns: a key's two contacts "
@@ -2897,8 +2974,6 @@ def validate_matrix(v, dev, d, line):
         if nr % 2:
             v.err(f"{p}.rows", d.line_of("rows"), f"contacts: rows needs an even number of rows "
                                                   f"(two contacts per key), got {nr}")
-        if nr > 32:
-            v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: contacts: rows takes at most 32")
     else:
         lrows, lcols = nr, nc // 2
         if nc % 2:
@@ -3474,7 +3549,10 @@ def preset_slots(v, dev, data):
         slots = None
     if n_list > MAX_PRESETS:
         v.err("presets.list", ps.line_of("list"), f"{n_list} presets: at most {MAX_PRESETS}")
-    dev.n_presets = min(slots or max(n_list, 1), MAX_PRESETS)
+    # An invalid slots: (reported above) allows every slot, so a preset: on a button or a mode isn't
+    # reported as well; the build stops on the error anyway.
+    dev.slots_invalid = ps.get("slots") is not None and slots is None
+    dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
     dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
 
 
@@ -4970,8 +5048,8 @@ def budget_text(bd):
 
 def check_budget(v, dev, data):
     bd = dev.budget = storage_budget(dev)
-    if bd["store"] is None:
-        return
+    if bd["store"] is None or dev.slots_invalid:
+        return              # (an invalid presets.slots: already reported, and n_presets isn't the user's)
     ps = data.get("presets") if dev.presets_given else None
     path = "presets.slots" if isinstance(ps, dict) and "slots" in ps else "presets" if ps is not None else ""
     line = (ps.line_of("slots") if path == "presets.slots" else data.line_of("presets")) if ps is not None \

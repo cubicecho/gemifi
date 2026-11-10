@@ -11,6 +11,10 @@ import difflib
 import itertools
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gemifi_board as gbd  # noqa: E402
 
 try:
     import yaml
@@ -23,7 +27,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.38.1"
+VERSION = "0.41.0"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
@@ -648,7 +652,7 @@ ROW_HUBS = {k for k, t in HUB_DEFS.items() if "row" in t.roles}
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
 CTRL_LINE = {k: kind for t in HUB_DEFS.values() for k, kind in t.lines.items()}
 
-TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
+TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
             "status_led", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
@@ -938,12 +942,31 @@ def _ranges(nums, fmt):
     return ", ".join(out)
 
 
+class BoardPin:
+    """A pin the board itself uses (Platform.board_pins). why: what for, as 'the ...' (the message is
+    '<pin> is <why>'). ok: the uses that match the board's, so they get no message: 'in', 'out',
+    'analog' ('in_pulldown' etc. with a pull-down). level: 'error' or 'warning' for any other use."""
+
+    def __init__(self, level, why, ok=()):
+        self.level, self.why, self.ok = level, why, frozenset(ok)
+
+
+def _board_pins(pins, level, why, ok=()):
+    return {n: BoardPin(level, why, ok) for n in pins}
+
+
 class Platform:
     name = ""
+    # The board the platform's firmware is built for (platform/<name>/boards/<board>.h) and the pins it
+    # uses itself: pin number -> BoardPin. One table per platform until board profiles (#116) hold it.
+    board = None
+    board_pins = {}
     native_usb = False
     transports = ("usb",)
     default_transport = "usb"
     is_esp = False
+    # Features the platform's HAL implements (a hub that needs one is refused where it's missing):
+    i2c = False             # hal_i2c_write / hal_i2c_read (mcp23017, pcf8574)
 
     def parse_pin(self, v):
         """-> pin number, or raise ValueError(friendly message)."""
@@ -955,6 +978,15 @@ class Platform:
     def check(self, num, role, flags, transport):
         """-> list of (level, message) for using pin num as role ('in' | 'out' | 'analog')."""
         return []
+
+    def check_board(self, num, role, flags):
+        """-> list of (level, message) if the board uses pin num itself, other than as role."""
+        bp = self.board_pins.get(num)
+        use = role + ("_pulldown" if flags & PULLDOWN else "")
+        if bp is None or use in bp.ok:
+            return []
+        return [(bp.level, f"{self.pin_name(num)} is {bp.why} (board {self.board}: "
+                           f"platform/{self.name}/boards/{self.board}.h)")]
 
     def serial_tx(self, num):
         """-> None if num can be an rgb_serial tx_pin, else why not."""
@@ -998,6 +1030,14 @@ class NucPlatform(Platform):
 
     def adc(self, num):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
+
+    # Keystation Mini 32 MK3: the bootloader reads Pitch down + Pitch up (PA5, PA6, active-low, external
+    # pull-ups) at reset (BOARD_BOOT_COMBO); the app drives no pins of its own. Buttons there (the
+    # Keystation's own) and outputs are fine; an analog input (a pot) can hold the pin low at power-up.
+    board = "keystation-mini32-mk3"
+    board_pins = _board_pins((5, 6), "warning", "read at reset by the bootloader (BOARD_BOOT_COMBO: PA5 and "
+                             "PA6 both low = update mode), so a pot turned down at power-up can start the "
+                             "bootloader", ok=("in", "out"))
 
 
 class Stm32F1Platform(Platform):
@@ -1050,9 +1090,30 @@ class Stm32F1Platform(Platform):
             return "din_midi on stm32f1 is USART1: tx_pin PA9, rx_pin PA10"
         return None
 
+    # M-Audio Code 61: PA8 switches the USB D+ pull-up (usbd.c), PC13 / PC15 are the soft power button
+    # and latch (startup.c, main.c): errors. The recovery combo (recovery.c), before any gemifi code
+    # runs, drives PB3-PB7 low and reads PB8 / PB9 (pulled up; both low = the bootloader). A plain
+    # input or an output there is fine (the Code 61's matrix row selects and columns are wired so);
+    # an input with a pull-down (a button to VCC) is what conflicts: a warning.
+    board = "m-audio-code61"
+    board_pins = {
+        8: BoardPin("error", "the board's USB D+ pull-up switch (BOARD_USB_PULLUP_PIN): the platform drives it"),
+        45: BoardPin("error", "the board's soft power button (BOARD_POWER_BTN_PIN): the firmware reads it "
+                              "(held 2 s = switch off)"),
+        47: BoardPin("error", "the board's power latch (BOARD_POWER_LATCH_PIN): the firmware drives it high "
+                              "to stay on"),
+        **_board_pins(range(19, 24), "warning", "driven low at reset by the recovery combo "
+                      "(BOARD_RECOVERY_DRIVE_MASK, PB3-PB7), so a button to VCC on it shorts the pin while "
+                      "held at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+        **_board_pins((24, 25), "warning", "read at reset by the recovery combo (BOARD_RECOVERY_MASK: PB8 "
+                      "and PB9 both low = the bootloader), so a button to VCC held low by a pull-down "
+                      "starts the bootloader at power-up (wire buttons to GND: INPUT_PULLUP)", ok=("in", "out")),
+    }
+
 
 class EspPlatform(Platform):
     is_esp = True
+    i2c = True              # Wire (platform/esp/hal_esp.cpp)
 
     def __init__(self, name, valid, flash, strapping, input_only, adc1, adc2, usb_pins=(),
                  uart0=(), psram=(), transports=("serial",), default_transport="serial"):
@@ -1193,6 +1254,7 @@ class Device:
         self.din = None              # Hub(tx, rx, mode, port_name, thru, out, usb) for din_midi:
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
         self.n_presets = 1
+        self.slots_invalid = False   # preset_slots: presets.slots is given but invalid
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
@@ -1211,6 +1273,8 @@ class Device:
         self.scan_timers = {}        # allocate_dma: scan -> (timer n, {role: request}); 'tick' -> n
         self.config_hash = None      # load_device: the resolved YAML's hash (param config.hash)
         self.sources = []            # load_device: the files a package or !include pulled in
+        self.board = None            # the board profile (gemifi_board.load), bare-metal platforms only
+        self.board_given = False     # ... named by board: (else the platform's default)
 
 
 class Use:
@@ -1232,6 +1296,7 @@ class _V:
         self.file, self.diags = file, []
         self.uses = {}
         self.plat = None
+        self.board = None        # the board profile: its reserved pins join the platform check
         self.transport = None
         self.hub_by_id = {}
         self.presets = None      # the presets: mapping, once preset_slots has checked it
@@ -1461,6 +1526,9 @@ class _V:
                 return None
             if any(k in v for k in RENAMED_PIN):
                 return None        # format 1 pin: already reported
+            if any(k not in PIN_KEYS for k in v):
+                return None        # an unknown key (a hub type gemifi lacks, say): already reported,
+                #                    and its number: isn't an MCU pin
             if self.boolean(v, "inverted", path):
                 flags |= INVERT
             mode = self.mode(v, path, role, open_drain)
@@ -1503,7 +1571,16 @@ class _V:
                                          f"({adc_text(self.plat)}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
-            for lvl, msg in self.plat.check(num, "in" if role == "common" else role, flags, self.transport):
+            r = "in" if role == "common" else role
+            msgs = self.plat.check(num, r, flags, self.transport)
+            # The pins the board itself uses, from one source: the platform's table (Platform.board_pins,
+            # finer: which uses match the board's) for the board it describes, else the board profile's
+            # `reserved` pins (issue #116).
+            if not self.board or self.board["id"] == self.plat.board:
+                msgs += self.plat.check_board(num, r, flags)
+            else:
+                msgs += gbd.pin_check(self.board, num, r)
+            for lvl, msg in msgs:
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
             self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)
@@ -1798,6 +1875,8 @@ def validate(data, file=None):
     if dev.chip and plat.name == "stm32f1" and not re.fullmatch(r"(STM32|GD32|APM32|CKS32)F1\d\d\w*",
                                                                  dev.chip, re.I):
         v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like an STM32F1-class part number")
+    dev.board_given = "board" in data
+    v.board = dev.board = validate_board(v, dev, data)
 
     # midi
     midi = data.get("midi") or LDict()
@@ -1844,6 +1923,12 @@ def validate(data, file=None):
 
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
+    if need_i2c and not plat.i2c:
+        for h in dev.hubs:
+            if h.type in I2C_HUBS:
+                v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
+                                      "the platform's hal_i2c_* are stubs)")
+        need_i2c = False        # don't also ask for the i2c: pins
     if "i2c" in data:
         i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
         if i2c is not None:
@@ -2217,6 +2302,61 @@ def validate_mcu(v, dev, data, tr, daw_port):
         dev.daw_port = dev.mcu is not None and tr == "usb"
     if dev.mcu is not None:
         dev.mcu.cable = 1 if dev.daw_port else 0
+
+
+def validate_board(v, dev, data):
+    """board: the board profile (platform/<platform>/boards/<board>.json, tools/builder/gemifi_board.py).
+    Left out: the platform's default board (gbd.DEFAULT_BOARD). -> the loaded profile, or None."""
+    plat = dev.platform.name
+    given = "board" in data
+    line = data.line_of("board") if given else data.line
+    if plat not in gbd.PLATFORMS:
+        if given:
+            v.err("board", line, f"board profiles are for {', '.join(gbd.PLATFORMS)}; on {plat}, chip: names "
+                                 "the board")
+        return None
+    name = data.get("board", gbd.DEFAULT_BOARD[plat])
+    known = gbd.boards(plat)
+    if not isinstance(name, str) or not name:
+        v.err("board", line, f"must be the name of a board profile ({' | '.join(known)})")
+        return None
+    if name not in known:
+        close = difflib.get_close_matches(name, known, 1)
+        hint = f"; did you mean '{close[0]}'?" if close else ""
+        v.err("board", line, f"unknown board '{name}' for {plat} (known: {', '.join(known)}{hint}; profiles "
+                             f"are platform/{plat}/boards/*.json)")
+        return None
+    try:
+        board = gbd.load(plat, name)
+    except gbd.ProfileError as e:
+        v.err("board", line, str(e))
+        return None
+    bid_line = data.line_of("board_id") if "board_id" in data else data.line
+    fixed = board["board_id"]
+    if fixed is not None and dev.board_id != fixed and given:
+        # Without board: (every file from before board profiles) this is left to the build
+        # (board_mismatch), so test configs that are only generated, never built, stay as they were.
+        v.err("board_id", bid_line, board_mismatch(dev, board))
+    elif fixed is None and dev.board_id not in gbd.DIY_IDS:
+        v.err("board_id", bid_line, f"board '{name}' is a DIY board: its board_id must be in the DIY range "
+                                    "0x3F00-0x3FFF (protocol/sysex.md 7), one per device design")
+    if board["chip"] and dev.chip and not re.fullmatch(board["chip"], dev.chip, re.I):
+        v.warn("chip", data.line_of("chip"), f"'{dev.chip}' isn't the part board '{name}' is made for "
+                                             f"({board['chip']}): its flash and RAM layout may not fit")
+    return board
+
+
+def board_mismatch(dev, board=None):
+    """Why dev's image can't be built for its board (board_id vs the profile's own), or None."""
+    board = board or dev.board
+    if board is None or board["board_id"] is None or dev.board_id == board["board_id"]:
+        return None
+    plat = dev.platform.name
+    diy = [b for b in gbd.boards(plat) if gbd.load(plat, b)["board_id"] is None]
+    alt = f" (board: {diy[0]})" if diy else ""
+    return (f"0x{dev.board_id:04X} isn't the board_id of board '{board['id']}' (0x{board['board_id']:04X}"
+            f"{'' if dev.board_given else f', the {plat} default'}), so its image can't be built: use "
+            f"board_id: 0x{board['board_id']:04X}, or a DIY board profile{alt} with a DIY board_id (0x3F00-0x3FFF)")
 
 
 def validate_names(v, dev, data):
@@ -3058,6 +3198,11 @@ def validate_version(v, data):
     return ver
 
 
+# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
+# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
+MATRIX_MAX = 32
+
+
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
     d = v.mapping(d, p, line, MATRIX_KEYS, renamed=RENAMED_MATRIX)
@@ -3077,14 +3222,18 @@ def validate_matrix(v, dev, d, line):
         if "cols" not in d:
             v.err(f"{p}.columns", d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
         lst = LList()
-    if len(lst) > 255:
-        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most 255")
+    if len(lst) > MATRIX_MAX:
+        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most {MATRIX_MAX} (the core "
+                                                    "keeps a row's columns in 32 bits)")
     # MCU columns are a "column" line, so a switch_matrix can share them (allow_other_uses)
     pins["columns"] = [v.pin(x, f"{p}.columns[{i}]", lst.line_of(i), "in", hubs={"sn74hc165"}, why=why,
                              line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_KEY_HUB)
                              else "column", owner="key_matrix") or NO_PIN
                        for i, x in enumerate(lst)]
     nr, nc = len(pins["rows"]), len(pins["columns"])
+    if nr > MATRIX_MAX:
+        v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: at most {MATRIX_MAX} (the core scans up to "
+                                              f"{MATRIX_MAX} rows; {MATRIX_MAX} x {MATRIX_MAX} is enough for 88 keys)")
     contacts = d.get("contacts", "columns")
     if contacts not in ("columns", "rows"):
         v.err(f"{p}.contacts", d.line_of("contacts"), f"{contacts!r} is unknown (columns: a key's two contacts "
@@ -3101,8 +3250,6 @@ def validate_matrix(v, dev, d, line):
         if nr % 2:
             v.err(f"{p}.rows", d.line_of("rows"), f"contacts: rows needs an even number of rows "
                                                   f"(two contacts per key), got {nr}")
-        if nr > 32:
-            v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: contacts: rows takes at most 32")
     else:
         lrows, lcols = nr, nc // 2
         if nc % 2:
@@ -3678,7 +3825,10 @@ def preset_slots(v, dev, data):
         slots = None
     if n_list > MAX_PRESETS:
         v.err("presets.list", ps.line_of("list"), f"{n_list} presets: at most {MAX_PRESETS}")
-    dev.n_presets = min(slots or max(n_list, 1), MAX_PRESETS)
+    # An invalid slots: (reported above) allows every slot, so a preset: on a button or a mode isn't
+    # reported as well; the build stops on the error anyway.
+    dev.slots_invalid = ps.get("slots") is not None and slots is None
+    dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
     dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
 
 
@@ -4506,10 +4656,6 @@ def validate_modes(v, dev, data):
     if len(lst) > MAX_MODES:
         v.err("modes", data.line_of("modes"), f"{len(lst)} modes: at most {MAX_MODES}")
         return
-    if dev.matrix is None:
-        v.err("modes", data.line_of("modes"), "modes turn the keys into function keys: the device needs a "
-                                              "key_matrix")
-        return
     n_errors = len(errors(v.diags))
     # pass 1: ids, toggles and parents; a cycle: becomes its steps, one root mode each
     modes, by_id, cycles, seen = [], {}, [], {}
@@ -4607,13 +4753,23 @@ def validate_modes(v, dev, data):
         elif not isinstance(keys, dict):
             v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
                                                    "`keys: { C3: octave_reset, E3: { mode: pick } }`")
+        elif dev.matrix is None:
+            v.err(f"{p}.keys", d.line_of("keys"), "keys: turns the keyboard's keys into function keys, and "
+                                                   "this device has no key_matrix: bind buttons instead "
+                                                   "(`buttons: { up: preset_next }`), or give the buttons a "
+                                                   "layer:")
         else:
             mode_keys(v, dev, m, keys, f"{p}.keys", by_id)
     targets = {k[2] for m in modes for k in m.keys if k[1] == MK_MODE}
     for m in modes:
         if m.parent is not None and m.index not in targets:
-            v.err(m.path, m.line, f"mode '{m.id}' can't be reached: no key goes to it (add e.g. "
-                                  f"`E3: {{ mode: {m.id} }}` to the keys of mode '{modes[m.parent].id}')")
+            if dev.matrix is None:
+                v.err(f"{m.path}.parent", m.d.line_of("parent"), f"mode '{m.id}' is a sub-mode, entered from a "
+                      "key of its parent's keys:, and this device has no key_matrix: make it a root mode "
+                      "(toggle:, hold: or cycle:)")
+            else:
+                v.err(m.path, m.line, f"mode '{m.id}' can't be reached: no key goes to it (add e.g. "
+                                      f"`E3: {{ mode: {m.id} }}` to the keys of mode '{modes[m.parent].id}')")
     if len(errors(v.diags)) > n_errors:
         return
     # defaults: a root lights its toggle button's LED, a sub-mode blinks its parent's; preset_blink is
@@ -5108,10 +5264,19 @@ def packed_record_bytes(dev, scope):
     return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + words + REC_CRC_WORDS)
 
 
+def store_budget_of(dev):
+    """The platform's store (STORE_BUDGETS), with the page size and count from the board profile."""
+    b = STORE_BUDGETS.get(dev.platform.name)
+    if b is None or getattr(dev, "board", None) is None:
+        return b
+    page, pages = gbd.store_budget(dev.board)
+    return dict(b, page=page, pages=pages)
+
+
 def storage_need(plat_name, preset_rec, global_rec, slots):
     """-> (record_ok, used, capacity, unit) for slots presets + the globals at worst case.
-    unit is "pages" for a journal, "B" otherwise."""
-    b = STORE_BUDGETS.get(plat_name)
+    unit is "pages" for a journal, "B" otherwise. plat_name: a platform name, or its budget (a dict)."""
+    b = plat_name if isinstance(plat_name, dict) else STORE_BUDGETS.get(plat_name)
     if b is None:
         return True, 0, 0, "B"
     big = max(preset_rec, global_rec)
@@ -5137,16 +5302,16 @@ def storage_budget(dev):
     """The worst case of what the device stores, against its platform's store. -> dict (also shown by
     gemifi_build.py and the dashboard)."""
     n_preset, n_global = stored_counts(dev)
-    b = STORE_BUDGETS.get(dev.platform.name)
+    b = store_budget_of(dev)
     if b and b.get("format") == "packed":
         prec, grec = packed_record_bytes(dev, PRESET), packed_record_bytes(dev, GLOBAL)
     else:
         prec, grec = record_bytes(n_preset), record_bytes(n_global)
-    ok, used, cap, unit = storage_need(dev.platform.name, prec, grec, dev.n_presets)
+    ok, used, cap, unit = storage_need(b, prec, grec, dev.n_presets)
     fits = [s for s in range(1, MAX_PRESETS + 1)
-            if (lambda r: r[0] and r[1] <= r[2])(storage_need(dev.platform.name, prec, grec, s))]
-    calm = [s for s in fits if storage_need(dev.platform.name, prec, grec, s)[1] <=
-            BUDGET_WARN * storage_need(dev.platform.name, prec, grec, s)[2]]
+            if (lambda r: r[0] and r[1] <= r[2])(storage_need(b, prec, grec, s))]
+    calm = [s for s in fits if storage_need(b, prec, grec, s)[1] <=
+            BUDGET_WARN * storage_need(b, prec, grec, s)[2]]
     return {"slots": dev.n_presets, "preset_values": n_preset, "global_values": n_global,
             "preset_record": prec, "global_record": grec, "record_ok": ok,
             "record_limit": None if b is None else b.get("record") or b.get("page") or b["total"],
@@ -5168,8 +5333,8 @@ def budget_text(bd):
 
 def check_budget(v, dev, data):
     bd = dev.budget = storage_budget(dev)
-    if bd["store"] is None:
-        return
+    if bd["store"] is None or dev.slots_invalid:
+        return              # (an invalid presets.slots: already reported, and n_presets isn't the user's)
     ps = data.get("presets") if dev.presets_given else None
     path = "presets.slots" if isinstance(ps, dict) and "slots" in ps else "presets" if ps is not None else ""
     line = (ps.line_of("slots") if path == "presets.slots" else data.line_of("presets")) if ps is not None \
@@ -5265,6 +5430,8 @@ def generate(dev, source="device.yaml"):
          *([f"#define GM_FW_VERSION 0x{dev.version[0] << 24 | dev.version[1] << 16 | dev.version[2]:08X}u",
             f"#define GM_FW_VERSION_STR \"{'.'.join(map(str, dev.version))}\""] if dev.version else []),
          f"#define GM_PLATFORM {c_str(dev.platform.name)}",
+         *([f"#define GM_BOARD_PROFILE {c_str(dev.board['id'])}   /* board: (platform/{dev.platform.name}/"
+            f"boards/{dev.board['id']}.json) */"] if getattr(dev, "board", None) else []),
          *([f"#define GM_CONFIG_HASH 0x{dev.config_hash:08X}   /* config.hash: the resolved YAML's "
             "(core/README.md \"Config hash\") */"] if dev.config_hash is not None else []),
          f"#define GM_USB_VID 0x{dev.usb[0]:04X}",

@@ -25,7 +25,7 @@ import {
   restoreBackup,
   stalePresets,
 } from '../protocol/backup.ts';
-import { boardLabel, CODE61_BOARD_ID, usesVendorUpdate } from '../protocol/boards.ts';
+import { type Board, boardFromLayout, boardLabel, CODE61_BOARD_ID, usesVendorUpdate } from '../protocol/boards.ts';
 import type { SysexClient } from '../protocol/client.ts';
 import { getSchema } from '../protocol/config.ts';
 import {
@@ -478,6 +478,11 @@ export function FlashCard({
   const isRunning = run.kind === 'running' || run.kind === 'vendor' || run.kind === 'backup';
   const isAb = device !== null && isAbDevice(device);
   // Backup before flashing (as `gemifi.py flash`): on by default, for an app with settings.
+  // A DIY board's layout (<name>.board.json from its build), picked with or after its .gfw.
+  const [layout, setLayout] = useState<{ board: Board | null; problem: string | null }>({
+    board: null,
+    problem: null,
+  });
   const [isBackupOn, setIsBackupOn] = useState(true);
   const [backup, setBackup] = useState<SavedBackup | null>(null);
   const [after, setAfter] = useState<AfterState>({ kind: 'none' });
@@ -560,7 +565,8 @@ export function FlashCard({
     });
   };
 
-  const gfwResult = picked?.isGfw === true ? validateImage(picked.bytes, device?.boardId) : null;
+  const layouts = layout.board === null ? [] : [layout.board];
+  const gfwResult = picked?.isGfw === true ? validateImage(picked.bytes, device?.boardId, layouts) : null;
   // A stock M-Audio update file (hex text) goes to the Code 61's bootloader as it is.
   const stockResult = picked !== null && picked.isGfw === false ? parseStockUpdateFile(picked.bytes) : null;
   const isVendorGfw = gfwResult?.ok === true && usesVendorUpdate(gfwResult.image.board, device);
@@ -743,11 +749,23 @@ export function FlashCard({
       : 'The firmware on the device is erased first. If the upload stops part way, the device stays in the bootloader until an image is flashed.';
   // The drop zone until an image is chosen; after that a small button, so the image's facts lead.
   const pickOptions = {
-    accept: '.gfw,.bin,.txt',
+    accept: '.gfw,.bin,.txt,.json',
     read: 'bytes',
-    onPickMany: ([file]: PickedFile[]) => {
-      if (file?.bytes) {
-        onImageChange(pickedImageOf(file.name, file.bytes));
+    multiple: true,
+    onPickMany: (files: PickedFile[]) => {
+      // A .json is a DIY board's layout; anything else is the image.
+      const layoutFile = files.find((file) => file.name.toLowerCase().endsWith('.json'));
+      const imageFile = files.find((file) => file !== layoutFile);
+      if (layoutFile?.bytes) {
+        const read = boardFromLayout(new TextDecoder().decode(layoutFile.bytes));
+        setLayout(
+          typeof read === 'string'
+            ? { board: null, problem: `${layoutFile.name}: ${read}` }
+            : { board: read, problem: null },
+        );
+      }
+      if (imageFile?.bytes) {
+        onImageChange(pickedImageOf(imageFile.name, imageFile.bytes));
       }
     },
   } as const;
@@ -781,7 +799,7 @@ export function FlashCard({
           {picked === null ? (
             <FilePicker
               label="Choose a .gfw, .bin or M-Audio update file"
-              hint="Drop a .gfw, an ESP app .bin or an M-Audio FirmwareFile here, or click to choose one"
+              hint="Drop a .gfw (with its .board.json for a DIY board), an ESP app .bin or an M-Audio FirmwareFile here, or click to choose one"
               {...pickOptions}
             />
           ) : (
@@ -792,6 +810,9 @@ export function FlashCard({
               className="self-start"
               {...pickOptions}
             />
+          )}
+          {layout.problem === null ? null : (
+            <Alert variant="warning" title="Not a board layout" description={layout.problem} />
           )}
           {isOtherNode ? (
             <Alert

@@ -15,7 +15,7 @@
 #include "stm32f1.h"
 #include "board.h"
 
-#define FLAG_PAGE_SIZE 1024u            /* the vendor's flag page, 1 KB */
+#define FLAG_PAGE_SIZE BOARD_FLASH_PAGE /* the flag page is one flash page */
 
 /* ---- flash (PM0075 2.3), independent copy of flash.c's logic ----------- */
 
@@ -181,10 +181,8 @@ __attribute__((used, externally_visible)) void recovery_check(void)
 
 #elif defined(BOARD_RECOVERY_NONE)
 
-/* The board header says the combo isn't known yet (see its TODO). This is
- * a reminder, not a warning, so builds stay warning-free meanwhile. */
-#pragma message("recovery combo disabled for " BOARD_NAME ": BOARD_RECOVERY_NONE (see the board header TODO)")
-
+/* The board profile has no recovery combo (recovery: null): update mode is
+ * reached by REBOOT(1), the boot-loop guard or an invalid app. */
 __attribute__((used, externally_visible)) void recovery_check(void)
 {
 }

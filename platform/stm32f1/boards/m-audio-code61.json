@@ -1,0 +1,44 @@
+{
+  "name": "M-Audio Code 61",
+  "short_name": "Code 61",
+  "note": "Code 61 (Code 49/25 run the same firmware): an STM32F103RB-class part (or a GD32F103RB clone), 128 KB flash in 1 KB pages, 20 KB RAM, 8 MHz HSE. The vendor layout: M-Audio's bootloader (or gemifi's, bootloader/stm32f1) in the first 9 KB, the app up to the vendor's image-checksum page 0x0801B000, the vendor settings 'EEPROM' 0x0801B400-0x0801FBFF, and the update-request flag page 0x0801FC00. The board header (m-audio-code61.h) has the power latch code; research/devices/m-audio-code61/analysis/ has the pins.",
+  "platform": "stm32f1",
+  "board_id": "0x0002",
+  "chip": "(STM32|GD32)F103R[8BCE]",
+  "crystal_hz": 8000000,
+  "flash": {
+    "base": "0x08000000",
+    "size": "0x20000",
+    "page": 1024,
+    "boot_size": "0x2400",
+    "app_end": "0x0801B000",
+    "image_max": 102398,
+    "config_base": "0x0801EC00",
+    "config_pages": 3,
+    "config_window": ["0x0801B400", "0x0801F800"],
+    "flag_page": "0x0801FC00",
+    "note": "app_end: the page at 0x0801B000 belongs to the vendor update (whole-image checksum at 0x0801B3FE), so the link stops below it; image_max is the vendor's app area, up to the checksum. Config: the three pages 0x0801EC00-0x0801F7FF that the stock app never touches, inside the vendor 'EEPROM' window (its calibration and preset pages stay intact); 0x0801F800 is the vendor's preset-names page: never used. Earlier firmware used the first two pages as a swap pair; that layout is read as it is. The pages may hold old data on a real unit: config_store only trusts magic + CRC records and erases a page before writing into it again. Capacity (the builder's storage budget): every slot's newest record together (L) and the largest one (M) give L + M <= 2 x 1024 B, so about 5 worst-case presets + the globals. Under gemifi's own bootloader the vendor pages are free too, but stock-bootloader units can't use them."
+  },
+  "ram": {
+    "size": "0x5000",
+    "mailbox": "0x20004FF0",
+    "note": "STM32F103RBT6, confirmed on hardware 2026-11-03."
+  },
+  "usb_pullup": { "pin": "PA8", "note": "high = D+ pull-up on (usbd.c)" },
+  "swj_nojtag": true,
+  "soft_power": {
+    "button": "PC13",
+    "latch": "PC15",
+    "note": "PC13 = power button, input pull-up, low while pressed; PC15 = power latch, push-pull, high = stay on. Verified over SWD 2026-11-03. board_gpio_init() latches it at reset; held 2 s = off (app and bootloader)."
+  },
+  "recovery": {
+    "what": "Up + Down held at reset (matrix row 16)",
+    "pins": ["PB8", "PB9"],
+    "active": 0,
+    "pull": ["PB8", "PB9", "PB10", "PB11", "PB12", "PB13", "PB14", "PB15"],
+    "drive": { "pins": ["PB3", "PB4", "PB5", "PB6", "PB7"], "level": 0 },
+    "swj_nojtag": true,
+    "note": "No panel button is on a plain GPIO: PB3-PB7 low select decoder row 16 (address 0, both group selects low), the columns PB8-PB15 are pulled up, and PB8 + PB9 both low = Up and Down held (confirmed on hardware 2026-11-03). PB3/PB4 are JTAG pins at reset."
+  },
+  "update_led": null
+}

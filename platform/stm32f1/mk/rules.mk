@@ -19,17 +19,21 @@ SIZE    := $(CROSS)size
 
 BOARD   ?= m-audio-code61
 BUILD   ?= build
+# The board profile (platform/stm32f1/boards/$(BOARD).json) -> $(BOARD_GEN): the layout
+# header and linker include every build uses (platform/board-profile.mk).
+PLATFORM_NAME := stm32f1
+include $(PLATFORM)/../board-profile.mk
 
 ARCH    := -mcpu=cortex-m3 -mthumb
 OPT     ?= -Os
 CFLAGS  += $(ARCH) $(OPT) -flto -ffunction-sections -fdata-sections \
            -ffreestanding -fno-tree-loop-distribute-patterns -fno-common \
            -std=gnu11 -g -Wall -Wextra -Wno-unused-parameter \
-           -I$(PLATFORM)/include -I$(ROOT)/core/include -I$(PLATFORM)/boards \
-           -DBOARD_HEADER=\"$(BOARD).h\" $(DEFS)
+           -I$(PLATFORM)/include -I$(ROOT)/core/include -I$(PLATFORM)/boards -I$(BOARD_GEN) \
+           -DBOARD_HEADER=\"$(BOARD_HEADER_FILE)\" $(DEFS)
 LDFLAGS += $(ARCH) $(OPT) -flto -Wl,--gc-sections -nostartfiles -nostdlib \
            -Wl,--no-warn-rwx-segments \
-           -T$(LDSCRIPT) -Wl,-Map=$(BUILD)/$(TARGET).map
+           -L$(BOARD_GEN) -T$(LDSCRIPT) -Wl,-Map=$(BUILD)/$(TARGET).map
 LDLIBS  += -lgcc
 
 OBJS := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o)))
@@ -49,7 +53,7 @@ FORCE:
 $(BUILD)/%.o: %.c $(BUILD)/flags | $(BUILD)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
+$(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT) $(BOARD_GEN_FILES)
 	$(CC) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $@
 	$(SIZE) $@
 

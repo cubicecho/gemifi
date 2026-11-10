@@ -87,11 +87,15 @@
 #define CS_SIZE   (CS_PAGES * CS_PAGE)
 #define CS_SLOTS  65u                      /* slot 0 + presets 1..64 (gemifi_device.py MAX_PRESETS) */
 
-/* Stay inside the vendor EEPROM area: never the checksummed app range
- * (below 0x0801B400), the vendor's preset-names page (0x0801F800) nor the
- * update-request flag page (0x0801FC00). */
-_Static_assert(CS_BASE >= 0x0801B400u && CS_BASE + CS_SIZE <= 0x0801F800u,
-               "config pages must lie in 0x0801B400-0x0801F7FF");
+/* Stay inside the board's config window (the profile's config_window,
+ * default: from the app's end to the flag page). Code 61: the vendor EEPROM
+ * area, never the checksummed app range (below 0x0801B400), the vendor's
+ * preset-names page (0x0801F800) nor the update-request flag page
+ * (0x0801FC00). */
+_Static_assert(CS_BASE >= BOARD_CONFIG_MIN && CS_BASE + CS_SIZE <= BOARD_CONFIG_MAX,
+               "config pages must lie in [BOARD_CONFIG_MIN, BOARD_CONFIG_MAX)");
+_Static_assert(BOARD_CONFIG_MIN >= BOARD_APP_END && BOARD_CONFIG_MAX <= BOARD_FLAG_PAGE,
+               "the config window must lie between the app and the flag page");
 _Static_assert(CS_BASE % CS_PAGE == 0, "config base must be page aligned");
 _Static_assert(CS_PAGES >= 2u && CS_PAGES <= 8u, "2 to 8 config pages");
 _Static_assert(CS_SIZE <= 0x10000u, "the index keeps 16-bit offsets");

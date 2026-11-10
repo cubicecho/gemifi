@@ -134,8 +134,10 @@ the GitHub Pages address) gets its own add-on.
 3. **Firmware.** Choose a `.gfw`. The page checks the header (magic, header and protocol versions,
    board id against the connected device, size against the board's APROM), the CRC-32 over
    `[0, size)` with the header's crc field taken as 0, and the vector table the bootloader checks
-   (initial SP in SRAM, reset vector odd and inside the image). Nothing is sent until all of that
-   passes. **Flash** then reboots into the bootloader if the device is in the app, sends FW_BEGIN,
+   (initial SP in SRAM, reset vector odd and inside the image). A DIY board (board id
+   0x3F00-0x3FFF) isn't in the page's board table: pick or drop its `<name>.board.json` (the layout
+   its build wrote next to the `.gfw`, from the board profile) with the image, and the checks use
+   that layout. Nothing is sent until all of that passes. **Flash** then reboots into the bootloader if the device is in the app, sends FW_BEGIN,
    the FW_DATA chunks (0x200 upward, page 0 last, never across a 512-byte page), FW_END, reboots
    into the app and checks it answers HELLO with the new version. Each request is stop-and-wait
    with a 200 ms timeout and up to 5 resends with the same `seq`.

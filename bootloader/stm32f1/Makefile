@@ -1,7 +1,11 @@
-# gemifi bootloader for STM32F1 boards (M-Audio Code 61): 0x08000000, 9 KB.
+# gemifi bootloader for STM32F1 boards: 0x08000000, the board profile's
+# boot_size (9 KB on the Code 61).
 #
-#   make                 -> build/gemifi-boot.bin (flash at 0x08000000 over SWD:
+#   make                 -> build/gemifi-boot.bin for the Code 61 (flash at 0x08000000 over SWD:
 #                           tools/swd/stm32f1/code61.sh write-boot build/gemifi-boot.bin)
+#   make BOARD=generic-stm32f103c8 BOARD_ID=0x3F03
+#                        -> another board profile (platform/stm32f1/boards/*.json); a DIY
+#                           board takes the device YAML's board_id
 #   make CROSS=...       -> toolchain not on PATH
 
 TARGET  := gemifi-boot

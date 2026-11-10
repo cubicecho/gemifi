@@ -45,8 +45,8 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `sn74hc165` | `GM_HUB_HC165` | `data_pin` (QH), `clock_pin` (CLK), `load_pin` (SH/LD); `sr_count` chips (1–4) | 8 × sr_count inputs, numbered as ESPHome does: 0–7 on the chip whose QH goes to the MCU (0 = its A), 8–15 on the next. Buttons, matrix columns |
 | `cd74hc4051` | `GM_HUB_MUX` | `pin_s0`–`pin_s2`, `common_pin`, optional `enable_pin` (/E), `delay` (settle time after switching channel, default 2us) | 8 input channels, analog (if `common_pin` is an ADC pin) or digital. Muxes may share select lines (`allow_other_uses`); give them the same `delay` |
 | `cd74hc4067` | `GM_HUB_MUX` | `pin_s0`–`pin_s3`, `common_pin`, optional `enable_pin`, `delay` | 16 input channels, as above |
-| `mcp23017` | `GM_HUB_MCP23017` | I2C (`address`, default 0x20; the `i2c:` pins) | 16 GPIO (`0`–`15` or `GPA0`–`GPB7`) |
-| `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
+| `mcp23017` | `GM_HUB_MCP23017` | I2C (`address`, default 0x20; the `i2c:` pins). ESP only for now: stm32f1 and nuvoton-nuc1xx have no I2C driver, so the builder refuses it there | 16 GPIO (`0`–`15` or `GPA0`–`GPB7`) |
+| `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`). ESP only for now, as `mcp23017` | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
 | `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
@@ -521,6 +521,7 @@ project:
 board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DIY/private
 platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3 | esp8266
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
+board: keystation-mini32-mk3   # stm32f1 / nuvoton-nuc1xx: the board profile ("Board profiles"); default per platform
 usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
 midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub is used
@@ -629,6 +630,20 @@ key_matrix:
 - `name`: free text, quoted only when YAML needs it. It is what people see: the row labels of the web config page (the schema's index labels), the CLI's `button.action:Oct -` keys and the debug log. Without it, the name comes from the id: `oct_down` → "Oct down".
 - At least one of the two. With only a `name`, the id is derived from it (lowercase, every run of other characters → `_`: "Pitch Down" → `pitch_down`); two derived ids that collide are an error naming both entries.
 - Only names reach the firmware (buttons, analog inputs and encoders; LEDs have no name in the tables, since nothing shows one). Ids are a build-time thing and appear only in comments in the generated C.
+
+### Board profiles
+
+On the bare-metal platforms (`stm32f1`, `nuvoton-nuc1xx`) the YAML describes the controls, and a **board profile** describes the board they sit on: `board:` names one of `platform/<platform>/boards/<board>.json` (`python3 tools/builder/gemifi_board.py list`). Left out, it is the platform's first board: `m-audio-code61` on stm32f1, `keystation-mini32-mk3` on nuvoton-nuc1xx, so files from before profiles build as they did.
+
+A profile is data: the crystal (the clock setup is derived from it: on stm32f1 the PLL must make 72 MHz, so 6, 8, 9, 12 or 16 MHz; on the NUC only 12 MHz is known), the flash layout (size, page size, the bootloader's size, the app area, the config-store pages, the update-flag page), the RAM size and the SRAM mailbox, and the pins the board itself uses: a switched USB D+ pull-up, soft power (button and latch), the reset-time recovery combo, an update-mode LED and other reserved pins, each with the reason. The build generates the linker memory regions and the `BOARD_*` layout macros from it (`tools/builder/gemifi_board.py`, `platform/board-profile.mk`), and the builder takes the storage budget's pages and the reserved pins from it: a component on the USB pull-up or a soft-power pin is an error, one that drives a recovery-combo pin a warning.
+
+| Board | `board_id` | Profile |
+|---|---|---|
+| `m-audio-code61` | 0x0002 (its own) | the vendor layout: app 0x08002400-0x0801AFFF, config pages in the vendor settings area, soft power PC13/PC15, USB pull-up PA8, Up + Down recovery combo |
+| `keystation-mini32-mk3` | 0x0001 (its own) | NUC120LC1BN: 32 KB APROM, 4 KB data flash, 4 KB RAM, 12 MHz |
+| `generic-stm32f103c8` | the YAML's, 0x3F00-0x3FFF | a Blue Pill / C8 DIY board: 64 KB (52 KB of app), no soft power, no switched pull-up, no recovery combo, the update LED on PC13 (active low). `devices/diy-bluepill.yaml` uses it |
+
+A vendor board has its own `board_id`, and the YAML's must match it when `board:` is given (without `board:` a mismatch only stops the build). A DIY profile has none: the YAML picks one in the DIY range (protocol/sysex.md §7). Its image's layout isn't in the tools' board table, so the build writes it next to the `.gfw` as `<name>.board.json`; `mkimage.py --check`, `gemifi.py flash` and the web updater (drop both files) check the image against it. For another board, copy `generic-stm32f103c8.json`, change what differs and set `board:` to its name; a board with soft power also needs a board header whose `board_gpio_init()` latches the power at reset.
 
 ### Writes the device makes on its own
 
@@ -802,6 +817,24 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 A mode is a layer that turns the keys (and buttons) into function keys: while it is active, a key press runs what the mode binds to that key and sends no note (research/core/presets-design.md §6). It is how a keyboard with few buttons switches presets, the octave or the channel. Modes are device UI, so they are the same in every preset: a preset can't take away the way back.
 
+**No keyboard needed.** A device with buttons and no `key_matrix` (a pad box, a fader box, a floor board) has modes too: toggle and hold modes with `buttons:`, `with:` (Shift) combinations, layers ("Button layers") and cycles ("Cycles"). Only `keys:` needs a key matrix, and with it the sub-modes (`parent:`), which are entered from a key. A mode needs a button to enter it (`toggle:`, `hold:` or `cycle:`).
+
+```yaml
+# an FCB1010-style floor board: sw1 and sw2 send programs 1 and 2 (action: program)
+modes:
+  - id: bank_b
+    toggle: bank                 # a layer-only toggle: programs 6 and 7 while it is on
+    layer: { sw1: { program: 6 }, sw2: { program: 7 } }
+  - id: banks
+    cycle: page                  # each press: the next step
+    steps:
+      - { id: live, name: LIVE }
+      - { id: fx, name: FX, layer: { sw1: { action: cc_toggle, cc: 80 } } }
+  - id: setup
+    hold: tuner                  # while Tuner is held, the switches pick the channel
+    buttons: { sw1: channel_down, sw2: channel_up }
+```
+
 ```yaml
 modes:
   - id: edit
@@ -838,9 +871,9 @@ modes:
 - **Ranges.** `keys:` may also hold one range, `white_from: <key>` (white keys only) or `from: <key>` (every key), with `action: preset_select` or `channel` and an optional `count:` (default: every slot, or 16 channels). The keys are numbered 1, 2, ... in order. Single keys can sit beside a range in the same mapping.
 - **What it sends.** A preset switch from a mode is the same as from a button: Note Offs, PRESET_CHANGED and PARAM_CHANGED `preset.active`, and the preset's Program Change. Octave/transpose keys send PARAM_CHANGED like the octave buttons. `channel`, `channel_up`, `channel_down` and `velocity_curve` send PARAM_CHANGED and make the preset dirty, like a host edit: COMMIT keeps the change, a preset switch drops it. A display shows the preset's name or `CH <n>` ("Displays").
 - **`layer.enabled`** (one per mode, in the "Layers" group, global) is there on a device with layer twins or a cycle. 0: the mode can't be entered (its button is as if it weren't there, so a `with:` press is the button's own action; a mode that is on can still be left), and a cycle skips that step. Defaults are true, a step's `enabled:` aside.
-- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that keys are on the keyboard and bound once per mode, and the actions' numbers.
+- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that `keys:` and sub-modes have a key matrix to use, that keys are on the keyboard and bound once per mode, and the actions' numbers.
 
-**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds), then `with`, `cycle`, `colour` and `name` ("Cycles"; `name` is the step's name, else the mode's id, the label of `layer.enabled`). `GM_MODES_ENABLED` lists the `layer.enabled` defaults. The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink; with layers or cycles 24 more (the layer-only toggles, what EVENT 8 last said) and one per cycle.
+**Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out; without a key matrix, `GM_HAS_MATRIX 0`, the key half of it is: the key table lookups and the Note Offs for held keys), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds), then `with`, `cycle`, `colour` and `name` ("Cycles"; `name` is the step's name, else the mode's id, the label of `layer.enabled`). `GM_MODES_ENABLED` lists the `layer.enabled` defaults. The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink; with layers or cycles 24 more (the layer-only toggles, what EVENT 8 last said) and one per cycle.
 
 ### Button layers
 

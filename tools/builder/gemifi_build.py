@@ -128,8 +128,13 @@ def platform_build(dev, config_dir, out_dir, out=None):
             print(f"error: {rel(project)}/Makefile doesn't exist yet: can't build the firmware "
                   f"(the generated config is in {rel(config_dir)})", file=out)
             return None
+        why = gd.board_mismatch(dev)
+        if why:
+            print(f"error: board_id: {why}", file=out)
+            return None
         bdir = os.path.join(out_dir, "fw")
-        rc = run(["make", "-C", project, f"DEVICE_DIR={config_dir}", f"BUILD={bdir}"], out=out)
+        board = [f"BOARD={dev.board['id']}"] if dev.board else []     # the board profile (issue #116)
+        rc = run(["make", "-C", project, f"DEVICE_DIR={config_dir}", f"BUILD={bdir}", *board], out=out)
         if rc:
             print(f"error: make failed ({rc})", file=out)
             return None
@@ -139,6 +144,11 @@ def platform_build(dev, config_dir, out_dir, out=None):
         if os.path.exists(extra):
             imgs.append(extra)
             names.append(f"{stem}.bin")
+        # The image layout (the board profile's), next to the .gfw: what mkimage --check, gemifi.py and the
+        # web updater check a DIY board's image against.
+        side = os.path.join(bdir, "midi-controller.board.json")
+        if os.path.exists(side):
+            shutil.copyfile(side, os.path.join(out_dir, f"{stem}.board.json"))
     else:
         if not os.path.exists(os.path.join(ESP_PROJECT, "platformio.ini")):
             print(f"error: {rel(ESP_PROJECT)}/platformio.ini doesn't exist yet: can't build the firmware "
@@ -186,6 +196,8 @@ def platform_build(dev, config_dir, out_dir, out=None):
     # The last build's images go, so an old version or node name doesn't linger next to the new one.
     for f in os.listdir(out_dir):
         if IMAGE_FILE_RE.fullmatch(f) and os.path.isfile(os.path.join(out_dir, f)):
+            os.remove(os.path.join(out_dir, f))
+        elif f.endswith(".board.json") and f != f"{stem}.board.json":
             os.remove(os.path.join(out_dir, f))
     copied = []
     for src, name in zip(imgs, names):

@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
+# Example DIY USB MIDI controller on a Blue Pill (STM32F103C8, 64 KB): the board
+# profile platform/stm32f1/boards/generic-stm32f103c8.json (issue #116), not the
+# Code 61's.
+#
+# Untested on hardware. To run it:
+#   1. the gemifi bootloader, once, over SWD (an ST-Link on the SWD header):
+#        make -C bootloader/stm32f1 BOARD=generic-stm32f103c8 BOARD_ID=0x3F03
+#      then flash build/gemifi-boot.bin at 0x08000000;
+#   2. the app: python3 tools/builder/gemifi_build.py build devices/diy-bluepill.yaml
+#      gives build/devices/diy-bluepill/diy-bluepill-<version>.gfw and its
+#      .board.json (the layout mkimage, gemifi.py and the web updater check it
+#      against); upload it through the bootloader (gemifi.py flash, or the web
+#      updater with both files).
+# In update mode the on-board LED (PC13) blinks. There is no recovery button:
+# REBOOT(1) from a host, the boot-loop guard or a broken app get you there.
+#
+# Wiring: buttons from PB12-PB15 to GND, pots on PA0/PA1 (3.3 V, GND), an
+# encoder on PB6/PB7 (common to GND). The Blue Pill's fixed 1.5 kOhm D+
+# pull-up (R10; some boards have 10 kOhm: replace it) stays as it is.
+gemifi: 2
+name: diy-bluepill
+friendly_name: Blue Pill MIDI
+description: Blue Pill (STM32F103C8) example, 4 buttons, 2 pots, 1 encoder, the on-board LED
+project:
+  version: 0.1.0
+board_id: 0x3F03               # 0x3F00-0x3FFF: DIY / private, one per device design
+platform: stm32f1
+chip: STM32F103C8
+board: generic-stm32f103c8
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+factory_reset_combo: [button_1, button_4]
+status_led: led
+
+buttons:
+  - { id: button_1, pin: { number: PB12, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: led }
+  - { id: button_2, pin: { number: PB13, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 64 }
+  - { id: button_3, pin: { number: PB14, mode: INPUT_PULLUP, inverted: true }, action: octave_down }
+  - { id: button_4, pin: { number: PB15, mode: INPUT_PULLUP, inverted: true }, action: octave_up }
+
+leds:
+  # The on-board LED: low = on. PC13 is a backup-domain pin (the builder warns
+  # about driving LEDs from it); the Blue Pill's LED is made for it.
+  - { id: led, pin: { number: PC13, inverted: true } }
+
+analog:
+  - { id: pot_1, pin: PA0, cc: 7 }
+  - { id: pot_2, pin: PA1, cc: 10 }
+
+encoders:
+  - id: encoder
+    pin_a: { number: PB6, mode: INPUT_PULLUP }
+    pin_b: { number: PB7, mode: INPUT_PULLUP }
+    cc: 30
+    steps_per_detent: 4

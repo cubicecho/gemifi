@@ -82,10 +82,82 @@ export const HEADER_OFFSETS: readonly number[] = Object.freeze([
  * Looks up a board.
  *
  * @param id - `board_id`.
+ * @param extra - Boards known from elsewhere: a DIY board's layout file ({@link boardFromLayout}).
  * @returns The board, or undefined when it is not one gemifi knows.
  */
-export function boardById(id: number): Board | undefined {
-  return BOARDS[id];
+export function boardById(id: number, extra: readonly Board[] = []): Board | undefined {
+  return BOARDS[id] ?? extra.find((board) => board.id === id);
+}
+
+/** The DIY / private `board_id` range (§7): no table entry, the layout comes with the build. */
+const DIY_FIRST = 0x3f00;
+const DIY_LAST = 0x3fff;
+
+/**
+ * @param id - `board_id`.
+ * @returns Whether it is in the DIY range, where a board's layout comes with its build.
+ */
+export function isDiyBoardId(id: number): boolean {
+  return id >= DIY_FIRST && id <= DIY_LAST;
+}
+
+/** Where each platform puts the `.gfw` header (a layout file must agree). */
+const LAYOUT_HEADER_OFFSETS: Readonly<Record<string, number>> = Object.freeze({
+  'nuvoton-nuc1xx': NUC_HEADER_OFFSET,
+  stm32f1: STM32F1_HEADER_OFFSET,
+});
+/** The layout file format this page reads (`tools/builder/gemifi_board.py` `image_layout`). */
+const LAYOUT_VERSION = 1;
+
+/**
+ * Reads a DIY board's layout: the `<name>.board.json` a build puts next to its `.gfw` (from the board
+ * profile, `platform/<platform>/boards/<board>.json`).
+ *
+ * @param text - The file's contents.
+ * @returns The board, or why the file is not a layout. Only DIY board ids: a table board keeps its entry.
+ */
+export function boardFromLayout(text: string): Board | string {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return 'The file is not JSON.';
+  }
+  const layout = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+  if (layout.gemifi_board_layout !== LAYOUT_VERSION) {
+    return 'The file is not a gemifi board layout (.board.json).';
+  }
+  const fields = ['board_id', 'hdr_offset', 'base', 'max_size', 'sram_start', 'sram_end'] as const;
+  const [id, headerOffset, imageBase, maxSize, sramStart, sramEnd] = fields.map((key) => layout[key]);
+  const isNumbers = [id, headerOffset, imageBase, maxSize, sramStart, sramEnd].every(Number.isInteger);
+  if (isNumbers === false) {
+    return 'The layout is missing a field.';
+  }
+  const boardId = id as number;
+  if (isDiyBoardId(boardId) === false) {
+    return `The layout is for board ${formatBoardId(boardId)}, not a DIY board (0x3F00-0x3FFF).`;
+  }
+  const platform = typeof layout.platform === 'string' ? layout.platform : '';
+  if (LAYOUT_HEADER_OFFSETS[platform] !== headerOffset) {
+    return `The layout's platform '${platform}' does not put the header at ${String(headerOffset)}.`;
+  }
+  const isSramSane = (sramEnd as number) > (sramStart as number);
+  if (isSramSane === false || (maxSize as number) <= 0) {
+    return 'The layout has no room for an image.';
+  }
+  const name =
+    typeof layout.name === 'string' && layout.name !== '' ? layout.name : `DIY board ${formatBoardId(boardId)}`;
+  return Object.freeze({
+    id: boardId,
+    name,
+    apromBytes: maxSize as number,
+    sramStart: sramStart as number,
+    sramBytes: (sramEnd as number) - (sramStart as number),
+    headerOffset: headerOffset as number,
+    imageBase: imageBase as number,
+    areaName: typeof layout.area === 'string' ? layout.area : 'the app area',
+    update: BoardUpdate.Gemifi,
+  });
 }
 
 /**

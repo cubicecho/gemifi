@@ -2,6 +2,76 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.41.0](https://github.com/cubicecho/gemifi/compare/v0.40.0...v0.41.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** one source of board-reserved pins per board ([a18e6f3](https://github.com/cubicecho/gemifi/commit/a18e6f37828dac843033a3a16475c86504adc9bb))
+* **firmware:** read GM_BOARD_PROFILE without its comment ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([549236d](https://github.com/cubicecho/gemifi/commit/549236dc39c7a62964589e5f8bc0835098df1754))
+
+
+### Features
+
+* **builder:** board: picks the board profile; a generic STM32F103C8 profile ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([12f2637](https://github.com/cubicecho/gemifi/commit/12f26372712081da113e3710026edeccb9506bbe))
+* **devices:** diy-bluepill, a Blue Pill DIY example ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([bc9963a](https://github.com/cubicecho/gemifi/commit/bc9963a9a23c35c614d314249b0f83526c00bd5b))
+* **mkimage:** DIY board ids with the layout from the build ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([db40a81](https://github.com/cubicecho/gemifi/commit/db40a817e5144e0ec47e08e8adfafce767f49416))
+* **nuc1xx:** board profile for the Keystation Mini 32 ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([4d4a01f](https://github.com/cubicecho/gemifi/commit/4d4a01f951152d5de1b57664deb354c6f52e29f5))
+* **stm32f1:** board profiles: the layout and board pins as data ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([2f4b1a1](https://github.com/cubicecho/gemifi/commit/2f4b1a1643fa6bfe7f0cd6434485f4cbbe3173c6))
+* **web:** flash a DIY board's .gfw with its .board.json ([#116](https://github.com/cubicecho/gemifi/issues/116)) ([17092e1](https://github.com/cubicecho/gemifi/commit/17092e18af1a8466798800b2eac05bab24edcaca))
+
+# [0.40.0](https://github.com/cubicecho/gemifi/compare/v0.39.0...v0.40.0) (2026-11-10)
+
+
+### Features
+
+* **builder:** require a key_matrix only for keys: and sub-modes ([#117](https://github.com/cubicecho/gemifi/issues/117)) ([8393914](https://github.com/cubicecho/gemifi/commit/8393914751f133a76ff0fb9433a5de0071af6aba))
+* **core:** modes without a key matrix ([#117](https://github.com/cubicecho/gemifi/issues/117)) ([13b159e](https://github.com/cubicecho/gemifi/commit/13b159e72c5b63b87a72b68984940bf2e6f496c8)), closes [#error](https://github.com/cubicecho/gemifi/issues/error)
+
+# [0.39.0](https://github.com/cubicecho/gemifi/compare/v0.38.3...v0.39.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** key_matrix takes at most 32 rows and 32 columns ([42147b4](https://github.com/cubicecho/gemifi/commit/42147b46cfe99ce05be3694573137f6971b8fd4d)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **builder:** refuse I2C hubs on platforms without an I2C driver ([e4c3106](https://github.com/cubicecho/gemifi/commit/e4c31069f67d8437e4372f02a67061a78f60821c)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **builder:** stop two cascades of follow-on errors ([e76e889](https://github.com/cubicecho/gemifi/commit/e76e8897a9a6c447c033858846cac4ac8efb8354)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **core:** compare LED indices unsigned, so 128+ LEDs light ([1190c7d](https://github.com/cubicecho/gemifi/commit/1190c7d8049df2d366217c09c5aa61b660fd6794)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+
+
+### Features
+
+* **builder:** check the pins the board itself uses ([5f3a67f](https://github.com/cubicecho/gemifi/commit/5f3a67f5a731a1cc3e7d6a81b0003071c1531aea)), closes [#116](https://github.com/cubicecho/gemifi/issues/116) [#115](https://github.com/cubicecho/gemifi/issues/115)
+
+## [0.38.3](https://github.com/cubicecho/gemifi/compare/v0.38.2...v0.38.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** reject a second rgb_serial hub ([8c91419](https://github.com/cubicecho/gemifi/commit/8c914195dedc89c0049afbe4e42febc2b1a02322))
+* **fade:** send a chip's brightness with the round it comes from ([4cf9cbc](https://github.com/cubicecho/gemifi/commit/4cf9cbc8c06c25ef47d66eff4b90f469c9c1d422))
+
+
+### Performance Improvements
+
+* **leds:** pack the per-LED host state (268 B on the Code 61) ([acc1a20](https://github.com/cubicecho/gemifi/commit/acc1a2062304b33e7a7a98e323a96d29b80c00c0))
+* **leds:** skip per-LED work no LED needs ([629a497](https://github.com/cubicecho/gemifi/commit/629a497ffe4b2ebd509b2504e79ffa19457a56b9))
+* **nuc:** index the config store's newest record per slot ([cc335a0](https://github.com/cubicecho/gemifi/commit/cc335a0e1aa0e9acd6396305ea0eba12984fc3ea))
+* **params:** resume GET_SCHEMA windows where the last one stopped ([dda8954](https://github.com/cubicecho/gemifi/commit/dda8954d29cab41499032e50d013b4691ec0251f))
+* **presets:** size rec[] (and presets_move's held[]) for one scope ([6cdb43c](https://github.com/cubicecho/gemifi/commit/6cdb43cee71d0deb08631bd0dc2359e3c22a4609))
+* **stm32f1:** size the hardware scans' rings for the device's plan ([409e752](https://github.com/cubicecho/gemifi/commit/409e7521165f6f9f254b2245fb6e2de729812944))
+* **tm1628:** 4 bus bytes a pass, not 9 ([ba17dd1](https://github.com/cubicecho/gemifi/commit/ba17dd1f828adb5b997ff049710f08d919163cc9))
+* **usb:** drain USB OUT at every hal_midi_poll, not once a pass ([ab1a263](https://github.com/cubicecho/gemifi/commit/ab1a263d3042c089454e682f9688ebbbacd5dc83))
+
+## [0.38.2](https://github.com/cubicecho/gemifi/compare/v0.38.1...v0.38.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **buttons:** judge a button sample by every scan since the last (0.2.87) ([8b3616a](https://github.com/cubicecho/gemifi/commit/8b3616a0aae34bb57f68214c87b65890e3300e07))
+* **buttons:** release after 16 ms open, not 10 (0.2.86) ([51d3c71](https://github.com/cubicecho/gemifi/commit/51d3c717f9d972f5b26506ec558cee48118e7b34))
+* **code61:** matrix settle 3 us for the panel buttons (0.2.85) ([b1956d0](https://github.com/cubicecho/gemifi/commit/b1956d01c1021b90bed2c9aa6a3d95276864a8b6))
+
 ## [0.38.1](https://github.com/cubicecho/gemifi/compare/v0.38.0...v0.38.1) (2026-11-10)
 
 

@@ -15,7 +15,8 @@
 /* Unlock REGWRPROT (TRM 5.2, REGWRPROT). Safe if it is already unlocked. */
 void sys_unlock(void);
 
-/* HXT 12 MHz -> PLL 48 MHz -> HCLK and USB clock. Safe to call when the PLL
+/* HXT (BOARD_CRYSTAL_HZ: 12 MHz, the one crystal with a known PLLCON,
+ * BOARD_PLLCON) -> PLL 48 MHz -> HCLK and USB clock. Safe to call when the PLL
  * is already running from an earlier stage (the stock LDROM leaves it so). */
 void sys_clock_init(void);
 
@@ -27,7 +28,8 @@ void sys_tick_init(void);
 uint32_t sys_tick_ms(void);
 void sys_delay_ms(uint32_t ms);
 
-/* ---- SRAM mailbox at 0x2000_0FF0 (protocol/sysex.md section 6) -------- */
+/* ---- SRAM mailbox (protocol/sysex.md section 6) -------------------------
+ * The top 16 bytes of SRAM (BOARD_MAILBOX_ADDR; Keystation: 0x2000_0FF0). */
 typedef struct {
     uint32_t magic;
     uint32_t magic_inv;
@@ -35,7 +37,7 @@ typedef struct {
     uint32_t reason;
 } gemifi_mailbox_t;
 
-#define MAILBOX_ADDR       0x20000FF0u
+#define MAILBOX_ADDR       BOARD_MAILBOX_ADDR
 #define MAILBOX            ((volatile gemifi_mailbox_t *)MAILBOX_ADDR)
 #define MAILBOX_MAGIC_BOOT 0x544F4F42u   /* 'BOOT' little-endian */
 /* reason values (sysex.md 6) */

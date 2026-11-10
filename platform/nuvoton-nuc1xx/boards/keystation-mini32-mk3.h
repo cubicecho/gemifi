@@ -13,8 +13,9 @@
 #include <stdint.h>
 #include "nuc1xx.h"
 
-#define BOARD_ID    0x0001              /* protocol/sysex.md section 7 */
-#define BOARD_NAME  "Keystation Mini 32"
+/* BOARD_ID, BOARD_NAME and the memory layout come from the board profile,
+ * keystation-mini32-mk3.json, through the generated board_layout.h. */
+#include "board_layout.h"
 
 /* ---- buttons: PA1..PA7, direct GPIO, active-low, external pull-ups ---- */
 #define BTN_SUSTAIN    1

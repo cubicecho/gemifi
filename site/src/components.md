@@ -150,7 +150,9 @@ such as picking a preset or a MIDI channel, its `buttons:` give buttons
 other actions, and sub-modes (`parent:`) take one more key press. The
 Keystation's Edit button is a mode: Edit, then E3, then a white key picks a
 preset. Modes are the same in every preset, so a preset can't take away the
-way back.
+way back. Only `keys:` and sub-modes need a key matrix: a pad box or a floor
+board with buttons alone has hold and toggle modes with `buttons:`, layers
+and cycles.
 
 **Layers** give buttons, pads and encoders a second meaning while a mode is
 on. Each one in the mode's `layer:` gets a *twin*: its own CC or note, toggle

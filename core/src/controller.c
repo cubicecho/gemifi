@@ -64,8 +64,10 @@
 #ifndef GM_HW_SCAN
 #define GM_HW_SCAN 0                /* a config generated before hardware_scan: */
 #endif
-#if GM_N_MODES > 0 && (!GM_HAS_MATRIX || GM_N_BUTTONS == 0)
-#error "modes need a key matrix and a toggle button (the builder checks this)"
+/* Modes need a button to enter them; only a mode's keys: (function keys)
+ * need the key matrix, and the builder checks that (core/README.md "Modes"). */
+#if GM_N_MODES > 0 && GM_N_BUTTONS == 0
+#error "modes need a toggle, hold or cycle button (the builder checks this)"
 #endif
 #ifndef GM_LAYERS
 #define GM_LAYERS 0                 /* layer twins (modes: layer:), core/README.md "Button layers" */
@@ -371,8 +373,10 @@ static uint8_t knote[NK], kchan[NK];
  * current step (cyc_cur), so any of them can be on together. */
 static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled key mode; GM_MODE_NONE = none */
 static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
+#if GM_HAS_MATRIX
 static uint32_t keys_mode(void);
 static void mode_key(uint32_t mi, uint32_t k);
+#endif
 #endif
 #if GM_LAYER_PARAMS
 static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), gm_init */
@@ -1366,6 +1370,7 @@ static uint8_t show_mode;           /* the mode whose LEDs show it */
 static uint32_t show_t0;
 static uint64_t btn_in_mode;        /* pressed as a mode's function button: its release is silent */
 
+#if GM_HAS_MATRIX
 /* The mode the keys go to: a held hold mode with keys, else the toggled
  * one if it has keys; GM_MODE_NONE = the keys play. */
 static uint32_t keys_mode(void)
@@ -1376,6 +1381,17 @@ static uint32_t keys_mode(void)
         return mode_cur;
     return GM_MODE_NONE;
 }
+
+/* Mode md is about to start: if it takes the keys and no mode had them,
+ * the held keys get their Note Off first (their releases send nothing). */
+static void keys_to_mode(const gm_mode_t *md)
+{
+    if (md->n_keys && keys_mode() == GM_MODE_NONE)
+        keys_off();
+}
+#else
+#define keys_to_mode(md) ((void)(md))   /* no key matrix: no mode has keys (the builder checks) */
+#endif
 
 /* "CH <n>" on the display. */
 static void show_channel(void)
@@ -1495,8 +1511,7 @@ static int mode_button(uint32_t i, int down)
 #endif
         if (md->hold) {
             if (down) {
-                if (md->n_keys && keys_mode() == GM_MODE_NONE)
-                    keys_off();
+                keys_to_mode(md);
                 hold_cur = (uint8_t)m;
                 if (binds_channel(md->buttons, md->n_buttons) || binds_channel(md->keys, md->n_keys))
                     show_channel();
@@ -1520,8 +1535,7 @@ static int mode_button(uint32_t i, int down)
         if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].root == m) {
             mode_cur = GM_MODE_NONE;
         } else {
-            if (md->n_keys && keys_mode() == GM_MODE_NONE)
-                keys_off();
+            keys_to_mode(md);
             mode_cur = (uint8_t)m;
         }
         layers_update();
@@ -1597,6 +1611,7 @@ static void mode_run(uint32_t mi, const gm_mode_key_t *b)
         mode_cur = m->parent;
 }
 
+#if GM_HAS_MATRIX
 /* A key pressed in mode mi: run its binding (unbound keys do nothing). */
 static void mode_key(uint32_t mi, uint32_t k)
 {
@@ -1607,6 +1622,7 @@ static void mode_key(uint32_t mi, uint32_t k)
             return;
         }
 }
+#endif
 
 /* Button i pressed or released while a mode is active: a button the mode
  * binds runs that instead of its own action (the held hold mode first, then

@@ -27,7 +27,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.38.3"
+VERSION = "0.39.0"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
@@ -4452,10 +4452,6 @@ def validate_modes(v, dev, data):
     if len(lst) > MAX_MODES:
         v.err("modes", data.line_of("modes"), f"{len(lst)} modes: at most {MAX_MODES}")
         return
-    if dev.matrix is None:
-        v.err("modes", data.line_of("modes"), "modes turn the keys into function keys: the device needs a "
-                                              "key_matrix")
-        return
     n_errors = len(errors(v.diags))
     # pass 1: ids, toggles and parents; a cycle: becomes its steps, one root mode each
     modes, by_id, cycles, seen = [], {}, [], {}
@@ -4553,13 +4549,23 @@ def validate_modes(v, dev, data):
         elif not isinstance(keys, dict):
             v.err(f"{p}.keys", d.line_of("keys"), "must be a mapping of keys to what they do, e.g. "
                                                    "`keys: { C3: octave_reset, E3: { mode: pick } }`")
+        elif dev.matrix is None:
+            v.err(f"{p}.keys", d.line_of("keys"), "keys: turns the keyboard's keys into function keys, and "
+                                                   "this device has no key_matrix: bind buttons instead "
+                                                   "(`buttons: { up: preset_next }`), or give the buttons a "
+                                                   "layer:")
         else:
             mode_keys(v, dev, m, keys, f"{p}.keys", by_id)
     targets = {k[2] for m in modes for k in m.keys if k[1] == MK_MODE}
     for m in modes:
         if m.parent is not None and m.index not in targets:
-            v.err(m.path, m.line, f"mode '{m.id}' can't be reached: no key goes to it (add e.g. "
-                                  f"`E3: {{ mode: {m.id} }}` to the keys of mode '{modes[m.parent].id}')")
+            if dev.matrix is None:
+                v.err(f"{m.path}.parent", m.d.line_of("parent"), f"mode '{m.id}' is a sub-mode, entered from a "
+                      "key of its parent's keys:, and this device has no key_matrix: make it a root mode "
+                      "(toggle:, hold: or cycle:)")
+            else:
+                v.err(m.path, m.line, f"mode '{m.id}' can't be reached: no key goes to it (add e.g. "
+                                      f"`E3: {{ mode: {m.id} }}` to the keys of mode '{modes[m.parent].id}')")
     if len(errors(v.diags)) > n_errors:
         return
     # defaults: a root lights its toggle button's LED, a sub-mode blinks its parent's; preset_blink is

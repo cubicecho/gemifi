@@ -2,6 +2,21 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.39.0](https://github.com/cubicecho/gemifi/compare/v0.38.3...v0.39.0) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** key_matrix takes at most 32 rows and 32 columns ([42147b4](https://github.com/cubicecho/gemifi/commit/42147b46cfe99ce05be3694573137f6971b8fd4d)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **builder:** refuse I2C hubs on platforms without an I2C driver ([e4c3106](https://github.com/cubicecho/gemifi/commit/e4c31069f67d8437e4372f02a67061a78f60821c)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **builder:** stop two cascades of follow-on errors ([e76e889](https://github.com/cubicecho/gemifi/commit/e76e8897a9a6c447c033858846cac4ac8efb8354)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+* **core:** compare LED indices unsigned, so 128+ LEDs light ([1190c7d](https://github.com/cubicecho/gemifi/commit/1190c7d8049df2d366217c09c5aa61b660fd6794)), closes [#115](https://github.com/cubicecho/gemifi/issues/115)
+
+
+### Features
+
+* **builder:** check the pins the board itself uses ([5f3a67f](https://github.com/cubicecho/gemifi/commit/5f3a67f5a731a1cc3e7d6a81b0003071c1531aea)), closes [#116](https://github.com/cubicecho/gemifi/issues/116) [#115](https://github.com/cubicecho/gemifi/issues/115)
+
 ## [0.38.3](https://github.com/cubicecho/gemifi/compare/v0.38.2...v0.38.3) (2026-11-10)
 
 

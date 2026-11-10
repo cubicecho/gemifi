@@ -295,6 +295,7 @@ int main(void)
      * (2 ms after SET_ADDRESS). The millisecond count from SysTick's. */
     usbd_irq_enable(0x40);
     sys_tick_irq_enable();
+    hal_midi_usb_rx(gm_midi_rx_usb);      /* OUT drained at each hal_midi_poll too */
 
     /* The way back on this board: the recovery combo at reset (the update
      * request flag), the IWDG, which turns a hang into a reset, and under

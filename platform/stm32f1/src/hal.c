@@ -320,8 +320,18 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
     midi_timed(c0);
 }
 
+static void (*usb_rx)(const uint8_t ev[4]);
+
+void hal_midi_usb_rx(void (*cb)(const uint8_t ev[4]))
+{
+    usb_rx = cb;
+}
+
 void hal_midi_poll(void)
 {
+    usbd_poll();                    /* nothing once USB runs from its IRQ */
+    if (usb_rx)
+        midi_rx_drain(usb_rx);
     midi_tx_poll();
 }
 

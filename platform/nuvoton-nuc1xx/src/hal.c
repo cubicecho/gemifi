@@ -181,8 +181,18 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
     midi_tx_event((uint8_t)(cable << 4 | m[0] >> 4), m[0], n > 1 ? m[1] : 0, n > 2 ? m[2] : 0);
 }
 
+static void (*usb_rx)(const uint8_t ev[4]);
+
+void hal_midi_usb_rx(void (*cb)(const uint8_t ev[4]))
+{
+    usb_rx = cb;
+}
+
 void hal_midi_poll(void)
 {
+    usbd_poll();                    /* polled USB: the next OUT packet */
+    if (usb_rx)
+        midi_rx_drain(usb_rx);
     midi_tx_poll();
 }
 

@@ -91,6 +91,12 @@ int midi_rx_poll(gsx_rx_t *rx);
  * and releases the OUT packet. The app passes gm_midi_rx_usb. */
 void midi_rx_drain(void (*cb)(const uint8_t ev[4]));
 
+/* hal.c: hal_midi_poll (called a few times per gm_poll pass) also drains
+ * the OUT packet into cb, so a burst from the host isn't held to one
+ * 64-byte packet per main-loop pass. The app passes gm_midi_rx_usb, the
+ * same as to its own midi_rx_drain. */
+void hal_midi_usb_rx(void (*cb)(const uint8_t ev[4]));
+
 /* ---- transmit --------------------------------------------------------- */
 /* Queue one 4-byte USB-MIDI event; sent in 64-byte packets. MIDI_TX_PKTS
  * of them (default 2, usb_midi.c) queue behind the one in flight, so this

@@ -153,6 +153,7 @@ int main(void)
     usbd_init(&usb_desc);
 
     scan_timer_start(gm_device.scan_us);
+    hal_midi_usb_rx(gm_midi_rx_usb);      /* OUT drained at each hal_midi_poll too */
 
     int cleared = 0, reported = 0;
     uint32_t seen_scan = 0, loop_max = 0, t_last = timer_now();

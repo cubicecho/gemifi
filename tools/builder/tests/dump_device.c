@@ -68,6 +68,14 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.common = f.enable = none;
         f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
         break;
+    case GM_HUB_RGB_SERIAL:
+        f.chain = h->rgb.count;
+        f.ram = 3u * h->rgb.count;
+        f.data = h->rgb.tx;
+        f.latch = h->rgb.rx;
+        f.clock = f.common = f.enable = none;
+        f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = none;
+        break;
     case GM_HUB_MCP23017:
     case GM_HUB_PCF8574:
         f.addr = h->i2c.addr;

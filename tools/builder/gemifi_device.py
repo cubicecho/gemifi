@@ -597,10 +597,11 @@ class RgbSerial(HubType):
                 f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
                 *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
 
-    def c_extra(self, hub):
-        return [f"        .ram_bytes = {hub.ram_bytes}, .dma = {1 if hub.dma else 0},",
-                f"        .rgb_white = {{ {', '.join(str(x) for x in hub.white)} }}, "
-                f".rgb_curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'},"]
+    def c_fields(self, hub):
+        return [f"        .rgb = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
+                f".dma = {1 if hub.dma else 0},",
+                f"                 .white = {{ {', '.join(str(x) for x in hub.white)} }}, "
+                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
 
 
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).

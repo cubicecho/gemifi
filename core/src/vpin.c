@@ -1535,26 +1535,26 @@ void vpin_fade_apply(void)
 static void rgb_serial_init(const gm_hub_t *h, hub_state_t *s)
 {
     /* All off; every LED is sent once (ram_sent starts different). */
-    s->ram = ram_alloc(h->ram_bytes);
-    for (uint32_t k = 0; k < h->ram_bytes && s->ram + k < GM_TM1628_RAM; k++) {
+    s->ram = ram_alloc(3u * h->rgb.count);
+    for (uint32_t k = 0; k < 3u * h->rgb.count && s->ram + k < GM_TM1628_RAM; k++) {
         hub_ram[s->ram + k] = 0;
         ram_sent[s->ram + k] = 0xFFu;
     }
-    if (h->data.hub == 0)
-        (void)hal_serial_open(h->data.num, 115200u, (h->dma ? HAL_UART_DMA : 0u) |
-                              (vpin_is_none(h->latch) ? 0u : HAL_UART_RX));
+    if (h->rgb.tx.hub == 0)
+        (void)hal_serial_open(h->rgb.tx.num, 115200u, (h->rgb.dma ? HAL_UART_DMA : 0u) |
+                              (vpin_is_none(h->rgb.rx) ? 0u : HAL_UART_RX));
 }
 
 /* Pin num = LED * 3 + colour: on is 255, off 0. */
 static void rgb_serial_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
-    if (num < h->ram_bytes && s->ram + num < GM_TM1628_RAM)
+    if (num < 3u * h->rgb.count && s->ram + num < GM_TM1628_RAM)
         hub_ram[s->ram + num] = level ? 0xFFu : 0u;
 }
 
 static int rgb_serial_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
 {
-    if (num % 3u || num + 3u > h->ram_bytes || s->ram + num + 3u > GM_TM1628_RAM)
+    if (num % 3u || num + 3u > 3u * h->rgb.count || s->ram + num + 3u > GM_TM1628_RAM)
         return 0;
     uint8_t *b = &hub_ram[s->ram + num];
     b[0] = (uint8_t)(rgb >> 16);
@@ -1576,9 +1576,9 @@ static int rgb_differs(const uint8_t *a, const uint8_t *b, uint32_t led)
  * value above 0 stays above 0. */
 static uint8_t rgb_out(const gm_hub_t *h, uint32_t c, uint32_t v)
 {
-    if (h->rgb_curve)
-        v = h->rgb_curve[v];
-    uint32_t w = h->rgb_white[c] ? h->rgb_white[c] : 255u;
+    if (h->rgb.curve)
+        v = h->rgb.curve[v];
+    uint32_t w = h->rgb.white[c] ? h->rgb.white[c] : 255u;
     if (w == 255u || !v)
         return (uint8_t)v;
     v = (v * w + 127u) / 255u;
@@ -1595,17 +1595,17 @@ static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
 /* Send one changed LED (at most every RGB_GAP_MS) and the keepalive. */
 static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
 {
-    if (h->data.hub != 0 || s->ram + h->ram_bytes > GM_TM1628_RAM)
+    if (h->rgb.tx.hub != 0 || s->ram + 3u * h->rgb.count > GM_TM1628_RAM)
         return;
-    uint16_t tx = h->data.num;
+    uint16_t tx = h->rgb.tx.num;
     const uint8_t *ram = &hub_ram[s->ram];
     uint8_t *sent = &ram_sent[s->ram];
-    int use_acks = !vpin_is_none(h->latch) && s->u.rgb.acks != 2u;
+    int use_acks = !vpin_is_none(h->rgb.rx) && s->u.rgb.acks != 2u;
     int repaint = 0;
     if (use_acks) {
         for (int b; (b = hal_serial_read(tx)) >= 0;) {
             uint32_t led = (uint32_t)b - RGB_ACK;
-            if (led >= h->chain)
+            if (led >= h->rgb.count)
                 continue;               /* not an answer */
             if (!s->u.rgb.acks) {
                 s->u.rgb.acks = 1;
@@ -1630,7 +1630,7 @@ static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
         }
     }
     if (!s->u.rgb.repainted && (repaint || (!use_acks && now_ms >= RGB_REPAINT_MS))) {
-        for (uint32_t k = 0; k < h->ram_bytes; k++)
+        for (uint32_t k = 0; k < 3u * h->rgb.count; k++)
             sent[k] = (uint8_t)~ram[k];     /* every LED differs: all sent again */
         s->u.rgb.repainted = 1;
     }
@@ -1651,15 +1651,15 @@ static void rgb_serial_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     }
     /* The next changed LED after the last one sent, so one busy LED can't
      * starve the others. */
-    uint32_t todo = h->chain;           /* an LED to send, h->chain = none */
-    for (uint32_t k = 0; k < h->chain; k++) {
-        uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->chain;
+    uint32_t todo = h->rgb.count;       /* an LED to send, count = none */
+    for (uint32_t k = 0; k < h->rgb.count; k++) {
+        uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->rgb.count;
         if (rgb_differs(ram, sent, led)) {
             todo = led;
             break;
         }
     }
-    if (todo == h->chain)
+    if (todo == h->rgb.count)
         return;
     const uint8_t *v = &ram[todo * 3u];
     uint8_t msg[6] = { 0x02u, (uint8_t)(0x80u + todo), rgb_out(h, 0, v[0]),

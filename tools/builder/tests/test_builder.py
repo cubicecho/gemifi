@@ -328,11 +328,11 @@ class TestValidation(unittest.TestCase):
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
         self.assertIn("#define GM_TM1628_RAM 48 ", files["gm_device_config.h"])
-        self.assertIn(".type = GM_HUB_RGB_SERIAL, .chain = 16,", files["gm_device_config.c"])
-        self.assertIn(".ram_bytes = 48,", files["gm_device_config.c"])
-        self.assertIn(".rgb_white = { 255, 255, 255 }, .rgb_curve = 0,", files["gm_device_config.c"])
+        self.assertIn(".type = GM_HUB_RGB_SERIAL, .rgb = {", files["gm_device_config.c"])
+        self.assertIn(".count = 16, .dma = 1,", files["gm_device_config.c"])
+        self.assertIn(".white = { 255, 255, 255 }, .curve = 0 }", files["gm_device_config.c"])
         self.assertIn("{ 0, 0 } }, /* l0", files["gm_device_config.c"])         # no full-colour looks
-        self.assertIn(".latch = GM_NO_PIN,", files["gm_device_config.c"])     # no rx_pin: no answers
+        self.assertIn(".rx = GM_NO_PIN,", files["gm_device_config.c"])     # no rx_pin: no answers
         # rx_pin: the board's answers, on USART2 RX (PA3) only
         self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA4, count: 4"), r"rx_pin on stm32f1 is PA3",
@@ -340,7 +340,7 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA1, count: 4"), r"PA1")     # PA1 is the test's analog
         dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
-        self.assertIn(".latch = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
+        self.assertIn(".rx = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
     def test_rgb_serial_colours(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
@@ -359,7 +359,7 @@ class TestValidation(unittest.TestCase):
         dev_, diags = load(dev(", gamma: 2.2, white: [255, 200, 220]"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
-        self.assertIn(".rgb_white = { 255, 200, 220 }, .rgb_curve = rgb_curve_1,", c)
+        self.assertIn(".white = { 255, 200, 220 }, .curve = rgb_curve_1 }", c)
         self.assertIn("static const uint8_t rgb_curve_1[256] = {", c)
         curve = gd.rgb_curve(2.2)
         self.assertEqual((curve[0], curve[1], curve[255]), (0, 1, 255))     # above 0 stays above 0
@@ -437,7 +437,7 @@ class TestValidation(unittest.TestCase):
                      "GM_SCAN_TICK_TIM 2 "):
             self.assertIn("#define " + line, h)
         self.assertIn("#define GM_DIN_DMA 0 ", h)
-        self.assertIn(".ram_bytes = 48, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
+        self.assertIn(".count = 16, .dma = 1,", gd.generate(d, "t.yaml")["gm_device_config.c"])
         # DIN by DMA: with precharge the scans need 6 channels (ADC1, mux, 4 matrix steps), DIN 2:
         # no timer choice fits; the error says what would
         din_dma = c61.replace(*self.C61_DIN_DMA)
@@ -460,7 +460,7 @@ class TestValidation(unittest.TestCase):
         files = gd.generate(d, "t.yaml")
         self.assertIn("#define GM_DIN_DMA 1 ", files["gm_device_config.h"])
         self.assertNotIn("GM_HW_SCAN_TIM", files["gm_device_config.h"])
-        self.assertIn(".ram_bytes = 48, .dma = 0,", files["gm_device_config.c"])
+        self.assertIn(".count = 16, .dma = 0,", files["gm_device_config.c"])
         # the matrix scan without precharge leaves 2 and 6
         d, _ = load(c61.replace("    precharge: true\n", ""))
         self.assertEqual([ch for ch, _r, _u in d.dma_map], [1, 3, 4, 5, 7])

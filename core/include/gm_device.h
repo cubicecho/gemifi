@@ -139,6 +139,22 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
+/* .rgb: RGB LEDs behind a serial link, the M-Audio Code pad LED board
+ * (115200 baud on tx): outputs only, pin n = LED n / 3, colour n % 3 (0 red,
+ * 1 green, 2 blue); sent from the main loop, a byte per colour in the hub
+ * RAM. */
+typedef struct {
+    gm_pin_t tx;
+    gm_pin_t rx;          /* the board's answers (acks), optional          */
+    /* the brightness curve applied first (rgb_serial gamma:; 256 entries,
+     * 0 = straight) */
+    const uint8_t *curve;
+    uint8_t count;        /* LEDs                                          */
+    uint8_t dma;          /* send by DMA (rgb_serial dma:), else interrupt */
+    uint8_t white[3];     /* what full red, green and blue send (rgb_serial
+                             white:, the white balance; 0 = 255)          */
+} gm_hub_rgb_serial_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -190,6 +206,7 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
+        gm_hub_rgb_serial_t rgb;  /* GM_HUB_RGB_SERIAL */
     };
 } gm_hub_t;
 

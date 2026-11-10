@@ -910,6 +910,7 @@ class Device:
         self.din = None              # Hub(tx, rx, mode, port_name, thru, out, usb) for din_midi:
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
         self.n_presets = 1
+        self.slots_invalid = False   # preset_slots: presets.slots is given but invalid
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
@@ -1178,6 +1179,9 @@ class _V:
                 return None
             if any(k in v for k in RENAMED_PIN):
                 return None        # format 1 pin: already reported
+            if any(k not in PIN_KEYS for k in v):
+                return None        # an unknown key (a hub type gemifi lacks, say): already reported,
+                #                    and its number: isn't an MCU pin
             if self.boolean(v, "inverted", path):
                 flags |= INVERT
             mode = self.mode(v, path, role, open_drain)
@@ -3474,7 +3478,10 @@ def preset_slots(v, dev, data):
         slots = None
     if n_list > MAX_PRESETS:
         v.err("presets.list", ps.line_of("list"), f"{n_list} presets: at most {MAX_PRESETS}")
-    dev.n_presets = min(slots or max(n_list, 1), MAX_PRESETS)
+    # An invalid slots: (reported above) allows every slot, so a preset: on a button or a mode isn't
+    # reported as well; the build stops on the error anyway.
+    dev.slots_invalid = ps.get("slots") is not None and slots is None
+    dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
     dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
 
 
@@ -4964,8 +4971,8 @@ def budget_text(bd):
 
 def check_budget(v, dev, data):
     bd = dev.budget = storage_budget(dev)
-    if bd["store"] is None:
-        return
+    if bd["store"] is None or dev.slots_invalid:
+        return              # (an invalid presets.slots: already reported, and n_presets isn't the user's)
     ps = data.get("presets") if dev.presets_given else None
     path = "presets.slots" if isinstance(ps, dict) and "slots" in ps else "presets" if ps is not None else ""
     line = (ps.line_of("slots") if path == "presets.slots" else data.line_of("presets")) if ps is not None \

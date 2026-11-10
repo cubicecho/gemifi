@@ -1179,6 +1179,13 @@ class TestValidation(unittest.TestCase):
         t2 = t.replace("  - { id: p }\n", "  - { id: p }\n  - { id: q }\n")
         self.assertError(t2 + "i2c: { sda: PA10, scl: PA11 }\n", r"address 0x20 is already used")
 
+    def test_unknown_hub_key_in_pin(self):
+        """#115: a pin naming a hub type gemifi lacks is reported once, not as an MCU pin too."""
+        es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { ws2812: strip, number: 0 } }]\n")
+        self.assertEqual(len(es), 1, [str(e) for e in es])
+        self.assertEqual(es[0].path, "leds[0].pin.ws2812")
+        self.assertRegex(es[0].msg, r"^unknown key")
+
     # -- ids, names, references --
 
     def test_refs(self):
@@ -1733,6 +1740,12 @@ list:
         self.assertError(presets("slots: 1\nlist: [{ name: A }, { name: B }]"),
                          r"1 slot can't hold the 2 presets in presets.list")
         self.assertError(presets("revision: 16384"), r"16384 is out of range \(0\.\.16383\)")
+        # #115: an invalid slots: is the only error, not every preset: above the list's length too
+        for bad in ("slots: 0", "slots: many", "slots: 1\nlist: [{ name: A }, { name: B }]"):
+            t = PRESET_NUC.replace("  - { id: c, pin: PA3, action: octave_up }\n",
+                                   "  - { id: c, pin: PA3, action: preset_select, preset: 5 }\n")
+            es = self.errs(presets(bad, base=t))
+            self.assertEqual([e.path for e in es], ["presets.slots"], [str(e) for e in es])
         self.assertClean(presets("revision: 16383"))
         self.assertError(presets("list: { name: A }"), r"must be a list", path="presets.list")
 

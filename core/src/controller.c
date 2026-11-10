@@ -1645,27 +1645,31 @@ static int mode_btn(uint32_t i, int down)
  * its count LED blinks the slot number, then it and the done LED flash
  * once; while a mode is active (or its hold button held), its LED is lit
  * (or blinks). */
+/* An int8_t LED reference (-1 = none) is LED li. Compared unsigned: a
+ * device has up to 255 LEDs, and (int8_t)li is negative from 128 on. */
+#define LED_IS(ref, li) ((ref) >= 0 && (uint32_t)(ref) == (li))
+
 static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 {
     if (show_n) {
         const gm_mode_t *m = &gm_modes[show_mode];
         uint32_t s = (now - show_t0) / SHOW_STEP_MS, n2 = 2u * show_n;
-        int is_count = m->blink_count == (int8_t)li, is_done = m->blink_done == (int8_t)li;
+        int is_count = LED_IS(m->blink_count, li), is_done = LED_IS(m->blink_done, li);
         if (s > n2 + 2u)
             show_n = 0;             /* done: a dark step, N blinks, a 2-step flash */
         else if (is_count || is_done)
             return s > n2 ? 1u : is_count && (s & 1u);
     }
-    if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].led == (int8_t)li)
+    if (hold_cur != GM_MODE_NONE && LED_IS(gm_modes[hold_cur].led, li))
         return gm_modes[hold_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
-    if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
+    if (mode_cur != GM_MODE_NONE && LED_IS(gm_modes[mode_cur].led, li))
         return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
 #if GM_LAYER_PARAMS
     if (!((solo_leds[li >> 5] >> (li & 31u)) & 1u))
         return level;
     for (uint32_t m = 0; m < GM_N_MODES; m++) {     /* cycle steps and layer-only toggles */
         const gm_mode_t *md = &gm_modes[m];
-        if (md->led != (int8_t)li || !(md->cycle || ((solo_mask >> m) & 1u)) || !layer_rank(m))
+        if (!LED_IS(md->led, li) || !(md->cycle || ((solo_mask >> m) & 1u)) || !layer_rank(m))
             continue;
         if (md->colour)
             return LV_RGB | (md->colour & 7u);       /* the step's colour */
@@ -2843,7 +2847,7 @@ static void leds_update(uint32_t now)
 #endif
     for (uint32_t i = 0; i < gm_device.n_buttons; i++) {
         int8_t li = gm_device.buttons[i].led;
-        if (li < 0 || li >= (int8_t)gm_device.n_leds)
+        if (li < 0 || (uint32_t)li >= gm_device.n_leds)
             continue;
         uint32_t level = 0;
 #if GM_N_BUTTONS > 0
@@ -2893,7 +2897,7 @@ static void leds_update(uint32_t now)
             owner = k - NP + 1u;
         }
 #endif
-        if (li < 0 || li >= (int8_t)gm_device.n_leds)
+        if (li < 0 || (uint32_t)li >= gm_device.n_leds)
             continue;
         uint32_t level = PAD_OWNER(i) == owner && (pad_state[i] == PAD_ON ||
                          (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS));
@@ -3440,7 +3444,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
         solo_leds[w] = 0;
     for (uint32_t m = 0; m < GM_N_MODES; m++) {
         const gm_mode_t *md = &gm_modes[m];
-        if (md->led >= 0 && md->led < (int8_t)gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
+        if (md->led >= 0 && (uint32_t)md->led < gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
             solo_leds[(uint32_t)md->led >> 5] |= 1u << ((uint32_t)md->led & 31u);
     }
 #endif

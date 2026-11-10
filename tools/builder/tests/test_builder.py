@@ -38,6 +38,8 @@ buttons:
   - { id: a, pin: PA1, action: cc_momentary, cc: 1 }
 """
 
+STM32_BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
 MINIMAL_ESP = """\
 gemifi: 2
 name: test
@@ -1154,11 +1156,12 @@ class TestValidation(unittest.TestCase):
         self.assertError(t, r"mcp23017, which can't be an output.*timer interrupt")
 
     def test_encoders(self):
-        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
-                "mcp23017:\n  - { id: x }\ni2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { cd74hc4051: m, number: 0 }, "
+        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: GPIO4, pin_s1: GPIO5, pin_s2: GPIO6, common_pin: GPIO1 }\n"
+                "mcp23017:\n  - { id: x }\ni2c: { sda: GPIO8, scl: GPIO9 }\n")
+        base = MINIMAL_ESP.format(plat="esp32s3", tr="usb")
+        self.assertError(base + hubs + "encoders:\n  - { id: e, pin_a: { cd74hc4051: m, number: 0 }, "
                          "pin_b: { cd74hc4051: m, number: 1 }, cc: 1 }\n", r"encoders can't be on a mux")
-        t = MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { mcp23xxx: x, number: 0 }, " \
+        t = base + hubs + "encoders:\n  - { id: e, pin_a: { mcp23xxx: x, number: 0 }, " \
             "pin_b: { mcp23xxx: x, number: 1 }, cc: 1 }\n" \
             "analog: [{ id: k, pin: { cd74hc4051: m, number: 0 }, cc: 2 }]\n"
         self.assertClean(t)
@@ -1173,12 +1176,85 @@ class TestValidation(unittest.TestCase):
         self.assertError(t, r"65 buttons: at most 64")
 
     def test_i2c_required(self):
-        t = MINIMAL_NUC + "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
+        t = MINIMAL_ESP.format(plat="esp32s3", tr="usb") + \
+            "buttons:\n  - { id: a, pin: GPIO4, action: cc_momentary, cc: 1 }\n" \
+            "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
         self.assertError(t, r"needs the I2C pins")
-        self.assertClean(t + "i2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(t + "i2c: { sda: PA10, scl: PA1 }\n", r"PA1 is already used")
+        self.assertClean(t + "i2c: { sda: GPIO8, scl: GPIO9 }\n")
+        self.assertError(t + "i2c: { sda: GPIO8, scl: GPIO4 }\n", r"GPIO4 is already used")
         t2 = t.replace("  - { id: p }\n", "  - { id: p }\n  - { id: q }\n")
-        self.assertError(t2 + "i2c: { sda: PA10, scl: PA11 }\n", r"address 0x20 is already used")
+        self.assertError(t2 + "i2c: { sda: GPIO8, scl: GPIO9 }\n", r"address 0x20 is already used")
+
+    def test_i2c_hubs_need_a_driver(self):
+        """#115: hal_i2c_* are stubs on the NUC and the STM32F1, so their I2C hubs are refused (once
+        each, without also asking for i2c: pins)."""
+        hubs = "mcp23017:\n  - { id: m }\npcf8574:\n  - { id: p, address: 0x38 }\n" \
+               "leds: [{ id: l, pin: { mcp23xxx: m, number: 0 } }, { id: l2, pin: { pcf8574: p, number: 0 } }]\n"
+        for base in (MINIMAL_NUC, STM32_BASE):
+            plat = "nuvoton-nuc1xx" if base is MINIMAL_NUC else "stm32f1"
+            es = self.errs(base + hubs)
+            self.assertEqual(sorted(e.msg for e in es), [
+                f"mcp23017 isn't supported on {plat} yet (no I2C driver: the platform's hal_i2c_* are stubs)",
+                f"pcf8574 isn't supported on {plat} yet (no I2C driver: the platform's hal_i2c_* are stubs)"])
+            self.assertEqual({e.path for e in es}, {"mcp23017[0]", "pcf8574[0]"})
+        self.assertFalse(gd.PLATFORMS["stm32f1"].i2c or gd.PLATFORMS["nuvoton-nuc1xx"].i2c)
+        self.assertTrue(all(gd.PLATFORMS[n].i2c for n in ("esp32", "esp32s2", "esp32s3", "esp8266")))
+        self.assertClean(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + hubs + "i2c: { sda: GPIO8, scl: GPIO9 }\n")
+
+    def test_matrix_at_most_32(self):
+        """#115: the core scans at most 32 rows and keeps a row's columns in 32 bits."""
+        rows = [f"P{port}{i}" for port in "BC" for i in range(16)]          # 32 pins
+        t = MINIMAL_NUC + f"key_matrix: {{ type: switch, rows: [{', '.join(rows)}], columns: [PA2] }}\n"
+        self.assertClean(t)
+        e = self.assertError(t.replace("rows: [", "rows: [PD0, "), r"33 rows: at most 32", path="key_matrix.rows")
+        self.assertIn("88 keys", e.msg)
+        t = MINIMAL_NUC + f"key_matrix: {{ type: switch, rows: [PA2], columns: [{', '.join(rows)}] }}\n"
+        self.assertClean(t)
+        self.assertError(t.replace("columns: [", "columns: [PD0, "), r"33 columns: at most 32",
+                         path="key_matrix.columns")
+        # rows from a decoder count too (a 4-to-16 decoder with 3 groups: 48 outputs)
+        dec = ("decoder:\n  - id: d\n    address: [PB0, PB1, PB2, PB3]\n"
+               "    groups: [{ PC0: 1, PC1: 0 }, { PC0: 0, PC1: 1 }, { PC0: 0, PC1: 0 }]\n")
+        t = MINIMAL_NUC + dec + "key_matrix: { type: switch, rows: { decoder: d, first: 0, count: 32 }, " \
+                                "columns: [PA2] }\n"
+        self.assertClean(t)
+        self.assertError(t.replace("count: 32", "count: 33"), r"33 rows: at most 32")
+
+    def test_board_pins(self):
+        """#115: pins the board itself uses (Platform.board_pins)."""
+        def diags(base, extra, level):
+            return [d.msg for d in self.errs(base + extra, level=level)]
+        btn = "  - {{ id: x, pin: {pin}, action: cc_momentary, cc: 2 }}\n"
+        # STM32F1 (Code 61 board): USB pull-up and soft power are errors, whatever the use
+        for pin, what in (("PA8", "USB D\\+ pull-up"), ("PC13", "soft power button"), ("PC15", "power latch")):
+            self.assertError(STM32_BASE + btn.format(pin=pin), rf"{pin} is the board's {what}.*"
+                             r"board m-audio-code61: platform/stm32f1/boards/m-audio-code61\.h")
+            self.assertError(STM32_BASE + f"leds: [{{ id: l, pin: {pin} }}]\n", rf"{pin} is the board's")
+        # the recovery combo's pins: inputs (to GND) and outputs are the board's use, pull-downs warn
+        for pin in ("PB3", "PB7", "PB8", "PB9"):
+            self.assertEqual(diags(STM32_BASE, btn.format(pin=f"{{ number: {pin}, mode: INPUT_PULLUP }}"),
+                                   "warning"), [])
+            self.assertEqual(diags(STM32_BASE, f"leds: [{{ id: l, pin: {pin} }}]\n", "warning"), [])
+            w = diags(STM32_BASE, btn.format(pin=f"{{ number: {pin}, mode: INPUT_PULLDOWN }}"), "warning")
+            self.assertEqual(len(w), 1, w)
+            self.assertRegex(w[0], rf"^{pin} is (driven low|read) at reset by the recovery combo")
+        self.assertEqual(diags(STM32_BASE, btn.format(pin="{ number: PB10, mode: INPUT_PULLDOWN }"), "warning"), [])
+        # NUC (Keystation board): the bootloader combo's buttons are fine, a pot on them warns
+        self.assertEqual(diags(MINIMAL_NUC, btn.format(pin="PA5"), "warning"), [])
+        w = diags(MINIMAL_NUC, "analog: [{ id: k, pin: PA6, cc: 7 }]\n", "warning")
+        self.assertTrue(any(m.startswith("PA6 is read at reset by the bootloader (BOARD_BOOT_COMBO") for m in w), w)
+        # the table is data: every entry names its board's header
+        for plat in (gd.PLATFORMS["stm32f1"], gd.PLATFORMS["nuvoton-nuc1xx"]):
+            self.assertTrue(os.path.exists(os.path.join(REPO, "platform", plat.name, "boards", plat.board + ".h")))
+            for bp in plat.board_pins.values():
+                self.assertIn(bp.level, ("error", "warning"))
+
+    def test_unknown_hub_key_in_pin(self):
+        """#115: a pin naming a hub type gemifi lacks is reported once, not as an MCU pin too."""
+        es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { ws2812: strip, number: 0 } }]\n")
+        self.assertEqual(len(es), 1, [str(e) for e in es])
+        self.assertEqual(es[0].path, "leds[0].pin.ws2812")
+        self.assertRegex(es[0].msg, r"^unknown key")
 
     # -- ids, names, references --
 
@@ -1734,6 +1810,12 @@ list:
         self.assertError(presets("slots: 1\nlist: [{ name: A }, { name: B }]"),
                          r"1 slot can't hold the 2 presets in presets.list")
         self.assertError(presets("revision: 16384"), r"16384 is out of range \(0\.\.16383\)")
+        # #115: an invalid slots: is the only error, not every preset: above the list's length too
+        for bad in ("slots: 0", "slots: many", "slots: 1\nlist: [{ name: A }, { name: B }]"):
+            t = PRESET_NUC.replace("  - { id: c, pin: PA3, action: octave_up }\n",
+                                   "  - { id: c, pin: PA3, action: preset_select, preset: 5 }\n")
+            es = self.errs(presets(bad, base=t))
+            self.assertEqual([e.path for e in es], ["presets.slots"], [str(e) for e in es])
         self.assertClean(presets("revision: 16383"))
         self.assertError(presets("list: { name: A }"), r"must be a list", path="presets.list")
 

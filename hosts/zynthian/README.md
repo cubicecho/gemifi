@@ -1,6 +1,6 @@
 # gemifi driver for Zynthian: notes
 
-Status: **implemented** (2026-11-03) in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui), branch `ui-modernize`: `zyngine/ctrldev/zynthian_ctrldev_gemifi.py` plus `zyngine/ctrldev/gemifi/` (this repo's MIT protocol, device and mapping code, a Zynthian adapter, and tests that need no hardware). 2026-11-04 (#21): the clip grid on zynpad (§5.1), the nav roles, `zynthian.<cuia>`, `shift`, `strip_prev` / `strip_next`, and the `param` display; the codec reads pads (kind 7), meters (kind 8, reserved), the analog `touch` byte and EVENT types 5 and 7. Unit-tested, not yet tried on a Zynthian with a device. These notes are the Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
+Status: **implemented** (2026-11-03) in the zynthian-ui fork [`vantreeseba/zynthian-ui`](https://github.com/vantreeseba/zynthian-ui), branch `ui-modernize`: `zyngine/ctrldev/zynthian_ctrldev_gemifi.py` plus `zyngine/ctrldev/gemifi/` (this repo's MIT protocol, device and mapping code, a Zynthian adapter, and tests that need no hardware). 2026-11-04 (#21): the clip grid on zynpad (§5.1), the nav roles, `zynthian.<cuia>`, `shift`, `strip_prev` / `strip_next`, and the `param` display; the codec reads pads (kind 7), meters (kind 8, reserved), the analog `touch` byte and EVENT types 5 and 7. 2026-11-10 (gemifi v0.37): clip pads in Zynthian's launcher colours, full colour on `rgb_serial` pads (§5.1); coalesced, change-only feedback per daw-scripts.md §5.12 (§6.1); the codec knows LOCKED, RAW, UNLOCKED, encoder mode 4 and the analog `adc_min` / `adc_max`. Unit-tested, not yet tried on a Zynthian with a device. These notes are the Zynthian-specific half of writing a gemifi driver (a "ctrldev") in a zynthian-ui fork. The gemifi half, the same for every DAW, is [`protocol/daw-scripts.md`](../../protocol/daw-scripts.md).
 
 The driver does in Zynthian what the Ableton Live script ([`../ableton-live/`](../ableton-live/)) and the Bitwig extension ([`../bitwig/`](../bitwig/)) do in those DAWs. It finds a gemifi device, asks it which controls it has and what each one is for, hears presses and moves, and drives the device's LEDs, knob pick-up and encoder rings from Zynthian's state.
 
@@ -83,7 +83,7 @@ Subclass **`zynthian_ctrldev_zynpad`** and **`zynthian_ctrldev_zynmixer`**, from
 Everything about the protocol is in **[`protocol/daw-scripts.md`](../../protocol/daw-scripts.md)**, the base for every gemifi DAW integration: framing, the session (find → enumerate → enable EVENTs → run → BOOTED → exit), every message with example frames, the behaviour rules and the role list. Implement that, with the Zynthian specifics below:
 
 - **Port:** the driver gets the device's main port as its input/output slot pair (`self.idev`, `self.idev_out`). SysEx arrives whole in `midi_event()` (`ev[0] == 0xF0`); send with `lib_zyncore.dev_send_midi_event(self.idev_out, msg, len(msg))`.
-- **Timer:** the session needs a ~100 ms tick (daw-scripts.md §7.2); Zynthian's base class has none (§3.5 above).
+- **Timer:** the session needs a ~100 ms tick (daw-scripts.md §7.2); Zynthian's base class has none (§3.5 above). The driver's session thread also flushes coalesced changes between ticks, at most every 40 ms (§6.1).
 - **Start and exit:** run the session from `init()`, and send FB_RELEASE 0 and restore `debug.events` in `end()`.
 - **Re-sending:** `refresh()` (chains changed, snapshot loaded) re-sends everything, as after enumeration.
 - **Several devices:** one driver instance per device, each with its own session.
@@ -132,18 +132,22 @@ The pads of a pad layer (`clip_T_S`, e.g. the Code 61's `pads` mode) are a windo
 
 - **Columns are chains**, in mixer order without the main chain (the driver's filtered chain list, as the strips use). A chain's sequence is the one on its MIDI channel; audio chains (no MIDI channel) have none. **Rows are phrases** of the current scene (`zynseq.scene`).
 - **Scrolling:** the driver keeps its own column and row offsets, both 0 at the start and independent of the mixer bank. `grid_left` / `grid_right` move the column offset by one, `grid_up` / `grid_down` the row offset, clamped so the grid stays on chains and phrases that exist (and re-clamped when chains or phrases go).
-- **LEDs (FB_LED_RGB, change-only):**
+- **LEDs (FB_LED_RGB, change-only)**, in the colours Zynthian's own pad controllers (Launchpad X) and mixer launchers use, from `zynthian_gui_config`:
   - off (0, 0, 0): no sequence there: no chain or phrase, an audio chain, a disabled sequence (`repeat` 0), or an empty one (no events; for a clippy pad, no clip file), as the mixer's launcher decides "empty";
-  - teal (0, 127, 127): a sequence, stopped;
-  - blue (0, 0, 127): playing or recording;
-  - blue, blinking: a start or stop is queued (`SEQ_STARTING`, `SEQ_STOPPING`, `SEQ_STOPPING_SYNC`, …), as daw-scripts.md §5.9 suggests.
+  - stopped: the sequence group's colour (`LAUNCHER_COLOUR[group]`) at 35 % brightness;
+  - playing (`SEQ_PLAYING`, `SEQ_CHILD_PLAYING`): the group's colour at full brightness;
+  - start queued (`SEQ_STARTING`): `LAUNCHER_STARTING_COLOUR` (green), blinking;
+  - stop queued (`SEQ_STOPPING`, `SEQ_FORCED_STOP`, `SEQ_STOPPING_SYNC`, `SEQ_CHILD_STOPPING`): `LAUNCHER_STOPPING_COLOUR` (red), blinking;
+  - recording (`SEQ_RECORDING`, or the pad `state_manager.midi_record_pad` names): `LAUNCHER_REC_COLOUR` (red); blinking while a punch in or out is queued (`SEQ_STARTING_RECORD`, `SEQ_STOPPING_RECORD`). A take shows on an empty pad too, as on a Launchpad: a clippy pad has no clip file until its take is saved after punch-out, so the "empty" test above comes after the record states. Only a disabled pad stays off.
+
+  Colours are #RRGGBB halved to 0..127. `rgb_serial` LEDs (the Code 61's pads) show them as given, through the device's brightness curve; other LEDs light from them as sysex.md §4.6.2 says, so on a single-colour LED stopped and playing look alike. Without Zynthian's table the driver falls back to teal for groups and its own green / red.
 - **State** is read from `zynseq.state["scenes"][scene]["phrases"][phrase]["sequences"][chan]` (`state`, `repeat`, `group`, `nEvents`), the dict zynpad and the mixer's launchers use; a clippy pad's clip from its chain's clippy processor (`controllers_dict["file <phrase+1>"]`).
-- **Refresh:** `update_seq_state` (zynpad's `SS_SEQ_PLAY_STATE` hook) refreshes at once; `SS_SEQ_STATE` (state reloaded) calls `refresh()`; the 100 ms tick polls the rest (e.g. a pattern that gained events).
+- **Refresh:** `update_seq_state` (zynpad's `SS_SEQ_PLAY_STATE` hook) marks the state dirty, so the change shows within 40 ms (§6.1); `SS_SEQ_STATE` (state reloaded) calls `refresh()`; the 100 ms tick polls the rest (e.g. a pattern that gained events).
 - **A press** calls zynpad's `on_pad_press(phrase, chan)`, so a pad behaves as on a Launchpad: it toggles the sequence, records in session-record mode, and a hold until the long-press time clears a pad in a record state (`on_pad_release`). The release goes to the pad that was pressed, even if the grid scrolled in between. A press where there's no launcher does nothing.
 
 ### 5.2 Displays
 
-- **`param`:** the selected chain's name; while a knob turns, `"<short name> <value>"` (`V1 80%`, `P1 L20`, `M 80%`), or the value alone when both don't fit the display's `cols` (`L100`, `125bpm`). A processor parameter (`device_param_N`) shows its controller's `short_name`, cut to fit before its value (`Cut 64`), and the value alone when there's no room (`Pulse`). `device_bank_prev` / `next` show the new page's first parameter. About 1.5 s after the last move (15 ticks) the chain name comes back, and at once when the selection or the bank changes. Zynpot targets (`zynthian.zynpot_N`, `nav_scroll`) show nothing: Zynthian's screen shows their value.
+- **`param`:** the selected chain's name; while a knob turns, `"<short name> <value>"` (`V1 80%`, `P1 L20`, `M 80%`), or the value alone when both don't fit the display's `cols` (`L100`, `125bpm`). A processor parameter (`device_param_N`) shows its controller's `short_name`, cut to fit before its value (`Cut 64`), and the value alone when there's no room (`Pulse`). `device_bank_prev` / `next` show the new page's first parameter. The text goes out with the next flush, at most every 40 ms, so a knob swept fast sends the latest text, not one per EVENT. About 1.5 s after the last move (15 ticks) the chain name comes back, and at once when the selection or the bank changes. Zynpot targets (`zynthian.zynpot_N`, `nav_scroll`) show nothing: Zynthian's screen shows their value.
 - **`track_name`, and a display without a role** (all displays on firmware before display roles): the selected chain's name.
 - Text is printable ASCII (accents dropped), cut and padded to `cols`, row 0, sent only when it changes.
 
@@ -161,7 +165,7 @@ The pads of a pad layer (`clip_T_S`, e.g. the Code 61's `pads` mode) are a windo
 
 | What changed in Zynthian | Signal / source | Send |
 |---|---|---|
-| a mixer strip's mute/solo/record/level/balance | `update_mixer_strip(chan, symbol, value)` (zynmixer base, `S_MIXER / SS_ZYNMIXER_SET_VALUE`) | FB_LED for buttons with `mute_N` / `solo_N` / `arm_N` (and `track_*`) on that strip; FB_VALUE (`takeover` = 1 only) for `volume_N` / `pan_N` / `master_volume` |
+| a mixer strip's mute/solo/record/level/balance | `update_mixer_strip(chan, symbol, value)` (zynmixer base, `S_MIXER / SS_ZYNMIXER_SET_VALUE`): marks the state dirty, coalesced (§6.1) | FB_LED for buttons with `mute_N` / `solo_N` / `arm_N` (and `track_*`) on that strip; FB_VALUE (`takeover` = 1 only) for `volume_N` / `pan_N` / `master_volume` |
 | the bank scrolled | the driver's own `scroll_h` | re-send everything strip-related for the new bank (FB_LEDS where consecutive) |
 | audio player / recorder state | `S_AUDIO_PLAYER / SS_AUDIO_PLAYER_STATE`, `S_AUDIO_RECORDER / SS_AUDIO_RECORDER_STATE`; `state_manager.status_audio_player`, `state_manager.audio_recorder.rec_proc` | FB_LED for `play`, `record`, `stop` (verified: mackiecontrol `refresh_audio_transport`) |
 | MIDI player / recorder state | `S_STATE_MAN / SS_MIDI_PLAYER_STATE`, `SS_MIDI_RECORDER_STATE`; `status_midi_player`, `status_midi_recorder` | the same, if the driver option uses MIDI transport |
@@ -170,16 +174,19 @@ The pads of a pad layer (`clip_T_S`, e.g. the Code 61's `pads` mode) are a windo
 | sequencer pad/phrase state | zynpad (`update_seq_state` in `zynthian_ctrldev_zynpad`), and the tick | FB_LED_RGB for `clip_T_S` pads (§5.1) |
 | the selected chain, a knob moved | `on_active_chain`, EVENTs | FB_TEXT to `param` / `track_name` displays (§5.2) |
 
-- An encoder with a ring (`ring` > 0) mapped to a parameter gets **FB_RING**: boost/cut (mode 1) for bipolar parameters (balance), wrap (mode 2) otherwise, `value` 0..16383 = the parameter's position. Use flags bit 1 (ring off) when its role maps to nothing in the current bank.
+- An encoder with a ring (`ring` > 0) mapped to a parameter gets **FB_RING**: boost/cut (mode 1) for bipolar parameters (balance), wrap (mode 2) otherwise, `value` 0..16383 = the parameter's position. Use flags bit 1 (ring off) when its role maps to nothing in the current bank. It is sent only when the LEDs it lights change (`ring_lit` in `mapping.py`, the firmware's rule from daw-scripts.md §5.12).
 - **Send only changes.** The device takes notifications as fast as USB carries them, but Zynthian's level meters and similar can change often. Don't map meters to LEDs.
 
-### 6.1 Update rate (open items from the 2026-11-05 review)
+### 6.1 Update rate
 
-The driver is change-only, with one cache per LED, RGB LED, value, ring and display, and empties them on BOOTED and `refresh()`. What it still does more often than it needs to:
-- **A full refresh per mixer change.** `update_mixer_strip` refreshes every binding on each `SS_ZYNMIXER_SET_VALUE`, so a fader moving a level costs one full refresh per EVENT. Marking the mapping dirty and refreshing on the next tick (or at most once per ~20 ms) would show the same thing.
-- **The same reads many times per refresh.** Every strip binding calls `bank_tracks()`, which wraps every chain again, and every `device_param_N` binding rebuilds `device_params()`'s signature over all control screens. The Live script now reads each of these once per refresh (`_Reads` in `hosts/ableton-live/gemifi/mapping.py`, MIT), and the fork's copy of `mapping.py` could take the same change.
-- **FB_VALUE per encoder EVENT.** Each EVENT on an absolute encoder sends FB_VALUE back. The Live script now leaves that to the next tick and moves only the ring at once.
-- **FB_TEXT per analog or encoder EVENT.** A `param` display gets a new `"<name> <value>"` on almost every EVENT: 21 bytes each, so a fader swept at ~100 EVENTs a second sends about 2 KB/s of text to a 6-character display. One FB_TEXT per tick (the latest text) would be enough.
+The driver is change-only, with one cache per LED, RGB LED, value, ring and display, and empties them on BOOTED and `refresh()`. The items from the 2026-11-05 review are done (2026-11-10), following daw-scripts.md §5.12:
+- **Coalesced refreshes.** `update_mixer_strip`, `update_seq_state` and `on_active_chain` only mark the state dirty (`request_flush()`). The session thread refreshes once for all of them, at most every 40 ms (`FLUSH_SECONDS`, 25 a second), besides the 100 ms tick. A fader sweep on the touchscreen is one refresh per flush, not one per `SS_ZYNMIXER_SET_VALUE`.
+- **One read per refresh.** The mapping reads the song through `_Reads` (as the Live script does): inside one refresh, `bank_tracks()`, `selected_track()`, `device_params()`, `grid_rows()` and the others are read once, however many bindings ask.
+- **FB_VALUE after an encoder EVENT** waits for the next flush; the ring moves at once. Ten EVENTs of a fast turn send one FB_VALUE.
+- **FB_TEXT** for the `param` display goes out with the flush: the latest text, at most 25 a second.
+- **FB_RING** only when the lit LEDs change (above).
+
+Not coalesced: an analog EVENT sets its parameter at once (the device already sends at most one per 7-bit step), and button presses refresh at once.
 
 ## 7. Testing
 
@@ -207,5 +214,5 @@ The `gemifi.py` host tool (`tools/host/`) helps here: `gemifi.py components` lis
 4. **Mixer value ranges:** `"level"` and `"balance"` value ranges, and the conversion mackiecontrol uses.
 5. **Thread safety:** which thread calls `midi_event` and the queued signal handlers, to size the locking (§3.5).
 6. **Displays:** done for `param` and `track_name` (§5.2). `time` and `status` need a song position and a message source from Zynthian.
-7. **Clip grid on hardware:** colours on the Code 61's pad LEDs, and whether Zynthian's chain order is the order users expect for columns (§5.1).
+7. **Clip grid on hardware:** how the launcher colours and the 35 % stopped brightness look on the Code 61's pad LEDs, and whether Zynthian's chain order is the order users expect for columns (§5.1).
 8. **Auto-long:** Zynthian's own switches fire a long press while still held (`zynswitch_long_us`); nav buttons only time the press on release.

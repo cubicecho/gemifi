@@ -2,6 +2,16 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.42.0](https://github.com/cubicecho/gemifi/compare/v0.41.1...v0.42.0) (2026-11-10)
+
+
+### Features
+
+* **builder:** maudio_pad_leds names the Code pad LED board; rgb_serial stays an alias ([#119](https://github.com/cubicecho/gemifi/issues/119)) ([d67751a](https://github.com/cubicecho/gemifi/commit/d67751a832bb1d9828b2c4e00f641cc0493799bd))
+* **hubs:** ws2812 hub, addressable WS2812B / SK6812 strips, RGB and RGBW ([#119](https://github.com/cubicecho/gemifi/issues/119)) ([8d16115](https://github.com/cubicecho/gemifi/commit/8d16115016deab38cfec78669c8dc3e2fdcf27b4))
+* **leds:** full colour for any full-colour hub; led_defaults and step colours take #rrggbb ([#119](https://github.com/cubicecho/gemifi/issues/119)) ([33e1dab](https://github.com/cubicecho/gemifi/commit/33e1dab9eccc31e822c42484d8029876e2d75729)), closes [#rrggbb](https://github.com/cubicecho/gemifi/issues/rrggbb)
+* **platform:** LED strips by RMT on ESP32 / S2 / S3 and SPI + DMA on stm32f1 ([#119](https://github.com/cubicecho/gemifi/issues/119)) ([bb27d45](https://github.com/cubicecho/gemifi/commit/bb27d45705c9dd1c69d86a9a950972483da4d079))
+
 ## [0.41.1](https://github.com/cubicecho/gemifi/compare/v0.41.0...v0.41.1) (2026-11-10)
 
 

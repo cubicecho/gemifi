@@ -69,6 +69,12 @@ int vpin_scan_plan(volatile uint32_t **sel_reg, uint32_t *sel_word, uint32_t *n_
  * (one frame in plan order) and vpin_scan_matrices() skips them. */
 void vpin_scan_hw(int on);
 void vpin_scan_feed(const uint16_t *frame);
+/* Buttons (controller.c buttons_sample): vpin_span_take() once per sample,
+ * then vpin_read_span(p, &any) per button = 1 if p was active in every scan
+ * of a switch matrix since the last take, and *any = 1 if it was active in
+ * any of them. Other pins have no history: both are vpin_read(p). */
+void vpin_span_take(void);
+int vpin_read_span(gm_pin_t p, int *any);
 /* Pads (controller.c pads_scan): vpin_analog_peaks() once per pass, then
  * vpin_analog_peak(p) per pad = its strongest reading (after INVERT) since
  * the last pass, with the hardware analog scan (gm_adc_plan); otherwise just

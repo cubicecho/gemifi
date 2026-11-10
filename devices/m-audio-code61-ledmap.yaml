@@ -22,19 +22,17 @@ usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 200us
 
 # LED drivers: two TM1628-class chips, bit-banged, sharing CLK and DIO, each
-# with its own STB [sure] (hw-map.md "LEDs and display"). Together they drive
-# every LED and the 6-character display. A pin on them is a RAM bit:
-# number = byte * 8 + bit. PA15 is a JTAG pin at reset; the board config
-# turns JTAG off (BOARD_SWJ_NOJTAG, SWD stays on).
-# The stock app never sends a display-mode command (no grids:), and its
-# brightness is unknown (intensity: 7 = the default). [guess]
+# with its own STB [sure]. Together they drive every LED and the 6-character
+# display. A pin on them is a RAM bit: number = byte * 8 + bit. PA15 is a
+# JTAG pin at reset; the board config turns JTAG off (BOARD_SWJ_NOJTAG, SWD
+# stays on). grids: and intensity: are left at their defaults [guess].
 tm1628:
   - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PA15
     ram_bytes: 14
-  - id: leds_b             # the stock app writes 6 bytes [sure]
+  - id: leds_b             # 6 RAM bytes: the 48 bits of the RGB button LEDs [sure]
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12

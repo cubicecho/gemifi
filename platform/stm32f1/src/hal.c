@@ -28,6 +28,16 @@ uint32_t hal_cycles(void)
     return DWT_CYCCNT;
 }
 
+uint32_t hal_irq_save(void)
+{
+    return irq_save();
+}
+
+void hal_irq_restore(uint32_t state)
+{
+    irq_restore(state);
+}
+
 uint32_t hal_millis(void)
 {
     return sys_tick_ms();

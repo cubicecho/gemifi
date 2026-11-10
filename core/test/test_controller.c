@@ -317,7 +317,7 @@ static void release_key(int k)
 static void button(int i, int down)
 {
     level[1 + i] = down ? 0 : 1;
-    run_ms(15);
+    run_ms(25);                     /* past the release debounce (BTN_STABLE) */
 }
 
 static void boot(void)

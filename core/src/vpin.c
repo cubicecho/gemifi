@@ -67,6 +67,12 @@ __attribute__((weak)) int hal_serial_write(uint16_t tx_pin, const uint8_t *b, ui
     return 0;
 }
 
+__attribute__((weak)) int hal_serial_read(uint16_t tx_pin)
+{
+    (void)tx_pin;
+    return -1;
+}
+
 __attribute__((weak)) volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
 {
     (void)pin;
@@ -312,7 +318,8 @@ void vpin_init(void)
                 ram_sent[tm_off++] = 0xFFu;
             }
             if (h->data.hub == 0)
-                (void)hal_serial_open(h->data.num, 115200u, h->dma ? HAL_UART_DMA : 0u);
+                (void)hal_serial_open(h->data.num, 115200u, (h->dma ? HAL_UART_DMA : 0u) |
+                                      (vpin_is_none(h->latch) ? 0u : HAL_UART_RX));
             break;
 #endif
         case GM_HUB_XY:
@@ -1236,6 +1243,19 @@ void vpin_poll_tm1628(void)
 #ifndef RGB_REPAINT_MS
 #define RGB_REPAINT_MS 2000u
 #endif
+/* With rx_pin: the board answers each LED message with 0x40 + LED (the
+ * Code 61's does, about 220 ms after power-on at the earliest). An LED is
+ * only counted as shown once answered: without an answer in RGB_ACK_MS it
+ * is sent again, after a pause that grows with each miss (RGB_RETRY_MS
+ * times the misses in a row, at most RGB_RETRY_MAX_MS), so a board that
+ * is still starting gets little traffic. The first answer means the board
+ * is up: every LED is sent again then, instead of at RGB_REPAINT_MS. With
+ * no answer by RGB_ACK_GIVE_UP_MS the hub works as without rx_pin. */
+#define RGB_ACK_MS 20u
+#define RGB_RETRY_MS 50u
+#define RGB_RETRY_MAX_MS 500u
+#define RGB_ACK_GIVE_UP_MS 3000u
+#define RGB_ACK 0x40u
 
 static uint32_t rgb_bits(const uint8_t *ram, uint32_t led)
 {
@@ -1256,11 +1276,20 @@ static void rgb_set_sent(uint8_t *ram, uint32_t led, uint32_t v)
     }
 }
 
+/* LED led no longer counts as sent: it goes out again. */
+static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
+{
+    rgb_set_sent(sent, led, rgb_bits(ram, led) ^ 7u);
+}
+
 void vpin_poll_rgb_serial(uint32_t now_ms)
 {
     static uint32_t t_ka, t_any;        /* last A5, last write */
     static uint8_t repainted;
-    int repaint = !repainted && now_ms >= RGB_REPAINT_MS;
+    /* rx_pin: the answer awaited (LED + 1, 0 none), when that LED went out,
+     * misses in a row; acks: 0 none yet, 1 answering, 2 gave up. */
+    static uint8_t wait_led, misses, acks;
+    static uint32_t t_led;
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
@@ -1269,9 +1298,40 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
         uint16_t tx = h->data.num;
         const uint8_t *ram = &tm_ram[s->tm_off];
         uint8_t *sent = &ram_sent[s->tm_off];
-        if (repaint)
+        int use_acks = !vpin_is_none(h->latch) && acks != 2u;
+        int repaint = 0;
+        if (use_acks) {
+            for (int b; (b = hal_serial_read(tx)) >= 0;) {
+                uint32_t led = (uint32_t)b - RGB_ACK;
+                if (led >= h->chain)
+                    continue;               /* not an answer */
+                if (!acks) {
+                    acks = 1;
+                    repaint = !repainted;   /* the board is up: everything again */
+                }
+                if (wait_led == led + 1u) {
+                    wait_led = 0;
+                    misses = 0;
+                }
+            }
+            if (wait_led && now_ms - t_led >= RGB_ACK_MS) {
+                rgb_unsend(ram, sent, wait_led - 1u);     /* not answered: again */
+                wait_led = 0;
+                if (misses < 255u)
+                    misses++;
+            }
+            if (!acks && now_ms >= RGB_ACK_GIVE_UP_MS) {
+                acks = 2;                   /* never answered: as without rx_pin */
+                wait_led = 0;
+                misses = 0;
+                use_acks = 0;
+            }
+        }
+        if (!repainted && (repaint || (!use_acks && now_ms >= RGB_REPAINT_MS))) {
             for (uint32_t k = 0; k < h->ram_bytes; k++)
                 sent[k] = (uint8_t)~ram[k];     /* every LED differs: all sent again */
+            repainted = 1;
+        }
         if (now_ms - t_any < RGB_GAP_MS)
             continue;
         if (now_ms - t_ka >= RGB_KEEPALIVE_MS) {
@@ -1279,6 +1339,13 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
             if (hal_serial_write(tx, &ka, 1))
                 t_ka = t_any = now_ms;
             continue;
+        }
+        if (use_acks && wait_led)
+            continue;                       /* the last LED isn't answered yet */
+        if (use_acks && misses) {
+            uint32_t pause = RGB_RETRY_MS * misses;
+            if (now_ms - t_led < (pause < RGB_RETRY_MAX_MS ? pause : RGB_RETRY_MAX_MS))
+                continue;
         }
         /* The next changed LED after the last one sent, so one busy LED
          * can't starve the others. */
@@ -1300,12 +1367,12 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
             if (hal_serial_write(tx, msg, sizeof msg)) {
                 rgb_set_sent(sent, led, v);
                 s->channel = (int8_t)led;
-                t_any = now_ms;
+                t_any = t_led = now_ms;
+                if (use_acks)
+                    wait_led = (uint8_t)(led + 1u);
             }
         }
     }
-    if (repaint)
-        repainted = 1;
 }
 #else
 void vpin_flush_tm1628(void)

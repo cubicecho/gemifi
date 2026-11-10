@@ -48,7 +48,7 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`) | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
 | `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
 | `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
+| `rgb_serial` | `GM_HUB_RGB_SERIAL` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). See "RGB serial LEDs" |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
 | `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
 
@@ -112,11 +112,15 @@ Build and upload it, then light one bit at a time: from the web app's host-feedb
 
 ### RGB serial LEDs
 
-Some boards drive their RGB LEDs from a second small controller over a serial line. The one supported is the M-Audio Code pad LED board (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
+Some boards drive their RGB LEDs from a second small controller over a serial line. The one supported is the M-Audio Code pad LED board (Code 61: USART2 TX on PA2, 115200 baud 8N1), found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
+
+At power-on the board isn't listening for the first ~220 ms, so the first colours are lost. Without `rx_pin`, every LED is sent once more 2 s after start; after that an LED goes out only when it changes. Don't resend LEDs on a timer: resending one every 50 ms left the Code 61's board deaf after a cold start.
+
+With `rx_pin`, the core listens to the board, which answers each LED message with `0x40 + LED` (the keepalive gets no answer). An LED counts as shown only once answered. Without an answer in 20 ms it goes out again, after a pause that grows with each miss in a row (50 ms, 100 ms, ... up to 500 ms), so a board that is still starting gets little traffic. The first answer means the board is up, and every LED is sent again then instead of at 2 s. If nothing answers in the first 3 s, the hub works as without `rx_pin`.
 
 ```yaml
 rgb_serial:
-  - { id: pad_leds, tx_pin: PA2, count: 16 }   # dma: false sends from the interrupt ("DMA channels")
+  - { id: pad_leds, tx_pin: PA2, rx_pin: PA3, count: 16 }   # dma: false sends from the interrupt ("DMA channels")
 leds:
   - { id: pad_1_led, pin: { rgb_serial: pad_leds, number: 36 }, pin2: { rgb_serial: pad_leds, number: 37 }, pin3: { rgb_serial: pad_leds, number: 38 } }
 pads:

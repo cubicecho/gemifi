@@ -858,6 +858,9 @@
               "tx_pin": {
                 "$ref": "#/definitions/pin"
               },
+              "rx_pin": {
+                "$ref": "#/definitions/pin"
+              },
               "count": {
                 "anyOf": [
                   {

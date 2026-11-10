@@ -354,7 +354,7 @@ HUB_KEYS = {
     "decoder": ["id", "address", "groups"],
     "switch_matrix": ["id", "rows", "columns", "settle", "rows_per_scan"],
     "tm1628": ["id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids"],
-    "rgb_serial": ["id", "tx_pin", "count", "dma"],
+    "rgb_serial": ["id", "tx_pin", "rx_pin", "count", "dma"],
     "xy_pad": ["id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max"],
 }
 # hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
@@ -362,7 +362,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "oe_pin": "enable", "enable_pin": "enable", "common_pin": "common",
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3",
              # TM1628 lines only pair with each other: they're bit-banged from the main loop
-             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx",
+             "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx", "rx_pin": "uart_rx",
              "x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
@@ -677,6 +677,10 @@ class Platform:
         """-> None if num can be an rgb_serial tx_pin, else why not."""
         return f"rgb_serial isn't supported on {self.name} yet"
 
+    def serial_rx(self, tx, rx):
+        """-> None if rx can be the rgb_serial rx_pin that goes with tx_pin tx, else why not."""
+        return f"rgb_serial rx_pin isn't supported on {self.name} yet"
+
     def din_uart(self, tx, rx):
         """-> None if tx / rx (None: no MIDI In) can be the DIN MIDI UART, else why not."""
         return f"din_midi isn't supported on {self.name} yet"
@@ -754,6 +758,9 @@ class Stm32F1Platform(Platform):
     def serial_tx(self, num):
         """-> None if num can be an rgb_serial tx_pin, else why not."""
         return None if num == 2 else "only PA2 (USART2 TX) is supported as an rgb_serial tx_pin on stm32f1"
+
+    def serial_rx(self, tx, rx):
+        return None if tx == 2 and rx == 3 else "the rgb_serial rx_pin on stm32f1 is PA3 (USART2 RX, with tx_pin PA2)"
 
     def din_uart(self, tx, rx):
         if tx != 9 or rx not in (None, 10):
@@ -2536,11 +2543,16 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.n_pins = 3 * hub.chain
         hub.ram_bytes = (hub.n_pins + 7) // 8
         hub.data = ctl("tx_pin", "out")
+        hub.latch = ctl("rx_pin", "in", required=False)     # optional: the board's answers (acks)
         hub.dma = v.boolean(h, "dma", p, default=True)
         if hub.data.hub == 0 and h.get("tx_pin") is not None:
             why = v.plat.serial_tx(hub.data.num)
             if why:
                 v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
+            elif h.get("rx_pin") is not None and hub.latch is not NO_PIN:
+                why = v.plat.serial_rx(hub.data.num, hub.latch.num)
+                if why:
+                    v.err(f"{p}.rx_pin", h.line_of("rx_pin"), why)
     elif typ in XY_HUBS:
         validate_xy_pad(v, hub, h, p, ctl)
     elif typ in MUX_HUBS:

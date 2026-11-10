@@ -11,6 +11,10 @@ import difflib
 import itertools
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gemifi_board as gbd  # noqa: E402
 
 try:
     import yaml
@@ -365,7 +369,7 @@ CTRL_LINE = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "d
              "clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb", "tx_pin": "uart_tx", "rx_pin": "uart_rx",
              "x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
 
-TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
+TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
             "status_led", "feedback", "mcu", *HUB_TYPES,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
@@ -928,6 +932,8 @@ class Device:
         self.scan_timers = {}        # allocate_dma: scan -> (timer n, {role: request}); 'tick' -> n
         self.config_hash = None      # load_device: the resolved YAML's hash (param config.hash)
         self.sources = []            # load_device: the files a package or !include pulled in
+        self.board = None            # the board profile (gemifi_board.load), bare-metal platforms only
+        self.board_given = False     # ... named by board: (else the platform's default)
 
 
 class Use:
@@ -949,6 +955,7 @@ class _V:
         self.file, self.diags = file, []
         self.uses = {}
         self.plat = None
+        self.board = None        # the board profile: its reserved pins join the platform check
         self.transport = None
         self.hub_by_id = {}
         self.presets = None      # the presets: mapping, once preset_slots has checked it
@@ -1222,6 +1229,9 @@ class _V:
                     self.warn(path, line, w)
             for lvl, msg in self.plat.check(num, "in" if role == "common" else role, flags, self.transport):
                 (self.err if lvl == "error" else self.warn)(path, line, msg)
+            if self.board:     # the pins the board itself uses (board profile `reserved`, issue #116)
+                for lvl, msg in gbd.pin_check(self.board, num, "in" if role == "common" else role):
+                    (self.err if lvl == "error" else self.warn)(path, line, msg)
             self.use(("mcu", num), name, Use(path, line, line_kind, share, owner))
             return Pin(0, flags, num, name)
         if not allow_hub:
@@ -1526,6 +1536,8 @@ def validate(data, file=None):
     if dev.chip and plat.name == "stm32f1" and not re.fullmatch(r"(STM32|GD32|APM32|CKS32)F1\d\d\w*",
                                                                  dev.chip, re.I):
         v.warn("chip", data.line_of("chip"), f"'{dev.chip}' doesn't look like an STM32F1-class part number")
+    dev.board_given = "board" in data
+    v.board = dev.board = validate_board(v, dev, data)
 
     # midi
     midi = data.get("midi") or LDict()
@@ -1937,6 +1949,61 @@ def validate_mcu(v, dev, data, tr, daw_port):
         dev.daw_port = dev.mcu is not None and tr == "usb"
     if dev.mcu is not None:
         dev.mcu.cable = 1 if dev.daw_port else 0
+
+
+def validate_board(v, dev, data):
+    """board: the board profile (platform/<platform>/boards/<board>.json, tools/builder/gemifi_board.py).
+    Left out: the platform's default board (gbd.DEFAULT_BOARD). -> the loaded profile, or None."""
+    plat = dev.platform.name
+    given = "board" in data
+    line = data.line_of("board") if given else data.line
+    if plat not in gbd.PLATFORMS:
+        if given:
+            v.err("board", line, f"board profiles are for {', '.join(gbd.PLATFORMS)}; on {plat}, chip: names "
+                                 "the board")
+        return None
+    name = data.get("board", gbd.DEFAULT_BOARD[plat])
+    known = gbd.boards(plat)
+    if not isinstance(name, str) or not name:
+        v.err("board", line, f"must be the name of a board profile ({' | '.join(known)})")
+        return None
+    if name not in known:
+        close = difflib.get_close_matches(name, known, 1)
+        hint = f"; did you mean '{close[0]}'?" if close else ""
+        v.err("board", line, f"unknown board '{name}' for {plat} (known: {', '.join(known)}{hint}; profiles "
+                             f"are platform/{plat}/boards/*.json)")
+        return None
+    try:
+        board = gbd.load(plat, name)
+    except gbd.ProfileError as e:
+        v.err("board", line, str(e))
+        return None
+    bid_line = data.line_of("board_id") if "board_id" in data else data.line
+    fixed = board["board_id"]
+    if fixed is not None and dev.board_id != fixed and given:
+        # Without board: (every file from before board profiles) this is left to the build
+        # (board_mismatch), so test configs that are only generated, never built, stay as they were.
+        v.err("board_id", bid_line, board_mismatch(dev, board))
+    elif fixed is None and dev.board_id not in gbd.DIY_IDS:
+        v.err("board_id", bid_line, f"board '{name}' is a DIY board: its board_id must be in the DIY range "
+                                    "0x3F00-0x3FFF (protocol/sysex.md 7), one per device design")
+    if board["chip"] and dev.chip and not re.fullmatch(board["chip"], dev.chip, re.I):
+        v.warn("chip", data.line_of("chip"), f"'{dev.chip}' isn't the part board '{name}' is made for "
+                                             f"({board['chip']}): its flash and RAM layout may not fit")
+    return board
+
+
+def board_mismatch(dev, board=None):
+    """Why dev's image can't be built for its board (board_id vs the profile's own), or None."""
+    board = board or dev.board
+    if board is None or board["board_id"] is None or dev.board_id == board["board_id"]:
+        return None
+    plat = dev.platform.name
+    diy = [b for b in gbd.boards(plat) if gbd.load(plat, b)["board_id"] is None]
+    alt = f" (board: {diy[0]})" if diy else ""
+    return (f"0x{dev.board_id:04X} isn't the board_id of board '{board['id']}' (0x{board['board_id']:04X}"
+            f"{'' if dev.board_given else f', the {plat} default'}), so its image can't be built: use "
+            f"board_id: 0x{board['board_id']:04X}, or a DIY board profile{alt} with a DIY board_id (0x3F00-0x3FFF)")
 
 
 def validate_names(v, dev, data):
@@ -4904,10 +4971,19 @@ def packed_record_bytes(dev, scope):
     return 4 * (REC_HEADER_WORDS + REC_NAME_WORDS + words + REC_CRC_WORDS)
 
 
+def store_budget_of(dev):
+    """The platform's store (STORE_BUDGETS), with the page size and count from the board profile."""
+    b = STORE_BUDGETS.get(dev.platform.name)
+    if b is None or getattr(dev, "board", None) is None:
+        return b
+    page, pages = gbd.store_budget(dev.board)
+    return dict(b, page=page, pages=pages)
+
+
 def storage_need(plat_name, preset_rec, global_rec, slots):
     """-> (record_ok, used, capacity, unit) for slots presets + the globals at worst case.
-    unit is "pages" for a journal, "B" otherwise."""
-    b = STORE_BUDGETS.get(plat_name)
+    unit is "pages" for a journal, "B" otherwise. plat_name: a platform name, or its budget (a dict)."""
+    b = plat_name if isinstance(plat_name, dict) else STORE_BUDGETS.get(plat_name)
     if b is None:
         return True, 0, 0, "B"
     big = max(preset_rec, global_rec)
@@ -4933,16 +5009,16 @@ def storage_budget(dev):
     """The worst case of what the device stores, against its platform's store. -> dict (also shown by
     gemifi_build.py and the dashboard)."""
     n_preset, n_global = stored_counts(dev)
-    b = STORE_BUDGETS.get(dev.platform.name)
+    b = store_budget_of(dev)
     if b and b.get("format") == "packed":
         prec, grec = packed_record_bytes(dev, PRESET), packed_record_bytes(dev, GLOBAL)
     else:
         prec, grec = record_bytes(n_preset), record_bytes(n_global)
-    ok, used, cap, unit = storage_need(dev.platform.name, prec, grec, dev.n_presets)
+    ok, used, cap, unit = storage_need(b, prec, grec, dev.n_presets)
     fits = [s for s in range(1, MAX_PRESETS + 1)
-            if (lambda r: r[0] and r[1] <= r[2])(storage_need(dev.platform.name, prec, grec, s))]
-    calm = [s for s in fits if storage_need(dev.platform.name, prec, grec, s)[1] <=
-            BUDGET_WARN * storage_need(dev.platform.name, prec, grec, s)[2]]
+            if (lambda r: r[0] and r[1] <= r[2])(storage_need(b, prec, grec, s))]
+    calm = [s for s in fits if storage_need(b, prec, grec, s)[1] <=
+            BUDGET_WARN * storage_need(b, prec, grec, s)[2]]
     return {"slots": dev.n_presets, "preset_values": n_preset, "global_values": n_global,
             "preset_record": prec, "global_record": grec, "record_ok": ok,
             "record_limit": None if b is None else b.get("record") or b.get("page") or b["total"],
@@ -5061,6 +5137,8 @@ def generate(dev, source="device.yaml"):
          *([f"#define GM_FW_VERSION 0x{dev.version[0] << 24 | dev.version[1] << 16 | dev.version[2]:08X}u",
             f"#define GM_FW_VERSION_STR \"{'.'.join(map(str, dev.version))}\""] if dev.version else []),
          f"#define GM_PLATFORM {c_str(dev.platform.name)}",
+         *([f"#define GM_BOARD_PROFILE {c_str(dev.board['id'])}   /* board: (platform/{dev.platform.name}/"
+            f"boards/{dev.board['id']}.json) */"] if getattr(dev, "board", None) else []),
          *([f"#define GM_CONFIG_HASH 0x{dev.config_hash:08X}   /* config.hash: the resolved YAML's "
             "(core/README.md \"Config hash\") */"] if dev.config_hash is not None else []),
          f"#define GM_USB_VID 0x{dev.usb[0]:04X}",

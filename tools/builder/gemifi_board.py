@@ -243,7 +243,7 @@ def _resolve_f1(raw, p):
     if not app + 0x1000 <= app_end:
         raise ProfileError("flash.app_end: the app area is too small")
     img_max = _int(fl.get("image_max", app_end - app), "flash.image_max")
-    if img_max % 2 or not app_end - app <= img_max < cfg - app:
+    if img_max % 2 or not app_end - app <= img_max <= cfg - app:
         raise ProfileError("flash.image_max: between the app area's size and the config pages")
     p["flash"] = {"base": base, "size": size, "page": page, "boot_size": boot, "app_base": app,
                   "app_end": app_end, "image_max": img_max, "config_base": cfg, "config_pages": n_cfg,
@@ -557,9 +557,9 @@ def _write(path, text):
     return True
 
 
-def generate(platform, board, out_dir, board_id=None):
+def generate(platform, board, out_dir, board_id=None, path=None):
     """Write board_layout.h, board_app.ld, board_boot.ld, board.mk and layout.json into out_dir."""
-    p = load(platform, board)
+    p = load(platform, board, path)
     bid = board_id_for(p, board_id)
     os.makedirs(out_dir, exist_ok=True)
     files = {"board_layout.h": gen_header(p, bid), "board_app.ld": gen_ld(p, "app"),

@@ -235,6 +235,7 @@ void vpin_init(void)
     n_fed = 0;
     fed_on = 0;
     n_scan_in = n_scan_out = 0;
+    dec_used = 0;                   /* gm_buttons_now, then gm_init: each init fills the tables again */
     adc_off();
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];

@@ -547,9 +547,14 @@ int main(void)
         CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a changing host colour never jumps to full (%d ms, %02X)",
               full_seen, chip[0].ctl);
     }
+    /* a host's black (FB_LED_RGB 0, 0, 0) is a colour at brightness 0: the
+     * chip goes dark, not to full for the lit button */
+    gm_led_script_rgb(3, 0, 0, 0, 0);
+    run_ms(20);
+    CHECK(chip[0].ctl == 0x80, "fade: a host's black: dark, not full (%02X)", chip[0].ctl);
     gm_led_script(3, 0);
     run_ms(20);
-    CHECK(chip[0].ctl == 0x8B, "fade: no host colour: the lit button, full (%02X)", chip[0].ctl);
+    CHECK(chip[0].ctl == 0x8B, "fade: FB_LED off is no colour: the lit button, full (%02X)", chip[0].ctl);
     level[PIN_BTN] = 0;
     run_ms(30);
     level[PIN_BTN] = 1;

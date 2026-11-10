@@ -2420,7 +2420,8 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
 static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
 #if GM_HOST_FB
-static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout       */
+static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout;
+                                       2 = its FB_LED_RGB black (leds_fade) */
 #endif
 
 void gm_led_host(uint32_t led, uint32_t value)
@@ -2487,6 +2488,8 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
     led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
+    if (!lv)
+        led_host_hold[led] = 2;     /* black: a colour at brightness 0 */
 }
 #endif
 
@@ -2736,6 +2739,9 @@ static void leds_fade(void)
             v = r > g ? r : g;
             if (b > v)
                 v = b;
+        } else if (level == 0 && led_host_hold[i] == 2u && led_host_lv[i] == 0) {
+            colour = 1;             /* a host's black: brightness 0, not its idle look */
+            v = 0;
         } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
             continue;               /* dark */
         vpin_fade(l->pin, v, (int)colour);

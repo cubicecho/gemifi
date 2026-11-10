@@ -1,19 +1,22 @@
 /*
- * gemifi bootloader for STM32F1 boards (M-Audio Code 61), at 0x08000000,
- * 9 KB. Port of bootloader/nuvoton-nuc1xx/main.c.
+ * gemifi bootloader for STM32F1 boards, at BOARD_FLASH_BASE, BOARD_BOOT_SIZE
+ * bytes (the board profile, platform/stm32f1/boards/<board>.json; Code 61:
+ * 0x08000000, 9 KB). Port of bootloader/nuvoton-nuc1xx/main.c.
  *
  * Implements protocol/sysex.md: boot decision and handoff (section 6),
  * HELLO / REBOOT / FW_BEGIN / FW_DATA / FW_END / FW_ABORT (sections 4, 4.2)
  * over class-compliant USB-MIDI, image check (section 5). The app area is
- * 0x08002400-0x0801AFFF (GEMIFI_IMG_BASE..GEMIFI_IMG_LIMIT), the same as
- * under M-Audio's bootloader, so app builds don't change.
+ * GEMIFI_IMG_BASE..GEMIFI_IMG_LIMIT (Code 61: 0x08002400-0x0801AFFF, the
+ * same as under M-Audio's bootloader, so app builds don't change).
  *
  * Stays in update mode if:
- *   - the update flag is set at 0x0801FC00 (recovery.h). gemifi apps set it
- *     on REBOOT(1) and on their own reset-time combo; the stock M-Audio app
- *     sets the same flag when its updater asks. The flag is cleared here;
- *   - the entry combo is held at reset: UP + DOWN (the two leftmost top-row
- *     buttons; matrix row 16, PB8 + PB9, verified on hardware 2026-11-03);
+ *   - the update flag is set (BOARD_FLAG_PAGE, recovery.h). gemifi apps set
+ *     it on REBOOT(1) and on their own reset-time combo; the stock M-Audio
+ *     app sets the same flag when its updater asks. The flag is cleared here;
+ *   - the board's entry combo (BOARD_RECOVERY_*, the same pins as the app's
+ *     recovery.c) is held at reset. Code 61: UP + DOWN (the two leftmost
+ *     top-row buttons; matrix row 16, PB8 + PB9, verified on hardware
+ *     2026-11-03);
  *   - the boot-loop guard trips (sysex.md 6, as on the NUC): a gemifi image
  *     came back here MAILBOX_BOOT_TRIES times in a row without clearing the
  *     SRAM mailbox's boot_count (it does after running 5 s). A cold start
@@ -29,7 +32,8 @@
  * Every reset, the mailbox gets the reset flags (RCC_CSR, then cleared) in
  * its second word, for the app's diag.reset_reason (sysex.md 4.10).
  *
- * In update mode, holding the power button for 2 s switches the board off.
+ * In update mode, holding the power button for 2 s switches the board off
+ * (boards with soft power), and the update LED blinks (boards with one).
  *
  * Safety rules (do not relax):
  *   - Only [GEMIFI_IMG_BASE, GEMIFI_IMG_LIMIT) is ever erased or written,
@@ -59,14 +63,18 @@
 
 #define TARGET_BASE  GEMIFI_IMG_BASE
 #define TARGET_SIZE  (GEMIFI_IMG_LIMIT - GEMIFI_IMG_BASE)
-#define PAGE         BOARD_FLASH_PAGE   /* flash erase page: 1 KB */
+#define PAGE         BOARD_FLASH_PAGE   /* flash erase page: 1 KB (Code 61) or 2 KB */
 /* The upload order is protocol, not flash (sysex.md 4.2 rule 2): chunks from
  * 0x200 upward, then 0x000-0x1FF last, none crossing a 512-byte boundary.
  * FW_BEGIN erases flash page 0 (0x000-0x3FF), so 0x200-0x3FF is blank when
  * the first chunks arrive; later flash pages are erased at their start. */
 #define PROTO_PAGE   512u
-#define SRAM_BASE    0x20000000u
-#define SRAM_SIZE    (20u * 1024u)
+#define SRAM_BASE    BOARD_RAM_BASE
+#define SRAM_SIZE    BOARD_RAM_SIZE
+
+_Static_assert(PAGE % PROTO_PAGE == 0, "a flash page holds whole 512-byte upload pages");
+_Static_assert(GEMIFI_IMG_BASE % PAGE == 0 && GEMIFI_IMG_BASE == BOARD_FLASH_BASE + BOARD_BOOT_SIZE,
+               "the app starts on the page right after the bootloader, so no app erase touches it");
 
 /* ---- the marker apps look for (gemifi_image.h) -------------------------- */
 __attribute__((section(".gemifi_boot_mark"), used))
@@ -325,28 +333,87 @@ static void handle_frame(void)
 
 /* ---- board ------------------------------------------------------------ */
 
-/* Entry combo: matrix row 16 selected (PB3..PB7 low; JTAG off frees PB3/PB4),
- * columns PB8 + PB9 pulled up, both read low = held. Pins go back to reset
- * state afterwards. */
+#ifdef BOARD_RECOVERY_PORT
+/* GPIO_CRL/CRH bits for the pins in an 8-bit mask m, each set to cfg.
+ * Constant for constant arguments, so a whole-register field becomes a plain
+ * store and an empty one no access at all. */
+#define CR_NIB(m, b, cfg) ((((m) >> (b)) & 1u) ? (uint32_t)(cfg) << (4u * (b)) : 0u)
+#define CR_BITS(m, cfg) (CR_NIB(m, 0, cfg) | CR_NIB(m, 1, cfg) | CR_NIB(m, 2, cfg) | CR_NIB(m, 3, cfg) | \
+                         CR_NIB(m, 4, cfg) | CR_NIB(m, 5, cfg) | CR_NIB(m, 6, cfg) | CR_NIB(m, 7, cfg))
+#define CR_SET(reg, m, cfg) do {                                              \
+        if (((m) & 0xFFu) == 0xFFu)                                           \
+            (reg) = CR_BITS((m) & 0xFFu, cfg);                                \
+        else if ((m) & 0xFFu)                                                 \
+            (reg) = ((reg) & ~CR_BITS((m) & 0xFFu, 0xFu)) | CR_BITS((m) & 0xFFu, cfg); \
+    } while (0)
+/* Set the pins of a 16-bit mask on port to cfg, CRL first. */
+#define PINS_CFG(port, m, cfg) do {                                           \
+        CR_SET(GPIO_CRL(port), (m), cfg);                                     \
+        CR_SET(GPIO_CRH(port), (m) >> 8, cfg);                                \
+    } while (0)
+
+#ifndef BOARD_RECOVERY_PULL_MASK
+#define BOARD_RECOVERY_PULL_MASK BOARD_RECOVERY_MASK
+#endif
+#define RC_PULL (BOARD_RECOVERY_PULL_MASK | BOARD_RECOVERY_MASK)
+
+/* Entry combo, the same pins as recovery.c (board profile `recovery`): the
+ * drive pins (if any) at their level, the inputs pulled towards "released",
+ * then every pin in BOARD_RECOVERY_MASK active in 3 samples over ~20 ms.
+ * Code 61: matrix row 16 selected (PB3..PB7 low; JTAG off frees PB3/PB4),
+ * columns PB8..PB15 pulled up, PB8 + PB9 both low = held. Pins go back to
+ * their reset state afterwards. */
 static int combo_held(void)
 {
-    RCC_APB2ENR |= RCC_APB2_AFIO | RCC_APB2_IOP(PORTB);
+#ifdef BOARD_RECOVERY_SWJ_NOJTAG
+    RCC_APB2ENR |= RCC_APB2_AFIO | RCC_APB2_IOP(BOARD_RECOVERY_PORT);
     AFIO_MAPR = (AFIO_MAPR & ~AFIO_MAPR_SWJ_MASK) | AFIO_MAPR_SWJ_NOJTAG;
-    GPIO_BRR(PORTB) = 0x1Fu << 3;
-    GPIO_CRL(PORTB) = (GPIO_CRL(PORTB) & 0x00000FFFu) | 0x11111000u;  /* PB3..7 out */
-    GPIO_BSRR(PORTB) = 0xFF00u;                                         /* pull-ups */
-    GPIO_CRH(PORTB) = 0x88888888u;                                      /* PB8..15 in */
+#else
+    RCC_APB2ENR |= RCC_APB2_IOP(BOARD_RECOVERY_PORT);
+#endif
+#ifdef BOARD_RECOVERY_DRIVE_PORT
+#if BOARD_RECOVERY_DRIVE_PORT != BOARD_RECOVERY_PORT
+    RCC_APB2ENR |= RCC_APB2_IOP(BOARD_RECOVERY_DRIVE_PORT);
+#endif
+    if (BOARD_RECOVERY_DRIVE_LEVEL)
+        GPIO_BSRR(BOARD_RECOVERY_DRIVE_PORT) = BOARD_RECOVERY_DRIVE_MASK;
+    else
+        GPIO_BRR(BOARD_RECOVERY_DRIVE_PORT) = BOARD_RECOVERY_DRIVE_MASK;
+    PINS_CFG(BOARD_RECOVERY_DRIVE_PORT, BOARD_RECOVERY_DRIVE_MASK, GPIO_CFG_OUT_PP);
+#endif
+    if (BOARD_RECOVERY_ACTIVE)
+        GPIO_BRR(BOARD_RECOVERY_PORT) = RC_PULL;                        /* pull-downs */
+    else
+        GPIO_BSRR(BOARD_RECOVERY_PORT) = RC_PULL;                       /* pull-ups */
+    PINS_CFG(BOARD_RECOVERY_PORT, RC_PULL, GPIO_CFG_PULL);
     int held = 1;
     for (uint32_t i = 0; i < 3u && held; i++) {
         sys_delay_ms(i ? 10u : 1u);
-        if (GPIO_IDR(PORTB) & ((1u << 8) | (1u << 9)))
+        uint32_t idr = GPIO_IDR(BOARD_RECOVERY_PORT);
+        if ((BOARD_RECOVERY_ACTIVE ? ~idr : idr) & BOARD_RECOVERY_MASK)
             held = 0;
     }
-    GPIO_CRH(PORTB) = 0x44444444u;
-    GPIO_CRL(PORTB) = (GPIO_CRL(PORTB) & 0x00000FFFu) | 0x44444000u;
-    GPIO_BRR(PORTB) = 0xFFF8u;
+    PINS_CFG(BOARD_RECOVERY_PORT, RC_PULL, GPIO_CFG_FLOAT);
+#ifdef BOARD_RECOVERY_DRIVE_PORT
+    PINS_CFG(BOARD_RECOVERY_DRIVE_PORT, BOARD_RECOVERY_DRIVE_MASK, GPIO_CFG_FLOAT);
+#if BOARD_RECOVERY_DRIVE_PORT == BOARD_RECOVERY_PORT
+    GPIO_BRR(BOARD_RECOVERY_PORT) = RC_PULL | BOARD_RECOVERY_DRIVE_MASK;
+#else
+    GPIO_BRR(BOARD_RECOVERY_PORT) = RC_PULL;
+    GPIO_BRR(BOARD_RECOVERY_DRIVE_PORT) = BOARD_RECOVERY_DRIVE_MASK;
+#endif
+#else
+    GPIO_BRR(BOARD_RECOVERY_PORT) = RC_PULL;
+#endif
     return held;
 }
+#else
+/* No entry combo on this board (profile recovery: null). */
+static int combo_held(void)
+{
+    return 0;
+}
+#endif
 
 static void make_serial(void)
 {
@@ -377,13 +444,36 @@ __attribute__((noreturn)) static void do_reboot(void)
     sys_reset();
 }
 
+#ifdef BOARD_POWER_LATCH_PIN
 __attribute__((noreturn)) static void power_off(void)
 {
     usbd_disconnect();
-    GPIO_BRR(PORTC) = 1u << BOARD_POWER_LATCH_PIN;   /* off once the button is released */
+    GPIO_BRR(BOARD_POWER_LATCH_PORT) = 1u << BOARD_POWER_LATCH_PIN;   /* off once the button is released */
     for (;;) {
     }
 }
+#endif
+
+#ifdef BOARD_UPDATE_LED_PIN
+#define UPDATE_LED_BLINK_MS 250u
+static void update_led(int on)
+{
+    if ((on != 0) != (BOARD_UPDATE_LED_ACTIVE_LOW != 0))
+        GPIO_BSRR(BOARD_UPDATE_LED_PORT) = 1u << BOARD_UPDATE_LED_PIN;
+    else
+        GPIO_BRR(BOARD_UPDATE_LED_PORT) = 1u << BOARD_UPDATE_LED_PIN;
+}
+
+static void update_led_init(void)
+{
+    RCC_APB2ENR |= RCC_APB2_IOP(BOARD_UPDATE_LED_PORT);
+    update_led(1);
+    volatile uint32_t *cr = BOARD_UPDATE_LED_PIN < 8 ? &GPIO_CRL(BOARD_UPDATE_LED_PORT)
+                                                     : &GPIO_CRH(BOARD_UPDATE_LED_PORT);
+    uint32_t sh = 4u * (BOARD_UPDATE_LED_PIN & 7u);
+    *cr = (*cr & ~(0xFu << sh)) | GPIO_CFG_OUT_PP << sh;
+}
+#endif
 
 __attribute__((noreturn)) static void update_mode(void)
 {
@@ -394,7 +484,12 @@ __attribute__((noreturn)) static void update_mode(void)
     rx.buf = rx_buf;
     rx.cap = sizeof(rx_buf);
     usbd_init(&usb_desc);
+#ifdef BOARD_UPDATE_LED_PIN
+    update_led_init();
+#endif
+#ifdef BOARD_POWER_LATCH_PIN
     uint32_t btn_since = 0;
+#endif
     for (;;) {
         usbd_poll();
         if (midi_rx_poll(&rx)) {
@@ -402,13 +497,19 @@ __attribute__((noreturn)) static void update_mode(void)
             gsx_rx_reset(&rx);
         }
         uint32_t now = sys_tick_ms();
+#ifdef BOARD_POWER_LATCH_PIN
         /* Power button held 2 s (not during an upload): switch off. Pressed
          * at power-on counts only once it has been released. */
-        int pressed = !(GPIO_IDR(PORTC) & (1u << BOARD_POWER_BTN_PIN));
+        int pressed = !(GPIO_IDR(BOARD_POWER_BTN_PORT) & (1u << BOARD_POWER_BTN_PIN));
         if (!pressed)
             btn_since = now | 1u;
         else if (btn_since && fw_state == FW_IDLE && now - btn_since >= POWER_OFF_HOLD_MS)
             power_off();
+#endif
+#ifdef BOARD_UPDATE_LED_PIN
+        /* Blink while waiting, steady on during an upload. */
+        update_led(fw_state != FW_IDLE || (now / UPDATE_LED_BLINK_MS) % 2u == 0);
+#endif
         if (reboot_mode && (int32_t)(now - reboot_at) >= 0)
             do_reboot();
     }
@@ -416,7 +517,8 @@ __attribute__((noreturn)) static void update_mode(void)
 
 int main(void)
 {
-    /* Power is already latched (board_gpio_init from Reset_Handler). SysTick
+    /* Power is already latched on soft-power boards (board_gpio_init from
+     * Reset_Handler). SysTick
      * on the 8 MHz HSI is enough for the decision. */
     sys_tick_init();
 

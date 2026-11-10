@@ -12,11 +12,17 @@ BUILD  ?= build
 HOSTCC ?= gcc
 CFLAGS := -O1 -g -Wall -Wextra -Werror -DCS_TEST -Istub -I$(PLAT)/include -I$(ROOT)/core/include
 
+# The board profile's generated layout, as in a firmware build (platform/board-profile.mk).
+PLATFORM_NAME := stm32f1
+BOARD ?= m-audio-code61
+include $(ROOT)/platform/board-profile.mk
+CFLAGS += -I$(BOARD_GEN)
+
 .PHONY: test clean
 test: $(BUILD)/cs_test
 	$(BUILD)/cs_test
 
-$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c stub/flash.h stub/board.h | $(BUILD)
+$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c stub/flash.h stub/board.h $(BOARD_GEN)/board_layout.h | $(BUILD)
 	$(HOSTCC) $(CFLAGS) -o $@ cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c
 
 $(BUILD):

@@ -200,6 +200,10 @@ def device_schema():
         "board_id": T("integer", minimum=0, maximum=0x3FFF),
         "platform": enum(gd.PLATFORMS),
         "chip": STR,
+        "board": {"enum": [b for p in gd.gbd.PLATFORMS for b in gd.gbd.boards(p)],
+                  "description": "the board profile (platform/<platform>/boards/<board>.json: layout and board "
+                                 "pins; " + ", ".join(f"{p}: {b}" for p, b in gd.gbd.DEFAULT_BOARD.items()) +
+                                 " when left out)"},
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),

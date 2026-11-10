@@ -106,5 +106,81 @@ class TestCli(unittest.TestCase):
             self.assertFalse(os.path.exists(dst + "2"))
 
 
+def f1_image(n=0x400, base=0x08002400, sp=0x20004F00):
+    """An STM32F1 app: header slot at 0x130, reset vector inside the image."""
+    raw = bytearray((i * 5 + 1) & 0xFF for i in range(n))
+    struct.pack_into("<II", raw, 0, sp, base + 0x151)
+    raw[0x130:0x150] = bytes(32)
+    return bytes(raw)
+
+
+DIY_LAYOUT = {"gemifi_board_layout": 1, "board_id": 0x3F03, "profile": "generic-stm32f103c8",
+              "name": "Generic STM32F103C8", "platform": "stm32f1", "hdr_offset": 0x130, "base": 0x08002400,
+              "max_size": 0xCC00, "area": "the app area", "sram_start": 0x20000000, "sram_end": 0x20005000,
+              "page": 1024}
+
+
+class TestDiyBoard(unittest.TestCase):
+    """DIY board ids (0x3F00+): the layout comes with the build (issue #116)."""
+
+    def setUp(self):
+        self.saved = dict(gi.BOARDS), list(gi.HDR_OFFSETS)
+
+    def tearDown(self):
+        gi.BOARDS.clear()
+        gi.BOARDS.update(self.saved[0])
+        gi.HDR_OFFSETS[:] = self.saved[1]
+
+    def run_cli(self, *args):
+        return TestCli.run_cli(self, *args)
+
+    def test_needs_a_layout(self):
+        with self.assertRaisesRegex(gi.ImageError, "DIY board"):
+            gi.make_image(f1_image(), 0x3F03, 0)
+        with self.assertRaisesRegex(gi.ImageError, "unknown board_id 0x1234"):
+            gi.make_image(f1_image(), 0x1234, 0, hdr_offset=0x130, base=0x08002400, max_size=0xCC00)
+
+    def test_flags_give_the_layout(self):
+        img = gi.make_image(f1_image(), 0x3F03, 0, hdr_offset=0x130, base=0x08002400, max_size=0xCC00)
+        h = gi.check_image(img, 0x3F03, hdr_offset=0x130, base=0x08002400, max_size=0xCC00)
+        self.assertEqual((h.board_id, h.image_size), (0x3F03, 0x400))
+        with self.assertRaisesRegex(gi.ImageError, "DIY board"):
+            gi.check_image(img)                                   # no layout: not checkable
+        with self.assertRaisesRegex(gi.ImageError, "the app area is 1024"):
+            gi.make_image(f1_image(0x404), 0x3F03, 0, hdr_offset=0x130, base=0x08002400, max_size=0x400)
+
+    def test_layout_file_and_sidecar(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            src, dst, lay = (os.path.join(d, n) for n in ("app.bin", "app.gfw", "layout.json"))
+            with open(src, "wb") as f:
+                f.write(f1_image())
+            with open(lay, "w") as f:
+                json.dump(DIY_LAYOUT, f)
+            rc, out = self.run_cli(src, dst, "--board", "0x3F03", "--version", "0.2.0", "--layout", lay)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("Generic STM32F103C8, stm32f1", out)
+            rc, out = self.run_cli(src, dst, "--board", "0x3F04", "--version", "0.2.0", "--layout", lay)
+            self.assertEqual(rc, 1)
+            self.assertIn("is board 0x3f03", out)
+            gi.BOARDS.pop(0x3F03)
+            rc, out = self.run_cli("--check", dst)
+            self.assertEqual(rc, 1)                               # no sidecar yet
+            self.assertIn("DIY board", out)
+            os.replace(lay, gi.sidecar_path(dst))                 # app.board.json
+            rc, out = self.run_cli("--check", dst)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("board 0x3f03", out)
+
+    def test_layout_of_a_table_board_acts_as_flags(self):
+        code61 = dict(DIY_LAYOUT, board_id=2, name="M-Audio Code 61", max_size=102398)
+        bid, board = gi.board_from_layout(code61)
+        self.assertEqual(gi.register_board(bid, board), gi.BOARDS[2])   # the table entry stays
+        with self.assertRaisesRegex(gi.ImageError, "platform"):
+            gi.board_from_layout(dict(DIY_LAYOUT, hdr_offset=0xC0))
+        with self.assertRaisesRegex(gi.ImageError, "DIY range"):
+            gi.register_board(0x0100, board)
+
+
 if __name__ == "__main__":
     unittest.main()

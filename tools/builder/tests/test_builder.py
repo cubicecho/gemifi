@@ -566,6 +566,7 @@ class TestValidation(unittest.TestCase):
             for name, body in gd.generate(d, "t.yaml").items():
                 with open(os.path.join(out, name), "w", encoding="utf-8") as f:
                     f.write(body)
+            gd.gbd.generate("stm32f1", d.board["id"], out)     # board_layout.h, as make does
             r = subprocess.run(["arm-none-eabi-gcc", "-mcpu=cortex-m3", "-mthumb", "-std=gnu11", "-Wall",
                                 "-Wextra", "-Wno-unused-parameter", "-Werror", "-fsyntax-only",
                                 "-I" + out, "-I" + os.path.join(plat, "include"), "-I" + CORE_INC,
@@ -3092,7 +3093,9 @@ class TestYamlReference(unittest.TestCase):
     """web/updater/src/builder/yaml-reference.json: the examples the web editor shows must validate, and the
     settings they name must be the builder's (PARAMS)."""
     REF = os.path.join(REPO, "web", "updater", "src", "builder", "yaml-reference.json")
-    BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB").split("buttons:")[0]
+    # A DIY board (the examples are for any board): no board pins of its own in the way.
+    BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1\nboard: generic-stm32f103c8").replace(
+        "NUC120LC1BN", "STM32F103C8").split("buttons:")[0]
 
     def test_examples_validate(self):
         with open(self.REF, encoding="utf-8") as f:

@@ -116,6 +116,14 @@
     "chip": {
       "type": "string"
     },
+    "board": {
+      "enum": [
+        "m-audio-code61",
+        "generic-stm32f103c8",
+        "keystation-mini32-mk3"
+      ],
+      "description": "the board profile (platform/<platform>/boards/<board>.json: layout and board pins; stm32f1: m-audio-code61, nuvoton-nuc1xx: keystation-mini32-mk3 when left out)"
+    },
     "usb": {
       "anyOf": [
         {

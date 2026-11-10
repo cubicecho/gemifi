@@ -2,11 +2,16 @@
 
 32-byte little-endian header right after the vector table. Where that is depends on the board (BOARDS):
 0xC0 on NUC1xx (48 vectors, image linked at 0x0), 0x130 on STM32F1 (76 vectors, linked at 0x08002400).
+A DIY board (board_id 0x3F00-0x3FFF, protocol/sysex.md 7) isn't in the table: its layout comes with the build,
+the layout.json the board profile generates (tools/builder/gemifi_board.py; copied next to the .gfw as
+<name>.board.json), or mkimage's --hdr-offset / --base / --max-size flags.
 Header fields:
   magic 'GMFI' (0x49464D47), hdr_version u16 = 1, board_id u16, image_size u32 (multiple of 4),
   crc32 u32 (zlib CRC-32 over [0, image_size) with this field taken as 0), fw_version u32
   (major<<24 | minor<<16 | patch), proto_version u32 = 1, reserved[2] = 0xFFFFFFFF.
 """
+import json
+import os
 import struct
 import zlib
 from dataclasses import dataclass
@@ -43,10 +48,78 @@ BOARDS = {
     0x0002: Board("M-Audio Code 61", CODE61_MAX, "stm32f1", 0x130, CODE61_BASE, 0x20010000, "the app area"),
 }
 HDR_OFFSETS = sorted({b.hdr_offset for b in BOARDS.values()})
+DIY_IDS = range(0x3F00, 0x4000)
+KNOWN_HDR_OFFSETS = {"nuvoton-nuc1xx": HDR_OFFSET, "stm32f1": 0x130}
 
 
 class ImageError(ValueError):
     pass
+
+
+def board_from_layout(d, what="layout"):
+    """-> (board_id, Board) from a build's layout.json (gemifi_board.py image_layout)."""
+    if not isinstance(d, dict) or d.get("gemifi_board_layout") != 1:
+        raise ImageError(f"{what}: not a gemifi board layout (gemifi_board_layout: 1)")
+    try:
+        bid, off, base, size, sram_end = (int(d[k]) for k in ("board_id", "hdr_offset", "base", "max_size",
+                                                               "sram_end"))
+    except (KeyError, TypeError, ValueError) as e:
+        raise ImageError(f"{what}: missing or bad field ({e})") from None
+    plat = str(d.get("platform", ""))
+    if KNOWN_HDR_OFFSETS.get(plat) != off:
+        raise ImageError(f"{what}: platform '{plat}' with the header at 0x{off:x} isn't a known layout")
+    if not 0 < bid <= 0x3FFF or size <= 0 or size % 2 or not SRAM_BASE < sram_end <= SRAM_BASE + 0x100000:
+        raise ImageError(f"{what}: board_id, max_size or sram_end out of range")
+    name = str(d.get("name") or f"DIY board 0x{bid:04x}")
+    return bid, Board(name, size, plat, off, base, sram_end, str(d.get("area") or "the app area"))
+
+
+def load_layout(path):
+    """-> (board_id, Board) from a layout.json file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        raise ImageError(f"{path}: {e}") from None
+    return board_from_layout(d, path)
+
+
+def register_board(board_id, board):
+    """Add a DIY board (from its layout) to BOARDS, so make_image / check_image know it. A board the table
+    already has keeps its table entry."""
+    if board_id in BOARDS:
+        return BOARDS[board_id]
+    if board_id not in DIY_IDS:
+        raise ImageError(f"board_id 0x{board_id:04x} isn't a known board, nor in the DIY range 0x3F00-0x3FFF")
+    BOARDS[board_id] = board
+    if board.hdr_offset not in HDR_OFFSETS:
+        HDR_OFFSETS.append(board.hdr_offset)
+        HDR_OFFSETS.sort()
+    return board
+
+
+def sidecar_path(image_path):
+    """Where a build puts an image's layout: app.gfw -> app.board.json."""
+    return os.path.splitext(image_path)[0] + ".board.json"
+
+
+def load_sidecar(image_path):
+    """Register the layout next to an image, if there is one (a DIY board's build). -> board_id or None."""
+    path = sidecar_path(image_path)
+    if not os.path.exists(path):
+        return None
+    bid, board = load_layout(path)
+    register_board(bid, board)
+    return bid
+
+
+def diy_board(board_id, hdr_offset, base, max_size, sram_end=None):
+    """A DIY board from explicit layout values (mkimage flags), or None if one of them is missing."""
+    if board_id not in DIY_IDS or None in (hdr_offset, base, max_size):
+        return None
+    plat = next((p for p, o in KNOWN_HDR_OFFSETS.items() if o == hdr_offset), "?")
+    return Board(f"DIY board 0x{board_id:04x}", max_size, plat, hdr_offset, base,
+                 SRAM_BASE + 0x10000 if sram_end is None else sram_end, "the app area")
 
 
 @dataclass
@@ -88,12 +161,25 @@ class Layout(NamedTuple):
     area: str
 
 
-def layout(board_id, hdr_offset=None, base=None, max_size=None):
-    """The board's layout, with any of hdr_offset / base / max_size overridden (mkimage flags)."""
-    b = BOARDS.get(board_id, BOARDS[0x0001])
+def layout(board_id, hdr_offset=None, base=None, max_size=None, sram_end=None):
+    """The board's layout, with any of hdr_offset / base / max_size / sram_end overridden (mkimage flags).
+    A DIY board_id that isn't registered takes its whole layout from the overrides."""
+    b = BOARDS.get(board_id) or diy_board(board_id, hdr_offset, base, max_size, sram_end) or BOARDS[0x0001]
     return Layout(b.hdr_offset if hdr_offset is None else hdr_offset, b.base if base is None else base,
-                  b.max_size if max_size is None else max_size, b.sram_end,
-                  b.area if max_size is None else "the limit")
+                  b.max_size if max_size is None else max_size, b.sram_end if sram_end is None else sram_end,
+                  b.area if max_size is None or board_id not in BOARDS else "the limit")
+
+
+def known_board(board_id, hdr_offset=None, base=None, max_size=None):
+    """Whether board_id has a layout: in the table (or registered), or a DIY id with explicit values."""
+    return board_id in BOARDS or diy_board(board_id, hdr_offset, base, max_size) is not None
+
+
+def unknown_board_text(board_id):
+    if board_id in DIY_IDS:
+        return (f"board_id 0x{board_id:04x} is a DIY board: give its layout (mkimage --layout <build>/board/"
+                f"layout.json, the .board.json next to the image, or --hdr-offset, --base and --max-size)")
+    return f"unknown board_id 0x{board_id:04x} (known: {', '.join(f'0x{b:04x}' for b in BOARDS)}; DIY: 0x3F00-0x3FFF)"
 
 
 def image_crc(img, hdr_offset=HDR_OFFSET):
@@ -136,14 +222,16 @@ def check_vectors(img, size, base=0, sram_end=SRAM_END):
     return errs
 
 
-def make_image(raw, board_id, fw_version, check_vec=True, hdr_offset=None, base=None, max_size=None):
+def make_image(raw, board_id, fw_version, check_vec=True, hdr_offset=None, base=None, max_size=None,
+               sram_end=None):
     """Return the .gfw bytes: raw padded with 0xFF to a multiple of 4, header filled in at the board's offset
-    (or hdr_offset). base and max_size override the board's link address and size limit."""
+    (or hdr_offset). base, max_size and sram_end override the board's link address, size limit and SRAM end;
+    a DIY board_id needs hdr_offset, base and max_size unless its layout is registered."""
     if not 0 <= board_id <= 0x3FFF:
         raise ImageError(f"board_id 0x{board_id:x} doesn't fit a u14 (max 0x3FFF)")
-    if board_id not in BOARDS:
-        raise ImageError(f"unknown board_id 0x{board_id:04x} (known: {', '.join(f'0x{b:04x}' for b in BOARDS)})")
-    lay = layout(board_id, hdr_offset, base, max_size)
+    if not known_board(board_id, hdr_offset, base, max_size):
+        raise ImageError(unknown_board_text(board_id))
+    lay = layout(board_id, hdr_offset, base, max_size, sram_end)
     off = lay.hdr_offset
     img = bytearray(raw)
     if len(img) < off + HDR_SIZE:
@@ -166,7 +254,7 @@ def make_image(raw, board_id, fw_version, check_vec=True, hdr_offset=None, base=
     return bytes(img)
 
 
-def check_image(img, board_id=None, check_vec=True, hdr_offset=None, base=None, max_size=None):
+def check_image(img, board_id=None, check_vec=True, hdr_offset=None, base=None, max_size=None, sram_end=None):
     """Validate a .gfw the way the bootloader will (sysex.md section 5). Returns the Header or raises.
     The header is looked for at the board's offset (hdr_offset overrides)."""
     explicit = hdr_offset is not None
@@ -182,11 +270,11 @@ def check_image(img, board_id=None, check_vec=True, hdr_offset=None, base=None, 
         errs.append(f"hdr_version {h.hdr_version} is not {HDR_VERSION}")
     if h.board_id > 0x3FFF:
         errs.append(f"board_id 0x{h.board_id:04x} doesn't fit a u14 (max 0x3FFF)")
-    elif h.board_id not in BOARDS:
-        errs.append(f"unknown board_id 0x{h.board_id:04x}")
+    elif not known_board(h.board_id, hdr_offset, base, max_size):
+        errs.append(unknown_board_text(h.board_id))
     if board_id is not None and h.board_id != board_id:
         errs.append(f"board_id 0x{h.board_id:04x} is not the expected 0x{board_id:04x}")
-    lay = layout(h.board_id, hdr_offset, base, max_size)
+    lay = layout(h.board_id, hdr_offset, base, max_size, sram_end)
     if not explicit and h.board_id in BOARDS and BOARDS[h.board_id].hdr_offset != hdr_offset and not errs:
         errs.append(f"header at 0x{hdr_offset:x}, but board 0x{h.board_id:04x} has it at "
                     f"0x{BOARDS[h.board_id].hdr_offset:x}")

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { boardFromLayout } from './boards.ts';
 import { CRC_FIELD_OFFSET, crc32, imageCrc, planChunks, readHeader, validateImage } from './image.ts';
 import { makeTestImage } from './test-support.ts';
 
@@ -26,6 +27,34 @@ describe('validateImage (§5)', () => {
     expect(outside.ok === false && outside.problems.join()).toMatch(/reset vector/);
     const wrongDevice = validateImage(makeTestImage(code61), 1);
     expect(wrongDevice.ok === false && wrongDevice.problems.join()).toMatch(/device is board 0x0001/);
+  });
+
+  it('checks a DIY board image against the layout from its build', () => {
+    const bluepill = { boardId: 0x3f03, headerOffset: 0x130, stackPointer: 0x2000_4f00, resetVector: 0x0800_2545 };
+    const image = makeTestImage(bluepill);
+    const alone = validateImage(image, 0x3f03);
+    expect(alone.ok === false && alone.problems.join()).toMatch(/DIY board: add the \.board\.json/);
+    const board = boardFromLayout(
+      JSON.stringify({
+        gemifi_board_layout: 1,
+        board_id: 0x3f03,
+        platform: 'stm32f1',
+        hdr_offset: 0x130,
+        base: 0x0800_2400,
+        max_size: 0xcc00,
+        sram_start: 0x2000_0000,
+        sram_end: 0x2000_5000,
+      }),
+    );
+    if (typeof board === 'string') {
+      throw new Error(board);
+    }
+    const result = validateImage(image, 0x3f03, [board]);
+    expect(result.ok && result.image.board.id).toBe(0x3f03);
+    const tooBig = validateImage(makeTestImage(bluepill), undefined, [{ ...board, apromBytes: 512 }]);
+    expect(tooBig.ok === false && tooBig.problems.join()).toMatch(/512 bytes of the app area/);
+    const wrongStack = validateImage(makeTestImage({ ...bluepill, stackPointer: 0x2000_6000 }), 0x3f03, [board]);
+    expect(wrongStack.ok === false && wrongStack.problems.join()).toMatch(/stack pointer/);
   });
 
   it('accepts a well-formed image', () => {

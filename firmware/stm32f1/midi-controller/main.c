@@ -35,7 +35,7 @@
 #include "gm_safety.h"
 
 #ifdef BOARD_POWER_LATCH_PIN
-/* Soft power (board header): the power button held 2 s switches off, as the
+/* Soft power (the board profile's soft_power): the power button held 2 s switches off, as the
  * stock app and the bootloader do. A press that powered the board on counts
  * only once it has been released. */
 #define POWER_OFF_HOLD_MS 2000u
@@ -45,7 +45,7 @@ static void power_off(void)
 {
     presets_flush();                 /* a preset switch still waiting to be stored */
     usbd_disconnect();
-    GPIO_BRR(PORTC) = 1u << BOARD_POWER_LATCH_PIN;   /* off once the button is released */
+    GPIO_BRR(BOARD_POWER_LATCH_PORT) = 1u << BOARD_POWER_LATCH_PIN;   /* off once the button is released */
     /* The board runs on the button until then, and on its capacitors for a
      * while after. Nothing here may reset: any reset (ours, the watchdog's,
      * a fault spinning into it) runs the bootloader, which latches the
@@ -59,7 +59,7 @@ static void power_off(void)
 
 static void power_poll(uint32_t now)
 {
-    int pressed = !(GPIO_IDR(PORTC) & (1u << BOARD_POWER_BTN_PIN));
+    int pressed = !(GPIO_IDR(BOARD_POWER_BTN_PORT) & (1u << BOARD_POWER_BTN_PIN));
     if (!pressed)
         power_btn_since = now | 1u;
     else if (power_btn_since && now - power_btn_since >= POWER_OFF_HOLD_MS)

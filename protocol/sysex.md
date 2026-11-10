@@ -602,12 +602,12 @@ On the Code 61 there is no gemifi bootloader. M-Audio's bootloader stays, and it
 |---|---|---|
 | M-Audio Keystation Mini 32 MK3 | 0x0001 | Nuvoton NUC120LC1BN (32 KB APROM, 4 KB LDROM, 4 KB SRAM) |
 | M-Audio Code 61 | 0x0002 | STM32F103-class (possibly a clone), 1 KB flash pages; M-Audio's bootloader stays |
-| DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F02 `esp8266-example`) |
+| DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F02 `esp8266-example`, 0x3F03 `diy-bluepill`) |
 
 USB IDs during development: pid.codes **test** PIDs, development use only. Bootloader `1209:0001`, app `1209:0002` (verify against pid.codes' test range before relying on them). Strings: manufacturer "gemifi"; product "gemifi boot (<board>)" or "gemifi (<board>)"; serial = chip UID in hex. Chips without a UID (the NUC120BN on the Keystation Mini 32) use a random 96-bit ID made on first boot and kept in the last data-flash page (`platform/nuvoton-nuc1xx/src/hal.c`); a factory reset keeps it. The bootloader reads the same record (it never writes it), so both report the same serial; before any app has made the record, the bootloader's serial is all zeros. Never reuse M-Audio's `0763:3111` or Medeli's `0A67:138F`. A device with a DAW port (core/README.md "DAW feedback") has a second USB-MIDI port (cable 1, "<name> DAW") for Mackie Control: this protocol is only spoken on the first port (cable 0), and only there do hosts find the device.
 
 ## 8. Per-board constants
-The 512-byte page, APROM size and 200 ms timeout above are NUC1xx values. Other chip families define their own; `max_chunk` (from HELLO/FW_BEGIN) and the board table (`tools/host/gemifi_image.py` `BOARDS`) carry them.
+The 512-byte page, APROM size and 200 ms timeout above are NUC1xx values. Other chip families define their own; `max_chunk` (from HELLO/FW_BEGIN) and the board table (`tools/host/gemifi_image.py` `BOARDS`) carry them. A DIY board (0x3F00–0x3FFF) isn't in the table: its build writes the layout (header offset, link address, size limit, SRAM) next to the image as `<name>.board.json`, from its board profile (`platform/<platform>/boards/<board>.json`), and the tools check the image against that.
 
 | board_id | Platform | Linked at | Header at | Max image | Upload |
 |---|---|---|---|---|---|

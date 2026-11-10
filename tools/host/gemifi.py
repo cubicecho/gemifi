@@ -1479,6 +1479,10 @@ def ab_args(a):
 def cmd_flash(a, backend_factory):
     with open(a.file, "rb") as f:
         img = f.read()
+    try:
+        gi.load_sidecar(a.file)          # a DIY board's layout, next to its .gfw (<name>.board.json)
+    except gi.ImageError as e:
+        raise GemifiError(str(e)) from None
     gfw = is_gfw(img)
     if (gfw and gi.parse_header(img, gi.find_hdr_offset(img)).board_id == mu.BOARD_ID) or \
             (not gfw and a.board == mu.BOARD_ID):

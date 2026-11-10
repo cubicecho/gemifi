@@ -5,6 +5,9 @@
  */
 #include "sys.h"
 
+_Static_assert(BOARD_CRYSTAL_HZ != 12000000u || BOARD_PLLCON == PLLCON_48MHZ_FROM_12MHZ,
+               "12 MHz crystal: PLLCON 0xC22E (48 MHz)");
+
 void sys_unlock(void)
 {
     /* TRM 5.2 REGWRPROT: write 0x59, 0x16, 0x88 back to back; bit 0 then
@@ -46,9 +49,10 @@ void sys_clock_init(void)
     CLK_CLKDIV &= ~0xFFu;            /* HCLK_N = 0, USB_N = 0 */
 
     /* 3. Re-program the PLL from a known state: power it down, then set
-     *    0xC22E (PD = 0, OE = 0, source = HXT) and wait for lock. */
-    CLK_PLLCON = PLLCON_48MHZ_FROM_12MHZ | PLLCON_PD;
-    CLK_PLLCON = PLLCON_48MHZ_FROM_12MHZ;
+     *    BOARD_PLLCON (12 MHz: 0xC22E; PD = 0, OE = 0, source = HXT) and wait
+     *    for lock. */
+    CLK_PLLCON = BOARD_PLLCON | PLLCON_PD;
+    CLK_PLLCON = BOARD_PLLCON;
     wait_status(CLKSTATUS_PLL_STB);
 
     /* 4. HCLK = PLL (48 MHz). The USB clock is PLL / (USB_N + 1) = 48 MHz. */

@@ -6,6 +6,10 @@
 #include "sys.h"
 #include "board.h"
 
+_Static_assert(BOARD_CRYSTAL_HZ / (BOARD_PLL_HSE_DIV2 ? 2u : 1u) * BOARD_PLL_MUL == HCLK_HZ_HSE &&
+               BOARD_PLL_MUL >= 2 && BOARD_PLL_MUL <= 16,
+               "the board's crystal and PLL settings must make 72 MHz (tools/builder/gemifi_board.py)");
+
 uint32_t sys_hclk_hz = 8000000u;    /* HSI until sys_clock_init() */
 static uint8_t hse_ok;
 
@@ -55,12 +59,14 @@ int sys_clock_init(void)
      *    Set before raising the clock. 48 MHz needs 1, 2 is fine too. */
     FLASH_ACR = FLASH_ACR_PRFTBE | FLASH_ACR_LATENCY(2);
 
-    /* 5. PLL: HSE x 9 = 72 MHz, USB = 72 / 1.5 = 48 MHz.
+    /* 5. PLL: HSE (or HSE / 2) x BOARD_PLL_MUL = 72 MHz (board profile;
+     *    Code 61: 8 MHz x 9), USB = 72 / 1.5 = 48 MHz.
      *    Fallback HSI / 2 x 12 = 48 MHz, USB = 48 / 1. */
     uint32_t cfgr = RCC_CFGR_HPRE_DIV1 | RCC_CFGR_PPRE1_DIV2 | RCC_CFGR_PPRE2_DIV1 |
                     RCC_CFGR_ADCPRE_DIV6;
     if (hse_ok) {
-        cfgr |= RCC_CFGR_PLLSRC_HSE | RCC_CFGR_PLLMUL(9);
+        cfgr |= RCC_CFGR_PLLSRC_HSE | RCC_CFGR_PLLMUL(BOARD_PLL_MUL) |
+                (BOARD_PLL_HSE_DIV2 ? RCC_CFGR_PLLXTPRE : 0u);
     } else {
         RCC_CR &= ~RCC_CR_HSEON;
         cfgr |= RCC_CFGR_PLLMUL(12) | RCC_CFGR_USBPRE_DIV1;

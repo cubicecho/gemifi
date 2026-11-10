@@ -1,0 +1,31 @@
+{
+  "name": "Generic STM32F103C8 (Blue Pill)",
+  "short_name": "STM32F103C8",
+  "note": "A DIY board on an STM32F103C8 (64 KB flash in 1 KB pages, 20 KB RAM, 8 MHz crystal), e.g. a Blue Pill. No board_id of its own: each device design picks one in the DIY range 0x3F00-0x3FFF (protocol/sysex.md 7). Layout: the gemifi bootloader (bootloader/stm32f1, BOARD=generic-stm32f103c8 BOARD_ID=<the device's>) in the first 9 KB, the app from 0x08002400 (the Code 61's address, so the same header offset and tools apply) up to the config pages, three config pages, and the update-request flag page in the last page. Copy this file to make a profile for your own board: give it a soft-power latch, a recovery button or a switched USB pull-up if it has them.",
+  "platform": "stm32f1",
+  "board_id": null,
+  "chip": "(STM32|GD32|CKS32|APM32|CS32)F103C[8B]\\w*",
+  "header": "generic-stm32f1.h",
+  "crystal_hz": 8000000,
+  "flash": {
+    "base": "0x08000000",
+    "size": "0x10000",
+    "page": 1024,
+    "boot_size": "0x2400",
+    "config_pages": 3,
+    "note": "Defaults: the flag page is the last page (0x0800FC00), the config pages the three below it (0x0800F000-0x0800FBFF), and the app ends where they start (52 KB of app). Many C8 chips have 128 KB, but only 64 KB is specified."
+  },
+  "ram": {
+    "size": "0x5000"
+  },
+  "usb_pullup": null,
+  "swj_nojtag": true,
+  "soft_power": null,
+  "recovery": null,
+  "update_led": {
+    "pin": "PC13",
+    "active_low": true,
+    "note": "The Blue Pill's on-board LED (to 3.3 V through a resistor, so low = on). The bootloader blinks it in update mode; the app may use PC13 as an ordinary LED."
+  },
+  "reserved": []
+}

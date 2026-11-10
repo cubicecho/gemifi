@@ -38,6 +38,8 @@ buttons:
   - { id: a, pin: PA1, action: cc_momentary, cc: 1 }
 """
 
+STM32_BASE = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
 MINIMAL_ESP = """\
 gemifi: 2
 name: test
@@ -1153,11 +1155,12 @@ class TestValidation(unittest.TestCase):
         self.assertError(t, r"mcp23017, which can't be an output.*timer interrupt")
 
     def test_encoders(self):
-        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
-                "mcp23017:\n  - { id: x }\ni2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { cd74hc4051: m, number: 0 }, "
+        hubs = ("cd74hc4051:\n  - { id: m, pin_s0: GPIO4, pin_s1: GPIO5, pin_s2: GPIO6, common_pin: GPIO1 }\n"
+                "mcp23017:\n  - { id: x }\ni2c: { sda: GPIO8, scl: GPIO9 }\n")
+        base = MINIMAL_ESP.format(plat="esp32s3", tr="usb")
+        self.assertError(base + hubs + "encoders:\n  - { id: e, pin_a: { cd74hc4051: m, number: 0 }, "
                          "pin_b: { cd74hc4051: m, number: 1 }, cc: 1 }\n", r"encoders can't be on a mux")
-        t = MINIMAL_NUC + hubs + "encoders:\n  - { id: e, pin_a: { mcp23xxx: x, number: 0 }, " \
+        t = base + hubs + "encoders:\n  - { id: e, pin_a: { mcp23xxx: x, number: 0 }, " \
             "pin_b: { mcp23xxx: x, number: 1 }, cc: 1 }\n" \
             "analog: [{ id: k, pin: { cd74hc4051: m, number: 0 }, cc: 2 }]\n"
         self.assertClean(t)
@@ -1172,13 +1175,30 @@ class TestValidation(unittest.TestCase):
         self.assertError(t, r"65 buttons: at most 64")
 
     def test_i2c_required(self):
-        t = MINIMAL_NUC + "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
+        t = MINIMAL_ESP.format(plat="esp32s3", tr="usb") + \
+            "buttons:\n  - { id: a, pin: GPIO4, action: cc_momentary, cc: 1 }\n" \
+            "pcf8574:\n  - { id: p }\nleds: [{ id: l, pin: { pcf8574: p, number: 0 } }]\n"
         self.assertError(t, r"needs the I2C pins")
-        self.assertClean(t + "i2c: { sda: PA10, scl: PA11 }\n")
-        self.assertError(t + "i2c: { sda: PA10, scl: PA1 }\n", r"PA1 is already used")
+        self.assertClean(t + "i2c: { sda: GPIO8, scl: GPIO9 }\n")
+        self.assertError(t + "i2c: { sda: GPIO8, scl: GPIO4 }\n", r"GPIO4 is already used")
         t2 = t.replace("  - { id: p }\n", "  - { id: p }\n  - { id: q }\n")
-        self.assertError(t2 + "i2c: { sda: PA10, scl: PA11 }\n", r"address 0x20 is already used")
+        self.assertError(t2 + "i2c: { sda: GPIO8, scl: GPIO9 }\n", r"address 0x20 is already used")
 
+    def test_i2c_hubs_need_a_driver(self):
+        """#115: hal_i2c_* are stubs on the NUC and the STM32F1, so their I2C hubs are refused (once
+        each, without also asking for i2c: pins)."""
+        hubs = "mcp23017:\n  - { id: m }\npcf8574:\n  - { id: p, address: 0x38 }\n" \
+               "leds: [{ id: l, pin: { mcp23xxx: m, number: 0 } }, { id: l2, pin: { pcf8574: p, number: 0 } }]\n"
+        for base in (MINIMAL_NUC, STM32_BASE):
+            plat = "nuvoton-nuc1xx" if base is MINIMAL_NUC else "stm32f1"
+            es = self.errs(base + hubs)
+            self.assertEqual(sorted(e.msg for e in es), [
+                f"mcp23017 isn't supported on {plat} yet (no I2C driver: the platform's hal_i2c_* are stubs)",
+                f"pcf8574 isn't supported on {plat} yet (no I2C driver: the platform's hal_i2c_* are stubs)"])
+            self.assertEqual({e.path for e in es}, {"mcp23017[0]", "pcf8574[0]"})
+        self.assertFalse(gd.PLATFORMS["stm32f1"].i2c or gd.PLATFORMS["nuvoton-nuc1xx"].i2c)
+        self.assertTrue(all(gd.PLATFORMS[n].i2c for n in ("esp32", "esp32s2", "esp32s3", "esp8266")))
+        self.assertClean(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + hubs + "i2c: { sda: GPIO8, scl: GPIO9 }\n")
 
     def test_matrix_at_most_32(self):
         """#115: the core scans at most 32 rows and keeps a row's columns in 32 bits."""

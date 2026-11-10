@@ -661,6 +661,8 @@ class Platform:
     transports = ("usb",)
     default_transport = "usb"
     is_esp = False
+    # Features the platform's HAL implements (a hub that needs one is refused where it's missing):
+    i2c = False             # hal_i2c_write / hal_i2c_read (mcp23017, pcf8574)
 
     def parse_pin(self, v):
         """-> pin number, or raise ValueError(friendly message)."""
@@ -770,6 +772,7 @@ class Stm32F1Platform(Platform):
 
 class EspPlatform(Platform):
     is_esp = True
+    i2c = True              # Wire (platform/esp/hal_esp.cpp)
 
     def __init__(self, name, valid, flash, strapping, input_only, adc1, adc2, usb_pins=(),
                  uart0=(), psram=(), transports=("serial",), default_transport="serial"):
@@ -1576,6 +1579,12 @@ def validate(data, file=None):
 
     # i2c
     need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
+    if need_i2c and not plat.i2c:
+        for h in dev.hubs:
+            if h.type in I2C_HUBS:
+                v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
+                                      "the platform's hal_i2c_* are stubs)")
+        need_i2c = False        # don't also ask for the i2c: pins
     if "i2c" in data:
         i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
         if i2c is not None:

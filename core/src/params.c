@@ -47,16 +47,21 @@ int params_get(uint16_t id, uint16_t index, int32_t *out)
     return GSX_OK;
 }
 
+int params_value_ok(const param_def_t *p, int32_t value)
+{
+    if (value < p->min || value > p->max)
+        return 0;
+    /* An enum option without a label is one this firmware left out
+     * (settings.c: a button action or mode the device doesn't have). */
+    return p->type != PT_ENUM || !p->options || p->options[value - p->min];
+}
+
 int params_set(uint16_t id, uint16_t index, int32_t value, int from_host)
 {
     const param_def_t *p = params_find(id);
     if (!p || index >= p->count || (from_host && (p->flags & PF_READ_ONLY)))
         return GSX_BAD_PARAM;
-    if (value < p->min || value > p->max)
-        return GSX_BAD_VALUE;
-    /* An enum option without a label is one this firmware left out
-     * (settings.c: a button action or mode the device doesn't have). */
-    if (p->type == PT_ENUM && p->options && !p->options[value - p->min])
+    if (!params_value_ok(p, value))
         return GSX_BAD_VALUE;
     p->values[index] = value;
     params_gen++;

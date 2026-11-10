@@ -470,7 +470,8 @@ int main(void)
     }
     dq_rate = 0;
     /* while the thru's SysEx goes out, the controller's bends wait in their
-     * slot, not in the 16-message queue */
+     * slot, not in the 16-message queue; after its F7 the slots go first, as
+     * outside a SysEx (a 14-bit CC's MSB, coalesced, before its LSB, held) */
     gm_cfg.din_thru = 1;
     idle();
     {
@@ -482,7 +483,7 @@ int main(void)
         local(0xB0, 64, 127, 3);
         const uint8_t e[] = { 2, 0xF7 };
         din_bytes(e, 2);
-        DOUT_IS(0xF0, 0x7D, 1, 2, 0xF7, 0xB0, 64, 127, 0xE0, 99, 64);
+        DOUT_IS(0xF0, 0x7D, 1, 2, 0xF7, 0xE0, 99, 64, 0xB0, 64, 127);
         CHECK(gm_din_out_drops == d0, "100 bends during a SysEx: none dropped");
     }
     gm_cfg.din_thru = 0;

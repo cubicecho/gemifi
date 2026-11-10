@@ -547,6 +547,19 @@ int main(void)
         CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a changing host colour never jumps to full (%d ms, %02X)",
               full_seen, chip[0].ctl);
     }
+    /* a blinking dim host colour: the chip stays at its step through the
+     * blink's dark half too (the lit button doesn't pull it to full) */
+    {
+        gm_led_script_rgb(3, 40, 0, 0, 1);
+        run_ms(20);
+        int full_seen = 0;
+        for (int ms = 0; ms < 1500; ms++) {
+            run_ms(1);
+            full_seen += chip[0].ctl == 0x8B;
+        }
+        CHECK(full_seen == 0 && chip[0].ctl == 0x88, "fade: a blinking dim colour doesn't pump the chip (%d ms full)",
+              full_seen);
+    }
     /* a host's black (FB_LED_RGB 0, 0, 0) is a colour at brightness 0: the
      * chip goes dark, not to full for the lit button */
     gm_led_script_rgb(3, 0, 0, 0, 0);

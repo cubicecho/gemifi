@@ -431,7 +431,7 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
     const uint8_t *vp = f->payload + 6;
     for (uint32_t i = 0; i < n; i++) {           /* all or nothing */
         int32_t v = (int32_t)gsx_get_u(vp + 5 * i, 5);
-        if (v < d->min || v > d->max || !presets_value_ok(id, v))
+        if (!params_value_ok(d, v) || !presets_value_ok(id, v))
             return GSX_BAD_VALUE;
     }
     params_gen++;

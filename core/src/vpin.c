@@ -589,6 +589,7 @@ int vpin_rgb(gm_pin_t p, uint32_t rgb)
 #define ADC_CELLS (GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS)
 static gm_adc_plan_t aplan;
 static uint8_t adc_on;
+static volatile uint8_t adc_swept;     /* a whole sweep is in adc_last[] since the start */
 static uint16_t adc_last[ADC_CELLS];
 /* Per cell, the highest and lowest reading of the sweeps since the pads'
  * last look, in two generations: the interrupt fills adc_gen while the main
@@ -726,6 +727,7 @@ void gm_adc_hw_started(void)
 {
 #if GM_HW_ADC
     adc_n[0] = adc_n[1] = 0;
+    adc_swept = 0;
     adc_gen = 0;
     adc_read_gen = 1;
     adc_on = 1;
@@ -746,6 +748,7 @@ void gm_adc_sweep(const uint16_t *v)
             lo[i] = x;
     }
     adc_n[g]++;
+    adc_swept = 1;
 #else
     (void)v;
 #endif
@@ -809,6 +812,8 @@ int32_t vpin_analog(gm_pin_t p)
 #if GM_HW_ADC
     int k, step;
     if (adc_on && adc_cell(p, &k, &step)) {
+        if (!adc_swept)
+            return -1;                  /* no sweep yet: adc_last[] is still zeros, not a reading */
         if (step >= 0) {
             v = adc_last[(uint32_t)step * aplan.n_pins + (uint32_t)k];
         } else {

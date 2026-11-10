@@ -283,6 +283,34 @@ int main(void)
 
     /* -- the params ------------------------------------------------------------ */
     CHECK(params_set(P_BTN_ACTION, 0, ACT_MCU, 1) == GSX_BAD_VALUE, "no mcu: the Mackie Control action is refused");
+    {
+        /* SET_PARAMS checks the same: a left-out option is refused there too
+         * (else it is stored and refused at the next boot) */
+        uint8_t buf[64], q[11];
+        int32_t a0 = gm_cfg.btn_action[0];
+        uint32_t v = ACT_MCU;
+        q[0] = P_BTN_ACTION & 0x7F;
+        q[1] = (P_BTN_ACTION >> 7) & 0x7F;
+        q[2] = q[3] = 0;                    /* index 0 */
+        q[4] = 1;                           /* one value */
+        q[5] = 0;
+        for (int i = 0; i < 5; i++, v >>= 7)
+            q[6 + i] = v & 0x7F;
+        gsx_tx_t t;
+        gsx_tx_begin(&t, buf, GSX_CMD_SET_PARAMS, 9);
+        for (int i = 0; i < 11; i++)
+            gsx_put(&t, q[i]);
+        uint16_t len = gsx_tx_end(&t);
+        out_n = 0;
+        for (int i = 0; i < len; i++)
+            gm_midi_rx_byte(buf[i]);
+        int st = -1;
+        for (int i = 0; i + GSX_OVERHEAD < out_n; i++)
+            if (out[i] == 0xF0 && out[i + 1 + GSX_OFF_CMD] == (GSX_CMD_SET_PARAMS | GSX_REPLY))
+                st = out[i + 1 + GSX_OFF_PAYLOAD];
+        CHECK(st == GSX_BAD_VALUE && gm_cfg.btn_action[0] == a0, "SET_PARAMS: the Mackie Control action is refused too (%d)",
+              st);
+    }
     CHECK(params_set(P_BTN_ACTION, 0, ACT_SYSEX, 1) == GSX_OK, "the SysEx action is there");
     CHECK(params_set(P_ANALOG_CC, 0, 16383, 1) == GSX_OK, "with NRPN, analog.cc goes to 16383");
     CHECK(params_set(P_ENC_MODE, 0, ENC_RPN14, 1) == GSX_OK && params_set(P_ENC_MODE, 0, ENC_RPN14 + 1, 1) == GSX_BAD_VALUE,

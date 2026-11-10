@@ -424,26 +424,38 @@ static void poll_part_done(uint32_t i, uint32_t *t)
 }
 
 #if GM_HAS_MATRIX
-static void kq_push(uint32_t key, int on, uint32_t dt)
+/* A key change that didn't fit (the queue was full): matrix_row leaves its
+ * bits as they were, so the next scan sees the change again; the hardware
+ * scan also takes its next frame as changed (gm_scan_frames). */
+static volatile uint8_t kq_retry;
+
+/* 1 if queued, 0 if the queue is full (the main loop stalled for > 31
+ * events): the caller keeps the key's old state, to try again. */
+static int kq_push(uint32_t key, int on, uint32_t dt)
 {
     uint8_t next = (uint8_t)((kq_head + 1u) & (KQ - 1u));
-    if (next == kq_tail)
-        return;                     /* full: main loop stalled for > 32 events */
+    if (next == kq_tail) {
+        kq_retry = 1;
+        return 0;
+    }
     kq[kq_head].key = (uint8_t)key;
     kq[kq_head].on = (uint8_t)on;
     kq[kq_head].dt = (uint16_t)(dt > 0xFFFFu ? 0xFFFFu : dt);
     kq_head = next;
+    return 1;
 }
 
 /* Two-contact key: whichever contact closes first starts the timer, both
- * closed = note on, both open = note off. */
-static void key_update(uint32_t k, uint32_t c)
+ * closed = note on, both open = note off. 0 if its event didn't fit: the
+ * key stays as it was (a note on then gets a later time: a little slower). */
+static int key_update(uint32_t k, uint32_t c)
 {
     switch (kstate[k]) {
     case K_IDLE:
         if (c == 3u) {
-            kstate[k] = K_ON;       /* both at once: as fast as we can see */
-            kq_push(k, 1, 0);
+            if (!kq_push(k, 1, 0))  /* both at once: as fast as we can see */
+                return 0;
+            kstate[k] = K_ON;
         } else if (c) {
             kstate[k] = K_TIMING;
             kt0[k] = (uint16_t)ticks;
@@ -451,19 +463,22 @@ static void key_update(uint32_t k, uint32_t c)
         break;
     case K_TIMING:
         if (c == 3u) {
+            if (!kq_push(k, 1, (uint16_t)(ticks - kt0[k])))
+                return 0;
             kstate[k] = K_ON;
-            kq_push(k, 1, (uint16_t)(ticks - kt0[k]));
         } else if (!c) {
             kstate[k] = K_IDLE;
         }
         break;
     default:
         if (!c) {
+            if (!kq_push(k, 0, 0))
+                return 0;
             kstate[k] = K_IDLE;
-            kq_push(k, 0, 0);
         }
         break;
     }
+    return 1;
 }
 
 /* One key per scan tick: a key still timing after KT0_MAX ticks stays at
@@ -522,39 +537,41 @@ static void matrix_row(const gm_matrix_t *m, uint32_t r, uint32_t s, uint32_t ro
         uint32_t diff = (*even ^ mprev[r - 1u]) | (s ^ mprev[r]);
         if (!diff)
             return;
-        mprev[r - 1u] = *even;
-        mprev[r] = s;
+        uint32_t keep = 0;              /* columns whose event didn't fit: as they were */
         uint32_t pair = r / 2u;
         for (uint32_t c = 0; c < m->n_cols; c++) {
             if (!((diff >> c) & 1u))
                 continue;
             uint32_t k = key_at(m, pair * m->n_cols + c, pair + (rows / 2u) * c);
-            if (k < m->n_keys)
-                key_update(k, ((*even >> c) & 1u) | (((s >> c) & 1u) << 1));
+            if (k < m->n_keys && !key_update(k, ((*even >> c) & 1u) | (((s >> c) & 1u) << 1)))
+                keep |= 1u << c;
         }
+        mprev[r - 1u] = (*even & ~keep) | (mprev[r - 1u] & keep);
+        mprev[r] = (s & ~keep) | (mprev[r] & keep);
         return;
     }
     uint32_t diff = s ^ mprev[r];
     if (!diff)
         return;
-    mprev[r] = s;
+    uint32_t keep = 0;                  /* bits whose event didn't fit: as they were */
     if (m->kind == GM_MATRIX_KIND_VELOCITY) {
         for (uint32_t p = 0; 2u * p + 1u < m->n_cols; p++) {
             if (!((diff >> (2u * p)) & 3u))
                 continue;
             uint32_t k = key_at(m, r * (m->n_cols / 2u) + p, r + rows * p);
-            if (k < m->n_keys)
-                key_update(k, (s >> (2u * p)) & 3u);
+            if (k < m->n_keys && !key_update(k, (s >> (2u * p)) & 3u))
+                keep |= 3u << (2u * p);
         }
     } else {
         for (uint32_t c = 0; c < m->n_cols; c++) {
             if (!((diff >> c) & 1u))
                 continue;
             uint32_t k = key_at(m, r * m->n_cols + c, r + rows * c);
-            if (k < m->n_keys)
-                kq_push(k, (s >> c) & 1u, 0);
+            if (k < m->n_keys && !kq_push(k, (s >> c) & 1u, 0))
+                keep |= 1u << c;
         }
     }
+    mprev[r] = (s & ~keep) | (mprev[r] & keep);
 }
 
 #if SCAN_FAST
@@ -912,6 +929,12 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
                 hw_prev[k] = x;
             }
         }
+#if GM_HAS_MATRIX
+        if (kq_retry) {                 /* a key change didn't fit: every key row again */
+            kq_retry = 0;
+            chg |= (1u << ((key_rows + 1u) / 2u)) - 1u;
+        }
+#endif
         if (!chg)
             continue;
 #if GM_HAS_MATRIX
@@ -1031,6 +1054,8 @@ static uint32_t velocity(uint16_t dt_ticks)
             vk_slow = slow;
             vk_lf = (int16_t)log2_q8((uint32_t)fast);
             vk_ls = (int16_t)log2_q8((uint32_t)slow);
+            if (vk_ls <= vk_lf)         /* fast and slow in one log step (above ~32 ms): no divide by 0 */
+                vk_ls = (int16_t)(vk_lf + 1);
         }
         int32_t lf = vk_lf, ls = vk_ls;
         v = 127 - 126 * (log2_q8(t) - lf) / (ls - lf);
@@ -2729,8 +2754,10 @@ static void leds_fade(void)
         if (key == 0xFFFFu)
             continue;
 #if GM_HOST_LEDS
-        if ((level & LV_BLINK) && !(key & 1u))
-            level = 0;              /* a blink's dark half: the idle look */
+        /* A blink's dark half shows the idle look, but a host colour's keeps
+         * its brightness: else the whole chip pumps with the blink. */
+        if ((level & LV_BLINK) && !(key & 1u) && !(level & LV_COLOUR))
+            level = 0;
         level &= ~LV_BLINK;
 #endif
         uint32_t v = 255u, colour = (level & LV_COLOUR) != 0;
@@ -3667,6 +3694,9 @@ void gm_poll(void)
 #if GM_MONITOR
     monitor_poll(now);
 #endif
+#if GM_HAS_MATRIX
+    keys_poll();                    /* keys the scan queued since the top: not a whole pass later */
+#endif
     hal_midi_poll();                /* analog, pads, encoders, DIN merged in: before the LEDs too */
     poll_part_done(4, &tc);
     int led_pass = 0;
@@ -3694,5 +3724,8 @@ void gm_poll(void)
         pads_report();
 #endif
     }
+#if GM_HAS_MATRIX
+    keys_poll();                    /* and after the LEDs and the TM1628 bus */
+#endif
     hal_midi_poll();
 }

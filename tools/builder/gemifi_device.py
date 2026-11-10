@@ -620,8 +620,11 @@ class XYPad(HubType):
     def pin_hint(self, hub):
         return "x or y"
 
-    def c_extra(self, hub):
-        return [f"        .touch_min = {hub.touch_min}, .touch_max = {hub.touch_max},"]
+    def c_fields(self, hub):
+        drive = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
+        return [f"        .xy = {{ .drive = {{ {', '.join(drive)} }},",
+                f"                .sense = {{ {hub.data.c()}, {hub.clock.c()} }}, "
+                f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
 
 
 HUB_DEFS = {t.key: t for t in (

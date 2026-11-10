@@ -650,9 +650,9 @@ class TestValidation(unittest.TestCase):
         self.assertIsNotNone(d, [str(x) for x in diags])
         c = gd.generate(d, "t.yaml")["gm_device_config.c"]
         self.assertIn(".type = GM_HUB_XY,", c)
-        self.assertIn(".data = { 0, 0, 36 }, .clock = { 0, 0, 37 },", c)    # X on PC4 (Y+), Y on PC5 (X-)
-        self.assertIn(".sel = { { 0, 0, 17 }, { 0, 0, 37 }, { 0, 0, 36 }, { 0, 0, 26 } },", c)
-        self.assertIn(".touch_min = 570, .touch_max = 3430,", c)
+        self.assertIn(".sense = { { 0, 0, 36 }, { 0, 0, 37 } },", c)    # X on PC4 (Y+), Y on PC5 (X-)
+        self.assertIn(".drive = { { 0, 0, 17 }, { 0, 0, 37 }, { 0, 0, 36 }, { 0, 0, 26 } },", c)
+        self.assertIn(".touch_min = 570, .touch_max = 3430 }", c)
         self.assertIn("{ 1, 0, 0 }", c)                                     # ax: hub 1, channel 0 (x)
         self.assertIn("{ 1, 0, 1 }", c)
 

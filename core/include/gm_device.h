@@ -155,6 +155,16 @@ typedef struct {
                              white:, the white balance; 0 = 255)          */
 } gm_hub_rgb_serial_t;
 
+/* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
+ * software (vpin.c), one axis per ms in turn. A touch: both readings within
+ * touch_min..touch_max. */
+typedef struct {
+    gm_pin_t drive[4];    /* X+, X-, Y+, Y- (MCU pins)                     */
+    gm_pin_t sense[2];    /* the pins X and Y are read on: a Y-plate and an
+                             X-plate pin (ADC pins)                        */
+    uint16_t touch_min, touch_max;
+} gm_hub_xy_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -207,6 +217,7 @@ typedef struct {
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
         gm_hub_rgb_serial_t rgb;  /* GM_HUB_RGB_SERIAL */
+        gm_hub_xy_t xy;           /* GM_HUB_XY */
     };
 } gm_hub_t;
 

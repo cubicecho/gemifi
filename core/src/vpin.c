@@ -535,14 +535,14 @@ static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
 /* ---- XY pads (4-wire resistive) ----------------------------------------
  * One plate is driven at a time, + pin high and - pin low; the other plate
  * floats and takes the voltage where it's pressed, read on its sense pin
- * (gm_hub_t: data for X, clock for Y). Untouched, the floating plate reads
+ * (gm_hub_xy_t sense[]). Untouched, the floating plate reads
  * outside touch_min..touch_max (stock Code 61: 592 - 22 .. 3408 + 22). The
  * other plate is let go before this one is driven, so a touch never joins
  * two driven pins. */
 static void xy_drive(const gm_hub_t *h, uint32_t axis)
 {
-    const gm_pin_t *drv = &h->sel[axis ? 2 : 0], *oth = &h->sel[axis ? 0 : 2];
-    gm_pin_t sense = axis ? h->clock : h->data;
+    const gm_pin_t *drv = &h->xy.drive[axis ? 2 : 0], *oth = &h->xy.drive[axis ? 0 : 2];
+    gm_pin_t sense = h->xy.sense[axis];
     for (uint32_t k = 0; k < 2; k++)
         if (oth[k].hub == 0)
             hal_pin_mode(oth[k].num, oth[k].num == sense.num ? HAL_ANALOG : HAL_IN);
@@ -570,12 +570,12 @@ static int32_t xy_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
     uint32_t now = hal_millis();
     if (now != s->u.xy.t && s->channel >= 0) {
         uint32_t a = (uint32_t)s->channel;
-        gm_pin_t sense = a ? h->clock : h->data;
+        gm_pin_t sense = h->xy.sense[a];
         int32_t v = sense.hub == 0 ? hal_adc_read(sense.num) : -1;
         s->u.xy.raw[a] = v < 0 ? 0xFFFFu : (uint16_t)v;
         int t = 1;
         for (uint32_t k = 0; k < 2; k++)
-            t = t && s->u.xy.raw[k] >= h->touch_min && s->u.xy.raw[k] <= h->touch_max;
+            t = t && s->u.xy.raw[k] >= h->xy.touch_min && s->u.xy.raw[k] <= h->xy.touch_max;
         if (!t)
             s->u.xy.touch = 0;
         else if (s->u.xy.touch < XY_SETTLE && ++s->u.xy.touch == XY_SETTLE)

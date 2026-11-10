@@ -492,14 +492,21 @@ int main(void)
             ka++;
         }
     CHECK(ka >= 10 && ka_gap <= 55u, "A5 keepalive every 50 ms (%d, max gap %u)", ka, ka_gap);
+    /* The first colours are lost at power-on, so every LED goes out once
+     * more at 2 s; nothing else is resent (a steady resend left the Code 61
+     * pad board deaf after a cold start). */
+    if (now_ms < 2100u)
+        run_ms(2100u - now_ms);
+    int rep = 0, seen[4] = { 0 };
+    for (int i = 0; i < ser_n; i++)
+        if (ser_log[i].n == 6 && ser_log[i].t >= 2000u && ser_log[i].t < 2100u && ser_log[i].b[1] >= 0x80 &&
+            ser_log[i].b[1] < 0x84 && !seen[ser_log[i].b[1] - 0x80]++)
+            rep++;
+    CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+    CHECK(rep == 4, "every LED sent once more at 2 s (%d of 4)", rep);
     int from = ser_n;
-    run_ms(100);
-    int again = ser_msgs(from, 0);
-    CHECK(again >= 1 && again <= 3, "nothing changes: one LED sent again every 50 ms (%d in 100 ms)", again);
-    /* a full round sends every LED again: a lost message heals */
-    from = ser_n;
-    run_ms(20 * 50 + 50);
-    CHECK(ser_msgs(from, 0) >= 16, "every LED sent again within a round (%d)", ser_msgs(from, 0));
+    run_ms(1000);
+    CHECK(ser_msgs(from, 0) == 0, "nothing changes: nothing sent again (%d in 1 s)", ser_msgs(from, 0));
     /* LED 4 = serial LED 2: red, then white, then off */
     gm_led_script_rgb(4, 127, 0, 0, 0);
     run_ms(20);
@@ -515,6 +522,23 @@ int main(void)
     ser_busy = 0;
     run_ms(20);
     CHECK(ser_last_is(2, 0, 0, 0), "serial LED 2 off once the UART is free");
+    /* The board loses a write right after another, an A5 included. A stall
+     * (here the busy UART; on the Code 61 the start-up) leaves the A5 and an
+     * LED both due: they must not go out back to back, nor stay 50 ms
+     * apart in step afterwards, or every resend is lost. */
+    {
+        int busy_end = ser_n;
+        ser_busy = 1;
+        run_ms(120);                        /* the A5 and a resend both overdue */
+        ser_busy = 0;
+        run_ms(300);
+        uint32_t any_gap = 0xFFFFFFFFu;
+        for (int i = busy_end + 1; i < ser_n; i++)
+            if (ser_log[i].t - ser_log[i - 1].t < any_gap)
+                any_gap = ser_log[i].t - ser_log[i - 1].t;
+        CHECK(ser_n < 256, "serial log not full (%d)", ser_n);
+        CHECK(any_gap >= 5u, "after a stall: every write, A5 included, 5 ms after the last (%u)", any_gap);
+    }
 
     /* A display-sized change: bytes 0-11 of A, but not byte 4 (the LEDs').
      * One run (byte 4 is a single unchanged byte, rewritten as it is), cut

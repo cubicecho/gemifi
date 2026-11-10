@@ -1223,14 +1223,19 @@ void vpin_poll_tm1628(void)
  * and 0x08013C94): one LED per message, 02, 0x80 + LED, R, G, B, 03, with
  * 00 off and FF full; a lone A5 keepalive about every 60 ms (without it the
  * board turns its LEDs off). Messages sent back to back are lost after the
- * first, so they go out one per RGB_GAP_MS. */
+ * first, so every write, the A5 included, goes out RGB_GAP_MS after the
+ * last one. */
 #define RGB_GAP_MS 5u
 #define RGB_KEEPALIVE_MS 50u
-/* With nothing changed, one LED's colour is sent again every RGB_REFRESH_MS
- * (16 pads: each about every 0.8 s), so a lost message (back to back, or
- * at power-on before the board is up: the pads stayed dark until hit)
- * doesn't stay wrong. */
-#define RGB_REFRESH_MS 50u
+/* At power-on the board isn't listening yet: the first colours are lost
+ * (the pads stayed dark until hit). So every LED is sent once more,
+ * RGB_REPAINT_MS after start; after that an LED goes out only when it
+ * changes. Resending one LED every 50 ms forever (builds 74-93) left the
+ * board deaf after a cold start: with no LED message during its start-up
+ * it comes up fine (tested on the Code 61, 2026-11-09). */
+#ifndef RGB_REPAINT_MS
+#define RGB_REPAINT_MS 2000u
+#endif
 
 static uint32_t rgb_bits(const uint8_t *ram, uint32_t led)
 {
@@ -1253,26 +1258,30 @@ static void rgb_set_sent(uint8_t *ram, uint32_t led, uint32_t v)
 
 void vpin_poll_rgb_serial(uint32_t now_ms)
 {
-    static uint32_t t_msg, t_ka;
-    static uint8_t refresh;             /* the next LED to send again */
+    static uint32_t t_ka, t_any;        /* last A5, last write */
+    static uint8_t repainted;
+    int repaint = !repainted && now_ms >= RGB_REPAINT_MS;
     for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
         const gm_hub_t *h = &gm_device.hubs[i];
         hub_state_t *s = &hs[i];
         if (h->type != GM_HUB_RGB_SERIAL || h->data.hub != 0 || s->tm_off + h->ram_bytes > GM_TM1628_RAM)
             continue;
         uint16_t tx = h->data.num;
+        const uint8_t *ram = &tm_ram[s->tm_off];
+        uint8_t *sent = &ram_sent[s->tm_off];
+        if (repaint)
+            for (uint32_t k = 0; k < h->ram_bytes; k++)
+                sent[k] = (uint8_t)~ram[k];     /* every LED differs: all sent again */
+        if (now_ms - t_any < RGB_GAP_MS)
+            continue;
         if (now_ms - t_ka >= RGB_KEEPALIVE_MS) {
             static const uint8_t ka = 0xA5u;
             if (hal_serial_write(tx, &ka, 1))
-                t_ka = now_ms;
+                t_ka = t_any = now_ms;
             continue;
         }
-        if (now_ms - t_msg < RGB_GAP_MS)
-            continue;
         /* The next changed LED after the last one sent, so one busy LED
          * can't starve the others. */
-        const uint8_t *ram = &tm_ram[s->tm_off];
-        uint8_t *sent = &ram_sent[s->tm_off];
         uint32_t todo = h->chain;           /* an LED to send, h->chain = none */
         for (uint32_t k = 0; k < h->chain; k++) {
             uint32_t led = ((uint32_t)(uint8_t)s->channel + 1u + k) % h->chain;
@@ -1281,13 +1290,8 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
                 break;
             }
         }
-        int again = 0;
-        if (todo == h->chain) {
-            if (now_ms - t_msg < RGB_REFRESH_MS || h->chain == 0)
-                continue;
-            todo = refresh % h->chain;
-            again = 1;
-        }
+        if (todo == h->chain)
+            continue;
         {
             uint32_t led = todo;
             uint32_t v = rgb_bits(ram, led);
@@ -1295,14 +1299,13 @@ void vpin_poll_rgb_serial(uint32_t now_ms)
                                (v & 2u) ? 0xFFu : 0u, (v & 4u) ? 0xFFu : 0u, 0x03u };
             if (hal_serial_write(tx, msg, sizeof msg)) {
                 rgb_set_sent(sent, led, v);
-                if (again)
-                    refresh = (uint8_t)((led + 1u) % h->chain);
-                else
-                    s->channel = (int8_t)led;
-                t_msg = now_ms;
+                s->channel = (int8_t)led;
+                t_any = now_ms;
             }
         }
     }
+    if (repaint)
+        repainted = 1;
 }
 #else
 void vpin_flush_tm1628(void)

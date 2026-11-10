@@ -344,6 +344,7 @@ int main(void)
     printf("column reads: %s\n", fast_cols ? "one load per row" : "per pin");
 #endif
     gm_init(0x00010000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
 #ifdef HW_SCAN_TEST
     plan = gm_scan_plan();
     CHECK(plan != 0, "a plan for decoder rows + one column port");

@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "gm_hal.h"
+#include "gm_presets.h"
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_settings.h"
@@ -203,6 +204,7 @@ int main(void)
     int v[256], d[256];
     level[16] = level[17] = 1;          /* buttons released */
     gm_init(0x01000000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     run_ms(2000);
     gm_cfg.events = 1;                  /* debug.events: the EVENTs too */
 

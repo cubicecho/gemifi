@@ -323,6 +323,7 @@ static void button(int i, int down)
 static void boot(void)
 {
     gm_init(0x00010000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     run_ms(2000);                    /* past the boot log */
     out_n = 0;
 }

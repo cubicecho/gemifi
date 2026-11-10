@@ -30,16 +30,22 @@
 #define GM_WRITE_LAST_PRESET 0
 #endif
 
-/* Upper bound on the values one record can hold: every param value. The
- * per-component arrays (the layer twins' layer.* included), plus 16 for the
- * single-value params, plus the pad notes and the 8 pad settings (pad.*) on
- * a device with pads, plus layer.enabled. put() and collect_cb() never
- * write past it. */
-#define PAD_ENTRIES (GM_N_PADS > 0 ? (uint32_t)GM_N_PADS + 8u : 0u)
-#define LAYER_ENTRIES (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u)
-#define MAX_ENTRIES (2u * GM_ARR(GM_N_BUTTONS) + GM_ARR(GM_N_ANALOGS) + \
-                     2u * GM_ARR(GM_N_ENCODERS) + 16u + PAD_ENTRIES + LAYER_ENTRIES + \
-                     (GM_PRESET_BANK ? 1u : 0u))
+/* Upper bound on the values one record can hold. A record holds one scope:
+ * a preset's (PF_PRESET) values or the globals, so the larger of the two
+ * (settings.c's table, counted generously):
+ *   presets: the MIDI and velocity singles (5), two per own button, analog
+ *     and own encoder, bend glide and ramp time, program and bank, the pad
+ *     notes and their 3 settings;
+ *   globals: 16 singles (DIN, velocity timing, log level, preset.active and
+ *     .count, ...), layer.enabled, two per button and encoder layer twin,
+ *     the 8 pad settings.
+ * put() and collect_cb() never write past it, and presets_rec_fits() checks
+ * it against the table. */
+#define PRESET_ENTRIES (5u + 2u * GM_N_OWN_BUTTONS + 2u + 2u * GM_N_ANALOGS + 2u * GM_N_OWN_ENCODERS + \
+                        2u + (GM_N_PADS > 0 ? (uint32_t)GM_N_PADS + 3u : 0u))
+#define GLOBAL_ENTRIES (16u + (GM_LAYER_PARAMS ? (uint32_t)GM_N_MODES : 0u) + 2u * GM_BTN_TWINS + \
+                        2u * GM_ENC_TWINS + (GM_N_PADS > 0 ? 8u : 0u))
+#define MAX_ENTRIES (PRESET_ENTRIES > GLOBAL_ENTRIES ? PRESET_ENTRIES : GLOBAL_ENTRIES)
 
 /* The record a save builds: write_values(), write_globals(), write_state()
  * and presets_rename() build theirs here, check it with stored_same() and
@@ -219,8 +225,21 @@ int presets_boot_state(void)
     return boot_state;
 }
 
+int presets_rec_fits(void)
+{
+    uint32_t n[2] = { 0, 0 };
+    for (uint32_t k = 0; k < app_params.param_count; k++) {
+        const param_def_t *p = &app_params.params[k];
+        if (storable(p))
+            n[is_preset(p)] += p->count;
+    }
+    return n[0] <= MAX_ENTRIES && n[1] <= MAX_ENTRIES;
+}
+
 void presets_boot(int safe)
 {
+    if (!presets_rec_fits())
+        app_log(LOG_ERROR, "presets", ": a record has more values than rec[] holds");
     no_store = (uint8_t)(safe != 0);
     params_defaults();
     refused = 0;

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gm_hal.h"
+#include "gm_presets.h"
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_device_config.h"
@@ -396,6 +397,7 @@ int main(void)
            use_bsrr && !no_cycles ? "hal_cycles" : "hal_delay_us");
 
     gm_init(0x01000000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     init_done = 1;
     CHECK(mode[PIN_DIO] == HAL_OUT_OD && mode[PIN_CLK] == HAL_OUT && mode[PIN_STB_A] == HAL_OUT &&
           mode[PIN_STB_B] == HAL_OUT, "DIO open-drain, CLK and STBs push-pull");

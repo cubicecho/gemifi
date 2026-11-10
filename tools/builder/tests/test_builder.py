@@ -1179,6 +1179,26 @@ class TestValidation(unittest.TestCase):
         t2 = t.replace("  - { id: p }\n", "  - { id: p }\n  - { id: q }\n")
         self.assertError(t2 + "i2c: { sda: PA10, scl: PA11 }\n", r"address 0x20 is already used")
 
+
+    def test_matrix_at_most_32(self):
+        """#115: the core scans at most 32 rows and keeps a row's columns in 32 bits."""
+        rows = [f"P{port}{i}" for port in "BC" for i in range(16)]          # 32 pins
+        t = MINIMAL_NUC + f"key_matrix: {{ type: switch, rows: [{', '.join(rows)}], columns: [PA2] }}\n"
+        self.assertClean(t)
+        e = self.assertError(t.replace("rows: [", "rows: [PD0, "), r"33 rows: at most 32", path="key_matrix.rows")
+        self.assertIn("88 keys", e.msg)
+        t = MINIMAL_NUC + f"key_matrix: {{ type: switch, rows: [PA2], columns: [{', '.join(rows)}] }}\n"
+        self.assertClean(t)
+        self.assertError(t.replace("columns: [", "columns: [PD0, "), r"33 columns: at most 32",
+                         path="key_matrix.columns")
+        # rows from a decoder count too (a 4-to-16 decoder with 3 groups: 48 outputs)
+        dec = ("decoder:\n  - id: d\n    address: [PB0, PB1, PB2, PB3]\n"
+               "    groups: [{ PC0: 1, PC1: 0 }, { PC0: 0, PC1: 1 }, { PC0: 0, PC1: 0 }]\n")
+        t = MINIMAL_NUC + dec + "key_matrix: { type: switch, rows: { decoder: d, first: 0, count: 32 }, " \
+                                "columns: [PA2] }\n"
+        self.assertClean(t)
+        self.assertError(t.replace("count: 32", "count: 33"), r"33 rows: at most 32")
+
     def test_unknown_hub_key_in_pin(self):
         """#115: a pin naming a hub type gemifi lacks is reported once, not as an MCU pin too."""
         es = self.errs(MINIMAL_NUC + "leds: [{ id: l, pin: { ws2812: strip, number: 0 } }]\n")

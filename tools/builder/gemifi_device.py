@@ -2858,6 +2858,11 @@ def validate_version(v, data):
     return ver
 
 
+# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
+# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
+MATRIX_MAX = 32
+
+
 def validate_matrix(v, dev, d, line):
     p = "key_matrix"
     d = v.mapping(d, p, line, MATRIX_KEYS, renamed=RENAMED_MATRIX)
@@ -2877,14 +2882,18 @@ def validate_matrix(v, dev, d, line):
         if "cols" not in d:
             v.err(f"{p}.columns", d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
         lst = LList()
-    if len(lst) > 255:
-        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most 255")
+    if len(lst) > MATRIX_MAX:
+        v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most {MATRIX_MAX} (the core "
+                                                    "keeps a row's columns in 32 bits)")
     # MCU columns are a "column" line, so a switch_matrix can share them (allow_other_uses)
     pins["columns"] = [v.pin(x, f"{p}.columns[{i}]", lst.line_of(i), "in", hubs={"sn74hc165"}, why=why,
                              line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_KEY_HUB)
                              else "column", owner="key_matrix") or NO_PIN
                        for i, x in enumerate(lst)]
     nr, nc = len(pins["rows"]), len(pins["columns"])
+    if nr > MATRIX_MAX:
+        v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: at most {MATRIX_MAX} (the core scans up to "
+                                              f"{MATRIX_MAX} rows; {MATRIX_MAX} x {MATRIX_MAX} is enough for 88 keys)")
     contacts = d.get("contacts", "columns")
     if contacts not in ("columns", "rows"):
         v.err(f"{p}.contacts", d.line_of("contacts"), f"{contacts!r} is unknown (columns: a key's two contacts "
@@ -2901,8 +2910,6 @@ def validate_matrix(v, dev, d, line):
         if nr % 2:
             v.err(f"{p}.rows", d.line_of("rows"), f"contacts: rows needs an even number of rows "
                                                   f"(two contacts per key), got {nr}")
-        if nr > 32:
-            v.err(f"{p}.rows", d.line_of("rows"), f"{nr} rows: contacts: rows takes at most 32")
     else:
         lrows, lcols = nr, nc // 2
         if nc % 2:

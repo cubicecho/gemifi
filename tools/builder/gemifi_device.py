@@ -3500,16 +3500,24 @@ def validate_pads(v, dev, data):
 
 
 
-DISPLAY_KEYS = ["id", "type", "chars", "daw"]
-DISPLAY_TYPES = {"segment14": 1}     # gm_display.h GM_DISPLAY_SEG14
+DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "shows", "daw"]
+# gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
+DISPLAY_TYPES = {"segment14": 1, "segment7": 2}
+DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7"}
+DISPLAY_SEGS = {1: (15, "segments a..m and the dot"), 2: (8, "segments a..g and the point")}
 SEG14_PINS = 15                      # segments a..m, then the dot
 MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC
-MAX_DISPLAYS = 1                     # the core only writes display 0 for now
+MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, plus 9, per display
+# gm_display.h GM_SHOWS_*: what a display shows while no host writes to it
+DISPLAY_SHOWS = {"last_message": 0, "preset_number": 1, "preset_name": 2, "channel": 3, "none": 4}
+DISPLAY_SHOWS_C = {0: "GM_SHOWS_LAST_MESSAGE", 1: "GM_SHOWS_PRESET_NUMBER", 2: "GM_SHOWS_PRESET_NAME",
+                   3: "GM_SHOWS_CHANNEL", 4: "GM_SHOWS_NONE"}
 
 
 def validate_displays(v, dev, data):
-    """displays: character displays on hub output pins. chars: each character's first pin
-    (segment a); the 14 segments a..m and the dot are that pin and the next 14."""
+    """displays: segment displays on hub output pins. Each item of chars: is a character, left to
+    right: its first pin (segment a; the others are the pins after it, or every segment_step pins),
+    or the list of its segments' pins, in segment order."""
     lst = v.seq(data.get("displays"), "displays", data.line_of("displays"))
     for i, d in enumerate(lst):
         p = f"displays[{i}]"
@@ -3521,6 +3529,17 @@ def validate_displays(v, dev, data):
         if typ not in DISPLAY_TYPES:
             v.err(f"{p}.type", d.line_of("type"), f"unknown display type '{typ}' (use {', '.join(DISPLAY_TYPES)})")
             continue
+        t = DISPLAY_TYPES[typ]
+        nseg, what = DISPLAY_SEGS[t]
+        # display 0 shows the device's messages, as before shows: (the others: only a host's text)
+        shows = d.get("shows", "last_message" if not dev.displays else "none")
+        if shows not in DISPLAY_SHOWS:
+            v.err(f"{p}.shows", d.line_of("shows"), f"unknown value '{shows}' (use {', '.join(DISPLAY_SHOWS)})")
+            shows = "none"
+        if shows in ("preset_number", "preset_name") and not dev.presets_given:
+            v.warn(f"{p}.shows", d.line_of("shows"), f"{shows}, but the device has no presets: (it always "
+                                                      "shows preset 1's)")
+        step = v.integer(d, "segment_step", p, 1, 64, default=1)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
         if not chars:
             v.err(f"{p}.chars", d.line_of("chars") or d.line, "needs chars: each character's first pin "
@@ -3529,34 +3548,86 @@ def validate_displays(v, dev, data):
         if len(chars) > MAX_DISPLAY_CHARS:
             v.err(f"{p}.chars", d.line_of("chars"), f"{len(chars)} characters: at most {MAX_DISPLAY_CHARS}")
             continue
-        pins = []
+        pins, segs = [], []          # first pins; every segment's pin, character by character
         for j, raw in enumerate(chars):
             cp = f"{p}.chars[{j}]"
             line = chars.line_of(j)
+            if isinstance(raw, list):
+                got = display_char_map(v, raw, cp, line, nseg, what)
+                if got is not None:
+                    pins.append(got[0])
+                    segs.append(got)
+                continue
             if not isinstance(raw, dict):
-                v.err(cp, line, "must be a hub pin, e.g. { tm1628: leds_a, number: 0 }: the 15 pins from "
-                                "it (segments a..m, then the dot) must be in a row")
+                v.err(cp, line, f"must be a hub pin, e.g. {{ tm1628: leds_a, number: 0 }}: the {nseg} pins "
+                                f"from it ({what}) must be in a row (or segment_step apart); or a list of "
+                                "its segments' pins")
                 continue
             pin = v.pin(raw, cp, line, "out")
             if pin is None:
                 continue
             if pin.hub == 0:
-                v.err(cp, line, "must be a hub pin: the 15 pins from it (segments a..m, then the dot) "
-                                "must be in a row")
+                v.err(cp, line, f"must be a hub pin: the {nseg} pins from it ({what}) must be in a row")
                 continue
             hub = dev.hubs[pin.hub - 1]
-            if pin.num + SEG14_PINS > hub.n_pins:
-                v.err(cp, line, f"pins {pin.num}..{pin.num + SEG14_PINS - 1} (segments a..m and the dot) "
-                                f"don't fit on hub '{hub.id}' (0..{hub.n_pins - 1})")
+            # every segment_step pins, the dot only where it fits (a TM1628's 7 grids: 7 segments)
+            n = nseg - 1 if step > 1 and pin.num + (nseg - 1) * step >= hub.n_pins else nseg
+            last = pin.num + (n - 1) * step
+            if last >= hub.n_pins:
+                every = f" every {step}" if step > 1 else ""
+                what_ = what.split(" and ")[0] if n < nseg else what
+                v.err(cp, line, f"pins {pin.num}..{last}{every} ({what_}) don't fit on hub '{hub.id}' "
+                                f"(0..{hub.n_pins - 1})")
                 continue
-            for k in range(1, SEG14_PINS):      # the first one was recorded by v.pin
-                v.use(("hub", hub.index, pin.num + k), f"{hub.id}.{pin.num + k}", Use(cp, line))
+            run = [Pin(pin.hub, pin.flags, pin.num + k * step, f"{hub.id}.{pin.num + k * step}")
+                   for k in range(n)] + [NO_PIN] * (nseg - n)
+            for x in run[1:n]:              # the first one was recorded by v.pin
+                v.use(("hub", hub.index, x.num), x.desc, Use(cp, line))
             pins.append(pin)
-        dev.displays.append(Hub(id=ident or "", type=DISPLAY_TYPES[typ], chars=pins, path=p, line=d.line,
-                                daw=daw_role(v, dev, d, p)))
+            segs.append(run)
+        mapped = step > 1 or any(isinstance(x, list) for x in chars)
+        dev.displays.append(Hub(id=ident or "", type=t, chars=pins, segs=segs if mapped else None,
+                                shows=DISPLAY_SHOWS[shows], path=p, line=d.line, daw=daw_role(v, dev, d, p)))
     if len(dev.displays) > MAX_DISPLAYS:
-        v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS} "
-                                                    "for now")
+        v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS}")
+
+
+def display_char_map(v, raw, cp, line, nseg, what):
+    """A character given as its segments' pins (hub output pins, in segment order; the dot may be left
+    out): the list of Pins, NO_PIN for a dot not wired; None after an error."""
+    if len(raw) not in (nseg, nseg - 1):
+        v.err(cp, line, f"{len(raw)} pins: a character is {nseg} ({what}), or {nseg - 1} without the dot")
+        return None
+    out = []
+    for k, x in enumerate(raw):
+        sp = f"{cp}[{k}]"
+        pin = v.pin(x, sp, raw.line_of(k), "out")
+        if pin is None:
+            return None
+        if pin.hub == 0:
+            v.err(sp, raw.line_of(k), "must be a hub pin (segments are written from the main loop, "
+                                      "through the hub)")
+            return None
+        out.append(pin)
+    return out + [NO_PIN] * (nseg - len(out))
+
+
+def display_defines(dev):
+    """gm_device_config.h: the display count, the widest display and the shows: values used."""
+    h = ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
+    if dev.displays:
+        shows = 0
+        for x in dev.displays:
+            shows |= 1 << x.shows
+        types = 0
+        for x in dev.displays:
+            types |= 1 << x.type
+        h += [f"#define GM_DISPLAY_CHARS {max(len(x.chars) for x in dev.displays)} /* the widest display */",
+              f"#define GM_DISPLAY_SHOWS 0x{shows:02X}u /* shows: values used, bit = GM_SHOWS_* */",
+              f"#define GM_DISPLAY_TYPES 0x{types:02X}u /* display types used, bit = GM_DISPLAY_* */",
+              f"#define GM_DISPLAY_MAP {1 if any(x.segs is not None for x in dev.displays) else 0} "
+              "/* a display with a segment map */"]
+    return h
 
 
 def display_tables(dev):
@@ -3565,12 +3636,22 @@ def display_tables(dev):
         return []
     c = ['#include "gm_display.h"']
     for i, x in enumerate(dev.displays):
-        c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
-        c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
-        c.append("};")
+        if x.segs is not None:
+            nseg = DISPLAY_SEGS[x.type][0]
+            c.append(f"static const gm_pin_t display_{i}_map[{len(x.segs) * nseg}] = {{")
+            for k, run in enumerate(x.segs):
+                c.append(f"    /* character {k} */")
+                c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in run]
+            c.append("};")
+        else:
+            c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
+            c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
+            c.append("};")
     c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
-    c += [f"    {{ GM_DISPLAY_SEG14, {len(x.chars)}, display_{i}_chars }}, /* {_comment(x.id)} */"
-          for i, x in enumerate(dev.displays)]
+    for i, x in enumerate(dev.displays):
+        where = f"0, display_{i}_map" if x.segs is not None else f"display_{i}_chars, 0"
+        c.append(f"    {{ {DISPLAY_C[x.type]}, {len(x.chars)}, {where}, {DISPLAY_SHOWS_C[x.shows]} }}, "
+                 f"/* {_comment(x.id)} */")
     c += ["};", ""]
     return c
 
@@ -5499,7 +5580,7 @@ def generate(dev, source="device.yaml"):
     if dev.pad_twins:
         h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pad_defines(dev)
-    h += ["", f"#define GM_N_DISPLAYS {len(dev.displays)} /* displays: (core/README.md \"Displays\") */"]
+    h += display_defines(dev)
     h += safety_defines(dev)
     h += layout_defines(dev)
     if dev.platform.is_esp:

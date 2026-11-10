@@ -3159,7 +3159,8 @@
                 "anyOf": [
                   {
                     "enum": [
-                      "segment14"
+                      "segment14",
+                      "segment7"
                     ]
                   },
                   {
@@ -3170,9 +3171,47 @@
               "chars": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/definitions/pin"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/pin"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/pin"
+                      }
+                    }
+                  ]
                 },
-                "description": "each character's first pin"
+                "description": "each character's first pin, or its segments' pins"
+              },
+              "segment_step": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 64
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "shows": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "last_message",
+                      "preset_number",
+                      "preset_name",
+                      "channel",
+                      "none"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               },
               "daw": {
                 "type": "string"

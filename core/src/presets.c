@@ -30,6 +30,15 @@
 #define GM_WRITE_LAST_PRESET 0
 #endif
 
+/* A display shows the preset's number or name (shows:, gm_display.h): tell
+ * it the active one at boot, on a switch and on a rename. */
+#if defined(GM_DISPLAY_SHOWS) && \
+    (((GM_DISPLAY_SHOWS >> GM_SHOWS_PRESET_NUMBER) & 1) || ((GM_DISPLAY_SHOWS >> GM_SHOWS_PRESET_NAME) & 1))
+#define SHOW_PRESET 1
+#else
+#define SHOW_PRESET 0
+#endif
+
 /* Upper bound on the values one record can hold. A record holds one scope:
  * a preset's (PF_PRESET) values or the globals, so the larger of the two
  * (settings.c's table, counted generously):
@@ -260,6 +269,11 @@ void presets_boot(int safe)
     if (!GM_WRITE_LAST_PRESET || slot < 1u || slot > used())
         slot = 1;                           /* off: a stored preset.active is ignored */
     stored |= load_slot_info(slot, 0);
+#if SHOW_PRESET
+    preset_info_t pi;
+    if (presets_info(slot, &pi) == GSX_OK)
+        gm_display_preset(slot, pi.name);
+#endif
     active_pending = 0;
     boot_state = no_store ? GM_SETTINGS_SAFE : refused ? GM_SETTINGS_REFUSED :
                  stored ? GM_SETTINGS_LOADED : GM_SETTINGS_NONE;
@@ -301,6 +315,9 @@ static void do_select(uint32_t slot, int from_host)
      * Change, if any. */
     const char *name = has && (info.flags & CS_F_NAME) && info.name[0] ? info.name : def_of(slot)->name;
     gm_display_message(name ? name : "");
+#if SHOW_PRESET
+    gm_display_preset(slot, name ? name : "");
+#endif
     preset_changed();
 #if GM_WRITE_LAST_PRESET
     active_pending = 1;
@@ -603,8 +620,12 @@ int presets_rename(uint32_t slot, const char *name, uint32_t len)
         st = config_store_write((uint8_t)slot, has ? info.revision : GM_PRESETS_REVISION,
                                 len ? nm : 0, e, c.n);
     preset_info_t now;
-    if (st == GSX_OK && slot == cur && presets_info(slot, &now) == GSX_OK)
+    if (st == GSX_OK && slot == cur && presets_info(slot, &now) == GSX_OK) {
         gm_display_message(now.name);       /* the active preset's new name, at once */
+#if SHOW_PRESET
+        gm_display_preset(slot, now.name);
+#endif
+    }
     return st;
 }
 

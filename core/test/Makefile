@@ -23,6 +23,8 @@
 # test_pads_hw:    test_pads.c with the hardware analog scan's sweeps
 #                  (pads-hw-test.yaml)
 # test_display:    core/src/display.c alone (display-cfg/, fake pins)
+# test_displays:   the same with six displays: segment7, a segment map and
+#                  each shows: value (displays-cfg/)
 # test_din_port:   5-pin DIN MIDI as its own USB port (din-port-test.yaml)
 # test_din_merge:  the same, merged onto the main port (din-merge-test.yaml)
 # test_leds:       LED looks, idle: / active: (leds-test.yaml), and
@@ -192,7 +194,7 @@ MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c
 MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg $(BUILD)/test_modes
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg $(BUILD)/test_modes
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -210,6 +212,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
 	$(BUILD)/test_display
+	$(BUILD)/test_displays
 	$(BUILD)/test_din_port
 	$(BUILD)/test_din_merge
 	$(BUILD)/test_leds
@@ -258,7 +261,11 @@ $(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PADH
 
 $(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -Idisplay-cfg test_display.c $(ROOT)/core/src/display.c -o $@
+	$(CC) $(CFLAGS) -Wno-missing-field-initializers -Idisplay-cfg test_display.c $(ROOT)/core/src/display.c -o $@
+
+$(BUILD)/test_displays: test_displays.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) displays-cfg/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Idisplays-cfg test_displays.c $(ROOT)/core/src/display.c -o $@
 
 $(BUILD)/test_din_port: $(DINP_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(DINP_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

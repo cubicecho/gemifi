@@ -669,7 +669,7 @@ class TestValidation(unittest.TestCase):
 
         self.assertClean(dev())
         self.assertClean(dev(extra=", type: segment14"))
-        self.assertError(dev(extra=", type: lcd"), r"unknown display type 'lcd' \(use segment14\)")
+        self.assertError(dev(extra=", type: lcd"), r"unknown display type 'lcd' \(use segment14, segment7\)")
         self.assertError(dev(chars="[]"), r"needs chars")
         # 15 pins from each first one: 97..111 fits on 14 bytes, 98 doesn't
         self.assertClean(dev(chars="[{ tm1628: ta, number: 97 }]"))
@@ -683,19 +683,90 @@ class TestValidation(unittest.TestCase):
         self.assertClean(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 15 } }\n"))
         self.assertError(dev(chars="[" + ", ".join(["{ tm1628: ta, number: 0 }"] * 17) + "]"),
                          r"17 characters: at most 16")
-        two = dev() + "  - { id: d2, chars: [{ tm1628: ta, number: 96 }] }\n"
-        self.assertError(two, r"2 displays: at most 1")
+        five = dev(chars="[{ tm1628: ta, number: 0 }]") + "".join(
+            f"  - {{ id: d{k}, chars: [{{ tm1628: ta, number: {k * 15} }}] }}\n" for k in range(1, 5))
+        self.assertError(five, r"5 displays: at most 4")
+        self.assertClean(five.rsplit("  - ", 1)[0])
         dev_, diags = load(dev())
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         files = gd.generate(dev_, "t.yaml")
         self.assertIn("#define GM_N_DISPLAYS 1 ", files["gm_device_config.h"])
         c = files["gm_device_config.c"]
         self.assertIn("static const gm_pin_t display_0_chars[2] = {", c)
-        self.assertIn("{ GM_DISPLAY_SEG14, 2, display_0_chars }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG14, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        self.assertIn("#define GM_DISPLAY_CHARS 2 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_DISPLAY_SHOWS 0x01u ", files["gm_device_config.h"])
         dev_, _ = load(stm)
         files = gd.generate(dev_, "t.yaml")
         self.assertIn("#define GM_N_DISPLAYS 0 ", files["gm_device_config.h"])
         self.assertNotIn("gm_displays", files["gm_device_config.c"])
+
+    def test_displays_segment7_maps_shows(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        tm = ("tm1628:\n  - { id: ta, clk_pin: PC10, dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN }, "
+              "stb_pin: PB12 }\n")
+
+        def dev(chars="[{ tm1628: ta, number: 0 }, { tm1628: ta, number: 8 }]", extra=", type: segment7",
+                more=""):
+            return stm + tm + f"displays:\n  - {{ id: disp, chars: {chars}{extra} }}\n" + more
+
+        def gen(text):
+            d, diags = load(text)
+            self.assertIsNotNone(d, [str(x) for x in diags])
+            return gd.generate(d, "t.yaml")
+
+        # segment7: 8 pins from each first one (a..g, the point): 104..111 fits, 105 doesn't
+        self.assertClean(dev())
+        self.assertClean(dev(chars="[{ tm1628: ta, number: 104 }]"))
+        self.assertError(dev(chars="[{ tm1628: ta, number: 105 }]"),
+                         r"pins 105\.\.112 \(segments a\.\.g and the point\) don't fit on hub 'ta'")
+        self.assertError(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 7 } }\n"),
+                         r"ta\.7 is already used by leds\[0\]\.pin")
+        self.assertClean(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 16 } }\n"))
+        c = gen(dev())["gm_device_config.c"]
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        # characters on the SEG lines: segment k of a character every segment_step pins
+        step = dev(chars="[{ tm1628: ta, number: 0 }, { tm1628: ta, number: 1 }]", extra=", type: segment7, "
+                   "segment_step: 16")
+        self.assertClean(step)
+        c = gen(step)["gm_device_config.c"]
+        self.assertIn("static const gm_pin_t display_0_map[16] = {", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        self.assertIn("    { 1, 0, 16 }, /* ta.16 */\n    { 1, 0, 32 }, /* ta.32 */", c)
+        # 14 RAM bytes: g at 96, the point (112) doesn't fit and isn't wired
+        self.assertIn("    { 1, 0, 96 }, /* ta.96 */\n    GM_NO_PIN, /* - */\n    /* character 1 */", c)
+        self.assertError(dev(chars="[{ tm1628: ta, number: 0 }]", extra=", type: segment7, segment_step: 16")
+                         .replace("stb_pin: PB12 }", "stb_pin: PB12, ram_bytes: 12 }"),
+                         r"pins 0\.\.96 every 16 \(segments a\.\.g\) don't fit")
+        self.assertError(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 16 } }\n",
+                             extra=", type: segment7, segment_step: 16"), r"ta\.16 is already used")
+        # a character as a list of its segment pins (the point may be left out)
+        seg = lambda ns: "[" + ", ".join(f"{{ tm1628: ta, number: {n} }}" for n in ns) + "]"  # noqa: E731
+        lst = dev(chars=f"[{seg([0, 2, 4, 6, 8, 10, 12])}, {seg(range(20, 28))}]")
+        self.assertClean(lst)
+        c = gen(lst)["gm_device_config.c"]
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE }", c)
+        self.assertIn("    { 1, 0, 12 }, /* ta.12 */\n    GM_NO_PIN, /* - */\n    /* character 1 */", c)
+        self.assertError(dev(chars=f"[{seg(range(6))}]"), r"6 pins: a character is 8 \(segments a\.\.g and "
+                                                          r"the point\), or 7 without the dot")
+        self.assertError(dev(chars="[[PB0, PB1, PB2, PB3, PB4, PB5, PB6]]"), r"must be a hub pin",
+                         path="displays[0].chars[0][0]")
+        self.assertError(dev(chars=f"[{seg([0, 1, 2, 3, 4, 5, 0])}]"), r"ta\.0 is already used")
+        # shows: display 0 shows messages, the others nothing of their own, unless set
+        self.assertError(dev(extra=", type: segment7, shows: time"), r"unknown value 'time' \(use last_message, "
+                                                                     r"preset_number, preset_name, channel, none\)")
+        w = [x for x in load(dev(extra=", type: segment7, shows: preset_number"))[1] if x.level == "warning"]
+        self.assertTrue(any("has no presets" in x.msg for x in w), [str(x) for x in w])
+        two = dev(extra=", type: segment7, shows: channel") + \
+            "  - { id: d2, type: segment7, chars: [{ tm1628: ta, number: 96 }] }\n" + \
+            "  - { id: d3, chars: [{ tm1628: ta, number: 32 }], shows: preset_name }\n"
+        files = gen(two)
+        c = files["gm_device_config.c"]
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_CHANNEL }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 1, display_1_chars, 0, GM_SHOWS_NONE }, /* d2 */", c)
+        self.assertIn("{ GM_DISPLAY_SEG14, 1, display_2_chars, 0, GM_SHOWS_PRESET_NAME }, /* d3 */", c)
+        self.assertIn("#define GM_N_DISPLAYS 3 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_DISPLAY_SHOWS 0x1Cu ", files["gm_device_config.h"])
 
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")

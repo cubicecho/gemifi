@@ -337,6 +337,7 @@ class HubType:
     roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
     ram = False                 # its pins are in the hub RAM (GM_TM1628_RAM): ram_bytes of it
     pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
+    schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
     what = "pin"                # a pin's name in messages
 
     def validate(self, v, dev, hub, h, p, line, ctl):
@@ -624,6 +625,71 @@ class XYPad(HubType):
                 f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
 
 
+# MAX7219 / MAX7221 LED drivers in a chain: pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
+# 7 = DP), so a 7-segment character is its digit's 8 pins (displays: type segment7).
+MAX7219_CHIPS = 8
+
+
+class MAX7219(HubType):
+    """A chain of MAX7219 LED drivers (ESPHome max7219 keys), bit-banged from the main loop."""
+    key, enum, num = "max7219", "GM_HUB_MAX7219", 11
+    keys = ("id", "clk_pin", "din_pin", "cs_pin", "num_chips", "intensity", "scan_limit")
+    # chains may share CLK and DIN, each with its own CS
+    lines = {"clk_pin": "mx_clk", "din_pin": "mx_din", "cs_pin": "mx_cs"}
+    roles = frozenset({"out"})
+    ram = True
+    schema = {"num_chips": (1, MAX7219_CHIPS), "intensity": (0, 15), "scan_limit": (1, 8)}
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        hub.chain = v.integer(h, "num_chips", p, 1, MAX7219_CHIPS, default=1)
+        hub.n_pins = 64 * hub.chain
+        hub.ram_bytes = 8 * hub.chain                    # a digit register per byte
+        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
+        hub.grids = v.integer(h, "scan_limit", p, 1, 8, default=8)
+        hub.clock = ctl("clk_pin", "out")
+        hub.data = ctl("din_pin", "out")
+        hub.latch = ctl("cs_pin", "out")
+
+    def range_text(self, hub):
+        return (f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8 digits x 8; pin = chip * 64 + "
+                "digit * 8 + segment, 0..6 = A..G, 7 = DP)")
+
+    def c_fields(self, hub):
+        return [f"        .mx = {{ .clk = {hub.clock.c()}, .din = {hub.data.c()}, .cs = {hub.latch.c()},",
+                f"                .chips = {hub.chain}, .intensity = {hub.intensity}, "
+                f".scan_limit = {hub.grids} }},"]
+
+
+class TM1637(HubType):
+    """A TM1637 LED driver (2-wire, ESPHome tm1637 keys), bit-banged from the main loop: pin = grid * 8
+    + segment (bit 0 = SEG1 = a ... bit 7 = SEG8)."""
+    key, enum, num = "tm1637", "GM_HUB_TM1637", 12
+    keys = ("id", "clk_pin", "dio_pin", "intensity", "length")
+    lines = {"clk_pin": "tm37_clk", "dio_pin": "tm37_dio"}
+    roles = frozenset({"out"})
+    ram = True
+    schema = {"length": (1, 6), "intensity": (0, 7)}
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        hub.ram_bytes = v.integer(h, "length", p, 1, 6, default=6)
+        hub.n_pins = 8 * hub.ram_bytes
+        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
+        hub.clock = ctl("clk_pin", "out")
+        hub.data = ctl("dio_pin", "out", open_drain=True)
+        for k in ("clk_pin", "dio_pin"):
+            x = h.get(k)
+            if isinstance(x, dict) and x.get("allow_other_uses"):
+                v.err(f"{p}.{k}", h.line_of(k), "a tm1637 has no chip select: its clk_pin and dio_pin "
+                                               "can't be shared")
+
+    def range_text(self, hub):
+        return f" ({hub.ram_bytes} grids x 8; pin = grid * 8 + segment)"
+
+    def c_fields(self, hub):
+        return [f"        .tm37 = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .grids = {hub.ram_bytes}, "
+                f".brightness = {hub.intensity} }},"]
+
+
 HUB_DEFS = {t.key: t for t in (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
@@ -631,7 +697,7 @@ HUB_DEFS = {t.key: t for t in (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), RgbSerial(), XYPad())}
+    Decoder(), SwitchMatrix(), TM1628(), RgbSerial(), XYPad(), MAX7219(), TM1637())}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 HUB_PIN_KEY = {k: t.pin_key or k for k, t in HUB_DEFS.items()}
@@ -649,8 +715,6 @@ IN_HUBS = {k for k, t in HUB_DEFS.items() if "in" in t.roles}
 ANALOG_HUBS = {k for k, t in HUB_DEFS.items() if "analog" in t.roles}
 # A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
 ROW_HUBS = {k for k, t in HUB_DEFS.items() if "row" in t.roles}
-# hub control pins that may be shared between hubs (allow_other_uses): same line kind on each
-CTRL_LINE = {k: kind for t in HUB_DEFS.values() for k, kind in t.lines.items()}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
@@ -1493,7 +1557,7 @@ class _V:
             return None
         bad = None
         if "open_drain" in flags and not (open_drain and role == "out"):
-            bad = "open_drain is only supported on a tm1628 dio_pin"
+            bad = "open_drain is only supported on a tm1628 or tm1637 dio_pin"
         elif "pullup" in flags and "pulldown" in flags:
             bad = "pullup and pulldown are both set"
         elif role == "out" and flags - {"output", "open_drain"}:
@@ -1957,6 +2021,13 @@ def validate(data, file=None):
                                                    f"'{stbs[h.latch.num]}': chips can share clk_pin and "
                                                    "dio_pin, but each needs its own stb_pin")
             stbs.setdefault(h.latch.num, h.id)
+    css = {}
+    for h in dev.hubs:
+        if h.type == "max7219" and h.latch.hub == 0:
+            if h.latch.num in css:
+                v.err(f"{h.path}.cs_pin", h.line, f"{h.latch.desc} is already the cs_pin of hub '{css[h.latch.num]}': "
+                                                  "chains can share clk_pin and din_pin, but each needs its own cs_pin")
+            css.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
@@ -3016,7 +3087,7 @@ def validate_hub(v, dev, h, typ, p, line):
             if required:
                 v.err(f"{p}.{key}", h.line, "is required")
             return NO_PIN
-        return v.pin(h[key], f"{p}.{key}", h.line_of(key), role, allow_hub=False, line_kind=CTRL_LINE[key],
+        return v.pin(h[key], f"{p}.{key}", h.line_of(key), role, allow_hub=False, line_kind=kind.lines[key],
                      owner=index, open_drain=open_drain) or NO_PIN
 
     kind.validate(v, dev, hub, h, p, line, ctl)
@@ -5543,7 +5614,7 @@ def generate(dev, source="device.yaml"):
     h += matrix_defines(dev)
     tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if tm_ram:
-        h.append(f"#define GM_TM1628_RAM {tm_ram} /* RAM bytes of all tm1628 and rgb_serial hubs */")
+        h.append(f"#define GM_TM1628_RAM {tm_ram} /* hub RAM bytes: tm1628, max7219, tm1637, rgb_serial */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     if m and getattr(m, "vel_fast", None) is not None:

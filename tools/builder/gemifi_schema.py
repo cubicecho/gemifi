@@ -97,6 +97,7 @@ def hub(typ):
     keys = gd.HUB_KEYS[typ]
     types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_")}
     types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
+    types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in gd.HUB_DEFS[typ].schema.items()})
     types.update({k: v for k, v in matrix_lines().items() if k in keys})
     if typ in gd.ROW_HUBS:
         types["address"] = lst(ref("pin"), "the address pins, A0 first")

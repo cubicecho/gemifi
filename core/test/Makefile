@@ -22,6 +22,8 @@
 #                  (matrix-hw-test.yaml)
 # test_pads_hw:    test_pads.c with the hardware analog scan's sweeps
 #                  (pads-hw-test.yaml)
+# test_seg_hubs:   MAX7219 and TM1637 hubs with 7-segment displays on them
+#                  (seg-hubs-test.yaml): both buses decoded from the pins
 # test_display:    core/src/display.c alone (display-cfg/, fake pins)
 # test_displays:   the same with six displays: segment7, a segment map and
 #                  each shows: value (displays-cfg/)
@@ -52,6 +54,8 @@ MX_DEV    := $(BUILD)/device-matrix
 HW_DEVICE := matrix-hw-test.yaml
 HW_DEV    := $(BUILD)/device-matrix-hw
 TM_DEVICE := tm1628-test.yaml
+SEG_DEVICE := seg-hubs-test.yaml
+SEG_DEV    := $(BUILD)/device-seg-hubs
 TM_DEV    := $(BUILD)/device-tm1628
 TMA_DEVICE := $(BUILD)/tm1628-ack-test.yaml
 TMA_DEV    := $(BUILD)/device-tm1628-ack
@@ -100,6 +104,10 @@ endif
 GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TM_DEVICE) -o $(TM_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(TM_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(SEG_DEVICE) -o $(SEG_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(SEG_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
 # The same device with the pad board's answers (rgb_serial rx_pin).
 GEN_OUT := $(shell mkdir -p $(BUILD) && sed -e 's/{ id: pads, tx_pin: PA2, count: 4 }/{ id: pads, tx_pin: PA2, rx_pin: PA3, count: 4, gamma: 2.2, white: [255, 200, 220] }/' -e 's/^    grids: 7$$/    grids: 7\n    fade: true/' $(TM_DEVICE) > $(TMA_DEVICE) && grep -q 'rx_pin: PA3' $(TMA_DEVICE) && grep -q 'fade: true' $(TMA_DEVICE) && python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TMA_DEVICE) -o $(TMA_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
@@ -181,6 +189,7 @@ MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c
 HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c
 TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
 TMA_SRCS := test_tm1628.c $(CORE_SRCS) $(TMA_DEV)/gm_device_config.c
+SEG_SRCS := test_seg_hubs.c $(CORE_SRCS) $(SEG_DEV)/gm_device_config.c
 PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
 PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c
 DINP_SRCS := test_din.c $(CORE_SRCS) $(DINP_DEV)/gm_device_config.c
@@ -194,7 +203,7 @@ MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c
 MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg $(BUILD)/test_modes
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_msg $(BUILD)/test_modes
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -211,6 +220,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_tm1628_ack
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
+	$(BUILD)/test_seg_hubs
 	$(BUILD)/test_display
 	$(BUILD)/test_displays
 	$(BUILD)/test_din_port
@@ -258,6 +268,10 @@ $(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/
 $(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PADHW_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHW_ADC_TEST -I$(PADHW_DEV) $(PADHW_SRCS) -o $@
+
+$(BUILD)/test_seg_hubs: $(SEG_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(SEG_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SEG_DEV) $(SEG_SRCS) -o $@
 
 $(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
 	mkdir -p $(BUILD)

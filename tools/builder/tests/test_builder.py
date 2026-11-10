@@ -768,6 +768,70 @@ class TestValidation(unittest.TestCase):
         self.assertIn("#define GM_N_DISPLAYS 3 ", files["gm_device_config.h"])
         self.assertIn("#define GM_DISPLAY_SHOWS 0x1Cu ", files["gm_device_config.h"])
 
+    def test_max7219(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        share = "{ number: %s, allow_other_uses: true }"
+
+        def dev(extra="", leds="", cs_b=None):
+            t = stm + f"max7219:\n  - {{ id: mx, clk_pin: PA5, din_pin: PA7, cs_pin: PA4{extra} }}\n"
+            if cs_b:
+                t = t.replace("clk_pin: PA5, din_pin: PA7", f"clk_pin: {share % 'PA5'}, din_pin: {share % 'PA7'}")
+                t += f"  - {{ id: mx2, clk_pin: {share % 'PA5'}, din_pin: {share % 'PA7'}, cs_pin: {cs_b} }}\n"
+            return t + leds
+
+        self.assertClean(dev())
+        # pin = chip * 64 + digit * 8 + segment
+        self.assertClean(dev(leds="leds:\n  - { id: l, pin: { max7219: mx, number: 63 } }\n"))
+        self.assertError(dev(leds="leds:\n  - { id: l, pin: { max7219: mx, number: 64 } }\n"),
+                         r"pin 64 is out of range for hub 'mx' \(max7219 \(1 chip x 8 digits x 8; pin = chip \* 64")
+        self.assertClean(dev(", num_chips: 8", "leds:\n  - { id: l, pin: { max7219: mx, number: 511 } }\n"))
+        self.assertError(dev(", num_chips: 9"), r"9 is out of range \(1\.\.8\)")
+        self.assertError(dev(", intensity: 16"), r"16 is out of range \(0\.\.15\)")
+        self.assertError(dev(", scan_limit: 0"), r"0 is out of range \(1\.\.8\)")
+        self.assertError(dev().replace("pin: PA1", "pin: { max7219: mx, number: 0 }"),
+                         r"max7219, which can't be an input")
+        # chains share CLK and DIN, each its own CS
+        self.assertClean(dev(cs_b="PB12"))
+        self.assertError(dev(cs_b=share % "PA4").replace("cs_pin: PA4", "cs_pin: " + share % "PA4"),
+                         r"each needs its own cs_pin", path="max7219[1].cs_pin")
+        # a 3-digit segment7 display: 8 pins a digit
+        disp = dev(", num_chips: 1, intensity: 8, scan_limit: 3") + \
+            "displays:\n  - { id: d, type: segment7, shows: preset_number, chars: [{ max7219: mx, number: 0 }, " \
+            "{ max7219: mx, number: 8 }, { max7219: mx, number: 16 }] }\n"
+        self.assertClean(disp)
+        self.assertError(disp + "leds:\n  - { id: l, pin: { max7219: mx, number: 15 } }\n", r"mx\.15 is already used")
+        d, diags = load(disp)
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        files = gd.generate(d, "t.yaml")
+        c, h = files["gm_device_config.c"], files["gm_device_config.h"]
+        self.assertIn(".type = GM_HUB_MAX7219, .mx = { .clk = { 0, 0, 5 }, .din = { 0, 0, 7 }, .cs = { 0, 0, 4 },", c)
+        self.assertIn(".chips = 1, .intensity = 8, .scan_limit = 3 },", c)
+        self.assertIn("#define GM_TM1628_RAM 8 ", h)
+        self.assertIn(f"#define GM_HUB_TYPES 0x{1 << 11:04X}u ", h)
+
+    def test_tm1637(self):
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+
+        def dev(extra="", leds="", dio="PB7", clk="PB6"):
+            return stm + f"tm1637:\n  - {{ id: t, clk_pin: {clk}, dio_pin: {dio}{extra} }}\n" + leds
+
+        self.assertClean(dev())
+        self.assertClean(dev(dio="{ number: PB7, mode: OUTPUT_OPEN_DRAIN }"))
+        self.assertError(dev(clk="{ number: PB6, mode: OUTPUT_OPEN_DRAIN }"),
+                         r"open_drain is only supported on a tm1628 or tm1637 dio_pin")
+        self.assertClean(dev(leds="leds:\n  - { id: l, pin: { tm1637: t, number: 47 } }\n"))
+        self.assertError(dev(", length: 4", "leds:\n  - { id: l, pin: { tm1637: t, number: 32 } }\n"),
+                         r"pin 32 is out of range for hub 't' \(tm1637 \(4 grids x 8")
+        self.assertError(dev(", length: 7"), r"7 is out of range \(1\.\.6\)")
+        self.assertError(dev(", intensity: 8"), r"8 is out of range \(0\.\.7\)")
+        self.assertError(dev(clk="{ number: PB6, allow_other_uses: true }"), r"a tm1637 has no chip select")
+        d, diags = load(dev(", length: 4, intensity: 2"))
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        files = gd.generate(d, "t.yaml")
+        self.assertIn(".type = GM_HUB_TM1637, .tm37 = { .clk = { 0, 0, 22 }, .dio = { 0, 0, 23 }, .grids = 4, "
+                      ".brightness = 2 },", files["gm_device_config.c"])
+        self.assertIn("#define GM_TM1628_RAM 4 ", files["gm_device_config.h"])
+
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
         share = "{ number: %s, allow_other_uses: true }"
@@ -811,7 +875,7 @@ class TestValidation(unittest.TestCase):
                                  "latch_pin: PB1 }\n", r"PC10 is already used.*same control line")
         # open-drain only on dio_pin
         self.assertError(dev(clk="{ number: PC10, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }"),
-                         r"open_drain is only supported on a tm1628 dio_pin")
+                         r"open_drain is only supported on a tm1628 or tm1637 dio_pin")
         self.assertError(dev().replace("mode: OUTPUT_OPEN_DRAIN", "mode: INPUT"),
                          r"use mode: OUTPUT or OUTPUT_OPEN_DRAIN")
         # RGB LED: pin red, pin2 green, pin3 blue; pin3 needs pin2
@@ -988,12 +1052,12 @@ class TestValidation(unittest.TestCase):
         self.assertError(btn % "OUTPUT", r"this pin is an input: mode can't include output")
         self.assertError(btn % "INPUT_PULUP", r"unknown mode 'INPUT_PULUP'.*did you mean INPUT_PULLUP")
         self.assertError(btn % "{ input: true, pullup: true, pulldown: true }", r"pullup and pulldown")
-        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
+        self.assertError(btn % "INPUT_OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 or tm1637 dio_pin")
         self.assertError(btn % "{ input: true, pulup: true }", r"unknown key \(did you mean 'pullup'")
         led = MINIMAL_NUC + "leds:\n  - { id: l, pin: { number: PA2, mode: %s } }\n"
         self.assertClean(led % "OUTPUT")
         self.assertError(led % "INPUT_PULLUP", r"this pin is an output: use mode: OUTPUT")
-        self.assertError(led % "OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 dio_pin")
+        self.assertError(led % "OUTPUT_OPEN_DRAIN", r"open_drain is only supported on a tm1628 or tm1637 dio_pin")
         an = MINIMAL_NUC + "analog:\n  - { id: v, pin: { number: PA0, mode: %s }, cc: 7 }\n"
         self.assertClean(an % "ANALOG")
         self.assertError(an % "INPUT_PULLUP", r"analog input takes mode ANALOG or INPUT")

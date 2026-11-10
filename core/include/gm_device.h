@@ -4,8 +4,8 @@
  * A device is a list of components (buttons, LEDs, analog inputs, encoders,
  * a key matrix) whose pins are *virtual pins*: either a pin of the MCU
  * itself (hub 0) or a pin of an expander hub (74HC595 outputs, 74HC165
- * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 over I2C, TM1628
- * LED drivers). The core
+ * inputs, 74HC4051/4067 multiplexers, MCP23017 / PCF8574 over I2C, TM1628,
+ * MAX7219 and TM1637 LED drivers). The core
  * drives the hubs; the platform HAL only knows its own pins.
  *
  * The tables are generated from a device YAML by tools/builder (see
@@ -57,6 +57,8 @@ enum {
     GM_HUB_SWMATRIX = 8,  /* switch matrix, scanned by the scan tick (.sm) */
     GM_HUB_RGB_SERIAL = 9, /* the M-Audio Code pad LED board (.rgb)       */
     GM_HUB_XY = 10,       /* 4-wire resistive XY pad (.xy)                */
+    GM_HUB_MAX7219 = 11,  /* MAX7219 LED drivers, a chain (.mx)           */
+    GM_HUB_TM1637 = 12,   /* TM1637 2-wire LED driver (.tm37)             */
     GM_HUB_N_TYPES        /* (one more than the last)                     */
 };
 
@@ -152,6 +154,29 @@ typedef struct {
     uint16_t touch_min, touch_max;
 } gm_hub_xy_t;
 
+/* .mx: a chain of MAX7219 LED drivers (MAX7221 too), bit-banged from the
+ * main loop: outputs, pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
+ * 7 = DP; digit 0 = DIG0). Chip 0 is the one whose DIN is the MCU's. The
+ * chips' own decode is off: the core sends segments. */
+typedef struct {
+    gm_pin_t clk;
+    gm_pin_t din;
+    gm_pin_t cs;          /* LOAD / CS: the words are taken on its rising edge */
+    uint8_t chips;        /* in the chain, 1..8                            */
+    uint8_t intensity;    /* 0..15 (register 0x0A)                         */
+    uint8_t scan_limit;   /* digits scanned, 1..8 (register 0x0B: it - 1)  */
+} gm_hub_max7219_t;
+
+/* .tm37: a TM1637 (2-wire: CLK, DIO, no chip select; one chip per pair),
+ * bit-banged from the main loop: outputs, pin = grid * 8 + segment (bit 0
+ * = SEG1 = a ... bit 7 = SEG8, the point or colon). */
+typedef struct {
+    gm_pin_t clk;
+    gm_pin_t dio;
+    uint8_t grids;        /* digits written, 1..6                          */
+    uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
+} gm_hub_tm1637_t;
+
 typedef struct {
     uint8_t type;         /* GM_HUB_*                                      */
     union {
@@ -163,6 +188,8 @@ typedef struct {
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
         gm_hub_rgb_serial_t rgb;  /* GM_HUB_RGB_SERIAL */
         gm_hub_xy_t xy;           /* GM_HUB_XY */
+        gm_hub_max7219_t mx;      /* GM_HUB_MAX7219 */
+        gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
     };
 } gm_hub_t;
 

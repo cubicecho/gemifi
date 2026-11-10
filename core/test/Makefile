@@ -221,6 +221,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_pads
 	$(BUILD)/test_pads_hw
 	$(BUILD)/test_seg_hubs
+	GM_TEST_NO_CYCLES=1 $(BUILD)/test_seg_hubs
 	$(BUILD)/test_display
 	$(BUILD)/test_displays
 	$(BUILD)/test_din_port

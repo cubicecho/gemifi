@@ -1702,11 +1702,16 @@ static void ledram_init(hub_state_t *s, uint32_t n)
         hub_ram[s->ram + k] = 0;
 }
 
-/* Waits n hal_cycles() (0: none). */
-static void wait_cycles(uint32_t n)
+/* A bus phase: n hal_cycles() (hal_ns_to_cycles), or 1 us without a
+ * cycle counter (n = 0). */
+static void bus_wait(uint32_t n)
 {
+    if (!n) {
+        hal_delay_us(1);
+        return;
+    }
     uint32_t t = hal_cycles();
-    while (n && hal_cycles() - t < n) {
+    while (hal_cycles() - t < n) {
     }
 }
 
@@ -1714,9 +1719,9 @@ static void wait_cycles(uint32_t n)
  * edge; the chain's words are taken on CS rising, the last chip's sent
  * first. Datasheet: CLK <= 10 MHz, CLK high / low >= 50 ns, DIN setup 25 ns,
  * CS high >= 50 ns. Each phase waits MX_PHASE_NS on hal_cycles() where
- * there is a counter; without one, a pin write takes longer than that. A
- * word takes about as long as two TM1628 bytes on the STM32, so a frame
- * (one register in every chip) costs 2 a chip from the budget. */
+ * there is a counter (a word ~8 us at 72 MHz; a frame, one register in
+ * every chip, counts 2 a chip against the budget); without one, 1 us (a
+ * word ~35 us: the ESP and NUC builds). */
 #ifndef MX_PHASE_NS
 #define MX_PHASE_NS 100u
 #endif
@@ -1741,9 +1746,9 @@ static void mx_word(const gm_hub_t *h, uint32_t w, uint32_t ph)
 {
     for (uint32_t b = 16; b-- > 0;) {
         hal_pin_write(h->mx.din.num, (int)((w >> b) & 1u));
-        wait_cycles(ph);
+        bus_wait(ph);
         hal_pin_write(h->mx.clk.num, 1);
-        wait_cycles(ph);
+        bus_wait(ph);
         hal_pin_write(h->mx.clk.num, 0);
     }
 }
@@ -1755,9 +1760,9 @@ static void mx_frame(const gm_hub_t *h, uint32_t reg, const uint8_t *ram, uint32
     hal_pin_write(h->mx.cs.num, 0);
     for (uint32_t c = h->mx.chips; c-- > 0;)
         mx_word(h, reg << 8 | (ram ? mx_bits(ram[c * 8u + reg - 1u]) : v), ph);
-    wait_cycles(ph);
+    bus_wait(ph);
     hal_pin_write(h->mx.cs.num, 1);
-    wait_cycles(ph);
+    bus_wait(ph);
 }
 
 /* The first write sets the chips up (test off, no decode, scan limit,

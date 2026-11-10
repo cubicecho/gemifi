@@ -13,7 +13,9 @@
  *     pulls it low, so the driver must not drive it high), stop (DIO rises
  *     while CLK is high). Each command is logged as its bytes, "40|C0 3D|".
  * Timing is checked on a virtual clock in ns, moved by hal_delay_us and by
- * each hal_cycles() call (10 ns; hal_ns_to_cycles(ns) = ns).
+ * each hal_cycles() call (10 ns; hal_ns_to_cycles(ns) = ns, or 0 with
+ * GM_TEST_NO_CYCLES=1: no cycle counter, the MAX7219 phases on
+ * hal_delay_us).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -194,7 +196,8 @@ static void t_pin(uint16_t pin, int was, int l)
 uint32_t hal_millis(void) { return now_ms; }
 void hal_delay_us(uint32_t us) { t_ns += 1000ull * us; }
 uint32_t hal_cycles(void) { return (uint32_t)(t_ns += 10); }
-uint32_t hal_ns_to_cycles(uint32_t ns) { return ns; }
+static int no_cycles;
+uint32_t hal_ns_to_cycles(uint32_t ns) { return no_cycles ? 0 : ns; }
 void hal_pin_mode(uint16_t pin, uint8_t m) { mode[pin] = m; }
 
 void hal_pin_write(uint16_t pin, int l)
@@ -264,6 +267,8 @@ static int tm_shows(const char *t)
 
 int main(void)
 {
+    no_cycles = getenv("GM_TEST_NO_CYCLES") != NULL;
+    printf("MAX7219 phases timed by %s\n", no_cycles ? "hal_delay_us" : "hal_cycles");
     level[PIN_MX_CS] = 1;
     level[PIN_T_CLK] = level[PIN_T_DIO] = 1;
     level[PIN_P1] = level[PIN_P2] = level[PIN_BTN] = 1;   /* released (inverted, pull-up) */

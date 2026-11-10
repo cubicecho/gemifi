@@ -5,8 +5,8 @@
  * Each hub type (gm_device.h GM_HUB_*) has one gm_hub_ops_t: what vpin.c
  * calls for a hub of that type. An op left NULL has the default given with
  * it, so a driver only fills in what its chip does. Every op gets the hub's
- * config (gm_device.hubs[n]) and its state (gm_hub_state_t, one per hub,
- * zeroed apart from the common fields before init).
+ * config (gm_device.hubs[n]) and its state (gm_hub_state_t, one per hub:
+ * all 0 before init, except never = 1, channel = -1 and flags).
  *
  * Where each op runs:
  *   - scan tick (interrupt): refresh and flush, unless GM_HUBF_BUS;
@@ -83,7 +83,7 @@ struct gm_hub_state {
                              next row; RGB_SERIAL: last LED sent; XY: axis driven */
     uint8_t never;        /* outputs never written yet                     */
     uint8_t flags;        /* the type's GM_HUBF_* (in RAM, for the fast paths) */
-    uint16_t ram;         /* its bytes in the hub RAM (vpin_hub_ram), if any */
+    uint16_t ram;         /* where its bytes start in vpin.c's hub RAM, if any */
     union {
         struct {          /* MCP23017 / PCF8574 */
             uint32_t dir_out;     /* pins used as outputs          */

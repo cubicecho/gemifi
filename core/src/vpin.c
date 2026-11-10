@@ -613,7 +613,8 @@ int vpin_analog_jump(gm_pin_t p)
  * itself (the scan's path), as analog by the analog op or the hardware
  * analog scan. */
 static uint32_t mux_same[N_HUBS], mux_some[N_HUBS];
-static uint8_t mux_masks;
+/* a constant with LTO: the loop below goes when there are <= 32 hubs */
+#define MUX_MASKS (gm_device.n_hubs <= 32u)
 
 static void mux_pair(const gm_hub_t *h, const gm_hub_t *o, int *any, int *same)
 {
@@ -636,9 +637,8 @@ static void mux_init(const gm_hub_t *h, hub_state_t *s)
     mcu_out(h->mux.enable, 0);
     mcu_in(h->mux.common);
     uint32_t i = (uint32_t)(s - hs);
-    mux_masks = gm_device.n_hubs <= 32u;
     mux_same[i] = mux_some[i] = 0;
-    for (uint32_t j = 0; mux_masks && j < gm_device.n_hubs; j++) {
+    for (uint32_t j = 0; MUX_MASKS && j < gm_device.n_hubs; j++) {
         const gm_hub_t *o = &gm_device.hubs[j];
         int any, same;
         if (j == i || o->type != GM_HUB_MUX)
@@ -651,7 +651,7 @@ static void mux_init(const gm_hub_t *h, hub_state_t *s)
 
 static void mux_shared(const gm_hub_t *h, uint32_t i, uint32_t ch)
 {
-    if (mux_masks) {
+    if (MUX_MASKS) {
         for (uint32_t m = mux_same[i]; m; m &= m - 1u)
             hs[__builtin_ctz(m)].channel = (int8_t)ch;
         for (uint32_t m = mux_some[i]; m; m &= m - 1u)
@@ -1016,8 +1016,7 @@ int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word)
 
 int vpin_is_decoder(gm_pin_t p)
 {
-    const gm_hub_t *h = hub_of(p);
-    return h && h->type == GM_HUB_DECODER;
+    return hub_of(p) && (hs[p.hub - 1].flags & GM_HUBF_SELECT);     /* (after vpin_init) */
 }
 
 const volatile uint32_t *vpin_in_reg(gm_pin_t p, uint32_t *mask)

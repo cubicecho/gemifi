@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.38.1](https://github.com/cubicecho/gemifi/compare/v0.38.0...v0.38.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **core:** review pass: stuck notes, start-up bend, settings, DIN order, velocity ([d753a28](https://github.com/cubicecho/gemifi/commit/d753a28daa093acceaa6e99d740b221783a7fb24))
+* **leds:** fade: a host's black is brightness 0, not the idle look ([33e5346](https://github.com/cubicecho/gemifi/commit/33e5346f3193323ca665181d0c5177f289605a10))
+
 # [0.38.0](https://github.com/cubicecho/gemifi/compare/v0.37.1...v0.38.0) (2026-11-10)
 
 

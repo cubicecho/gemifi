@@ -376,6 +376,9 @@ static void mode_key(uint32_t mi, uint32_t k);
 #endif
 #if GM_LAYER_PARAMS
 static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), gm_init */
+/* LEDs a cycle step or a layer-only toggle lights (bit = LED), gm_init:
+ * mode_led() looks through the modes only for these. */
+static uint32_t solo_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
 static uint64_t solo_on;            /* ... the ones that are on */
 static uint64_t modes_was;          /* modes on at the last layers_update: EVENT 8 on a change */
 static uint8_t report_due;          /* gm_layers_report: the EVENT 8 replay, from gm_poll */
@@ -1658,6 +1661,8 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
     if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
         return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
 #if GM_LAYER_PARAMS
+    if (!((solo_leds[li >> 5] >> (li & 31u)) & 1u))
+        return level;
     for (uint32_t m = 0; m < GM_N_MODES; m++) {     /* cycle steps and layer-only toggles */
         const gm_mode_t *md = &gm_modes[m];
         if (md->led != (int8_t)li || !(md->cycle || ((solo_mask >> m) & 1u)) || !layer_rank(m))
@@ -1729,11 +1734,22 @@ static void buttons_sample(void)
 }
 
 /* Called once per elapsed millisecond. */
+/* The buttons set to cc_ramp, worked out again when a param changes: the
+ * millisecond loop looks at those only. */
+static btn_bits_t ramp_mask;
+static uint32_t ramp_gen;
+
 static void ramps_ms(uint32_t now)
 {
-    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
-        if (gm_cfg.btn_action[i] != ACT_CC_RAMP)
-            continue;
+    if (ramp_gen != params_gen || !params_gen) {
+        ramp_gen = params_gen;
+        ramp_mask = 0;
+        for (uint32_t i = 0; i < GM_N_BUTTONS; i++)
+            if (gm_cfg.btn_action[i] == ACT_CC_RAMP)
+                ramp_mask |= (btn_bits_t)1u << i;
+    }
+    for (btn_bits_t m = ramp_mask; m; m &= m - 1u) {
+        uint32_t i = (uint32_t)__builtin_ctzll(m);
         int32_t target = ((btn_held >> i) & 1u) ? (127 << 8) : 0;
         int32_t step = gm_cfg.ramp_time > 0 ? (127 << 8) / gm_cfg.ramp_time : (127 << 8);
         if (step < 1)
@@ -2761,12 +2777,15 @@ static void leds_walk(uint32_t now)
 /* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
  * from led_shown: a DAW's colour at its brightest channel (these win), any
  * other lit level or look full. */
+/* LEDs on a fade chip (bit = LED), gm_init: the others aren't looked at. */
+static uint32_t fade_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
+
 static void leds_fade(void)
 {
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         const gm_led_t *l = &gm_device.leds[i];
         uint32_t key = led_shown[i], level = key >> 1;
-        if (key == 0xFFFFu)
+        if (!((fade_leds[i >> 5] >> (i & 31u)) & 1u) || key == 0xFFFFu)
             continue;
 #if GM_HOST_LEDS
         /* A blink's dark half shows the idle look, but a host colour's keeps
@@ -3031,9 +3050,15 @@ static int fb_used(uint32_t type, uint32_t num)
 #endif
 
 #if GM_LED_FB
+/* Bit s: some LED has source s (gm_init): most devices give few or none
+ * a source, so a note or CC needn't walk every LED. */
+static uint8_t fb_sources;
+
 /* The host's value for every LED with this explicit source. */
 static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value)
 {
+    if (!((fb_sources >> source) & 1u))
+        return;
     for (uint32_t i = 0; i < GM_N_LEDS; i++) {
         const gm_led_fb_t *f = &gm_led_fb[i];
         if (f->source != source)
@@ -3405,6 +3430,13 @@ void gm_init(uint32_t fw_version, int safe_mode)
         if (md->toggle != GM_MODE_NONE && !md->hold && !md->cycle && !md->n_keys && !md->n_buttons)
             solo_mask |= 1ull << m;
     }
+    for (uint32_t w = 0; w < sizeof solo_leds / sizeof solo_leds[0]; w++)
+        solo_leds[w] = 0;
+    for (uint32_t m = 0; m < GM_N_MODES; m++) {
+        const gm_mode_t *md = &gm_modes[m];
+        if (md->led >= 0 && md->led < (int8_t)gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
+            solo_leds[(uint32_t)md->led >> 5] |= 1u << ((uint32_t)md->led & 31u);
+    }
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < NB; i++) {
@@ -3428,6 +3460,19 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
         led_host_lv[i] = HOST_NONE;
+#endif
+#if GM_TM_FADE && GM_HOST_FB
+    for (uint32_t i = 0; i < gm_device.n_leds; i++)
+        if (vpin_fades(gm_device.leds[i].pin))
+            fade_leds[i >> 5] |= 1u << (i & 31u);
+        else
+            fade_leds[i >> 5] &= ~(1u << (i & 31u));
+#endif
+#if GM_LED_FB
+    fb_sources = 0;
+    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+        if (gm_led_fb[i].source < 8u)
+            fb_sources |= (uint8_t)(1u << gm_led_fb[i].source);
 #endif
 #if GM_MCU
     gm_mcu_init(fw_version);

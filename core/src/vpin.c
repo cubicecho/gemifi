@@ -1335,10 +1335,15 @@ void vpin_flush_tm1628(void)
  * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
 static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
 
-void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+int vpin_fades(gm_pin_t p)
 {
     const gm_hub_t *h = p.hub ? hub_of(p) : 0;
-    if (!h || h->type != GM_HUB_TM1628 || !h->fade)
+    return h && h->type == GM_HUB_TM1628 && h->fade;
+}
+
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+{
+    if (!vpin_fades(p))
         return;
     uint16_t *peak = &hs[p.hub - 1].tm_peak[colour ? 1 : 0];
     if (v > 255u)
@@ -1382,6 +1387,12 @@ void vpin_fade_apply(void)
     }
 }
 #else
+int vpin_fades(gm_pin_t p)
+{
+    (void)p;
+    return 0;
+}
+
 void vpin_fade(gm_pin_t p, uint32_t v, int colour)
 {
     (void)p;

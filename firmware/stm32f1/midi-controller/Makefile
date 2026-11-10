@@ -27,7 +27,7 @@ endif
 # config (the YAML's board_id and board:; the builder also passes BOARD=).
 MKIMAGE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_ID[ \t]*//p' $(DEVICE_DIR)/gm_device_config.h)
 BOARD_ID := $(MKIMAGE_BOARD)
-DEVICE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_PROFILE[ \t]*"\(.*\)"/\1/p' $(DEVICE_DIR)/gm_device_config.h)
+DEVICE_BOARD := $(shell sed -n 's/^\#define GM_BOARD_PROFILE[ \t]*"\([^"]*\)".*/\1/p' $(DEVICE_DIR)/gm_device_config.h)
 ifneq ($(DEVICE_BOARD),)
 BOARD ?= $(DEVICE_BOARD)
 endif

@@ -5,7 +5,8 @@
  *
  * The stock app asks the vendor bootloader for update mode by writing an
  * 8-byte magic to the start of the last 1 KB flash page (0x0801FC00, rest
- * of the page FF). The bootloader checks it at power-up, stays in update
+ * of the page FF). gemifi keeps that page on every board: BOARD_FLAG_PAGE
+ * in the board profile (the last flash page unless it says otherwise). The bootloader checks it at power-up, stays in update
  * mode, and clears it at the end of an update. gemifi does the same, then
  * resets (whether a soft reset is enough, or a power cycle is needed, is
  * still to be tested on hardware).
@@ -19,8 +20,9 @@
 #define GEMIFI_RECOVERY_H
 
 #include <stdint.h>
+#include "board_layout.h"
 
-#define UPDATE_FLAG_ADDR 0x0801FC00u
+#define UPDATE_FLAG_ADDR BOARD_FLAG_PAGE
 /* bytes 55 5A A5 AA 59 95 3A A3, as little-endian halfwords */
 #define UPDATE_FLAG_H0   0x5A55u
 #define UPDATE_FLAG_H1   0xAAA5u

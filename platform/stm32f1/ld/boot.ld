@@ -1,21 +1,19 @@
 /*
  * boot.ld: the gemifi bootloader on an STM32F1 (bootloader/stm32f1), in the
- * 9 KB below the app: 0x08000000-0x080023FF. Apps keep their own layout
- * (ld/app.ld: image at 0x08002400, .gfw header at +0x130).
+ * BOARD_BOOT_SIZE bytes below the app (9 KB on the Code 61: 0x08000000-
+ * 0x080023FF). Apps keep their own layout (ld/app.ld: image at
+ * BOARD_APP_BASE, .gfw header at +0x130). board_boot.ld (generated from the
+ * board profile) holds the MEMORY regions and the BOARD_* symbols.
  *
- *   0x08000000  vectors (16 core + 60 IRQ = 0x130 bytes)
- *   0x08000130  boot marker, 16 bytes (gemifi_image.h: 'GMBL')
- *   0x08000140  code
+ *   BOARD_FLASH_BASE          vectors (16 core + 60 IRQ = 0x130 bytes)
+ *   BOARD_FLASH_BASE + 0x130  boot marker, 16 bytes (gemifi_image.h: 'GMBL')
+ *   BOARD_FLASH_BASE + 0x140  code
  *
- * RAM: 20 KB. As in app.ld, the initial SP stays below the top of RAM.
+ * As in app.ld, the initial SP stays below the top of RAM.
  *
  * SPDX-License-Identifier: MIT
  */
-MEMORY
-{
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 0x2400
-    RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
-}
+INCLUDE board_boot.ld
 
 ENTRY(Reset_Handler)
 
@@ -61,16 +59,15 @@ SECTIONS
         _enoinit = .;
     } > RAM
 
-    STACK_GUARD = 0x100;
-    _estack = ORIGIN(RAM) + LENGTH(RAM) - STACK_GUARD;
+    _estack = ORIGIN(RAM) + LENGTH(RAM) - BOARD_STACK_GUARD;
     _image_end = LOADADDR(.data) + SIZEOF(.data);
 
-    ASSERT(ADDR(.text) == 0x08000000, "bootloader must start at 0x08000000")
-    ASSERT(_vectors_end <= 0x08000130, "vector table overlaps the boot marker")
-    ASSERT(_boot_mark_end == 0x08000140, "boot marker missing or not 16 bytes")
-    ASSERT(_image_end <= 0x08002400, "bootloader runs into the app at 0x08002400")
+    ASSERT(ADDR(.text) == BOARD_FLASH_BASE, "bootloader must start at BOARD_FLASH_BASE")
+    ASSERT(_vectors_end <= BOARD_FLASH_BASE + 0x130, "vector table overlaps the boot marker")
+    ASSERT(_boot_mark_end == BOARD_FLASH_BASE + 0x140, "boot marker missing or not 16 bytes")
+    ASSERT(_image_end <= BOARD_APP_BASE, "bootloader runs into the app at BOARD_APP_BASE")
     ASSERT(_enoinit + 1024 <= _estack, "less than 1 KB of RAM left for the stack")
-    ASSERT(_estack <= 0x20004FF0, "the stack top runs into the SRAM mailbox (sys.h)")
+    ASSERT(_estack <= BOARD_MAILBOX, "the stack top runs into the SRAM mailbox (sys.h)")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

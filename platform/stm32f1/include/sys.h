@@ -10,9 +10,12 @@
 
 #include <stdint.h>
 #include "stm32f1.h"
+#include "board_layout.h"
 
-/* HCLK after sys_clock_init(): 72 MHz from HSE (8 MHz x 9), or 48 MHz from
- * HSI / 2 x 12 if the crystal never starts. APB1 = HCLK / 2, APB2 = HCLK,
+/* HCLK after sys_clock_init(): 72 MHz from HSE (BOARD_CRYSTAL_HZ, through
+ * the PLL as BOARD_PLL_MUL / BOARD_PLL_HSE_DIV2 say: the board profile's
+ * generator only accepts crystals that make 72 MHz; Code 61: 8 MHz x 9), or
+ * 48 MHz from HSI / 2 x 12 if the crystal never starts. APB1 = HCLK / 2, APB2 = HCLK,
  * so the APB1 timers (TIM2..4) also run at HCLK. */
 #define HCLK_HZ_HSE 72000000u
 #define HCLK_HZ_HSI 48000000u
@@ -21,8 +24,8 @@ extern uint32_t sys_hclk_hz;
 /* If the board sets BOARD_SWJ_NOJTAG, first switches JTAG off (SWD stays
  * on) so PB3/PB4/PA15 are plain GPIOs.
  * Bring the clock tree to a known state from whatever the previous stage
- * (the vendor bootloader) left: back to HSI, RCC reset values, then HSE x 9
- * = 72 MHz with flash latency 2 + prefetch, APB1 / 2, USB = PLL / 1.5 =
+ * (the vendor bootloader) left: back to HSI, RCC reset values, then the HSE
+ * (or HSE / 2) x BOARD_PLL_MUL = 72 MHz with flash latency 2 + prefetch, APB1 / 2, USB = PLL / 1.5 =
  * 48 MHz. Returns 1 if HSE started, 0 if it fell back to HSI / 2 x 12 =
  * 48 MHz (USB = PLL / 1; HSI is only +-1 %, outside the USB spec, so USB may
  * or may not work then). */
@@ -59,10 +62,10 @@ __attribute__((noreturn)) void sys_reset(void);
  * vector), as M-Audio's bootloader did. Never returns. */
 __attribute__((noreturn)) void sys_jump(uint32_t sp, uint32_t pc);
 
-/* ---- SRAM mailbox at 0x2000_4FF0 (protocol/sysex.md section 6) --------
- * The top 16 bytes of the 20 KB SRAM, above every stack top (_estack =
- * 0x2000_4F00, ld/app.ld and ld/boot.ld), so neither side's startup or
- * stack touches it. The bootloader writes it at every reset (below); an
+/* ---- SRAM mailbox (protocol/sysex.md section 6) -------------------------
+ * The top 16 bytes of the SRAM (BOARD_MAILBOX_ADDR; Code 61: 0x2000_4FF0 of
+ * 20 KB), above every stack top (_estack = 0x100 below it, ld/app.ld and
+ * ld/boot.ld), so neither side's startup or stack touches it. The bootloader writes it at every reset (below); an
  * app trusts it only when the gemifi bootloader is there (its marker,
  * gemifi_image.h): under M-Audio's bootloader it is random. */
 typedef struct {
@@ -72,7 +75,7 @@ typedef struct {
     uint32_t reason;
 } gemifi_mailbox_t;
 
-#define MAILBOX_ADDR       0x20004FF0u
+#define MAILBOX_ADDR       BOARD_MAILBOX_ADDR
 #define MAILBOX            ((volatile gemifi_mailbox_t *)MAILBOX_ADDR)
 /* reason values (sysex.md 6) */
 #define MAILBOX_REASON_REBOOT    1u      /* app: REBOOT(bootloader) asked   */

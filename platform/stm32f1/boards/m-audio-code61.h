@@ -25,64 +25,17 @@
 #include <stdint.h>
 #include "stm32f1.h"
 
-#define BOARD_ID    0x0002              /* protocol/sysex.md section 7 */
-#define BOARD_NAME  "Code 61"
-
-/* ---- flash ------------------------------------------------------------ */
-/* 1 KB erase pages (the vendor update erases in 0x400 steps and its
- * settings writer is 1 KB aligned). The probe app logs the size register. */
-#define BOARD_FLASH_PAGE 1024u
-
-/* Settings log (config_store.c): pages inside the vendor "EEPROM" area
- * 0x0801B400-0x0801FBFF, outside the checksummed app range.
- * 0x0801EC00, 0x0801F000 and 0x0801F400: the three pages the research
- * (hw-map.md section 3) found the stock app never touches, so its per-unit
- * calibration and its 12 preset pages (0x0801BC00-0x0801EBFF) survive and
- * a return to stock finds its own pages intact. Earlier firmware used the
- * first two as a swap pair; that layout is read as it is.
- * Capacity: the newest records of every slot must leave room for one
- * compaction: L + M <= 2 x 1024 B (L: every slot's record, M: the largest
- * one). In packed v3 records a worst-case preset (every value changed, a
- * name) is 304 B, the globals 92 B, so 5 presets + the globals fit
- * (1612 + 304 <= 2048). Under gemifi's own bootloader the vendor pages are
- * free too, so a larger layout could use them, but stock-bootloader units
- * can't. */
-#define BOARD_CONFIG_BASE  0x0801EC00u
-#define BOARD_CONFIG_PAGES 3u
-/* (0x0801F800 is the vendor's preset-names page: never use it;
- * config_store.c asserts the pages end below it.) These pages may hold old
- * data on a real unit; config_store only trusts magic + CRC records and
- * erases a page before writing into it again. */
-
-/* ---- pins the platform drives ------------------------------------------ */
-#define BOARD_USB_PULLUP_PIN 8          /* PA8, high = D+ pull-up on (usbd.c) */
-#define BOARD_SWJ_NOJTAG     1          /* free PB3/PB4/PA15, keep SWD */
-
-/* ---- recovery combo (src/recovery.c, custom-firmware-path.md 5) ------- */
-/* Held at reset: write the update-request flag (0x0801FC00) and reset into
- * the bootloader (gemifi's or M-Audio's), before any other gemifi code runs.
- * The gemifi bootloader checks the same two buttons itself.
- *
- * No panel button is on a plain GPIO; they sit in key-matrix row 16:
- * drive PB3..PB7 low (decoder address 0, both group selects low = row 16),
- * pull up the columns PB8..PB15, and read PB8 and PB9: both low = held.
- * They are the UP and DOWN buttons (panel slots 0 and 1, the two leftmost
- * top-row buttons; confirmed on hardware 2026-11-03). */
-#define BOARD_RECOVERY_SWJ_NOJTAG  1                /* PB3/PB4 are JTAG at reset */
-#define BOARD_RECOVERY_DRIVE_PORT  PORTB
-#define BOARD_RECOVERY_DRIVE_MASK  (0x1Fu << 3)     /* PB3..PB7 */
-#define BOARD_RECOVERY_DRIVE_LEVEL 0
-#define BOARD_RECOVERY_PORT        PORTB
-#define BOARD_RECOVERY_PULL_MASK   0xFF00u          /* PB8..PB15 pull-up */
-#define BOARD_RECOVERY_MASK        ((1u << 8) | (1u << 9))
-#define BOARD_RECOVERY_ACTIVE      0                /* pressed = low */
+/* The layout, the board pins (USB pull-up PA8, soft power PC13/PC15, the
+ * recovery combo, JTAG off) and BOARD_ID / BOARD_NAME come from the board
+ * profile, m-audio-code61.json, through the generated board_layout.h. */
+#include "board_layout.h"
 
 /* ---- buttons / LEDs (matrix / TM1628: not in the board header) ------ */
 #define BOARD_BTN_FIRST 0
 #define BOARD_BTN_LAST  0
 #define BOARD_BOOT_COMBO 0u
 
-/* Soft power (verified on hardware over SWD, 2026-11-03):
+/* Soft power (the profile's soft_power; verified on hardware over SWD, 2026-11-03):
  *   PC13 = power button, input pull-up, LOW while pressed;
  *   PC15 = power latch, push-pull, HIGH = stay on.
  * Pressing the button powers the board only while it is held; the firmware
@@ -94,8 +47,9 @@
  * Called from Reset_Handler before anything else (startup.c), so it must
  * stay register-only: no globals, no calls. The matrix and LED drivers are
  * the device config's (midi-controller) business. */
-#define BOARD_POWER_BTN_PIN   13            /* PC13, low = pressed */
-#define BOARD_POWER_LATCH_PIN 15            /* PC15, high = stay on */
+_Static_assert(BOARD_POWER_LATCH_PORT == PORTC && BOARD_POWER_LATCH_PIN == 15 &&
+               BOARD_POWER_BTN_PORT == PORTC && BOARD_POWER_BTN_PIN == 13,
+               "board_gpio_init() below is written for PC15 (latch) and PC13 (button)");
 
 static inline void board_gpio_init(void)
 {

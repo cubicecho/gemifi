@@ -391,6 +391,10 @@ class ShiftRegister(HubType):
     def range_text(self, hub):
         return f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)"
 
+    def c_fields(self, hub):
+        return [f"        .sr = {{ .data = {hub.data.c()}, .clock = {hub.clock.c()}, .latch = {hub.latch.c()},",
+                f"                .oe = {hub.enable.c()}, .chain = {hub.chain} }},"]
+
 
 class Mux(HubType):
     """CD74HC4051 (3 select lines, 8 channels) / 4067 (4, 16): one common pin routed to a channel;

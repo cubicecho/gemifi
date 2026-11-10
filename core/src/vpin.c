@@ -478,10 +478,10 @@ static void pulse(uint16_t pin)
 static void hc595_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
-    mcu_out(h->data, 0);
-    mcu_out(h->clock, 0);
-    mcu_out(h->latch, 0);
-    mcu_out(h->enable, 0);
+    mcu_out(h->sr.data, 0);
+    mcu_out(h->sr.clock, 0);
+    mcu_out(h->sr.latch, 0);
+    mcu_out(h->sr.oe, 0);
 }
 
 static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
@@ -490,15 +490,15 @@ static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
         return;
     /* The first bit shifted ends up in the last chip: send the highest
      * pin first. */
-    uint32_t bits = 8u * (h->chain ? h->chain : 1u);
+    uint32_t bits = 8u * (h->sr.chain ? h->sr.chain : 1u);
     if (bits > 32)
         bits = 32;
     uint32_t v = s->out;
     for (uint32_t b = bits; b-- > 0;) {
-        hal_pin_write(h->data.num, (v >> b) & 1u);
-        pulse(h->clock.num);
+        hal_pin_write(h->sr.data.num, (v >> b) & 1u);
+        pulse(h->sr.clock.num);
     }
-    pulse(h->latch.num);
+    pulse(h->sr.latch.num);
     s->written = v;
     s->never = 0;
 }
@@ -506,10 +506,10 @@ static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
 static void hc165_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
-    mcu_out(h->clock, 0);
-    mcu_out(h->latch, 1);
-    if (h->data.hub == 0)
-        hal_pin_mode(h->data.num, HAL_IN);
+    mcu_out(h->sr.clock, 0);
+    mcu_out(h->sr.latch, 1);
+    if (h->sr.data.hub == 0)
+        hal_pin_mode(h->sr.data.num, HAL_IN);
 }
 
 static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
@@ -517,17 +517,17 @@ static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
     /* Pin numbers as ESPHome: 0-7 on the chip wired to the MCU, 0 = its A.
      * SH/LD low loads the parallel inputs; then QH = first chip's H
      * (pin 7), and each clock shifts the next bit in. */
-    hal_pin_write(h->latch.num, 0);
+    hal_pin_write(h->sr.latch.num, 0);
     hal_delay_us(1);
-    hal_pin_write(h->latch.num, 1);
-    uint32_t bits = 8u * (h->chain ? h->chain : 1u), v = 0;
+    hal_pin_write(h->sr.latch.num, 1);
+    uint32_t bits = 8u * (h->sr.chain ? h->sr.chain : 1u), v = 0;
     if (bits > 32)
         bits = 32;
     for (uint32_t b = 0; b < bits; b++) {
         uint32_t pin = (b / 8u) * 8u + 7u - (b % 8u);
-        if (hal_pin_read(h->data.num))
+        if (hal_pin_read(h->sr.data.num))
             v |= 1u << pin;
-        pulse(h->clock.num);
+        pulse(h->sr.clock.num);
     }
     s->in = v;
 }

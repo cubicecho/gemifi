@@ -71,6 +71,18 @@ enum {
                              per ms in turn                                 */
 };
 
+/* Each hub type's own config: gm_hub_t's union, the member named with each. */
+
+/* .sr: HC595 / HC165, a chain of chips, 8 pins each (chained chips go on:
+ * 8..15 = the 2nd). */
+typedef struct {
+    gm_pin_t data;        /* HC595 SER, HC165 QH                           */
+    gm_pin_t clock;       /* SRCLK / CLK                                   */
+    gm_pin_t latch;       /* HC595 RCLK, HC165 SH/LD (load when low)       */
+    gm_pin_t oe;          /* HC595 /OE, driven low (optional)              */
+    uint8_t chain;        /* chips, 1..4                                    */
+} gm_hub_sr_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -114,6 +126,10 @@ typedef struct {
      * (rgb_serial gamma:; 256 entries, 0 = straight). */
     uint8_t rgb_white[3];
     const uint8_t *rgb_curve;
+    /* The type's own config (types moved to it so far). */
+    union {
+        gm_hub_sr_t sr;           /* GM_HUB_HC595, GM_HUB_HC165 */
+    };
 } gm_hub_t;
 
 /* ---- components ------------------------------------------------------- */

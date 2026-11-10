@@ -84,26 +84,26 @@ static void dec_fast_init(uint32_t i, const gm_hub_t *h)
         return;
     volatile uint32_t *reg = 0;
     uint32_t abit[4], ebit[3];
-    for (uint32_t k = 0; k < h->n_sel + h->n_en && k < 7u; k++) {
-        gm_pin_t p = k < h->n_sel ? h->sel[k] : h->en[k - h->n_sel];
+    for (uint32_t k = 0; k < h->dec.n_addr + h->dec.n_en && k < 7u; k++) {
+        gm_pin_t p = k < h->dec.n_addr ? h->dec.addr[k] : h->dec.en[k - h->dec.n_addr];
         uint32_t b = 0;
         volatile uint32_t *r = p.hub ? 0 : hal_pin_bsrr(p.num, &b);
         if (!r || (reg && r != reg))
             return;
         reg = r;
-        if (k < h->n_sel)
+        if (k < h->dec.n_addr)
             abit[k] = b;
         else
-            ebit[k - h->n_sel] = b;
+            ebit[k - h->dec.n_addr] = b;
     }
     if (!reg)
         return;
-    uint32_t slot = dec_used++, per = 1u << h->n_sel;
+    uint32_t slot = dec_used++, per = 1u << h->dec.n_addr;
     for (uint32_t n = 0; n < DEC_OUT; n++) {
-        uint32_t w = 0, g = n / per, lv = g < 4u ? h->group_lv[g] : 0;
-        for (uint32_t k = 0; k < h->n_sel; k++)
+        uint32_t w = 0, g = n / per, lv = g < 4u ? h->dec.group_lv[g] : 0;
+        for (uint32_t k = 0; k < h->dec.n_addr; k++)
             w |= ((n >> k) & 1u) ? 1u << abit[k] : 1u << (abit[k] + 16u);
-        for (uint32_t k = 0; k < h->n_en; k++)
+        for (uint32_t k = 0; k < h->dec.n_en; k++)
             w |= ((lv >> k) & 1u) ? 1u << ebit[k] : 1u << (ebit[k] + 16u);
         dec_word[slot][n] = w;
     }
@@ -695,10 +695,10 @@ static int32_t mux_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 
 static void decoder_init(const gm_hub_t *h, hub_state_t *s)
 {
-    for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
-        mcu_out(h->sel[k], 0);
-    for (uint32_t k = 0; k < h->n_en && k < 3; k++)
-        mcu_out(h->en[k], 0);
+    for (uint32_t k = 0; k < h->dec.n_addr && k < 4; k++)
+        mcu_out(h->dec.addr[k], 0);
+    for (uint32_t k = 0; k < h->dec.n_en && k < 3; k++)
+        mcu_out(h->dec.en[k], 0);
     dec_fast_init((uint32_t)(s - hs), h);
 }
 
@@ -715,14 +715,14 @@ static void decoder_select(const gm_hub_t *h, hub_state_t *s, uint32_t n)
     }
     if (s->channel == (int8_t)n)
         return;
-    uint32_t g = n >> h->n_sel;
-    for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
-        if (h->sel[k].hub == 0)
-            hal_pin_write(h->sel[k].num, (n >> k) & 1u);
-    uint32_t lv = g < 4 ? h->group_lv[g] : 0;
-    for (uint32_t k = 0; k < h->n_en && k < 3; k++)
-        if (h->en[k].hub == 0)
-            hal_pin_write(h->en[k].num, (lv >> k) & 1u);
+    uint32_t g = n >> h->dec.n_addr;
+    for (uint32_t k = 0; k < h->dec.n_addr && k < 4; k++)
+        if (h->dec.addr[k].hub == 0)
+            hal_pin_write(h->dec.addr[k].num, (n >> k) & 1u);
+    uint32_t lv = g < 4 ? h->dec.group_lv[g] : 0;
+    for (uint32_t k = 0; k < h->dec.n_en && k < 3; k++)
+        if (h->dec.en[k].hub == 0)
+            hal_pin_write(h->dec.en[k].num, (lv >> k) & 1u);
     s->channel = (int8_t)n;
 }
 

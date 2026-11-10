@@ -99,6 +99,19 @@ typedef struct {
     uint8_t addr;         /* 7-bit I2C address                             */
 } gm_hub_i2c_t;
 
+/* .dec: a 74HC138-style one-of-N decoder: outputs only, and only as matrix
+ * rows. Output n "on" = address lines = n % 2^n_addr, enable lines = group
+ * n / 2^n_addr's levels. "Off" leaves it as is: the next row's select
+ * replaces it. */
+typedef struct {
+    gm_pin_t addr[4];     /* address lines, A0 first                       */
+    gm_pin_t en[3];       /* group enable lines                            */
+    uint8_t n_addr;
+    uint8_t n_en;
+    uint8_t n_groups;     /* groups of 2^n_addr outputs                     */
+    uint8_t group_lv[4];  /* bit e = level of en[e] for group g            */
+} gm_hub_decoder_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -147,6 +160,7 @@ typedef struct {
         gm_hub_sr_t sr;           /* GM_HUB_HC595, GM_HUB_HC165 */
         gm_hub_mux_t mux;         /* GM_HUB_MUX */
         gm_hub_i2c_t i2c;         /* GM_HUB_MCP23017, GM_HUB_PCF8574 */
+        gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
     };
 } gm_hub_t;
 

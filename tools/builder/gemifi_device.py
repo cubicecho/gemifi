@@ -468,11 +468,14 @@ class Decoder(HubType):
     def validate(self, v, dev, hub, h, p, line, ctl):
         validate_decoder(v, hub, h, p, hub.index)
 
-    def c_extra(self, hub):
+    def c_fields(self, hub):
+        addr = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
         en = [x.c() for x in hub.en] + ["GM_NO_PIN"] * (3 - len(hub.en))
         lv = [str(x) for x in hub.group_lv] + ["0"] * (4 - len(hub.group_lv))
-        return [f"        .en = {{ {', '.join(en)} }}, .n_en = {len(hub.en)},",
-                f"        .n_groups = {len(hub.group_lv)}, .group_lv = {{ {', '.join(lv)} }},"]
+        return [f"        .dec = {{ .addr = {{ {', '.join(addr)} }},",
+                f"                 .en = {{ {', '.join(en)} }},",
+                f"                 .n_addr = {hub.n_sel}, .n_en = {len(hub.en)}, .n_groups = {len(hub.group_lv)}, "
+                f".group_lv = {{ {', '.join(lv)} }} }},"]
 
 
 class SwitchMatrix(HubType):

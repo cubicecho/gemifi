@@ -83,6 +83,16 @@ typedef struct {
     uint8_t chain;        /* chips, 1..4                                    */
 } gm_hub_sr_t;
 
+/* .mux: 74HC4051 (3 select lines) / 4067 (4): the common pin routed to
+ * channel 0..7 / 0..15; analog or digital, inputs only. */
+typedef struct {
+    gm_pin_t sel[4];      /* S0..S3                                        */
+    gm_pin_t common;      /* an MCU pin (an ADC pin for analog)            */
+    gm_pin_t enable;      /* /E, driven low (optional)                     */
+    uint16_t settle_us;   /* wait after switching channel, 0 = 2 us        */
+    uint8_t n_sel;        /* select lines, 3 or 4                          */
+} gm_hub_mux_t;
+
 typedef struct {
     uint8_t type;
     uint8_t chain;        /* HC595/HC165: chips in the chain (8 pins each);
@@ -129,6 +139,7 @@ typedef struct {
     /* The type's own config (types moved to it so far). */
     union {
         gm_hub_sr_t sr;           /* GM_HUB_HC595, GM_HUB_HC165 */
+        gm_hub_mux_t mux;         /* GM_HUB_MUX */
     };
 } gm_hub_t;
 

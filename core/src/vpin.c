@@ -313,10 +313,10 @@ int vpin_read(gm_pin_t p)
         return 0;
     hub_state_t *s = &hs[p.hub - 1];
     if (h->type == GM_HUB_MUX) {
-        if (h->common.hub != 0)
+        if (h->mux.common.hub != 0)
             return 0;
         mux_select(h, s, p.num);
-        return hal_pin_read(h->common.num) ^ inv;
+        return hal_pin_read(h->mux.common.num) ^ inv;
     }
     if (s->flags & (GM_HUBF_NO_READ | GM_HUBF_READ)) {
         if (s->flags & GM_HUBF_NO_READ)
@@ -619,22 +619,22 @@ static void mux_pair(const gm_hub_t *h, const gm_hub_t *o, int *any, int *same)
 {
     uint32_t n = 0;
     *any = 0;
-    for (uint32_t k = 0; k < o->n_sel && k < 4; k++)
-        for (uint32_t j = 0; j < h->n_sel && j < 4; j++)
-            if (o->sel[k].hub == 0 && h->sel[j].hub == 0 && o->sel[k].num == h->sel[j].num) {
+    for (uint32_t k = 0; k < o->mux.n_sel && k < 4; k++)
+        for (uint32_t j = 0; j < h->mux.n_sel && j < 4; j++)
+            if (o->mux.sel[k].hub == 0 && h->mux.sel[j].hub == 0 && o->mux.sel[k].num == h->mux.sel[j].num) {
                 *any = 1;
                 n += j == k;
             }
-    *same = n == o->n_sel && o->n_sel == h->n_sel;
+    *same = n == o->mux.n_sel && o->mux.n_sel == h->mux.n_sel;
 }
 
 static void mux_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
-    for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
-        mcu_out(h->sel[k], 0);
-    mcu_out(h->enable, 0);
-    mcu_in(h->common);
+    for (uint32_t k = 0; k < h->mux.n_sel && k < 4; k++)
+        mcu_out(h->mux.sel[k], 0);
+    mcu_out(h->mux.enable, 0);
+    mcu_in(h->mux.common);
     uint32_t i = (uint32_t)(h - gm_device.hubs);
     mux_same[i] = mux_some[i] = 0;
     for (uint32_t j = 0; MUX_MASKS && j < gm_device.n_hubs; j++) {
@@ -673,20 +673,20 @@ static void mux_select(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 {
     if (s->channel == (int8_t)ch)
         return;
-    for (uint32_t k = 0; k < h->n_sel && k < 4; k++)
-        if (h->sel[k].hub == 0)
-            hal_pin_write(h->sel[k].num, (ch >> k) & 1u);
+    for (uint32_t k = 0; k < h->mux.n_sel && k < 4; k++)
+        if (h->mux.sel[k].hub == 0)
+            hal_pin_write(h->mux.sel[k].num, (ch >> k) & 1u);
     s->channel = (int8_t)ch;
     mux_shared(h, ch);
-    hal_delay_us(h->settle_us ? h->settle_us : 2);
+    hal_delay_us(h->mux.settle_us ? h->mux.settle_us : 2);
 }
 
 static int32_t mux_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 {
-    if (h->common.hub != 0)
+    if (h->mux.common.hub != 0)
         return -1;
     mux_select(h, s, ch);
-    return hal_adc_read(h->common.num);
+    return hal_adc_read(h->mux.common.num);
 }
 
 /* ---- decoders (74HC138 style) ------------------------------------------
@@ -781,23 +781,23 @@ static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
     if (p.hub == 0)
         return adc_add_pin(p.num) >= 0;
     const gm_hub_t *h = hub_of(p);
-    if (!h || h->type != GM_HUB_MUX || h->common.hub != 0 || h->n_sel == 0 || h->n_sel > 4)
+    if (!h || h->type != GM_HUB_MUX || h->mux.common.hub != 0 || h->mux.n_sel == 0 || h->mux.n_sel > 4)
         return 0;
     if (!*group) {
-        uint32_t steps = 1u << h->n_sel;
+        uint32_t steps = 1u << h->mux.n_sel;
         if (steps > ADC_STEPS)
             return 0;
         volatile uint32_t *reg = 0;
         uint32_t bit[4];
-        for (uint32_t k = 0; k < h->n_sel; k++) {
-            volatile uint32_t *r = h->sel[k].hub ? 0 : hal_pin_bsrr(h->sel[k].num, &bit[k]);
+        for (uint32_t k = 0; k < h->mux.n_sel; k++) {
+            volatile uint32_t *r = h->mux.sel[k].hub ? 0 : hal_pin_bsrr(h->mux.sel[k].num, &bit[k]);
             if (!r || (reg && r != reg))
                 return 0;
             reg = r;
         }
         for (uint32_t c = 0; c < steps; c++) {
             uint32_t w = 0;
-            for (uint32_t k = 0; k < h->n_sel; k++)
+            for (uint32_t k = 0; k < h->mux.n_sel; k++)
                 w |= ((c >> k) & 1u) ? 1u << bit[k] : 1u << (bit[k] + 16u);
             aplan.step_word[c] = w;
         }
@@ -806,16 +806,16 @@ static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
         *group = h;
     } else if (h != *group) {
         const gm_hub_t *g = *group;
-        if (h->n_sel != g->n_sel)
+        if (h->mux.n_sel != g->mux.n_sel)
             return 0;
-        for (uint32_t k = 0; k < h->n_sel; k++)
-            if (h->sel[k].hub != 0 || h->sel[k].num != g->sel[k].num)
+        for (uint32_t k = 0; k < h->mux.n_sel; k++)
+            if (h->mux.sel[k].hub != 0 || h->mux.sel[k].num != g->mux.sel[k].num)
                 return 0;
     }
-    uint32_t ns = (h->settle_us ? h->settle_us : 2u) * 1000u;   /* as mux_select waits */
+    uint32_t ns = (h->mux.settle_us ? h->mux.settle_us : 2u) * 1000u;   /* as mux_select waits */
     if (ns > aplan.settle_ns)
         aplan.settle_ns = ns;
-    return adc_add_pin(h->common.num) >= 0;
+    return adc_add_pin(h->mux.common.num) >= 0;
 }
 
 static int on_mux(gm_pin_t p)
@@ -932,7 +932,7 @@ static int adc_cell(gm_pin_t p, int *k, int *step)
         const gm_hub_t *h = hub_of(p);
         if (!h || h->type != GM_HUB_MUX || p.num >= aplan.n_steps)
             return 0;
-        *k = adc_pin_index(h->common.num);
+        *k = adc_pin_index(h->mux.common.num);
         *step = (int)p.num;
     }
     return *k >= 0;

@@ -423,6 +423,12 @@ class Mux(HubType):
         if "delay" in h and hub.settle_us == 0:
             v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
 
+    def c_fields(self, hub):
+        sel = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
+        return [f"        .mux = {{ .sel = {{ {', '.join(sel)} }},",
+                f"                 .common = {(hub.common or NO_PIN).c()}, .enable = {hub.enable.c()}, "
+                f".settle_us = {hub.settle_us}, .n_sel = {hub.n_sel} }},"]
+
 
 class I2CExpander(HubType):
     """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from

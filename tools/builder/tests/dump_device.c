@@ -40,6 +40,14 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.enable = h->sr.oe;
         f.sel[0] = f.sel[1] = f.sel[2] = f.sel[3] = f.common = none;
         break;
+    case GM_HUB_MUX:
+        f.n_sel = h->mux.n_sel;
+        f.settle = h->mux.settle_us;
+        for (j = 0; j < 4; j++) f.sel[j] = h->mux.sel[j];
+        f.common = h->mux.common;
+        f.enable = h->mux.enable;
+        f.data = f.clock = f.latch = none;
+        break;
     default:
         break;
     }

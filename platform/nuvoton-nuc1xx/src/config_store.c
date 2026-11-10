@@ -27,6 +27,10 @@
  *
  * No RAM buffers: everything is read from flash as needed (a write scans
  * the journal a few times per record it moves; erases dominate anyway).
+ * Reads use a small index instead (2 bytes a slot, slots below
+ * CACHE_SLOTS): the first read scans the journal once and notes every
+ * slot's newest record; a write or erase drops it (before touching the
+ * flash, so a power cut mid-write can't leave it stale).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -67,6 +71,12 @@ typedef struct {
 } new_rec_t;
 
 static uint32_t next_seq;                   /* set by locate() */
+
+/* Read index: cache_at[s] = word offset + 1 of slot s's newest record
+ * (from CS_BASE; 0 = none), valid while cache_ok. */
+#define CACHE_SLOTS 16u
+static uint8_t cache_ok;
+static uint16_t cache_at[CACHE_SLOTS];
 
 static uint32_t page_of(uint32_t a)
 {
@@ -143,6 +153,45 @@ static int newest(uint32_t slot, rec_t *best)
             found = 1;
         }
     return found;
+}
+
+/* One scan for the newest record of every slot below CACHE_SLOTS (as
+ * newest() picks them: the first of the highest seq). */
+static void cache_fill(void)
+{
+    uint32_t seq[CACHE_SLOTS];
+    rec_t r;
+    for (uint32_t s = 0; s < CACHE_SLOTS; s++)
+        cache_at[s] = 0;
+    for (uint32_t a = CS_BASE; scan_next(&a, &r);)
+        for (uint32_t s = 0; s < CACHE_SLOTS; s++)
+            if (answers(&r, s) && (!cache_at[s] || (int32_t)(r.seq - seq[s]) > 0)) {
+                cache_at[s] = (uint16_t)((r.addr - CS_BASE) / 4u + 1u);
+                seq[s] = r.seq;
+            }
+    cache_ok = 1;
+}
+
+/* newest(slot), through the index where it covers the slot. */
+static int newest_read(uint32_t slot, rec_t *best)
+{
+    if (slot >= CACHE_SLOTS)
+        return newest(slot, best);
+    if (!cache_ok)
+        cache_fill();
+    if (!cache_at[slot])
+        return 0;
+    if (rec_check(CS_BASE + 4u * (cache_at[slot] - 1u), best))
+        return 1;
+    cache_ok = 0;                           /* can't happen: rescan */
+    return newest(slot, best);
+}
+
+/* For tests that change the simulated flash behind the store's back (a
+ * reboot on the device clears it anyway). */
+void config_store_cache_drop(void)
+{
+    cache_ok = 0;
 }
 
 static int is_newest(const rec_t *r, uint32_t slot)
@@ -269,6 +318,7 @@ static uint32_t locate(uint32_t *fill)
 
 static int append(uint32_t slot, const new_rec_t *nr)
 {
+    cache_ok = 0;
     for (uint32_t i = 0; i <= CS_PAGES; i++) {
         uint32_t fill, head = locate(&fill), nx = page_next(head);
         /* Repair after a power cut mid-copy: the page after the head must
@@ -339,7 +389,7 @@ int config_store_read(uint8_t slot, cs_slot_info_t *info,
                       void (*cb)(const cs_entry_t *e, void *ctx), void *ctx)
 {
     rec_t r;
-    if (!newest(slot, &r) || tombstone(&r))
+    if (!newest_read(slot, &r) || tombstone(&r))
         return 0;
     if (info) {
         uint32_t named = r.hdr & (CS_F_NAME << 8);
@@ -360,7 +410,7 @@ int config_store_read(uint8_t slot, cs_slot_info_t *info,
 int config_store_erase_slot(uint8_t slot)
 {
     rec_t r;
-    if (!newest(slot, &r) || tombstone(&r))
+    if (!newest_read(slot, &r) || tombstone(&r))
         return GSX_OK;                      /* nothing stored: nothing to hide */
     new_rec_t nr = { (uint32_t)slot | CS_F_TOMBSTONE << 8, V2_HDR + 1u, 0, 0 };
     return append(slot, &nr) ? GSX_FLASH_ERR : GSX_OK;
@@ -369,6 +419,7 @@ int config_store_erase_slot(uint8_t slot)
 int config_store_erase(void)
 {
     int st = GSX_OK;
+    cache_ok = 0;
     for (uint32_t pg = CS_BASE; pg < CS_END; pg += CS_PAGE)
         if (fmc_erase_page(pg) != 0)
             st = GSX_FLASH_ERR;

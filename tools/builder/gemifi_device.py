@@ -2618,6 +2618,9 @@ def validate_hub(v, dev, h, typ, p, line):
         hub.data = ctl("dio_pin", "out", open_drain=True)
         hub.latch = ctl("stb_pin", "out")
     elif typ == "rgb_serial":
+        if any(x.type == "rgb_serial" for x in dev.hubs if x is not hub):
+            # vpin_poll_rgb_serial keeps the board's state (timing, acks) once, not per hub
+            v.err(p, line, "a second rgb_serial hub: the firmware drives one (one LED board)")
         hub.chain = v.integer(h, "count", p, 1, RGB_SERIAL_MAX, default=16)
         hub.n_pins = 3 * hub.chain
         hub.ram_bytes = hub.n_pins                       # a byte per colour
@@ -5081,6 +5084,7 @@ def generate(dev, source="device.yaml"):
         h += [f"#define GM_HW_SCAN_ROW_NS {row}",
               f"#define GM_HW_SCAN_SETTLE_NS {settle}",
               f"#define GM_HW_SCAN_PRECHARGE {1 if pre else 0}"]
+    h += hw_scan_sizes(dev)
     h += timer_defines(dev)
     h += matrix_defines(dev)
     tm_ram =sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
@@ -5318,6 +5322,42 @@ def matrix_col_runs(dev, m):
             runs += 1
         last = (port, bit + 1, c + 1)
     return runs
+
+
+HW_SCAN_MAX_ROWS = 32   # gm_controller.h GM_SCAN_MAX_ROWS
+HW_ADC_MAX_STEPS, HW_ADC_MAX_PINS = 16, 8   # gm_controller.h GM_ADC_MAX_STEPS, GM_ADC_MAX_PINS
+
+
+def hw_scan_sizes(dev):
+    """The largest plans the hardware scans can get (gm_scan_plan, gm_adc_plan), so the
+    platform's DMA rings and the readings are sized for this device, not the maximum:
+    GM_HW_SCAN_ROWS = key rows + switch-matrix rows (vpin_scan_plan: those within the 32-bit
+    cache; shared selects only make it fewer), even; GM_HW_ADC_PINS / _STEPS = the distinct
+    MCU ADC pins (direct, or a mux's common) and the most mux steps among the analog inputs
+    and pads (xy_pad: read in software)."""
+    out = []
+    if dev.hw_scan:
+        rows = len(dev.matrix.rows) if dev.matrix else 0
+        for h in dev.hubs:
+            if h.type == "switch_matrix":
+                rows += sum(1 for r in range(len(h.rows)) if r * len(h.cols) < 32)
+        rows = min(max(rows + (rows & 1), 2), HW_SCAN_MAX_ROWS)
+        out.append(f"#define GM_HW_SCAN_ROWS {rows} /* hardware scan plan: rows at most */")
+    if dev.hw_adc:
+        pins, steps = set(), 1
+        for x in [*dev.analogs, *dev.pads]:
+            pin = x.pin
+            if pin.hub == 0:
+                pins.add(pin.num)
+            elif 0 < pin.hub <= len(dev.hubs):
+                h = dev.hubs[pin.hub - 1]
+                if h.type in MUX_HUBS and h.common is not None and h.common.hub == 0:
+                    pins.add(h.common.num)
+                    steps = max(steps, 1 << h.n_sel)
+        out.append(f"#define GM_HW_ADC_PINS {min(max(len(pins), 1), HW_ADC_MAX_PINS)} "
+                   "/* hardware analog scan: ADC pins at most */")
+        out.append(f"#define GM_HW_ADC_STEPS {min(steps, HW_ADC_MAX_STEPS)} /* ... mux steps at most */")
+    return out
 
 
 def matrix_defines(dev):

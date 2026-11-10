@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "gm_hal.h"
+#include "gm_presets.h"
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_device_config.h"
@@ -107,6 +108,7 @@ int main(void)
     printf("LED looks (%s)\n", GM_HOST_LEDS ? "host LEDs" : "local only");
 
     gm_init(0x01000000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     {
         int all = 1, dark = 1;
         for (int p = L_FIRST; p <= L_LAST; p++) {

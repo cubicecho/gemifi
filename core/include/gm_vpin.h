@@ -101,6 +101,8 @@ int vpin_rgb(gm_pin_t p, uint32_t rgb);
  * else the brightest other LED (a chip with none keeps its brightness). */
 void vpin_fade(gm_pin_t p, uint32_t v, int colour);
 void vpin_fade_apply(void);
+/* 1 if p is on a TM1628 hub with fade: (vpin_fade only counts those). */
+int vpin_fades(gm_pin_t p);
 
 #ifdef __cplusplus
 }

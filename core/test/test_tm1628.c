@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gm_hal.h"
+#include "gm_presets.h"
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_device_config.h"
@@ -396,6 +397,7 @@ int main(void)
            use_bsrr && !no_cycles ? "hal_cycles" : "hal_delay_us");
 
     gm_init(0x01000000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     init_done = 1;
     CHECK(mode[PIN_DIO] == HAL_OUT_OD && mode[PIN_CLK] == HAL_OUT && mode[PIN_STB_A] == HAL_OUT &&
           mode[PIN_STB_B] == HAL_OUT, "DIO open-drain, CLK and STBs push-pull");
@@ -575,6 +577,20 @@ int main(void)
     gm_led_script(3, 127);
     run_ms(20);
     CHECK(chip[0].ctl == 0x8B, "fade: FB_LED on, full again (%02X)", chip[0].ctl);
+    /* from a full level to a dim host colour: the colour's bytes go out with
+     * the chip's new brightness, never at the old (full) one */
+    {
+        gm_led_script_rgb(3, 40, 0, 0, 0);
+        int bad = 0;
+        for (int ms = 0; ms < 30; ms++) {
+            run_ms(1);
+            bad += chip[0].ram[13] == 0x01 && chip[0].ctl == 0x8B;
+        }
+        CHECK(bad == 0 && chip[0].ram[13] == 0x01 && chip[0].ctl == 0x88,
+              "fade: a dim host colour never shows at full (%d ms, %02X %02X)", bad, chip[0].ram[13], chip[0].ctl);
+        gm_led_script(3, 127);
+        run_ms(20);
+    }
     CHECK(chip[1].ctl == 0x8F, "no fade: chip B stays at intensity 7 (%02X)", chip[1].ctl);
     gm_led_script(3, 0);
     run_ms(20);
@@ -728,8 +744,8 @@ int main(void)
     }
 
     /* A display-sized change: bytes 0-11 of A, but not byte 4 (the LEDs').
-     * One run (byte 4 is a single unchanged byte, rewritten as it is), cut
-     * by the 9-byte budget and taken up at its next address. */
+     * Cut by the 4-byte budget (0x40, an address, 2 bytes) and taken up at
+     * its next changed address: 6 passes. */
     {
         int passes = 0, most = 0;
         uint8_t want[16];
@@ -748,8 +764,9 @@ int main(void)
         for (int k = 0; k < 12; k++)
             want[k] = k == 4 ? chip[0].ram[4] : 0xFF;
         CHECK(memcmp(chip[0].ram, want, 12) == 0, "11 changed bytes all reach chip A");
-        CHECK(passes == 2 && most == 9, "2 passes, at most 9 bus bytes each (%d, %d)", passes, most);
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF 00 FF FF|A:40|A:C7 FF FF FF FF FF|") == 0,
+        CHECK(passes == 6 && most == 4, "6 passes, at most 4 bus bytes each (%d, %d)", passes, most);
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF|A:40|A:C2 FF FF|A:40|A:C5 FF FF|A:40|A:C7 FF FF|"
+                              "A:40|A:C9 FF FF|A:40|A:CB FF|") == 0,
               "the run, split: %s", bus_log);
         set_bytes(0, 0x0FEFu, 0);
         bus_clear();
@@ -758,21 +775,22 @@ int main(void)
               "a full flush of 11 bytes is one auto-increment write: %s", bus_log);
     }
 
-    /* Two runs: bytes 0-3 and 8-10 (four unchanged bytes between). The budget
-     * ends the second run after two bytes; the next pass sends the third. */
+    /* Two runs: bytes 0-3 and 8-10 (four unchanged bytes between): one
+     * command each when the budget allows (a flush), else 2 bytes a pass. */
     {
         set_bytes(0, 0x070Fu, 1);
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF|A:C8 FF FF|") == 0, "two runs, 9 bytes: %s", bus_log);
+        vpin_flush_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF|A:C8 FF FF FF|") == 0, "two runs: %s", bus_log);
+        set_bytes(0, 0x070Fu, 0);
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:CA FF|") == 0, "the rest next pass: %s", bus_log);
+        for (int i = 0; i < 4; i++)
+            vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 00 00|A:40|A:C2 00 00|A:40|A:C8 00 00|A:40|A:CA 00|") == 0,
+              "by the budget, 4 passes: %s", bus_log);
         bus_clear();
         vpin_poll_tm1628();
         CHECK(bus_log[0] == 0, "then nothing: %s", bus_log);
-        set_bytes(0, 0x070Fu, 0);
-        vpin_flush_tm1628();
     }
 
     /* Bytes 2 and 4: one unchanged byte between, so one run (C2 and 3 bytes,
@@ -781,8 +799,17 @@ int main(void)
     {
         set_bytes(0, 0x0014u, 1);
         bus_clear();
-        vpin_poll_tm1628();
+        vpin_flush_tm1628();
         CHECK(strcmp(bus_log, "A:40|A:C2 FF 00 FF|") == 0, "gap of one: one run (%s)", bus_log);
+        /* by the budget: no room for byte 4 after byte 3, so byte 3 isn't
+         * rewritten for nothing */
+        set_bytes(0, 0x0014u, 0);
+        bus_clear();
+        vpin_poll_tm1628();
+        vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C2 00|A:40|A:C4 00|") == 0, "gap of one, by the budget (%s)", bus_log);
+        set_bytes(0, 0x0014u, 1);
+        vpin_flush_tm1628();
         set_bytes(0, 0x0014u, 0);
         set_bytes(0, 0x0024u, 1);
         bus_clear();
@@ -812,11 +839,13 @@ int main(void)
 
     /* Both chips change: one budget for the pass, A first, B's turn next. */
     {
-        set_bytes(0, 0x003Fu, 1);           /* A 0-5: 0x40, C0 + 6 = 8 */
+        set_bytes(0, 0x003Fu, 1);           /* A 0-5: 3 passes of 0x40, an address and 2 bytes */
         set_bytes(1, 0x0006u, 1);           /* B 1-2: 4 */
         bus_clear();
-        vpin_poll_tm1628();
-        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF FF FF FF FF|") == 0, "A takes 8 of 9 (%s)", bus_log);
+        for (int i = 0; i < 3; i++)
+            vpin_poll_tm1628();
+        CHECK(strcmp(bus_log, "A:40|A:C0 FF FF|A:40|A:C2 FF FF|A:40|A:C4 FF FF|") == 0,
+              "A first, 3 passes (%s)", bus_log);
         bus_clear();
         vpin_poll_tm1628();
         CHECK(strcmp(bus_log, "B:40|B:C1 FF FF|") == 0, "then B (%s)", bus_log);

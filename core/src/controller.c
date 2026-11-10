@@ -376,6 +376,9 @@ static void mode_key(uint32_t mi, uint32_t k);
 #endif
 #if GM_LAYER_PARAMS
 static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), gm_init */
+/* LEDs a cycle step or a layer-only toggle lights (bit = LED), gm_init:
+ * mode_led() looks through the modes only for these. */
+static uint32_t solo_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
 static uint64_t solo_on;            /* ... the ones that are on */
 static uint64_t modes_was;          /* modes on at the last layers_update: EVENT 8 on a change */
 static uint8_t report_due;          /* gm_layers_report: the EVENT 8 replay, from gm_poll */
@@ -811,8 +814,15 @@ static void encoder_step(uint32_t i)
 static uint8_t hw_on;               /* the platform scans; frames come to gm_scan_frames */
 #if GM_HW_SCAN
 static uint32_t hw_frame_q4;        /* frame period, 1/16 us */
+/* The most plan rows this device can have (the builder's GM_HW_SCAN_ROWS):
+ * platform rings are sized for it. */
+#ifdef GM_HW_SCAN_ROWS
+#define HW_ROWS GM_HW_SCAN_ROWS
+#else
+#define HW_ROWS GM_SCAN_MAX_ROWS
+#endif
 static gm_scan_plan_t plan;
-static uint32_t hw_prev[GM_SCAN_MAX_ROWS / 2u];   /* the last frame that differed */
+static uint32_t hw_prev[HW_ROWS / 2u];   /* the last frame that differed */
 static uint32_t hw_mask;            /* column bits of both halfwords of a frame word */
 #if GM_N_ENCODERS > 0
 static uint8_t enc_fed[NE];         /* both pins on switch matrices: stepped per frame */
@@ -844,7 +854,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
     const gm_matrix_t *m = gm_device.matrix;
     if (m) {
         /* Key rows are plan slots 0..n_rows-1, in order (gm_scan_frames). */
-        if (!rows_sel || !cols_fast || m_hubs || m->n_rows > GM_SCAN_MAX_ROWS) {
+        if (!rows_sel || !cols_fast || m_hubs || m->n_rows > HW_ROWS) {
             app_log(LOG_WARN, "hardware scan: key matrix rows need one-store selects and ",
                     "columns on one input register; scanning in software");
             return 0;
@@ -866,7 +876,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
         plan.n_rows = m->n_rows;
     }
 #endif
-    if (!vpin_scan_plan(&plan.sel_reg, plan.sel_word, &plan.n_rows, GM_SCAN_MAX_ROWS,
+    if (!vpin_scan_plan(&plan.sel_reg, plan.sel_word, &plan.n_rows, HW_ROWS,
                         &plan.in_reg, &plan.in_mask))
         goto mixed;
     if (!plan.n_rows || !plan.sel_reg || !plan.in_reg || (plan.in_mask >> 16)) {
@@ -875,7 +885,7 @@ const gm_scan_plan_t *gm_scan_plan(void)
         return 0;
     }
     if (plan.n_rows & 1u) {
-        if (plan.n_rows >= GM_SCAN_MAX_ROWS)
+        if (plan.n_rows >= HW_ROWS)
             goto mixed;
         plan.sel_word[plan.n_rows] = plan.sel_word[plan.n_rows - 1u];
         plan.n_rows++;
@@ -893,7 +903,7 @@ void gm_scan_hw_started(uint32_t frame_q4)
 #if GM_HW_SCAN
     hw_frame_q4 = frame_q4;
     hw_mask = (plan.in_mask & 0xFFFFu) * 0x10001u;
-    for (uint32_t i = 0; i < GM_SCAN_MAX_ROWS / 2u; i++)
+    for (uint32_t i = 0; i < HW_ROWS / 2u; i++)
         hw_prev[i] = 0xFFFFFFFFu;   /* the first frame always counts */
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < NE_HW; i++)
@@ -1651,6 +1661,8 @@ static uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
     if (mode_cur != GM_MODE_NONE && gm_modes[mode_cur].led == (int8_t)li)
         return gm_modes[mode_cur].led_blink ? (now / MODE_BLINK_MS) & 1u : 1u;
 #if GM_LAYER_PARAMS
+    if (!((solo_leds[li >> 5] >> (li & 31u)) & 1u))
+        return level;
     for (uint32_t m = 0; m < GM_N_MODES; m++) {     /* cycle steps and layer-only toggles */
         const gm_mode_t *md = &gm_modes[m];
         if (md->led != (int8_t)li || !(md->cycle || ((solo_mask >> m) & 1u)) || !layer_rank(m))
@@ -1722,11 +1734,22 @@ static void buttons_sample(void)
 }
 
 /* Called once per elapsed millisecond. */
+/* The buttons set to cc_ramp, worked out again when a param changes: the
+ * millisecond loop looks at those only. */
+static btn_bits_t ramp_mask;
+static uint32_t ramp_gen;
+
 static void ramps_ms(uint32_t now)
 {
-    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
-        if (gm_cfg.btn_action[i] != ACT_CC_RAMP)
-            continue;
+    if (ramp_gen != params_gen || !params_gen) {
+        ramp_gen = params_gen;
+        ramp_mask = 0;
+        for (uint32_t i = 0; i < GM_N_BUTTONS; i++)
+            if (gm_cfg.btn_action[i] == ACT_CC_RAMP)
+                ramp_mask |= (btn_bits_t)1u << i;
+    }
+    for (btn_bits_t m = ramp_mask; m; m &= m - 1u) {
+        uint32_t i = (uint32_t)__builtin_ctzll(m);
         int32_t target = ((btn_held >> i) & 1u) ? (127 << 8) : 0;
         int32_t step = gm_cfg.ramp_time > 0 ? (127 << 8) / gm_cfg.ramp_time : (127 << 8);
         if (step < 1)
@@ -2457,22 +2480,20 @@ static void led_show(const gm_led_t *l, uint32_t level, int blink_on)
 #if GM_HOST_LEDS
 #define NL GM_ARR(GM_N_LEDS)
 #define HOST_NONE 0xFFu
-static uint8_t led_host_lv[NL];     /* level the host set, HOST_NONE = none */
-static uint32_t led_host_t[NL];     /* when (hal_millis)                     */
-#if GM_HOST_FB
-static uint8_t led_host_hold[NL];   /* set by a DAW script: no timeout;
-                                       2 = its FB_LED_RGB black (leds_fade) */
-#endif
+/* Level the host set (LV_* bits and 0..7), HOST_NONE = none, with two bits
+ * no level uses: */
+#define HOST_HOLD 0x08u             /* set by a DAW script: no timeout       */
+#define HOST_BLACK 0x10u            /* ... its FB_LED_RGB black (leds_fade)  */
+#define HOST_LEVEL(h) ((h) & ~(HOST_HOLD | HOST_BLACK))
+static uint8_t led_host_lv[NL];
+static uint16_t led_host_t[NL];     /* when: hal_millis() / 10 (the timeouts' unit) */
 
 void gm_led_host(uint32_t led, uint32_t value)
 {
     if (led >= gm_device.n_leds)
         return;
     led_host_lv[led] = (uint8_t)(value == 0 ? 0 : value == 1 ? (LV_BLINK | 1u) : 1u);
-    led_host_t[led] = hal_millis();
-#if GM_HOST_FB
-    led_host_hold[led] = 0;
-#endif
+    led_host_t[led] = (uint16_t)(hal_millis() / 10u);
 }
 
 #if GM_HOST_FB
@@ -2483,9 +2504,8 @@ static int bicolour(uint32_t led)
 
 static void led_script_set(uint32_t led, uint32_t level)
 {
-    led_host_lv[led] = (uint8_t)level;
-    led_host_t[led] = hal_millis();
-    led_host_hold[led] = 1;
+    led_host_lv[led] = (uint8_t)(level | HOST_HOLD);
+    led_host_t[led] = (uint16_t)(hal_millis() / 10u);
 }
 
 /* FB_LED levels (sysex.md 4.6.2): 0 off, 1 blink, 2..127 on; on a bicolour
@@ -2527,9 +2547,8 @@ void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int bli
     } else if (m) {
         lv = bicolour(led) && g > r ? 3u : 1u;
     }
-    led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv);
-    if (!lv)
-        led_host_hold[led] = 2;     /* black: a colour at brightness 0 */
+    /* black: a colour at brightness 0 */
+    led_script_set(led, lv && blink ? (LV_BLINK | lv) : lv ? lv : HOST_BLACK);
 }
 #endif
 
@@ -2538,12 +2557,8 @@ void gm_host_release(uint32_t what)
     if (what == 0 || what == 3)
         gm_display_host_release();
     if (what == 0 || what == 1)
-        for (uint32_t i = 0; i < gm_device.n_leds; i++) {
+        for (uint32_t i = 0; i < gm_device.n_leds; i++)
             led_host_lv[i] = HOST_NONE;
-#if GM_HOST_FB
-            led_host_hold[i] = 0;
-#endif
-        }
 #if GM_N_ANALOGS > 0 && GM_ANALOG_PICKUP
     if (what == 0 || what == 2)
         for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
@@ -2552,10 +2567,13 @@ void gm_host_release(uint32_t what)
 }
 
 /* Who drives LED i (core/README.md "LED ownership"). local = the device's
- * own state for it (its button's); an LED no button uses has no local
- * state, so the host always drives it. */
-static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t now)
+ * own state for it (its button's), LOCAL_HAS set; an LED no button uses has
+ * no local state, so the host always drives it. now10 = hal_millis() / 10. */
+#define LOCAL_HAS 0x80u
+static uint32_t led_level(uint32_t i, uint32_t local, uint32_t now10)
 {
+    int has_local = (local & LOCAL_HAS) != 0;
+    local &= ~LOCAL_HAS;
 #if GM_LED_FB
     uint32_t owner = gm_led_fb[i].owner, timeout = gm_led_fb[i].timeout;
 #else
@@ -2565,14 +2583,12 @@ static uint32_t led_level(uint32_t i, uint32_t local, int has_local, uint32_t no
     if (owner == GM_OWNER_LOCAL)
         return local;
     if (owner == GM_OWNER_HOST || !has_local)
-        return h == HOST_NONE ? 0 : h;
-#if GM_HOST_FB
-    if (led_host_hold[i])
+        return h == HOST_NONE ? 0 : HOST_LEVEL(h);
+    if (h & HOST_HOLD)
         timeout = GM_TIMEOUT_NEVER;         /* a DAW script's state stays until released */
-#endif
-    if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && now - led_host_t[i] >= timeout * 10u)
+    if (h != HOST_NONE && timeout != GM_TIMEOUT_NEVER && (uint16_t)(now10 - led_host_t[i]) >= timeout)
         led_host_lv[i] = (uint8_t)(h = HOST_NONE);   /* host went quiet: local again */
-    return h == HOST_NONE ? local : h;
+    return h == HOST_NONE ? local : HOST_LEVEL(h);
 }
 #endif
 
@@ -2717,9 +2733,9 @@ void gm_layers_report(void)
  * leds_apply() then shows LED_STEP LEDs per main-loop pass, so no one pass
  * carries all of them. */
 #define LED_STEP 13u
-static uint8_t local[NL], has_local[NL];
+static uint8_t local[NL];           /* level, | LOCAL_HAS: a button or pad has it */
 static uint8_t led_next = 0xFFu;    /* next LED to show, 0xFF = none */
-static uint32_t led_now;
+static uint32_t led_now, led_now10;
 #endif
 
 /* Diagnostic LED walk (GM_LED_WALK_MS, e.g. `make LED_WALK=500`): one LED
@@ -2758,15 +2774,22 @@ static void leds_walk(uint32_t now)
 #endif
 
 #if GM_TM_FADE && GM_HOST_FB
-/* tm1628 fade: (vpin_fade): how bright each LED showed in the last round,
- * from led_shown: a DAW's colour at its brightest channel (these win), any
- * other lit level or look full. */
+/* tm1628 fade: (vpin_fade): how bright each LED shows, from led_shown: a
+ * DAW's colour at its brightest channel (these win), any other lit level or
+ * look full. Run when leds_apply() has shown a whole round, and the TM1628
+ * bytes wait for that (gm_poll), so a chip's new brightness goes out with
+ * the round's bytes (tm_flush sends the brightness first), not a round
+ * later: a dim host colour never shows at the old, full brightness. */
+#define LEDS_FADE 1
+/* LEDs on a fade chip (bit = LED), gm_init: the others aren't looked at. */
+static uint32_t fade_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
+
 static void leds_fade(void)
 {
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         const gm_led_t *l = &gm_device.leds[i];
         uint32_t key = led_shown[i], level = key >> 1;
-        if (key == 0xFFFFu)
+        if (!((fade_leds[i >> 5] >> (i & 31u)) & 1u) || key == 0xFFFFu)
             continue;
 #if GM_HOST_LEDS
         /* A blink's dark half shows the idle look, but a host colour's keeps
@@ -2781,7 +2804,7 @@ static void leds_fade(void)
             v = r > g ? r : g;
             if (b > v)
                 v = b;
-        } else if (level == 0 && led_host_hold[i] == 2u && led_host_lv[i] == 0) {
+        } else if (level == 0 && led_host_lv[i] == (HOST_HOLD | HOST_BLACK)) {
             colour = 1;             /* a host's black: brightness 0, not its idle look */
             v = 0;
         } else if (level == 0 && !led_look(l, 0) && !l->rgb[0])
@@ -2792,6 +2815,7 @@ static void leds_fade(void)
 }
 #else
 #define leds_fade() ((void)0)
+#define LEDS_FADE 0
 #endif
 
 static void leds_update(uint32_t now)
@@ -2800,7 +2824,6 @@ static void leds_update(uint32_t now)
     leds_walk(now);
     return;
 #endif
-    leds_fade();
     int blink_on = (now / 500u) & 1u;
 #if GM_STATUS_LED >= 0
     /* A blink code on the status LED (gm_safety.h): drawn every update;
@@ -2816,7 +2839,7 @@ static void leds_update(uint32_t now)
 #endif
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
-        local[i] = has_local[i] = 0;
+        local[i] = 0;
 #endif
     for (uint32_t i = 0; i < gm_device.n_buttons; i++) {
         int8_t li = gm_device.buttons[i].led;
@@ -2852,8 +2875,7 @@ static void leds_update(uint32_t now)
         }
 #endif
 #if GM_HOST_LEDS
-        local[li] = (uint8_t)level;
-        has_local[li] = 1;
+        local[li] = (uint8_t)(level | LOCAL_HAS);
 #else
         led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
@@ -2876,8 +2898,7 @@ static void leds_update(uint32_t now)
         uint32_t level = PAD_OWNER(i) == owner && (pad_state[i] == PAD_ON ||
                          (pad_lit[i] && now - pad_lit[i] < PAD_LED_MIN_MS));
 #if GM_HOST_LEDS
-        local[li] = (uint8_t)level;
-        has_local[li] = 1;
+        local[li] = (uint8_t)(level | LOCAL_HAS);
 #else
         led_set((uint32_t)li, MODE_LED((uint32_t)li, level, now), blink_on);
 #endif
@@ -2898,6 +2919,7 @@ static void leds_update(uint32_t now)
 #if GM_HOST_LEDS
     (void)blink_on;                 /* leds_apply() works it out */
     led_now = now;
+    led_now10 = now / 10u;
     led_next = 0;
 #endif
 }
@@ -2912,8 +2934,10 @@ static int leds_apply(void)
     uint32_t now = led_now, end = led_next + LED_STEP;
     int blink_on = (now / 500u) & 1u;
     for (uint32_t i = led_next; i < end && i < gm_device.n_leds; i++)
-        led_set(i, MODE_LED(i, led_level(i, local[i], has_local[i], now), now), blink_on);
+        led_set(i, MODE_LED(i, led_level(i, local[i], led_now10), now), blink_on);
     led_next = end >= gm_device.n_leds ? 0xFFu : (uint8_t)end;
+    if (led_next == 0xFFu)
+        leds_fade();                /* the round is shown: its brightness */
     return 1;
 #else
     return 0;
@@ -3032,9 +3056,15 @@ static int fb_used(uint32_t type, uint32_t num)
 #endif
 
 #if GM_LED_FB
+/* Bit s: some LED has source s (gm_init): most devices give few or none
+ * a source, so a note or CC needn't walk every LED. */
+static uint8_t fb_sources;
+
 /* The host's value for every LED with this explicit source. */
 static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value)
 {
+    if (!((fb_sources >> source) & 1u))
+        return;
     for (uint32_t i = 0; i < GM_N_LEDS; i++) {
         const gm_led_fb_t *f = &gm_led_fb[i];
         if (f->source != source)
@@ -3406,6 +3436,13 @@ void gm_init(uint32_t fw_version, int safe_mode)
         if (md->toggle != GM_MODE_NONE && !md->hold && !md->cycle && !md->n_keys && !md->n_buttons)
             solo_mask |= 1ull << m;
     }
+    for (uint32_t w = 0; w < sizeof solo_leds / sizeof solo_leds[0]; w++)
+        solo_leds[w] = 0;
+    for (uint32_t m = 0; m < GM_N_MODES; m++) {
+        const gm_mode_t *md = &gm_modes[m];
+        if (md->led >= 0 && md->led < (int8_t)gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
+            solo_leds[(uint32_t)md->led >> 5] |= 1u << ((uint32_t)md->led & 31u);
+    }
 #endif
 #if GM_N_BUTTONS > 0
     for (uint32_t i = 0; i < NB; i++) {
@@ -3429,6 +3466,19 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_HOST_LEDS
     for (uint32_t i = 0; i < NL; i++)
         led_host_lv[i] = HOST_NONE;
+#endif
+#if GM_TM_FADE && GM_HOST_FB
+    for (uint32_t i = 0; i < gm_device.n_leds; i++)
+        if (vpin_fades(gm_device.leds[i].pin))
+            fade_leds[i >> 5] |= 1u << (i & 31u);
+        else
+            fade_leds[i >> 5] &= ~(1u << (i & 31u));
+#endif
+#if GM_LED_FB
+    fb_sources = 0;
+    for (uint32_t i = 0; i < GM_N_LEDS; i++)
+        if (gm_led_fb[i].source < 8u)
+            fb_sources |= (uint8_t)(1u << gm_led_fb[i].source);
 #endif
 #if GM_MCU
     gm_mcu_init(fw_version);
@@ -3725,8 +3775,14 @@ void gm_poll(void)
     }
     poll_part_done(5, &tc);
     /* Changed TM1628 bytes, a few per pass, and not on the LED update's
-     * pass, so the two never add up in one pass. */
-    if (has_tm_hubs && !led_pass)
+     * pass, so the two never add up in one pass. With fade: chips, not
+     * while a round is being shown either (leds_fade). */
+#if LEDS_FADE
+    int round_open = led_next != 0xFFu;
+#else
+    int round_open = 0;
+#endif
+    if (has_tm_hubs && !led_pass && !round_open)
         vpin_poll_tm1628();
     if (has_rgb_hubs)
         vpin_poll_rgb_serial(now);

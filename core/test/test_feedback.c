@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "gm_hal.h"
+#include "gm_presets.h"
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_mcu.h"
@@ -240,6 +241,7 @@ int main(void)
     adc[0] = 2048;                      /* knob at 64 */
     adc[1] = 0;                         /* fader at the bottom */
     gm_init(0x01020000u, 0);           /* fw 1.2.0 */
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
     run_ms(1400);
     CHECK(find_sysex(GSX_MSG_BOOTED) < 0, "no BOOTED before 1.5 s");
     run_ms(600);

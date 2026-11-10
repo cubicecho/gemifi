@@ -28,6 +28,10 @@ static int bad_addr;
 static long erases[8], line_erases, line_writes;
 static uint32_t rng = 12345;
 
+/* config_store.c's read index: dropped whenever this test changes the
+ * flash itself (on the device only a reboot does). */
+void config_store_cache_drop(void);
+
 static uint32_t rnd(void)
 {
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
@@ -35,9 +39,11 @@ static uint32_t rnd(void)
 }
 
 void fmc_open(void) {}
+static long word_reads;                /* fmc_read calls */
 uint32_t fmc_read(uint32_t a)
 {
     uint32_t w;
+    word_reads++;
     if (a < FBASE || a + 4 > FBASE + FSIZE)
         return 0xFFFFFFFFu;
     memcpy(&w, flash + (a - FBASE), 4);
@@ -225,6 +231,7 @@ static int verify(const char *what, int altslot, const slot_t *alt)
 static void reset_all(void)
 {
     memset(flash, 0xFF, sizeof flash);
+    config_store_cache_drop();
     memset(model, 0, sizeof model);
     memset(erases, 0, sizeof erases);
     overprogram = bad_addr = 0;
@@ -257,6 +264,7 @@ static void op_with_cuts(const op_t *op, int sweep)
     long keep = rnd() % (total + 1);    /* total = uncut */
     for (long k = 0; k < total; k++) {
         memcpy(flash, before, sizeof flash);
+        config_store_cache_drop();
         ops = 0; cut_at = k;
         if (!setjmp(cut_jb)) {
             run_op(op);
@@ -281,8 +289,10 @@ static void op_with_cuts(const op_t *op, int sweep)
             keep = -2;
         }
     }
-    if (keep == -2)
+    if (keep == -2) {
         memcpy(flash, chosen, sizeof flash);
+        config_store_cache_drop();
+    }
     apply_model(op);
 }
 
@@ -326,6 +336,7 @@ static uint32_t put_v1(uint32_t a, uint32_t seq, uint32_t n, uint32_t seed)
         crc = crc32_word(crc, w[i]);
     w[k++] = ~crc;
     memcpy(flash + (a - FBASE), w, 4 * k);
+    config_store_cache_drop();
     return a + 4 * k;
 }
 
@@ -482,6 +493,22 @@ static void overfull(void)
         verify("overfull", -1, NULL);
     }
     CHECK(failed > 0, "overfull: some writes fail");
+    /* with the journal full, a read after the first reads only its record
+     * (checked once, then its entries and name), not the whole journal */
+    uint8_t sl = 0;
+    while (sl < 7 && !model[sl].present)
+        sl++;
+    slot_t s;
+    read_slot((uint8_t)(sl ^ 1), &s);
+    long r0 = word_reads;
+    read_slot(sl, &s);
+    long one = word_reads - r0;
+    config_store_cache_drop();
+    r0 = word_reads;
+    read_slot(sl, &s);
+    long scan = word_reads - r0;
+    CHECK(s.present && one <= 2 * 128 + 16 && scan > 7 * 128,
+          "a read reads its record (%ld words), not the journal (%ld)", one, scan);
     CHECK(overprogram == 0 && bad_addr == 0, "overfull: no overprogramming");
     printf("  over budget: %3d of 200 writes refused, others intact   ok\n", failed);
 }

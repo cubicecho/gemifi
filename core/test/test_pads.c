@@ -294,6 +294,7 @@ int main(void)
 {
     mux_b[7] = 3000;                    /* pad 16 pressed at power-up */
     gm_init(0x00010000u, 0);
+    CHECK(presets_rec_fits(), "a record of either scope fits presets.c's rec[]");
 #ifdef HW_ADC_TEST
     printf("hardware analog scan (simulated ADC sweeps)\n");
     aplan = gm_adc_plan();

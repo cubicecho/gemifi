@@ -590,7 +590,16 @@ int vpin_rgb(gm_pin_t p, uint32_t rgb)
 #define GM_HW_ADC 0                 /* a config generated before hardware_scan: */
 #endif
 #if GM_HW_ADC
-#define ADC_CELLS (GM_ADC_MAX_STEPS * GM_ADC_MAX_PINS)
+/* Sized for this device's plan (the builder's GM_HW_ADC_PINS / _STEPS),
+ * else for the largest. */
+#ifdef GM_HW_ADC_PINS
+#define ADC_PINS GM_HW_ADC_PINS
+#define ADC_STEPS GM_HW_ADC_STEPS
+#else
+#define ADC_PINS GM_ADC_MAX_PINS
+#define ADC_STEPS GM_ADC_MAX_STEPS
+#endif
+#define ADC_CELLS (ADC_STEPS * ADC_PINS)
 static gm_adc_plan_t aplan;
 static uint8_t adc_on;
 static volatile uint8_t adc_swept;     /* a whole sweep is in adc_last[] since the start */
@@ -609,7 +618,7 @@ static int adc_add_pin(uint16_t pin)
     for (uint32_t k = 0; k < aplan.n_pins; k++)
         if (aplan.pin[k] == pin)
             return (int)k;
-    if (aplan.n_pins >= GM_ADC_MAX_PINS)
+    if (aplan.n_pins >= ADC_PINS)
         return -1;
     aplan.pin[aplan.n_pins] = pin;
     return (int)aplan.n_pins++;
@@ -634,7 +643,7 @@ static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
         return 0;
     if (!*group) {
         uint32_t steps = 1u << h->n_sel;
-        if (steps > GM_ADC_MAX_STEPS)
+        if (steps > ADC_STEPS)
             return 0;
         volatile uint32_t *reg = 0;
         uint32_t bit[4];
@@ -1251,9 +1260,10 @@ static void tm_cmd(const tm_io_t *io, uint32_t cmd)
  * the chip). After that: the data command 0x40 (write, auto-increment), then
  * each run of changed bytes as one command, 0xC0 | its first address and its
  * bytes. A run goes on over one unchanged byte (rewriting it costs a bus
- * byte, as a new address command would, and saves the strobe); two or more
- * end it. A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a
- * fixed address. A run the budget cuts short goes on at its next address
+ * byte, as a new address command would, and saves the strobe) when the
+ * budget has room for the changed byte after it too; two or more end it.
+ * A single changed byte is 0x40, C0|a, byte: 3 bus bytes, as with a fixed
+ * address. A run the budget cuts short goes on at its next address
  * (a new 0xC0 | address) on the next call. */
 static void tm_flush(uint32_t budget)
 {
@@ -1303,7 +1313,7 @@ static void tm_flush(uint32_t budget)
                 k++;
                 budget--;
             } while (budget && k < n &&
-                     (ram[k] != sent[k] || (k + 1u < n && ram[k + 1u] != sent[k + 1u])));
+                     (ram[k] != sent[k] || (budget >= 2u && k + 1u < n && ram[k + 1u] != sent[k + 1u])));
             tm_end(io);
         }
         s->tm_dirty = k < n;
@@ -1326,10 +1336,15 @@ void vpin_flush_tm1628(void)
  * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
 static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
 
-void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+int vpin_fades(gm_pin_t p)
 {
     const gm_hub_t *h = p.hub ? hub_of(p) : 0;
-    if (!h || h->type != GM_HUB_TM1628 || !h->fade)
+    return h && h->type == GM_HUB_TM1628 && h->fade;
+}
+
+void vpin_fade(gm_pin_t p, uint32_t v, int colour)
+{
+    if (!vpin_fades(p))
         return;
     uint16_t *peak = &hs[p.hub - 1].tm_peak[colour ? 1 : 0];
     if (v > 255u)
@@ -1373,6 +1388,12 @@ void vpin_fade_apply(void)
     }
 }
 #else
+int vpin_fades(gm_pin_t p)
+{
+    (void)p;
+    return 0;
+}
+
 void vpin_fade(gm_pin_t p, uint32_t v, int colour)
 {
     (void)p;
@@ -1385,10 +1406,14 @@ void vpin_fade_apply(void)
 }
 #endif
 
-/* 9 bus bytes: ~110 us at most per main-loop pass on the STM32 (a byte is
+/* 4 bus bytes: ~50 us at most per main-loop pass on the STM32 (a byte is
  * ~11 us, a command ~3 us more), and a single LED change (3 bytes in two
- * commands, ~40 us) always goes out at once. */
-#define TM_POLL_BUDGET 9u
+ * commands, ~40 us) always goes out at once. A run goes on 2 bytes a pass:
+ * the display's 12 bytes take 6 passes, a whole 14-byte chip 7 (a few ms
+ * at the main loop's rate, within one 10 ms LED round). */
+#ifndef TM_POLL_BUDGET
+#define TM_POLL_BUDGET 4u
+#endif
 
 void vpin_poll_tm1628(void)
 {

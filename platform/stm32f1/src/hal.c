@@ -320,8 +320,27 @@ void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n)
     midi_timed(c0);
 }
 
+static void (*usb_rx)(const uint8_t ev[4]);
+
+void hal_midi_usb_rx(void (*cb)(const uint8_t ev[4]))
+{
+    usb_rx = cb;
+}
+
+/* The longest drain of one OUT packet, its requests handled (a GET_SCHEMA
+ * window, a preset load, ...): main.c's start-up and steady-state report. */
+volatile uint32_t hal_midi_rx_max_us;
+
 void hal_midi_poll(void)
 {
+    usbd_poll();                    /* nothing once USB runs from its IRQ */
+    if (usb_rx && usbd_out_len() >= 0) {
+        uint32_t c0 = DWT_CYCCNT;
+        midi_rx_drain(usb_rx);
+        uint32_t us = (DWT_CYCCNT - c0) / (sys_hclk_hz / 1000000u);
+        if (us > hal_midi_rx_max_us)
+            hal_midi_rx_max_us = us;
+    }
     midi_tx_poll();
 }
 

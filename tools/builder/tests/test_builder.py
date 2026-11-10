@@ -319,6 +319,10 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev().replace("pin: PA1", "pin: { rgb_serial: p, number: 5 }"),
                          r"rgb_serial, which can't be an input")
         self.assertError(MINIMAL_NUC + "rgb_serial:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
+        # one board: vpin_poll_rgb_serial's state isn't per hub
+        self.assertError(stm + "rgb_serial:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
+                         "  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
+                         r"a second rgb_serial hub", path="rgb_serial[1]")
         # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
@@ -837,8 +841,13 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(dev.hw_scan, (1500, 1000, True))
         h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
         for want in ("#define GM_HW_SCAN 1", "#define GM_HW_SCAN_ROW_NS 1500", "#define GM_HW_ADC 0",
-                     "#define GM_HW_SCAN_SETTLE_NS 1000", "#define GM_HW_SCAN_PRECHARGE 1"):
+                     "#define GM_HW_SCAN_SETTLE_NS 1000", "#define GM_HW_SCAN_PRECHARGE 1",
+                     "#define GM_HW_SCAN_ROWS 2 "):
             self.assertIn(want, h)
+        self.assertNotIn("GM_HW_ADC_PINS", h)
+        # plan rows at most: switch-matrix rows within its 32 switches, even
+        dev, _ = load(stm.replace("rows: [PA2, PA3]", "rows: [PA2, PA3, PA4]") + hs % ("3.5us", "3us", ""))
+        self.assertIn("#define GM_HW_SCAN_ROWS 4 ", gd.generate(dev, "t.yaml")["gm_device_config.h"])
         dev, _ = load(stm)
         self.assertIn("#define GM_HW_SCAN 0", gd.generate(dev, "t.yaml")["gm_device_config.h"])
         self.assertClean(stm + hs % ("750ns", "500ns", ""))
@@ -861,7 +870,18 @@ class TestValidation(unittest.TestCase):
         self.assertError(stm0 + "hardware_scan: { analog: true }\n", r"needs analog: inputs or pads:")
         dev, _ = load(stm0 + "analog:\n  - { id: v, pin: PA0, cc: 7 }\nhardware_scan: { analog: true }\n")
         self.assertEqual((dev.hw_scan, dev.hw_adc), (None, True))
-        self.assertIn("#define GM_HW_ADC 1", gd.generate(dev, "t.yaml")["gm_device_config.h"])
+        h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
+        for want in ("#define GM_HW_ADC 1", "#define GM_HW_ADC_PINS 1 ", "#define GM_HW_ADC_STEPS 1 "):
+            self.assertIn(want, h)
+        self.assertNotIn("GM_HW_SCAN_ROWS", h)
+        # a mux's common counts once, a direct pin once more; steps: the mux's
+        dev, _ = load(stm0 + "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
+                      "analog:\n  - { id: v, pin: PA0, cc: 7 }\n  - { id: w, pin: { cd74hc4051: m, number: 0 }, "
+                      "cc: 8 }\n  - { id: x, pin: { cd74hc4051: m, number: 1 }, cc: 9 }\n"
+                      "hardware_scan: { analog: true }\n")
+        h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_HW_ADC_PINS 2 ", h)
+        self.assertIn("#define GM_HW_ADC_STEPS 8 ", h)
 
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",

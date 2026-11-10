@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=https://cubicecho.github.io/gemifi/schema/device.json
+# Example DIY floor board in the FCB1010 style, on a Blue Pill (STM32F103C8):
+# 10 footswitches that select presets 1-10, Up / Down to step through them,
+# an LED per footswitch, two expression pedals, 5-pin DIN MIDI and a 3-digit
+# 7-segment display that shows the active preset's number.
+#
+# Untested on hardware: the bootloader and upload steps are the Blue Pill's
+# (devices/diy-bluepill.yaml), with BOARD_ID=0x3F04.
+#
+# Wiring:
+#   - footswitches 1-10, Up, Down: the inputs A-H of two chained 74HC165s
+#     (QH of the first to PB12, CLK PB13, SH/LD PB14), each switch to GND
+#     with a pull-up on its input;
+#   - LEDs 1-10: two chained 74HC595s (SER PB15, SRCLK PB13 shared with the
+#     165s' clock, RCLK PA8), outputs QA.. of the first, then the second;
+#   - expression pedals: 10 kOhm pots between 3.3 V and GND, wipers on PA0
+#     and PA1 (TRS jacks: tip = wiper);
+#   - DIN MIDI: out on PA9 (USART1 TX, through the usual 2 x 220 Ohm to the
+#     jack), in on PA10 (USART1 RX, from a 6N137 / H11L1 optocoupler);
+#   - display: a MAX7219 (DIN PA7, CLK PA5, LOAD PA4) with three common-
+#     cathode digits on DIG0-DIG2, left to right, segments on SEG A-G and
+#     DP. With 3 of 8 digits scanned, pick RSET for that (datasheet, "Scan-
+#     Limit Register"): each digit is lit 1/3 of the time instead of 1/8.
+gemifi: 2
+name: diy-floorboard
+friendly_name: Floor Board
+description: FCB1010-style floor board on a Blue Pill, 10 footswitches with LEDs, 2 expression pedals, DIN MIDI, a 3-digit MAX7219 display
+project:
+  version: 0.1.0
+board_id: 0x3F04               # 0x3F00-0x3FFF: DIY / private, one per device design
+platform: stm32f1
+chip: STM32F103C8
+board: generic-stm32f103c8
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+din_midi: { tx_pin: PA9, rx_pin: PA10, mode: usb_merge, thru: true }
+factory_reset_combo: [up, down]
+status_led: fs_1_led
+
+sn74hc165:
+  - { id: switches, data_pin: PB12, clock_pin: { number: PB13, allow_other_uses: true }, load_pin: PB14, sr_count: 2 }
+sn74hc595:
+  - { id: leds, data_pin: PB15, clock_pin: { number: PB13, allow_other_uses: true }, latch_pin: PA8, sr_count: 2 }
+max7219:
+  - { id: digits, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, num_chips: 1, intensity: 8, scan_limit: 3 }
+
+buttons:
+  - { id: fs_1, name: FS 1, pin: { sn74hc165: switches, number: 0, inverted: true }, action: preset_select, preset: 1, led: fs_1_led }
+  - { id: fs_2, name: FS 2, pin: { sn74hc165: switches, number: 1, inverted: true }, action: preset_select, preset: 2, led: fs_2_led }
+  - { id: fs_3, name: FS 3, pin: { sn74hc165: switches, number: 2, inverted: true }, action: preset_select, preset: 3, led: fs_3_led }
+  - { id: fs_4, name: FS 4, pin: { sn74hc165: switches, number: 3, inverted: true }, action: preset_select, preset: 4, led: fs_4_led }
+  - { id: fs_5, name: FS 5, pin: { sn74hc165: switches, number: 4, inverted: true }, action: preset_select, preset: 5, led: fs_5_led }
+  - { id: fs_6, name: FS 6, pin: { sn74hc165: switches, number: 5, inverted: true }, action: preset_select, preset: 6, led: fs_6_led }
+  - { id: fs_7, name: FS 7, pin: { sn74hc165: switches, number: 6, inverted: true }, action: preset_select, preset: 7, led: fs_7_led }
+  - { id: fs_8, name: FS 8, pin: { sn74hc165: switches, number: 7, inverted: true }, action: preset_select, preset: 8, led: fs_8_led }
+  - { id: fs_9, name: FS 9, pin: { sn74hc165: switches, number: 8, inverted: true }, action: preset_select, preset: 9, led: fs_9_led }
+  - { id: fs_10, name: FS 10, pin: { sn74hc165: switches, number: 9, inverted: true }, action: preset_select, preset: 10, led: fs_10_led }
+  - { id: up, name: Up, pin: { sn74hc165: switches, number: 10, inverted: true }, action: preset_next }
+  - { id: down, name: Down, pin: { sn74hc165: switches, number: 11, inverted: true }, action: preset_prev }
+
+leds:
+  - { id: fs_1_led, pin: { sn74hc595: leds, number: 0 } }
+  - { id: fs_2_led, pin: { sn74hc595: leds, number: 1 } }
+  - { id: fs_3_led, pin: { sn74hc595: leds, number: 2 } }
+  - { id: fs_4_led, pin: { sn74hc595: leds, number: 3 } }
+  - { id: fs_5_led, pin: { sn74hc595: leds, number: 4 } }
+  - { id: fs_6_led, pin: { sn74hc595: leds, number: 5 } }
+  - { id: fs_7_led, pin: { sn74hc595: leds, number: 6 } }
+  - { id: fs_8_led, pin: { sn74hc595: leds, number: 7 } }
+  - { id: fs_9_led, pin: { sn74hc595: leds, number: 8 } }
+  - { id: fs_10_led, pin: { sn74hc595: leds, number: 9 } }
+
+analog:
+  - { id: exp_a, name: Exp A, pin: PA0, cc: 7, adc_min: 300, adc_max: 3800 }
+  - { id: exp_b, name: Exp B, pin: PA1, cc: 11, adc_min: 300, adc_max: 3800 }
+
+# The preset number, not the last MIDI message: a footswitch shows "  3",
+# not a scrolling "PG 2". A host can still write to it (FB_TEXT, display 0).
+displays:
+  - id: preset_display
+    type: segment7
+    shows: preset_number
+    chars:                     # DIG0, DIG1, DIG2: each digit's 8 pins, segments A-G, DP
+      - { max7219: digits, number: 0 }
+      - { max7219: digits, number: 8 }
+      - { max7219: digits, number: 16 }
+
+# Presets 1-10: each sends its Program Change (0-9) on the board's channel.
+presets:
+  slots: 10
+  list:
+    - { name: Patch 1, program: 0 }
+    - { name: Patch 2, program: 1 }
+    - { name: Patch 3, program: 2 }
+    - { name: Patch 4, program: 3 }
+    - { name: Patch 5, program: 4 }
+    - { name: Patch 6, program: 5 }
+    - { name: Patch 7, program: 6 }
+    - { name: Patch 8, program: 7 }
+    - { name: Patch 9, program: 8 }
+    - { name: Patch 10, program: 9 }

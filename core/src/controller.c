@@ -2020,13 +2020,17 @@ static void analog_poll(void)
  * scan interrupt would race with the main loop's reads. A hit: the reading
  * crosses pad.threshold, the peak over the next pad.window ms gives the
  * velocity (pad.threshold..pad.full -> 1..127, then pad.curve), and the pad
- * is let go below pad.release. pad.retrigger ms after a release must pass
- * before the next hit. A pad that reads high at start-up stays silent until
+ * is let go below pad.release. A soft one (peak under twice pad.threshold)
+ * that falls below pad.release again within PAD_MIN_MS is noise, not a hit:
+ * the Code 61's pads see such spikes (velocity 1-3) while the pad board's
+ * LEDs change. A hard short strike still counts.
+ * pad.retrigger ms after a release must pass before the next hit. A pad that reads high at start-up stays silent until
  * it first reads below pad.release (wrong polarity, or held). */
 #if GM_N_PADS > 0
 #define NP GM_N_PADS
 #define PAD_MS 1u
 #define PAD_AT_MS 10u               /* poly aftertouch: at most once per 10 ms per pad */
+#define PAD_MIN_MS 3u               /* a soft hit stays at or above pad.release this long */
 enum { PAD_BLOCKED, PAD_IDLE, PAD_PEAK, PAD_ON };
 
 static uint8_t pad_state[NP], pad_note[NP], pad_ch[NP], pad_at[NP];
@@ -2171,6 +2175,10 @@ static void pads_scan(uint32_t now)
             pad_peak[i] = (uint16_t)r;
             break;
         case PAD_PEAK:
+            if (r < off && now - pad_t[i] < PAD_MIN_MS && pad_peak[i] < 2 * on) {
+                pad_state[i] = PAD_IDLE;    /* a soft spike, gone again at once */
+                break;
+            }
             if (r > pad_peak[i])
                 pad_peak[i] = (uint16_t)r;
             if (r >= off && now - pad_t[i] < (uint32_t)gm_cfg.pad_window)

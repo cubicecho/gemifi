@@ -2237,6 +2237,11 @@ class TestModes(unittest.TestCase):
         self.assertIn('"E1 dev", 4, 2, 0 }', c)
         self.assertIn('"E1 pan", 4, 3, 0 }', c)
         self.assertIn("gm_encoder_cc_defaults[GM_N_ENCODERS] = { 20, 21, -1, 41, -1, 50 }", c)
+        # the cycle's LED (2) always shows its step: reported owner local (2), so hosts leave it alone
+        rows = gd.led_fb_rows(dev)
+        self.assertIsNotNone(rows)
+        self.assertEqual(rows[2][1], gd.LED_OWNERS["local"])
+        self.assertTrue(all(r[1] == dev.led_owner for i, r in enumerate(rows) if i != 2))
         # params: the YAML's own components per preset, the layer.* globals (counted once in the budget)
         counts = {n: cnt(dev) for n, _i, _s, cnt in gd.PARAMS}
         self.assertEqual((counts["encoder.cc"], counts["layer.encoder.cc"], counts["layer.encoder.mode"]), (2, 4, 4))

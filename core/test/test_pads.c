@@ -485,6 +485,24 @@ int main(void)
     set_param(P_PAD_AFTERTOUCH, 0);
     run_ms(25);
 
+    /* noise: a soft reading (under twice the threshold) that is gone again
+     * within PAD_MIN_MS (3 ms) is no hit; one that stays 3 ms is, and so is a
+     * hard short one (the short hit below) */
+    out_n = 0;
+    for (int len = 1; len <= 2; len++) {
+        mux_a[4] = 350;
+        run_ms((uint32_t)len);
+        mux_a[4] = 0;
+        run_ms(25);
+    }
+    CHECK(count(0x90) == 0 && count(0x80) == 0, "spikes of 1 and 2 ms: no note (%d)", count(0x90));
+    mux_a[4] = 350;
+    run_ms(3);
+    mux_a[4] = 0;
+    run_ms(25);
+    CHECK(count(0x90) == 1 && count(0x80) == 1, "3 ms above release: a hit (%d on, %d off)", count(0x90),
+          count(0x80));
+
     /* thresholds are live: a higher one ignores a soft hit */
     set_param(P_PAD_THRESHOLD, 1000);
     out_n = 0;

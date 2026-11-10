@@ -5416,13 +5416,17 @@ def led_fb_rows(dev):
     """Per LED (source, num, channel, owner, timeout); None when every LED uses the device defaults
     (then no table is generated)."""
     rows, special = [], False
-    for x in dev.leds:
+    # A cycle's LED always shows its step (controller.c mode_led), whatever a host sends: say so
+    # (GET_COMPONENT owner), so DAW scripts and the feedback demo leave it alone.
+    cycle_leds = {m.led for m in getattr(dev, "modes", []) if m.cycle and m.led is not None}
+    for i, x in enumerate(dev.leds):
         src = x.source or (0, 0, 0)
         owner = x.owner
         if owner is None:
             mcu_driven = src[0] == LED_SOURCES["mcu"] or any(
                 k == "ring" or a == "mcu" for k, a in x.used_by)
-            owner = LED_OWNERS["host"] if mcu_driven else dev.led_owner
+            owner = (LED_OWNERS["host"] if mcu_driven else LED_OWNERS["local"] if i in cycle_leds
+                     else dev.led_owner)
         timeout = dev.led_timeout if x.timeout is None else x.timeout
         if src[0] or owner != dev.led_owner or timeout != dev.led_timeout:
             special = True

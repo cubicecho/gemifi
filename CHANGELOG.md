@@ -2,6 +2,26 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.38.3](https://github.com/cubicecho/gemifi/compare/v0.38.2...v0.38.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **builder:** reject a second rgb_serial hub ([8c91419](https://github.com/cubicecho/gemifi/commit/8c914195dedc89c0049afbe4e42febc2b1a02322))
+* **fade:** send a chip's brightness with the round it comes from ([4cf9cbc](https://github.com/cubicecho/gemifi/commit/4cf9cbc8c06c25ef47d66eff4b90f469c9c1d422))
+
+
+### Performance Improvements
+
+* **leds:** pack the per-LED host state (268 B on the Code 61) ([acc1a20](https://github.com/cubicecho/gemifi/commit/acc1a2062304b33e7a7a98e323a96d29b80c00c0))
+* **leds:** skip per-LED work no LED needs ([629a497](https://github.com/cubicecho/gemifi/commit/629a497ffe4b2ebd509b2504e79ffa19457a56b9))
+* **nuc:** index the config store's newest record per slot ([cc335a0](https://github.com/cubicecho/gemifi/commit/cc335a0e1aa0e9acd6396305ea0eba12984fc3ea))
+* **params:** resume GET_SCHEMA windows where the last one stopped ([dda8954](https://github.com/cubicecho/gemifi/commit/dda8954d29cab41499032e50d013b4691ec0251f))
+* **presets:** size rec[] (and presets_move's held[]) for one scope ([6cdb43c](https://github.com/cubicecho/gemifi/commit/6cdb43cee71d0deb08631bd0dc2359e3c22a4609))
+* **stm32f1:** size the hardware scans' rings for the device's plan ([409e752](https://github.com/cubicecho/gemifi/commit/409e7521165f6f9f254b2245fb6e2de729812944))
+* **tm1628:** 4 bus bytes a pass, not 9 ([ba17dd1](https://github.com/cubicecho/gemifi/commit/ba17dd1f828adb5b997ff049710f08d919163cc9))
+* **usb:** drain USB OUT at every hal_midi_poll, not once a pass ([ab1a263](https://github.com/cubicecho/gemifi/commit/ab1a263d3042c089454e682f9688ebbbacd5dc83))
+
 ## [0.38.2](https://github.com/cubicecho/gemifi/compare/v0.38.1...v0.38.2) (2026-11-10)
 
 

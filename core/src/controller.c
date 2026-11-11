@@ -1469,10 +1469,27 @@ static void cycle_press(uint32_t g)
 #endif
 #endif
 
+/* Another hold mode whose button is still held (two held at once: letting
+ * go of one goes back to the other), or GM_MODE_NONE. */
+static uint8_t hold_still_held(uint32_t except)
+{
+    for (uint32_t m = 0; m < GM_N_MODES; m++)
+        if (m != except && gm_modes[m].hold && gm_modes[m].toggle < GM_N_BUTTONS &&
+            ((btn_held >> gm_modes[m].toggle) & 1u)
+#if GM_LAYER_PARAMS
+            && gm_cfg.layer_enabled[m]
+#endif
+            )
+            return (uint8_t)m;
+    return GM_MODE_NONE;
+}
+
 /* The toggle or hold button of a root mode. Toggle: enters the mode (held
  * keys get their Note Off first, if it has keys), or leaves it from the
  * mode or any of its sub-modes. Hold: the mode is active while the button
- * is down. Its own action never runs. Returns 0 if button i is neither.
+ * is down. Its own action never runs, except a modifier's (a hold mode
+ * with only a layer, like Shift): that switches its layer and returns 0,
+ * so the button's action runs too. Returns 0 if button i is neither.
  * A twin of a toggle: { button, with } button toggles the mode as well.
  * A cycle's button (on each of its steps) moves it to its next step. A
  * disabled mode (layer.enabled 0) can't be entered: its button is as if
@@ -1504,7 +1521,8 @@ static int mode_button(uint32_t i, int down)
             else
                 btn_in_mode &= ~bit;
         }
-        event(EV_BUTTON, i, (uint32_t)down);
+        if (!md->modifier)
+            event(EV_BUTTON, i, (uint32_t)down);    /* a modifier's: button_changed */
 #if GM_N_CYCLES
         if (md->cycle) {
             if (down)
@@ -1519,11 +1537,11 @@ static int mode_button(uint32_t i, int down)
                 if (binds_channel(md->buttons, md->n_buttons) || binds_channel(md->keys, md->n_keys))
                     show_channel();
             } else if (hold_cur == m) {
-                hold_cur = GM_MODE_NONE;
+                hold_cur = hold_still_held(m);
             }
             layers_update();
             app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? ": mode on" : ": mode off");
-            return 1;
+            return !md->modifier;
         }
         if (!down)
             return 1;
@@ -1743,7 +1761,7 @@ static void buttons_sample(void)
                 btn_ignore &= ~(1ull << i);   /* released after a preset switch */
 #if GM_N_MODES > 0
                 if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].toggle == i) {
-                    hold_cur = GM_MODE_NONE;  /* a hold mode still ends with its button */
+                    hold_cur = hold_still_held(hold_cur);  /* a hold mode still ends with its button */
                     layers_update();
                 }
                 btn_in_mode &= ~(1ull << i);

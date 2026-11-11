@@ -442,7 +442,7 @@ A script may leave a display without a role alone: it keeps the device's own tex
 - **Tracking it.** Start with no mode on. The replay after SET_PARAM `debug.events` = 1 (§3, step 3) fills in the modes that are on; each EVENT 8 after that turns one on or off. Start again empty after BOOTED or a new enumeration.
 - **A script may ignore layers entirely.** The device sends EVENTs only from live components, so binding every component by its role already works. Feedback to a twin that isn't live is harmless: the device keeps its LED state and value and shows them when it is.
 - **One role on several components.** Two twins in different modes may have the same role (`device_param_1` on a twin in mode 2 and another in mode 3), and so may a base and a twin. Bind each one: both drive the role, and both get its LED, FB_VALUE and ring state.
-- **Using it.** A script may page by what is live. E.g. `device_bank_prev` / `device_bank_next` step by the number of live `device_param_N`: on the Code 61, 4 in its ZYN encoder mode and 8 in DEVICE (§6). The Zynthian driver pages this way, and so does the Live script on firmware that sends `layer` (pages of 8 otherwise); the Bitwig extension keeps Bitwig's remote-control pages of 8.
+- **Using it.** A script may page by what is live. E.g. `device_bank_prev` / `device_bank_next` step by the number of live `device_param_N`: on the Code 61, 2 in its ZYN encoder mode and 8 in DEVICE (§6). The Zynthian driver pages this way (by 2, 4 or 8), and so does the Live script on firmware that sends `layer`, rounded up to 4 (pages of 8 otherwise); the Bitwig extension keeps Bitwig's remote-control pages of 8.
 - **A limit.** The `layer` byte doesn't say which physical control a twin takes over. A base component counts as live even while a twin has its control.
 
 ### 5.12 Rates and batching
@@ -506,6 +506,7 @@ The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder acc
 | | `tempo` | | encoder: tempo ± |
 | Selected device | `device_param_N` (N = 1..8) | | the device's Nth parameter of the current page (with a ring: FB_RING) |
 | | `device_prev`, `device_next`, `device_bank_prev`, `device_bank_next`, `device_on` | navigation / on-off state | |
+| | `device_preset`, `device_preset_bank` | | encoder: the device's preset (in its bank) ±, or its preset bank ± (a new bank starts at its first preset); the display shows the name |
 | Session | `scene_launch`, `scene_prev`, `scene_next`, `stop_all_clips` | the action | |
 | Clip grid (§5.9) | `clip_T_S` (T, S = 1..8), `scene_N` | pad or button: launch / stop that clip, or that scene; the LED shows its state | |
 | | `grid_up`, `grid_down`, `grid_left`, `grid_right` | scroll the grid by one | |
@@ -542,7 +543,7 @@ Lower-case roles before matching.
   | Step | E1–E4 | E5–E8 | Bank left / right |
   |---|---|---|---|
   | MIDI (blue) | plain CC 70–73, no role | plain CC 74–77, no role | `bank_prev` / `bank_next` |
-  | ZYN (cyan) | `zynthian.zynpot_1..4` | `device_param_1..4` | `device_bank_prev` / `device_bank_next` |
+  | ZYN (cyan) | `zynthian.zynpot_1..4` | E5 `device_preset`, E6 `device_preset_bank`, E7–E8 `device_param_1..2` | `device_bank_prev` / `device_bank_next` |
   | DEVICE (green) | `device_param_1..4` | `device_param_5..8` | `device_bank_prev` / `device_bank_next` |
   | PAN (red) | `pan_1..4` | `pan_5..8` | `bank_prev` / `bank_next` |
 

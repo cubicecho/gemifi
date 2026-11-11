@@ -299,6 +299,7 @@ DAW_ROLES = {
     *(f"{r}_{i}" for r in ("mute", "solo", "arm", "select", "volume", "pan", "device_param") for i in range(1, 9)),
     "bank_prev", "bank_next", "master_volume", "master_mute", "cue_volume", "crossfader", "tempo",
     "device_prev", "device_next", "device_bank_prev", "device_bank_next", "device_on",
+    "device_preset", "device_preset_bank",
     "scene_launch", "scene_prev", "scene_next", "stop_all_clips",
     # navigation, clip grid, encoder assign, modifiers, banking, sends, master, markers, displays,
     # meters (reserved): issue #21 (protocol/daw-scripts.md "Roles")

@@ -37,7 +37,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.106
+  version: 0.2.107
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -537,8 +537,9 @@ modes:
   # Encoder mode's LED its colour. Power-on starts in the first enabled one.
   # Encoder mode alone still sends CC 97. Independent of arm and pads.
   #   MIDI   (blue):  plain CC 70-77, Bank left / right as they are
-  #   ZYN    (cyan):  E1-E4 Zynthian's 4 knobs, E5-E8 device_param_1-4,
-  #                   Bank left / right page E5-E8 (device_bank_prev / next)
+  #   ZYN    (cyan):  E1-E4 Zynthian's 4 knobs, E5 the selected chain's
+  #                   preset, E6 its bank, E7-E8 device_param_1-2, Bank left /
+  #                   right page E7-E8 (device_bank_prev / next)
   #   DEVICE (green): E1-E8 device_param_1-8, Bank left / right page all 8
   #   PAN    (red):   E1-E8 pan_1-8
   # In ZYN, DEVICE and PAN the encoders send no CC (cc: none), only EVENTs
@@ -556,10 +557,10 @@ modes:
           encoder_2: { cc: none, daw: zynthian.zynpot_2 }
           encoder_3: { cc: none, daw: zynthian.zynpot_3 }
           encoder_4: { cc: none, daw: zynthian.zynpot_4 }
-          encoder_5: { cc: none, daw: device_param_1 }
-          encoder_6: { cc: none, daw: device_param_2 }
-          encoder_7: { cc: none, daw: device_param_3 }
-          encoder_8: { cc: none, daw: device_param_4 }
+          encoder_5: { cc: none, daw: device_preset }
+          encoder_6: { cc: none, daw: device_preset_bank }
+          encoder_7: { cc: none, daw: device_param_1 }
+          encoder_8: { cc: none, daw: device_param_2 }
           bank_left: { daw: device_bank_prev }
           bank_right: { daw: device_bank_next }
       - id: enc_device

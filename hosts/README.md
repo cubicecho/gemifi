@@ -29,7 +29,7 @@ A component's `role` (YAML `daw:`, else its `mcu:` name) says what a script conn
 | Knob assign and view (buttons / LEDs) | `assign_pan`, `assign_send`, `assign_device`, `assign_eq`, `assign_track`, `assign_instrument`, `flip`, `view_all`, `view_midi`, `view_audio`, `view_inputs`, `view_buses` |
 | Master (analog / encoders) | `master_volume`, `cue_volume`, `crossfader`, `tempo` (encoder) |
 | Master (buttons / LEDs) | `master_mute`, `master_solo`, `master_select` |
-| Selected device (analog / encoders) | `device_param_N` (1–8) |
+| Selected device (analog / encoders) | `device_param_N` (1–8), `device_preset`, `device_preset_bank` (encoders: the preset / its bank ±) |
 | Selected device (buttons / LEDs) | `device_prev`, `device_next`, `device_bank_prev`, `device_bank_next`, `device_on` |
 | Session (buttons / LEDs) | `scene_launch`, `scene_prev`, `scene_next`, `stop_all_clips` |
 | Clip grid (pads or buttons / LEDs) | `clip_T_S` (track T, scene S, 1–8, from the grid's scroll position), `scene_N` |

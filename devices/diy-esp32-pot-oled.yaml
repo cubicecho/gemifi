@@ -3,7 +3,7 @@
 #
 # Wiring (core/README.md "Displays"):
 #   pot:  one end to 3V3, the other to GND, the wiper to GPIO34 (ADC1, input-only)
-#   OLED: VCC to 3V3, GND to GND, SDA to GPIO21, SCL to GPIO22 (the module has its pull-ups)
+#   OLED: VCC to 3V3, GND to GND, SDA to GPIO25, SCL to GPIO27 (the module has its pull-ups)
 #
 # MIDI goes over the board's USB-UART at 115200 baud (midi.transport serial: the classic ESP32 has no
 # native USB). The web updater talks to it over Web Serial; for a DAW, bridge it to a MIDI port
@@ -18,7 +18,7 @@ chip: esp32dev                 # PlatformIO board id (ESP32-WROOM-32 DevKitC)
 midi: { transport: serial }
 scan_interval: 1ms
 
-i2c: { sda: GPIO21, scl: GPIO22 }
+i2c: { sda: GPIO25, scl: GPIO27 }
 
 ssd1306:
   - id: oled

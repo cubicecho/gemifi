@@ -1,15 +1,18 @@
-# gemifi_esp.py: PlatformIO extra script shared by the firmware/esp projects.
+# gemifi_esp.py: PlatformIO pre: script shared by the firmware/esp projects (framework = espidf).
 #
-# - adds core/include to the include path;
-# - custom_gm_core = gsx: compiles core/src/gsx.c only (hello);
-#   custom_gm_core = all: compiles core/src/*.c plus the device config:
-#   $GM_DEVICE_DIR (an already generated gm_device_config.h/.c, as
-#   tools/builder passes it), else generated here from the device YAML
-#   $GM_DEVICE (default per env: devices/esp8266-example.yaml or
-#   devices/esp32-example.yaml) into $BUILD_DIR/gm_device_config; paths are
-#   absolute or relative to the repo root;
-# - after the build, writes $BUILD_DIR/webflash/: the flash parts and an
-#   ESP Web Tools manifest.json (first install from the browser).
+# It runs before PlatformIO's ESP-IDF builder, and sets up what that builder's CMake run reads:
+# - custom_gm_core = gsx (hello): GM_CORE=gsx, the gemifi_esp component compiles core/src/gsx.c only;
+#   custom_gm_core = all (midi-controller): GM_CORE=all and GM_DEVICE_DIR, the component compiles
+#   core/src/*.c and the device config: $GM_DEVICE_DIR (an already generated gm_device_config.h/.c,
+#   as tools/builder passes it), else generated here from the device YAML $GM_DEVICE (default:
+#   devices/esp32-example.yaml on the S2 / S3; the ESP32 has none) into $BUILD_DIR/gm_device_config.
+#   Paths are absolute or relative to the repo root;
+# - the sdkconfig: firmware/esp/sdkconfig.defaults, then sdkconfig.<transport> (the device config's
+#   GM_MIDI_TRANSPORT: serial, usb or ble; without a device config the chip's default), and
+#   ESP-IDF adds <file>.<target> for each. It is kept in $BUILD_DIR/sdkconfig.<transport>, not in
+#   the project;
+# - after the build, writes $BUILD_DIR/webflash/: the flash parts and an ESP Web Tools manifest.json
+#   (first install from the browser).
 #
 # SPDX-License-Identifier: MIT
 import json
@@ -19,19 +22,17 @@ import shutil
 import subprocess
 import sys
 
-from SCons import Builder
-from platformio.builder.tools.piobuild import scons_patched_match_splitext
-
 Import("env")  # noqa: F821
 
-ROOT = os.path.abspath(os.path.join(env.subst("$PROJECT_DIR"), "..", "..", ".."))
-CORE = os.path.join(ROOT, "core")
+ESP = os.path.abspath(os.path.join(env.subst("$PROJECT_DIR"), ".."))
+ROOT = os.path.abspath(os.path.join(ESP, "..", ".."))
 pioenv = env.subst("$PIOENV")
-mcu = env.BoardConfig().get("build.mcu", "esp8266").lower()
-
-env.Append(CPPPATH=[os.path.join(CORE, "include")])
+board = env.BoardConfig()
+mcu = board.get("build.mcu", "esp32").lower()
+NATIVE_USB = mcu in ("esp32s2", "esp32s3")
 
 mode = env.GetProjectOption("custom_gm_core", "gsx")
+os.environ["GM_CORE"] = mode
 device_dir = None
 if mode == "all":
     device_dir = os.environ.get("GM_DEVICE_DIR")
@@ -41,12 +42,11 @@ if mode == "all":
     else:
         yaml = os.environ.get("GM_DEVICE")
         if not yaml:
-            if mcu == "esp32":
+            if not NATIVE_USB:
                 print("gemifi: env %s needs GM_DEVICE=<device.yaml> (the bundled example "
                       "targets the ESP32-S3)" % pioenv)
                 env.Exit(1)
-            yaml = os.path.join("devices", "esp8266-example.yaml" if mcu == "esp8266"
-                                else "esp32-example.yaml")
+            yaml = os.path.join("devices", "esp32-example.yaml")
         if not os.path.isabs(yaml):
             yaml = os.path.join(ROOT, yaml)
         device_dir = os.path.join(env.subst("$BUILD_DIR"), "gm_device_config")
@@ -67,36 +67,47 @@ if mode == "all":
             print("gemifi: %s not found in %s" % (f, device_dir))
             env.Exit(1)
     print("gemifi: device config %s" % device_dir)
-    env.Append(CPPPATH=[device_dir])
+    os.environ["GM_DEVICE_DIR"] = device_dir
 
-# Object names must be <file>.c.o, as PlatformIO names them for Arduino
-# projects (the ESP8266 linker script puts *.c.o code in flash, anything
-# else in IRAM). PlatformIO only patches SCons for that once it loads the
-# framework, after pre: scripts, so do it here first.
-Builder.match_splitext = scons_patched_match_splitext
-if device_dir:
-    env.BuildSources("$BUILD_DIR/gm_core", os.path.join(CORE, "src"), "+<*.c>")
-    env.BuildSources("$BUILD_DIR/gm_device", device_dir, "+<*.c>")
-else:
-    env.BuildSources("$BUILD_DIR/gm_core", os.path.join(CORE, "src"), "+<gsx.c>")
+
+def config_h():
+    return open(os.path.join(device_dir, "gm_device_config.h")).read() if device_dir else ""
 
 
 def config_str(macro):
     """A string #define from the device config, or None."""
-    if device_dir:
-        h = open(os.path.join(device_dir, "gm_device_config.h")).read()
-        m = re.search(r'#define\s+%s\s+"([^"]*)"' % macro, h)
-        if m:
-            return m.group(1)
-    return None
+    m = re.search(r'#define\s+%s\s+"([^"]*)"' % macro, config_h())
+    return m.group(1) if m else None
+
+
+# The transport picks the sdkconfig fragment (gm_hal.h GM_MIDI_USB / _SERIAL / _BLE).
+m = re.search(r"#define\s+GM_MIDI_TRANSPORT\s+GM_MIDI_(\w+)", config_h())
+transport = m.group(1).lower() if m else ("usb" if NATIVE_USB else "serial")
+if transport not in ("usb", "serial", "ble"):
+    print("gemifi: unknown GM_MIDI_TRANSPORT %s in the device config" % transport)
+    env.Exit(1)
+if transport == "usb" and not NATIVE_USB:
+    print("gemifi: midi.transport usb needs an ESP32-S2 or -S3 (%s has no USB; use serial or ble)" % mcu)
+    env.Exit(1)
+if transport == "ble" and mcu == "esp32s2":
+    print("gemifi: midi.transport ble needs an ESP32 or ESP32-S3 (the S2 has no Bluetooth)")
+    env.Exit(1)
+defaults = [os.path.join(ESP, "sdkconfig.defaults"), os.path.join(ESP, "sdkconfig." + transport)]
+extra = board.get("build.cmake_extra_args", "")
+board.update("build.cmake_extra_args",
+             (extra + " " if extra else "") + '-DSDKCONFIG_DEFAULTS="%s"' % ";".join(defaults))
+# One sdkconfig per transport in the build dir: ESP-IDF only applies defaults to options the file
+# doesn't have yet, so another transport in the same build dir must not reuse it.
+board.update("build.esp-idf.sdkconfig_path",
+             os.path.join(env.subst("$BUILD_DIR"), "sdkconfig." + transport))
+print("gemifi: midi.transport %s (sdkconfig.%s)" % (transport, transport))
 
 
 def device_name():
     return config_str("GM_DEVICE_NAME") or "gemifi " + os.path.basename(env.subst("$PROJECT_DIR"))
 
 
-FAMILY = {"esp32": "ESP32", "esp32s2": "ESP32-S2", "esp32s3": "ESP32-S3",
-          "esp8266": "ESP8266"}
+FAMILY = {"esp32": "ESP32", "esp32s2": "ESP32-S2", "esp32s3": "ESP32-S3"}
 
 
 def webflash(source, target, env):
@@ -104,15 +115,12 @@ def webflash(source, target, env):
     out = os.path.join(build, "webflash")
     os.makedirs(out, exist_ok=True)
     parts = []
-    if mcu != "esp8266":
-        for off, path in env.get("FLASH_EXTRA_IMAGES", []):
-            path = env.subst(path)
-            if os.path.isfile(path):
-                shutil.copy(path, out)
-                parts.append({"path": os.path.basename(path), "offset": int(env.subst(off), 0)})
-        app_off = int(env.subst(env.get("ESP32_APP_OFFSET", "0x10000")), 0)
-    else:
-        app_off = 0
+    for off, path in env.get("FLASH_EXTRA_IMAGES", []):
+        path = env.subst(path)
+        if os.path.isfile(path):
+            shutil.copy(path, out)
+            parts.append({"path": os.path.basename(path), "offset": int(env.subst(off), 0)})
+    app_off = int(env.subst(env.get("ESP32_APP_OFFSET", "0x10000")), 0)
     shutil.copy(os.path.join(build, "firmware.bin"), out)
     parts.append({"path": "firmware.bin", "offset": app_off})
     manifest = {

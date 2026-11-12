@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { planInstall } from '../serial/esp-manifest.ts';
-import { IMAGE_USES, ImageKind, imageKind } from './images.ts';
+import { ImageKind, imageKind } from './images.ts';
 
 describe('built image kinds', () => {
   it('knows the NUC1xx files', () => {
@@ -13,12 +13,7 @@ describe('built image kinds', () => {
     expect(imageKind('esp32s3', 'faders-factory.bin')).toBe(ImageKind.Factory);
     expect(imageKind('esp32', 'faders-bootloader.bin')).toBe(ImageKind.Part);
     expect(imageKind('esp32s2', 'faders-partitions.bin')).toBe(ImageKind.Part);
-  });
-
-  it('uses the ESP8266 image for both the update and the first install', () => {
-    const kind = imageKind('esp8266', 'pedal.bin');
-    expect(kind).toBe(ImageKind.Esp8266App);
-    expect(IMAGE_USES[ImageKind.Esp8266App]).toMatchObject({ canFlash: true, canInstall: true });
+    expect(imageKind('esp32s3', 'faders-ota_data_initial.bin')).toBe(ImageKind.Part);
   });
 
   it('ignores files it does not know', () => {

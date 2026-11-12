@@ -1,0 +1,13 @@
+# gemifi ESP firmware: ESP-IDF settings for every chip and transport. gemifi_esp.py adds
+# sdkconfig.<transport> (serial, usb, ble); ESP-IDF adds <file>.<target> for each.
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# The main loop (app_main: gm_poll) never blocks, so its core's idle task doesn't run: don't
+# watch that one (sdkconfig.defaults.<target> pins the loop).
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../partitions.csv"
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y

@@ -1,0 +1,3 @@
+# ESP32: the controller in BLE-only mode (no Classic BT memory).
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BTDM_CTRL_MODE_BTDM=n

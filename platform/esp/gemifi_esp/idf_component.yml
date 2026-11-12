@@ -1,0 +1,13 @@
+# Managed components: the ESP-IDF component manager fetches them at the first build (into the
+# firmware project's managed_components/, not in git). Pinned to a minor version.
+dependencies:
+  idf: ">=5.5"
+  # USB MIDI on the S2 / S3 (TinyUSB, with Espressif's PHY and task glue)
+  espressif/esp_tinyusb:
+    version: "~2.4.0"
+    rules:
+      - if: "target in [esp32s2, esp32s3]"
+  espressif/tinyusb:
+    version: "~0.21.0"
+    rules:
+      - if: "target in [esp32s2, esp32s3]"

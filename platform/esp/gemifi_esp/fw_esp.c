@@ -1,29 +1,26 @@
 /*
- * fw_esp.cpp: firmware upload in the app (sysex.md 4.1 "Who takes
- * uploads", 4.2 A/B rules) through the Arduino Update class.
+ * fw_esp.c: firmware upload in the app (sysex.md 4.1 "Who takes uploads",
+ * 4.2 A/B rules) through ESP-IDF's OTA API.
  *
- * The image is the plain Arduino app .bin (no .gfw header), written to the
- * inactive OTA slot in order from offset 0. FW_END checks the CRC-32 of the
- * whole file and lets Update mark the new slot to boot (ESP32: image check +
- * esp_ota_set_boot_partition; ESP8266: eboot copies it at the next boot);
+ * The image is the plain ESP-IDF app .bin (no .gfw header), written to the
+ * inactive OTA slot in order from offset 0. Each flash sector is erased as
+ * the writes reach it (OTA_WITH_SEQUENTIAL_WRITES), so FW_BEGIN answers at
+ * once. FW_END checks the CRC-32 of the whole file, has ESP-IDF check the
+ * image (its header, segments and SHA-256) and marks the new slot to boot;
  * the old slot stays bootable until then. REBOOT(0) starts it.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_esp.h"
 #include "gm_hal.h"
-#ifdef ESP32
-#include <Update.h>
-#else
-#include <Updater.h>
-#endif
-extern "C" {
 #include "gsx.h"
-}
+#include "esp_ota_ops.h"
 
 static struct {
     uint8_t active;
     uint32_t size, crc, next, run;
+    const esp_partition_t *part;
+    esp_ota_handle_t h;
 } fw;
 
 static void fw_abort(void)
@@ -31,11 +28,7 @@ static void fw_abort(void)
     if (!fw.active)
         return;
     fw.active = 0;
-#ifdef ESP32
-    Update.abort();
-#else
-    Update.end(false);                      /* not finished: just resets */
-#endif
+    esp_ota_abort(fw.h);
 }
 
 static int fw_begin(uint32_t size, uint32_t crc32, uint16_t board_id, uint32_t fw_version)
@@ -46,11 +39,11 @@ static int fw_begin(uint32_t size, uint32_t crc32, uint16_t board_id, uint32_t f
         return GSX_BAD_BOARD;
     if (size == 0 || (size & 3u))
         return GSX_BAD_ADDR;
-    if (!Update.begin(size, U_FLASH)) {
-        uint8_t e = Update.getError();
-        return e == UPDATE_ERROR_SPACE || e == UPDATE_ERROR_SIZE ? GSX_BAD_ADDR
-                                                                 : GSX_FLASH_ERR;
-    }
+    fw.part = esp_ota_get_next_update_partition(NULL);
+    if (!fw.part || size > fw.part->size)
+        return GSX_BAD_ADDR;
+    if (esp_ota_begin(fw.part, OTA_WITH_SEQUENTIAL_WRITES, &fw.h) != ESP_OK)
+        return GSX_FLASH_ERR;
     fw.active = 1;
     fw.size = size;
     fw.crc = crc32;
@@ -66,12 +59,14 @@ static int fw_data(uint32_t offset, const uint8_t *p, uint32_t n)
     if (offset != fw.next || n == 0 || (n & 3u) || n > GM_ESP_MAX_CHUNK ||
         offset + n > fw.size)
         return GSX_BAD_ADDR;
-    /* Update buffers a flash sector and erases + writes it when full. */
-    if (Update.write((uint8_t *)p, n) != n) {
-        int st = Update.getError() == UPDATE_ERROR_MAGIC_BYTE ? GSX_BAD_IMAGE
-                                                              : GSX_FLASH_ERR;
+    if (offset == 0 && p[0] != 0xE9) {      /* ESP_IMAGE_HEADER_MAGIC: not an app image */
         fw_abort();
-        return st;
+        return GSX_BAD_IMAGE;
+    }
+    esp_err_t e = esp_ota_write(fw.h, p, n);
+    if (e != ESP_OK) {
+        fw_abort();
+        return e == ESP_ERR_OTA_VALIDATE_FAILED ? GSX_BAD_IMAGE : GSX_FLASH_ERR;
     }
     fw.run = gm_crc32(fw.run, p, n);
     fw.next += n;
@@ -87,7 +82,9 @@ static int fw_end(void)
         return GSX_BAD_IMAGE;
     }
     fw.active = 0;
-    return Update.end() ? GSX_OK : GSX_BAD_IMAGE;
+    if (esp_ota_end(fw.h) != ESP_OK)        /* the image check; the handle is freed either way */
+        return GSX_BAD_IMAGE;
+    return esp_ota_set_boot_partition(fw.part) == ESP_OK ? GSX_OK : GSX_FLASH_ERR;
 }
 
 static const hal_fw_ops_t ops = {

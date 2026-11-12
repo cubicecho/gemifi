@@ -7,12 +7,12 @@
  *
  * SPDX-License-Identifier: MIT
  */
+#include <stdio.h>
 #include "gm_esp.h"
 #include "gm_hal.h"
 #include "gm_controller.h"
-extern "C" {
 #include "gsx.h"
-}
+#include "esp_system.h"
 
 #ifndef GM_FW_VERSION
 #define GM_FW_VERSION 0x00000100u           /* 0.0.1 */
@@ -161,25 +161,13 @@ static void handle_frame(void)
 }
 
 /* The HAL calls this for every received MIDI byte. */
-extern "C" void gm_midi_rx_byte(uint8_t b)
+void gm_midi_rx_byte(uint8_t b)
 {
     if (!rx_ready && gsx_rx_byte(&rx, b))
-        rx_ready = 1;                       /* handled from loop() */
+        rx_ready = 1;                       /* handled from the main loop */
 }
 
-void setup()
-{
-    rx.buf = rx_buf;
-    rx.cap = sizeof(rx_buf);
-    gsx_rx_reset(&rx);
-    hal_uid(uid);
-    fw = hal_fw_ops();
-    pinMode(BTN_PIN, INPUT_PULLUP);
-    gm_esp_begin();
-    send_log(2, "hello: " GM_DEVICE_NAME);
-}
-
-void loop()
+static void loop_once(void)
 {
     static uint32_t next_log = 1000, next_btn;
     static uint8_t btn;
@@ -193,13 +181,13 @@ void loop()
     if ((int32_t)(now - next_log) >= 0) {
         char s[40];
         snprintf(s, sizeof(s), "alive %lu s, heap %lu", (unsigned long)(now / 1000),
-                 (unsigned long)ESP.getFreeHeap());
+                 (unsigned long)esp_get_free_heap_size());
         send_log(2, s);
         next_log += 1000;
     }
     if ((int32_t)(now - next_btn) >= 0) {   /* 10 ms sampling = debounce */
         next_btn = now + 10;
-        uint8_t b = digitalRead(BTN_PIN) == LOW;
+        uint8_t b = hal_pin_read(BTN_PIN) == 0;
         if (b != btn) {
             btn = b;
             const uint8_t note[3] = { (uint8_t)(b ? 0x90 : 0x80), 60, (uint8_t)(b ? 100 : 0) };
@@ -210,4 +198,18 @@ void loop()
     }
     if (reboot_pending && (int32_t)(now - reboot_at) >= 0)
         hal_reboot(0);
+}
+
+void app_main(void)
+{
+    rx.buf = rx_buf;
+    rx.cap = sizeof(rx_buf);
+    gsx_rx_reset(&rx);
+    hal_uid(uid);
+    fw = hal_fw_ops();
+    hal_pin_mode(BTN_PIN, HAL_IN_PULLUP);
+    gm_esp_begin();
+    send_log(2, "hello: " GM_DEVICE_NAME);
+    for (;;)
+        loop_once();
 }

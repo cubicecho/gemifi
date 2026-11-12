@@ -1,0 +1,2 @@
+# ESP32: the main loop on core 1, the radio and timers on core 0.
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y

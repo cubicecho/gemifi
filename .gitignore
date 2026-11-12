@@ -40,3 +40,8 @@ node_modules/
 
 # SWD session logs and read-back scratch
 tools/swd/nuvoton-nuc1xx/logs/
+
+# ESP-IDF component manager (firmware/esp/*): fetched at build time
+firmware/esp/*/managed_components/
+firmware/esp/*/dependencies.lock
+firmware/esp/*/sdkconfig.*

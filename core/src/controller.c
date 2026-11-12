@@ -3637,7 +3637,9 @@ uint32_t gm_monitor(uint32_t kinds)
     return kinds;
 }
 
-/* Bits into 7-bit bytes, 7 per byte (bit i of byte j = bit 7j + i). */
+#if GM_N_BUTTONS > 0 || GM_HAS_MATRIX
+/* Bits into 7-bit bytes, 7 per byte (bit i of byte j = bit 7j + i). Only
+ * buttons and the key matrix send bits (a device with neither: unused). */
 static uint32_t mon_bits(uint8_t *p, uint32_t nbits, uint32_t (*bit)(uint32_t))
 {
     uint32_t n = (nbits + 6u) / 7u;
@@ -3648,6 +3650,7 @@ static uint32_t mon_bits(uint8_t *p, uint32_t nbits, uint32_t (*bit)(uint32_t))
             p[b / 7u] |= (uint8_t)(1u << (b % 7u));
     return n;
 }
+#endif
 
 #if GM_N_BUTTONS > 0
 static uint32_t mon_first_bit;      /* mon_bits callbacks: index of bit 0 */

@@ -799,6 +799,70 @@ class HT16K33(HubType):
         return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
 
 
+# SSD1306 / SH1106 OLEDs on the I2C bus: a framebuffer (width x height / 8 bytes) in the hub RAM, no
+# pins; text displays (displays: type text) draw on it.
+OLED_MODELS = {"ssd1306": 0, "sh1106": 1}       # gm_device.h GM_OLED_SH1106
+OLED_SIZES = {"ssd1306": [(128, 64), (128, 32), (96, 16), (64, 48), (64, 32)], "sh1106": [(128, 64)]}
+OLED_8BIT = {0x78: 0x3C, 0x7A: 0x3D}           # the 8-bit write addresses printed on many modules
+
+
+class SSD1306(HubType):
+    """An SSD1306 or SH1106 OLED on the I2C bus, written from the main loop a run of changed bytes at a
+    time. No pins: text displays (displays: type text, ssd1306: <id>) draw on it. ESP only for now, as
+    the other I2C hubs."""
+    key, enum, num = "ssd1306", "GM_HUB_SSD1306", 15
+    keys = ("id", "address", "model", "width", "height", "contrast", "rotate")
+    roles = frozenset()
+    ram = True
+    i2c = True
+    schema = {"width": (64, 128), "height": (16, 64), "contrast": (0, 255)}
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        model = h.get("model", "ssd1306")
+        model = model.lower() if isinstance(model, str) else model
+        if model not in OLED_MODELS:
+            v.err(f"{p}.model", h.line_of("model"), f"unknown model '{h.raw_of('model')}' "
+                                                    f"(use {', '.join(OLED_MODELS)})")
+            model = "ssd1306"
+        hub.model = model
+        addr = v.integer(h, "address", p, 0x08, 0x7A, default=0x3C)
+        if addr in OLED_8BIT:
+            v.warn(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is the 8-bit form (as printed on many "
+                                                         f"boards) of I2C address 0x{OLED_8BIT[addr]:02X}: using "
+                                                         f"0x{OLED_8BIT[addr]:02X} (write that to drop this warning)")
+            addr = OLED_8BIT[addr]
+        elif addr > 0x77:
+            v.err(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is reserved on I2C (an OLED is 0x3C or "
+                                                        "0x3D; 0x78 / 0x7A are those as 8-bit addresses)")
+        elif addr not in (0x3C, 0x3D):
+            v.warn(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is unusual for an OLED (0x3C or 0x3D)")
+        hub.addr = addr
+        sizes = OLED_SIZES[model]
+        hub.width = v.integer(h, "width", p, 64, 128, default=sizes[0][0])
+        hub.height = v.integer(h, "height", p, 16, 64, default=sizes[0][1])
+        if (hub.width, hub.height) not in sizes:
+            v.err(p, h.line_of("height") or h.line_of("width") or line,
+                  f"{hub.width}x{hub.height}: a {model} is " + ", ".join(f"{w}x{ht}" for w, ht in sizes))
+            hub.width, hub.height = sizes[0]
+        hub.intensity = v.integer(h, "contrast", p, 0, 255, default=0xCF)
+        rot = h.get("rotate", 0)
+        if rot not in (0, 180):
+            v.err(f"{p}.rotate", h.line_of("rotate"), f"rotate: {h.raw_of('rotate')}: 0 or 180 (degrees)")
+            rot = 0
+        hub.rotate = rot
+        hub.ram_bytes = hub.width * hub.height // 8
+        hub.n_pins = 0
+
+    def range_text(self, hub):
+        return " (no pins: text displays draw on it, displays: type text)"
+
+    def c_fields(self, hub):
+        flags = " | ".join(f for f, on in (("GM_OLED_SH1106", hub.model == "sh1106"),
+                                          ("GM_OLED_ROTATE", hub.rotate == 180)) if on) or "0"
+        return [f"        .oled = {{ .addr = 0x{hub.addr:02X}, .width = {hub.width}, .height = {hub.height}, "
+                f".contrast = {hub.intensity}, .flags = {flags} }},"]
+
+
 HUB_DEFS = {t.key: t for t in (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
@@ -806,7 +870,7 @@ HUB_DEFS = {t.key: t for t in (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33())}
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33(), SSD1306())}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
@@ -2141,7 +2205,7 @@ def validate(data, file=None):
             if sda and scl:
                 dev.i2c = (sda, scl)
             if not need_i2c:
-                v.warn("i2c", data.line_of("i2c"), "no I2C hub (mcp23017 / pcf8574 / ht16k33) uses it")
+                v.warn("i2c", data.line_of("i2c"), "no I2C hub (mcp23017 / pcf8574 / ht16k33 / ssd1306) uses it")
     elif need_i2c:
         first = next(h for h in dev.hubs if h.type in I2C_HUBS)
         v.err("i2c", data.line, f"hub '{first.id}' ({first.type}) needs the I2C pins: "
@@ -3760,16 +3824,22 @@ def validate_pads(v, dev, data):
 
 
 
-DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw"]
+DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
+                "ssd1306", "line", "x", "scale", "length"]
+TEXT_KEYS = {"ssd1306", "line", "x", "scale", "length"}         # type text only
+SEGMENT_KEYS = {"chars", "segment_step", "segment_order"}      # segment types only
 # gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
-DISPLAY_TYPES = {"segment14": 1, "segment7": 2}
-DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7"}
+DISPLAY_TYPES = {"segment14": 1, "segment7": 2, "text": 3}
+DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7", 3: "GM_DISPLAY_TEXT"}
+DISPLAY_TEXT = 3
+TEXT_W, TEXT_H = 6, 8                # a text display's character cell, in pixels (x scale)
 DISPLAY_SEGS = {1: (15, "segments a..m and the dot"), 2: (8, "segments a..g and the point")}
 SEG14_PINS = 15                      # segments a..m, then the dot
 # each type's segments in gm_display.h order (segment_order: names them in pin order)
 SEG_NAMES = {1: ["a", "b", "c", "d", "e", "f", "g1", "g2", "h", "i", "j", "k", "l", "m", "dot"],
              2: ["a", "b", "c", "d", "e", "f", "g", "dp"]}
-MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC
+MAX_DISPLAY_CHARS = 16               # core/src/display.c MAXC (a segment display)
+MAX_TEXT_CHARS = 21                  # a text display: 128 / 6
 MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, plus 9, per display
 # gm_display.h GM_SHOWS_*: what a display shows while no host writes to it
 DISPLAY_SHOWS = {"last_message": 0, "preset_number": 1, "preset_name": 2, "channel": 3, "none": 4}
@@ -3788,12 +3858,11 @@ def validate_displays(v, dev, data):
         if d is None:
             continue
         ident = v.ident(d, p, "display", len(dev.displays))
-        typ = d.get("type", "segment14")
+        typ = d.get("type", "text" if d.get("ssd1306") is not None else "segment14")
         if typ not in DISPLAY_TYPES:
             v.err(f"{p}.type", d.line_of("type"), f"unknown display type '{typ}' (use {', '.join(DISPLAY_TYPES)})")
             continue
         t = DISPLAY_TYPES[typ]
-        nseg, what = DISPLAY_SEGS[t]
         # display 0 shows the device's messages, as before shows: (the others: only a host's text)
         shows = d.get("shows", "last_message" if not dev.displays else "none")
         if shows not in DISPLAY_SHOWS:
@@ -3802,6 +3871,21 @@ def validate_displays(v, dev, data):
         if shows in ("preset_number", "preset_name") and not dev.presets_given:
             v.warn(f"{p}.shows", d.line_of("shows"), f"{shows}, but the device has no presets: (it always "
                                                       "shows preset 1's)")
+        wrong = sorted((SEGMENT_KEYS if t == DISPLAY_TEXT else TEXT_KEYS) & set(d))
+        if wrong:
+            v.err(f"{p}.{wrong[0]}", d.line_of(wrong[0]),
+                  f"{', '.join(wrong)}: only for " + ("segment displays (a text display is placed with "
+                                                      "ssd1306:, line:, x: and scale:)" if t == DISPLAY_TEXT
+                                                      else "text displays (type: text)"))
+            continue
+        if t == DISPLAY_TEXT:
+            x = validate_text_display(v, dev, d, p)
+            if x is not None:
+                x.update(id=ident or "", type=t, shows=DISPLAY_SHOWS[shows], path=p, line=d.line,
+                         daw=daw_role(v, dev, d, p))
+                dev.displays.append(Hub(**x))
+            continue
+        nseg, what = DISPLAY_SEGS[t]
         step = v.integer(d, "segment_step", p, 1, 64, default=1)
         order = segment_order(v, d, p, t)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
@@ -3856,9 +3940,55 @@ def validate_displays(v, dev, data):
         mapped = step > 1 or any(isinstance(x, list) for x in chars) or \
             (order is not None and order != list(range(nseg)))
         dev.displays.append(Hub(id=ident or "", type=t, chars=pins, segs=segs if mapped else None,
-                                shows=DISPLAY_SHOWS[shows], path=p, line=d.line, daw=daw_role(v, dev, d, p)))
+                                shows=DISPLAY_SHOWS[shows], path=p, line=d.line, daw=daw_role(v, dev, d, p),
+                                n=len(pins), scale=0))
     if len(dev.displays) > MAX_DISPLAYS:
         v.err("displays", data.line_of("displays"), f"{len(dev.displays)} displays: at most {MAX_DISPLAYS}")
+
+
+def validate_text_display(v, dev, d, p):
+    """A text display (type: text): one row of 5x7 characters on an ssd1306 hub, from pixel x of text
+    line `line` (8 pixels a line, from the top), each character 6 x scale pixels wide and `scale` lines
+    tall. Returns the display's fields, or None after an error."""
+    if d.get("ssd1306") is None:
+        v.err(p, d.line, "a text display needs ssd1306: the id of the OLED (an ssd1306: hub) it is on")
+        return None
+    hid = d["ssd1306"]
+    hub = v.hub_by_id.get(hid) if isinstance(hid, str) else None
+    if hub is None or hub.type != "ssd1306":
+        known = [x.id for x in dev.hubs if x.type == "ssd1306"]
+        what = f"'{hid}' is a {hub.type} hub" if hub is not None else f"no ssd1306 hub with id '{hid}'"
+        v.err(f"{p}.ssd1306", d.line_of("ssd1306"), f"{what} (ssd1306: {', '.join(known) or 'none'})")
+        return None
+    hub.used = True
+    lines = hub.height // TEXT_H
+    scale = v.integer(d, "scale", p, 1, 4, default=1)
+    line = v.integer(d, "line", p, 0, lines - 1, default=0)
+    x = v.integer(d, "x", p, 0, hub.width - 1, default=0)
+    if line + scale > lines:
+        v.err(f"{p}.line", d.line_of("line") or d.line,
+              f"line {line} at scale {scale} is {scale} line{'s' if scale > 1 else ''} tall: "
+              f"'{hub.id}' has lines 0..{lines - 1} ({hub.height} pixels, 8 a line)")
+        return None
+    room = (hub.width - x) // (TEXT_W * scale)
+    if room < 1:
+        v.err(f"{p}.x", d.line_of("x"), f"no room for a character from x {x} at scale {scale} "
+                                        f"({TEXT_W * scale} pixels; '{hub.id}' is {hub.width} wide)")
+        return None
+    n = v.integer(d, "length", p, 1, MAX_TEXT_CHARS, default=min(room, MAX_TEXT_CHARS))
+    if n > room:
+        v.err(f"{p}.length", d.line_of("length"), f"{n} characters at scale {scale} from x {x} are "
+                                                  f"{n * TEXT_W * scale} pixels: '{hub.id}' has room for {room}")
+        return None
+    rect = (x, line, x + n * TEXT_W * scale, line + scale)
+    for o in dev.displays:
+        if o.type == DISPLAY_TEXT and o.hub_index == hub.index and \
+                rect[0] < o.rect[2] and o.rect[0] < rect[2] and rect[1] < o.rect[3] and o.rect[1] < rect[3]:
+            v.err(p, d.line, f"overlaps display '{o.id}' on '{hub.id}' (lines {o.rect[1]}..{o.rect[3] - 1}, "
+                             f"pixels {o.rect[0]}..{o.rect[2] - 1})")
+            return None
+    at = Pin(hub.index + 1, 0, line * hub.width + x, f"{hub.id} line {line} x {x}")
+    return dict(chars=[at], segs=None, n=n, scale=scale, hub_index=hub.index, rect=rect)
 
 
 def segment_order(v, d, p, t):
@@ -3918,7 +4048,7 @@ def display_defines(dev):
         types = 0
         for x in dev.displays:
             types |= 1 << x.type
-        h += [f"#define GM_DISPLAY_CHARS {max(len(x.chars) for x in dev.displays)} /* the widest display */",
+        h += [f"#define GM_DISPLAY_CHARS {max(x.n for x in dev.displays)} /* the widest display */",
               f"#define GM_DISPLAY_SHOWS 0x{shows:02X}u /* shows: values used, bit = GM_SHOWS_* */",
               f"#define GM_DISPLAY_TYPES 0x{types:02X}u /* display types used, bit = GM_DISPLAY_* */",
               f"#define GM_DISPLAY_MAP {1 if any(x.segs is not None for x in dev.displays) else 0} "
@@ -3946,7 +4076,7 @@ def display_tables(dev):
     c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
     for i, x in enumerate(dev.displays):
         where = f"0, display_{i}_map" if x.segs is not None else f"display_{i}_chars, 0"
-        c.append(f"    {{ {DISPLAY_C[x.type]}, {len(x.chars)}, {where}, {DISPLAY_SHOWS_C[x.shows]} }}, "
+        c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, {where}, {DISPLAY_SHOWS_C[x.shows]}, {x.scale} }}, "
                  f"/* {_comment(x.id)} */")
     c += ["};", ""]
     return c

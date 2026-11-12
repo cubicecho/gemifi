@@ -776,7 +776,7 @@ class TestValidation(unittest.TestCase):
 
         self.assertClean(dev())
         self.assertClean(dev(extra=", type: segment14"))
-        self.assertError(dev(extra=", type: lcd"), r"unknown display type 'lcd' \(use segment14, segment7\)")
+        self.assertError(dev(extra=", type: lcd"), r"unknown display type 'lcd' \(use segment14, segment7, text\)")
         self.assertError(dev(chars="[]"), r"needs chars")
         # 15 pins from each first one: 97..111 fits on 14 bytes, 98 doesn't
         self.assertClean(dev(chars="[{ tm1628: ta, number: 97 }]"))
@@ -800,7 +800,7 @@ class TestValidation(unittest.TestCase):
         self.assertIn("#define GM_N_DISPLAYS 1 ", files["gm_device_config.h"])
         c = files["gm_device_config.c"]
         self.assertIn("static const gm_pin_t display_0_chars[2] = {", c)
-        self.assertIn("{ GM_DISPLAY_SEG14, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG14, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE, 0 }, /* disp */", c)
         self.assertIn("#define GM_DISPLAY_CHARS 2 ", files["gm_device_config.h"])
         self.assertIn("#define GM_DISPLAY_SHOWS 0x01u ", files["gm_device_config.h"])
         dev_, _ = load(stm)
@@ -831,14 +831,14 @@ class TestValidation(unittest.TestCase):
                          r"ta\.7 is already used by leds\[0\]\.pin")
         self.assertClean(dev(more="leds:\n  - { id: l, pin: { tm1628: ta, number: 16 } }\n"))
         c = gen(dev())["gm_device_config.c"]
-        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE, 0 }, /* disp */", c)
         # characters on the SEG lines: segment k of a character every segment_step pins
         step = dev(chars="[{ tm1628: ta, number: 0 }, { tm1628: ta, number: 1 }]", extra=", type: segment7, "
                    "segment_step: 16")
         self.assertClean(step)
         c = gen(step)["gm_device_config.c"]
         self.assertIn("static const gm_pin_t display_0_map[16] = {", c)
-        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE, 0 }, /* disp */", c)
         self.assertIn("    { 1, 0, 16 }, /* ta.16 */\n    { 1, 0, 32 }, /* ta.32 */", c)
         # 14 RAM bytes: g at 96, the point (112) doesn't fit and isn't wired
         self.assertIn("    { 1, 0, 96 }, /* ta.96 */\n    GM_NO_PIN, /* - */\n    /* character 1 */", c)
@@ -852,7 +852,7 @@ class TestValidation(unittest.TestCase):
         lst = dev(chars=f"[{seg([0, 2, 4, 6, 8, 10, 12])}, {seg(range(20, 28))}]")
         self.assertClean(lst)
         c = gen(lst)["gm_device_config.c"]
-        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE }", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, 0, display_0_map, GM_SHOWS_LAST_MESSAGE, 0 }", c)
         self.assertIn("    { 1, 0, 12 }, /* ta.12 */\n    GM_NO_PIN, /* - */\n    /* character 1 */", c)
         self.assertError(dev(chars=f"[{seg(range(6))}]"), r"6 pins: a character is 8 \(segments a\.\.g and "
                                                           r"the point\), or 7 without the dot")
@@ -898,9 +898,9 @@ class TestValidation(unittest.TestCase):
             "  - { id: d3, chars: [{ tm1628: ta, number: 32 }], shows: preset_name }\n"
         files = gen(two)
         c = files["gm_device_config.c"]
-        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_CHANNEL }, /* disp */", c)
-        self.assertIn("{ GM_DISPLAY_SEG7, 1, display_1_chars, 0, GM_SHOWS_NONE }, /* d2 */", c)
-        self.assertIn("{ GM_DISPLAY_SEG14, 1, display_2_chars, 0, GM_SHOWS_PRESET_NAME }, /* d3 */", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 2, display_0_chars, 0, GM_SHOWS_CHANNEL, 0 }, /* disp */", c)
+        self.assertIn("{ GM_DISPLAY_SEG7, 1, display_1_chars, 0, GM_SHOWS_NONE, 0 }, /* d2 */", c)
+        self.assertIn("{ GM_DISPLAY_SEG14, 1, display_2_chars, 0, GM_SHOWS_PRESET_NAME, 0 }, /* d3 */", c)
         self.assertIn("#define GM_N_DISPLAYS 3 ", files["gm_device_config.h"])
         self.assertIn("#define GM_DISPLAY_SHOWS 0x1Cu ", files["gm_device_config.h"])
 
@@ -995,6 +995,71 @@ class TestValidation(unittest.TestCase):
         self.assertIn(".type = GM_HUB_HT16K33, .ht = { .addr = 0x70, .brightness = 9 },", files["gm_device_config.c"])
         self.assertIn("#define GM_HAS_I2C 1", files["gm_device_config.h"])
         self.assertIn("#define GM_HUB_RAM 16 ", files["gm_device_config.h"])
+
+    def test_ssd1306_text_displays(self):
+        esp = MINIMAL_ESP.format(plat="esp32", tr="serial") + "i2c: { sda: GPIO21, scl: GPIO22 }\n"
+
+        def dev(hub="", disp="- { id: big, ssd1306: oled, line: 1, scale: 2 }", more=""):
+            return esp + f"ssd1306:\n  - {{ id: oled{hub} }}\n" + more + "displays:\n" + \
+                "".join(f"  {x}\n" for x in disp.split("\n") if x)
+
+        self.assertClean(dev())
+        self.assertClean(dev(", model: sh1106, address: 0x3D, rotate: 180, contrast: 0"))
+        self.assertClean(dev(", width: 128, height: 32", "- { id: a, ssd1306: oled, line: 0, scale: 4 }"))
+        # the 8-bit address printed on many boards: taken, as the 7-bit one, with a warning
+        d, diags = load(dev(", address: 0x78"))
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        self.assertEqual(d.hubs[0].addr, 0x3C)
+        self.assertTrue(any("8-bit form" in x.msg and "0x3C" in x.msg for x in diags if x.level == "warning"),
+                        [str(x) for x in diags])
+        self.assertError(dev(", address: 0x79"), r"0x79 is reserved on I2C")
+        w = [x for x in load(dev(", address: 0x50"))[1] if x.level == "warning"]
+        self.assertTrue(any("unusual for an OLED" in x.msg for x in w), [str(x) for x in w])
+        self.assertError(dev(", model: ssd1309"), r"unknown model 'ssd1309' \(use ssd1306, sh1106\)")
+        self.assertError(dev(", height: 48"), r"128x48: a ssd1306 is 128x64, 128x32")
+        self.assertError(dev(", model: sh1106, height: 32"), r"128x32: a sh1106 is 128x64")
+        self.assertError(dev(", rotate: 90"), r"rotate: 90: 0 or 180")
+        self.assertError(dev().replace("ssd1306:\n  - { id: oled }\n", "ssd1306:\n  - { id: oled }\n  - { id: o2 }\n"),
+                         r"I2C address 0x3C is already used by hub 'oled'")
+        self.assertError(dev().replace("i2c: { sda: GPIO21, scl: GPIO22 }\n", ""), r"needs the I2C pins")
+        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+        self.assertError(stm + "ssd1306:\n  - { id: oled }\n", r"ssd1306 isn't supported on stm32f1 yet")
+        # an OLED has no pins
+        self.assertError(dev(more="leds:\n  - { id: l, pin: { ssd1306: oled, number: 0 } }\n"), r"ssd1306")
+        # where a text display goes
+        self.assertError(dev(disp="- { id: t, type: text }"), r"needs ssd1306: the id of the OLED")
+        self.assertError(dev(disp="- { id: t, ssd1306: nope }"), r"no ssd1306 hub with id 'nope' \(ssd1306: oled\)")
+        self.assertError(dev(disp="- { id: t, ssd1306: oled, line: 7, scale: 2 }"),
+                         r"line 7 at scale 2 is 2 lines tall: 'oled' has lines 0\.\.7")
+        self.assertError(dev(", height: 32", "- { id: t, ssd1306: oled, line: 4 }"), r"4 is out of range \(0\.\.3\)")
+        self.assertError(dev(disp="- { id: t, ssd1306: oled, scale: 2, length: 11 }"),
+                         r"11 characters at scale 2 from x 0 are 132 pixels: 'oled' has room for 10")
+        self.assertError(dev(disp="- { id: t, ssd1306: oled, x: 125 }"), r"no room for a character from x 125")
+        self.assertError(dev(disp="- { id: a, ssd1306: oled, line: 1, scale: 2 }\n"
+                                  "- { id: b, ssd1306: oled, line: 2, x: 60 }"), r"overlaps display 'a' on 'oled'")
+        self.assertClean(dev(disp="- { id: a, ssd1306: oled, line: 0, length: 10 }\n"
+                                  "- { id: b, ssd1306: oled, line: 0, x: 60, length: 11 }"))
+        self.assertError(dev(disp="- { id: t, ssd1306: oled, chars: [] }"), r"chars: only for segment displays")
+        self.assertError(dev(disp="- { id: t, type: segment7, line: 1, chars: [] }"),
+                         r"line: only for text displays")
+        disp = dev(", address: 0x3D, contrast: 100, rotate: 180",
+                   "- { id: big, ssd1306: oled, line: 1, scale: 2 }\n- { id: ch, ssd1306: oled, line: 6, x: 4, "
+                   "shows: channel }")
+        d, diags = load(disp)
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        files = gd.generate(d, "t.yaml")
+        c, h = files["gm_device_config.c"], files["gm_device_config.h"]
+        self.assertIn(".type = GM_HUB_SSD1306, .oled = { .addr = 0x3D, .width = 128, .height = 64, .contrast = 100, "
+                      ".flags = GM_OLED_ROTATE },", c)
+        self.assertIn("{ 1, 0, 128 }, /* oled line 1 x 0 */", c)
+        self.assertIn("{ 1, 0, 772 }, /* oled line 6 x 4 */", c)
+        self.assertIn("{ GM_DISPLAY_TEXT, 10, display_0_chars, 0, GM_SHOWS_LAST_MESSAGE, 2 }, /* big */", c)
+        self.assertIn("{ GM_DISPLAY_TEXT, 20, display_1_chars, 0, GM_SHOWS_CHANNEL, 1 }, /* ch */", c)
+        self.assertIn("#define GM_HUB_RAM 1024 ", h)
+        self.assertIn("#define GM_DISPLAY_CHARS 20 ", h)
+        self.assertIn("#define GM_DISPLAY_TYPES 0x08u", h)
+        d, _ = load(dev(", model: sh1106"))
+        self.assertIn(".flags = GM_OLED_SH1106 }", gd.generate(d, "t.yaml")["gm_device_config.c"])
 
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")

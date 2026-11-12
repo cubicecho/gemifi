@@ -356,6 +356,11 @@ MAX7219, a TM1637, an HT16K33 backpack or shift registers. `type:` is `segment14
 61's six characters, the default) or `segment7` (digits a to g and the
 point). Up to 4 displays per device, up to 16 characters each.
 
+Or a line of text on a small I2C OLED (an SSD1306 or SH1106 `ssd1306:` hub,
+ESP only): `type: text`, placed by `line:` (8 pixels a line), `x:` and
+`scale:` (1 to 4). At scale 1 a 128-pixel panel takes 21 characters, at
+scale 2 ten. Several text displays can share one OLED, a line each.
+
 What a display shows of its own is its `shows:`:
 
 - `last_message` (the first display's default): "GEMIFI" at boot, then the
@@ -412,6 +417,7 @@ use.
 | `max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
 | `tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
 | `ht16k33` | 128 LED outputs over I2C (ESP only): 14- and 7-segment backpacks | changed bytes only, from the main loop |
+| `ssd1306` | an SSD1306 / SH1106 OLED over I2C (ESP only): text displays | 1 KB of RAM (2 KB with what was sent) for 128 × 64; changed bytes only, from the main loop, one run of up to 16 a pass (~0.55 ms) |
 | `ws2812` | an addressable LED strip, any colour per LED | see LEDs |
 | `maudio_pad_leds` | the M-Audio Code pad LED board (was `rgb_serial`) | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |

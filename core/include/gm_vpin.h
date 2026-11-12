@@ -109,6 +109,13 @@ void vpin_poll_tm1628(void);
  * number LED * 3): 1, else 0 (the caller shows it with vpin_write). */
 int vpin_rgb(gm_pin_t p, uint32_t rgb);
 
+/* SSD1306 hubs (text displays, gm_display.h GM_DISPLAY_TEXT): draw n
+ * columns of 8 pixels (bit 0 at the top) into the framebuffer of hub
+ * at.hub from byte at.num (page * width + x), each pixel scale x scale
+ * (1..4: scale pages tall). What falls off the screen is dropped; only
+ * changed pages go out (vpin_poll). Main loop. */
+void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale);
+
 /* TM1628 hubs with fade: (core/README.md "TM1628 LED drivers"): the chip
  * has one brightness (8 steps), so it shows the brightest of its LEDs.
  * vpin_fade notes that the LED on pin p is lit at v (0..255, as eyes see

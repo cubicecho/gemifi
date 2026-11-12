@@ -1170,6 +1170,95 @@
         }
       ]
     },
+    "ssd1306": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 122
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "ssd1306",
+                      "sh1106"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 128
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 16,
+                    "maximum": 64
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "contrast": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "rotate": {
+                "enum": [
+                  0,
+                  180
+                ],
+                "description": "degrees"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "ssd1306 hubs (core/README.md \"Virtual pins and hubs\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
     "rgb_serial": {
       "anyOf": [
         {
@@ -3430,7 +3519,8 @@
                   {
                     "enum": [
                       "segment14",
-                      "segment7"
+                      "segment7",
+                      "text"
                     ]
                   },
                   {
@@ -3517,6 +3607,57 @@
               },
               "daw": {
                 "type": "string"
+              },
+              "ssd1306": {
+                "$ref": "#/definitions/id"
+              },
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 7
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "x": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "scale": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "length": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 21
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -4145,6 +4286,10 @@
               "description": "the id of another component"
             },
             "ht16k33": {
+              "type": "string",
+              "description": "the id of another component"
+            },
+            "ssd1306": {
               "type": "string",
               "description": "the id of another component"
             },

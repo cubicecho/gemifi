@@ -319,7 +319,8 @@ int main(void)
     CHECK(mx_reg[1][1] == 0x40, "LED on: chip 1, digit 0, segment A = D6 (%02X)", mx_reg[1][1]);
     CHECK(strcmp(log_mx, "1:00,40|") == 0, "one frame: %s", log_mx);
 
-    /* FB_TEXT on display 1 (the TM1637) */
+    /* FB_TEXT on display 1 (the TM1637), once the preset's name has had its 1.5 s */
+    run_ms(1500);
     uint8_t txt[2] = { '4', '2' };
     gm_host_on_text(1, 0, 0, txt, 2);
     run_ms(40);

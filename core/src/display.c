@@ -186,6 +186,16 @@ static char msg[MSG_MAX + 1];
 static uint8_t msg_len;
 static uint8_t msg_new;                 /* set by gm_display_message */
 
+/* The device's own news (a message, or a program change it sent) on a
+ * last_message display: for MSG_KEEP_MS plain MIDI (a CC, a note) doesn't
+ * replace it, so Shift's release doesn't wipe Shift + Up's "PC 23"; and it
+ * shows over a host's text (FB_TEXT) for MSG_KEEP_MS, a long message until
+ * it has scrolled once, then the host's text is back. */
+#define MSG_KEEP_MS 1500u
+static uint8_t news_on[GM_N_DISPLAYS];
+static uint32_t news_keep[GM_N_DISPLAYS];   /* plain MIDI waits until then */
+static uint32_t news_over[GM_N_DISPLAYS];   /* over the host's text until then */
+
 /* A display's scrolling text: the message, or the preset's name. */
 #define SRC_MSG 0u
 #define SRC_NAME 1u
@@ -394,8 +404,20 @@ static void show_number(uint32_t d, uint32_t v)
 }
 #endif
 
-/* The last MIDI message, on each last_message display. */
-static void format_midi(uint32_t m)
+static void news_start(uint32_t d, uint32_t len, uint32_t now)
+{
+    uint32_t n = gm_displays[d].n_chars, over = MSG_KEEP_MS;
+    if (len > n)
+        over = 2u * MSG_HOLD_MS + (len - n - 1u) * MSG_STEP_MS;  /* one scroll (scroll_step) */
+    news_on[d] = 1;
+    news_keep[d] = now + MSG_KEEP_MS;
+    news_over[d] = now + (over > MSG_KEEP_MS ? over : MSG_KEEP_MS);
+    dirty = 1;
+}
+
+/* The last MIDI message, on each last_message display: a program change
+ * is news (above); a CC or note waits while there is news. */
+static void format_midi(uint32_t m, uint32_t now)
 {
     static const char names[12][2] = { {'C', 0}, {'C', '#'}, {'D', 0}, {'D', '#'}, {'E', 0}, {'F', 0},
                                         {'F', '#'}, {'G', 0}, {'G', '#'}, {'A', 0}, {'A', '#'}, {'B', 0} };
@@ -420,16 +442,22 @@ static void format_midi(uint32_t m)
         break;
     case 0xC0:                              /* program change */
         l[0] = 'P';
-        l[1] = 'G';
+        l[1] = 'C';
         nl = 2;
         nr = dec(r, a);
         break;
     default:
         return;
     }
-    for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
-        if (shows(d, GM_SHOWS_LAST_MESSAGE))
-            show_pair(d, l, nl, r, nr);
+    int news = (st & 0xF0u) == 0xC0u;
+    for (uint32_t d = 0; d < GM_N_DISPLAYS; d++) {
+        if (!shows(d, GM_SHOWS_LAST_MESSAGE) || (!news && news_on[d] && (int32_t)(now - news_keep[d]) < 0))
+            continue;
+        scr[d].state = 0;                   /* stops a scroll */
+        show_pair(d, l, nl, r, nr);
+        if (news)
+            news_start(d, 0, now);
+    }
 }
 
 /* What a preset_* or channel display shows, now. */
@@ -489,20 +517,24 @@ void gm_display_poll(uint32_t now)
                 gm_display_text(d, "gemifi");
         }
     }
+    for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
+        if (news_on[d] && (int32_t)(now - news_over[d]) >= 0) {
+            news_on[d] = 0;                 /* the host's text, if any, is back */
+            dirty = 1;
+        }
     uint32_t m = midi_msg;
     if (m != midi_seen) {
         midi_seen = m;
-        for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
-            if (shows(d, GM_SHOWS_LAST_MESSAGE))
-                scr[d].state = 0;
-        format_midi(m);
+        format_midi(m, now);
     }
     int started = msg_new;              /* a message wins over MIDI in the same poll */
     if (msg_new) {
         msg_new = 0;
         for (uint32_t d = 0; d < GM_N_DISPLAYS; d++)
-            if (shows(d, GM_SHOWS_LAST_MESSAGE))
+            if (shows(d, GM_SHOWS_LAST_MESSAGE)) {
                 scroll_start(d, SRC_MSG, msg_len, now);
+                news_start(d, msg_len, now);
+            }
     }
 #if HAS_PRESET
     if (preset_new) {
@@ -530,7 +562,7 @@ void gm_display_poll(uint32_t now)
         const gm_display_t *dp = &gm_displays[d];
         uint32_t n = width(d), ns = IS_SEG7(dp->type) ? 8u : 15u;
         for (uint32_t i = 0; i < n; i++) {
-            uint16_t w = segs(dp->type, host_on[d] ? host[d][i] : want[d][i]);
+            uint16_t w = segs(dp->type, host_on[d] && !news_on[d] ? host[d][i] : want[d][i]);
             uint16_t diff = (shown[d][i] & 0x8000u) ? 0x7FFFu : (uint16_t)(w ^ shown[d][i]);
             if (!diff)
                 continue;
@@ -548,9 +580,10 @@ void gm_display_poll(uint32_t now)
 
 /* FB_TEXT (sysex.md 4.6.2): from (row, col), every character taking a
  * place, clipped at the end of the row; nothing else changes. The host's
- * text covers the device's own (MIDI values, messages), which carries on
- * underneath and shows again after gm_display_host_release. These displays
- * have one row. */
+ * text covers the device's own (MIDI values), which carries on underneath
+ * and shows again after gm_display_host_release, except the device's news
+ * (its messages and program changes) for a moment (news_start). These
+ * displays have one row. */
 void gm_host_on_text(uint32_t d, uint32_t row, uint32_t col, const uint8_t *text, uint32_t n)
 {
     if (d >= GM_N_DISPLAYS || row != 0)

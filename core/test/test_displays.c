@@ -199,7 +199,7 @@ int main(void)
     gm_display_preset(5, "Solo");
     gm_display_midi(0xC0, 4, 0);
     poll();
-    CHECK(shows(0, "HI ") && shows(3, "SOLO") && shows(2, "PG   4"), "the host's text covers the device's");
+    CHECK(shows(0, "HI ") && shows(3, "SOLO") && shows(2, "PC   4"), "the host's text covers the device's");
     gm_host_on_text(6, 0, 0, (const uint8_t *)"X", 1);   /* no display 6 */
     gm_host_on_text(1, 1, 0, (const uint8_t *)"X", 1);   /* one row */
     gm_display_host_release();

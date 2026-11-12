@@ -398,7 +398,7 @@ FB_METER meter 8 at 127, clip:             F0 7D 67 6D 01 27 00 04 00 08 00 7F 0
 - Writes from (`row`, `col`), clipped at the end of the row; it doesn't wrap.
 - A position outside the display drops the message.
 - The rest of the row is unchanged, so clear old text with spaces.
-- Each character takes a place (a `.` too). The device's own text (MIDI values, preset names) stays underneath, and FB_RELEASE 0 or 3 shows it again.
+- Each character takes a place (a `.` too). The device's own text (MIDI values, preset names) stays underneath, and FB_RELEASE 0 or 3 shows it again. The device's own news (a message: a preset's name, `CH <n>`, a mode's name; or a program change it sent, `PC 23`) shows over the script's text for 1.5 s (a long message until it has scrolled once), then the host's text is back; its plain MIDI (CCs, notes) doesn't.
 - Displays so far: the Code 61's 6-character 14-segment display (GET_COMPONENT kind 6: 6 cols, 1 row, type characters), and DIY 7-segment ones (type characters too: letters a 7-segment digit can't show are blank). A device can have up to 4; a display that shows its own value (`shows:` a preset number, say) still takes FB_TEXT by its index.
 
 ### 5.6 Release (FB_RELEASE)

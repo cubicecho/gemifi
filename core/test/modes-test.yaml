@@ -1,7 +1,8 @@
 # Test device for core/test/test_modes.c: modes without a key matrix (#117),
 # a pad-box / floor-board style panel: buttons and an encoder only. A
 # layer-only toggle, a Shift + button toggle with a layer, a toggle with
-# buttons:, a hold mode with buttons: and a cycle. Not a real board; the
+# buttons:, a hold mode with buttons:, a cycle and a modifier (Shift held:
+# up and b_a have second actions). Not a real board; the
 # pins only need to be distinct for the simulated HAL.
 gemifi: 2
 name: modes-test
@@ -59,3 +60,11 @@ modes:
       - { id: s_one, name: ONE, colour: red }
       - { id: s_two, name: TWO, colour: green, layer: { enc: { cc: 33 } } }
       - { id: s_three, name: THREE, colour: blue, layer: { mute: { cc: 27 } } }
+  # a modifier: a hold mode with only a layer. Shift keeps its CC 22 (and
+  # stays the with: of arm); while it is held, up steps the program and b_a
+  # is CC 41
+  - id: shifted
+    hold: shift
+    layer:
+      up: { action: program_next }
+      b_a: { cc: 41 }

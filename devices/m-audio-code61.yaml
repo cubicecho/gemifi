@@ -5,7 +5,7 @@
 # Works on hardware: keys with velocity, panel buttons, encoders, faders,
 # wheels, aftertouch, the XY pad, pads and their LEDs, the button LEDs, the
 # display (preset names, "CH <n>"), the rear MIDI jacks, presets on Up / Down
-# (Channel held: the MIDI channel), the soft power button (hold 2 s to switch
+# (Channel held: the MIDI channel; Shift held: the program), the soft power button (hold 2 s to switch
 # off) and settings saving. Values tagged [guess] are untuned.
 #
 # DAW scripts (Bitwig, Live; hosts/README.md) find the transport, faders,
@@ -37,7 +37,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.105
+  version: 0.2.106
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -368,7 +368,8 @@ buttons:
     action: cc_momentary
     cc: 64
   # Up / Down step through the presets (the display shows the name); with
-  # Channel held they change the MIDI channel instead (modes: below).
+  # Channel held they change the MIDI channel, with Shift held the program
+  # (modes: below).
   # Panel slot 0 is the left one of the two, Down.
   - { id: up, name: "Up", pin: { switch_matrix: panel, number: 1 }, action: preset_next }
   - { id: down, name: "Down", pin: { switch_matrix: panel, number: 0 }, action: preset_prev }
@@ -588,6 +589,18 @@ modes:
           encoder_6: { cc: none, daw: pan_6 }
           encoder_7: { cc: none, daw: pan_7 }
           encoder_8: { cc: none, daw: pan_8 }
+  # Shift is a modifier (a hold mode with only a layer, core/README.md
+  # "Button layers"): it still sends CC 102 and is the DAW's shift, and while
+  # it is held Up / Down step the program (a Program Change on the MIDI
+  # channel) instead of the preset. A button's Shift action is one more line
+  # here; the web page sets them in the Layers group. Buttons that Shift
+  # already toggles a mode with (Button mode, Encoder mode, Pad octave -)
+  # can't have one.
+  - id: shifted
+    hold: shift
+    layer:
+      up: { action: program_next }
+      down: { action: program_prev }
 
 # Where the controls are, for the web page's drawing (core/README.md "Layout"): units of about
 # 5 mm from the top left; [x, y] or [x, y, w, h]. Approximate, from the panel as the user

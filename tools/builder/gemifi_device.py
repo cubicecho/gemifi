@@ -1500,6 +1500,8 @@ class _V:
         self.mode_toggles = {}   # button index -> mode id, for the preset check
         self.mode_with_toggles = {}   # toggle: { button, with }: button index -> mode id (keeps its action)
         self.mode_with_buttons = {}   # ... and its with: button index -> mode id
+        self.mode_with_of = {}   # ... and its with: button index
+        self.mode_modifiers = {}  # a layer-only hold mode's button (a modifier, keeps its action) -> mode id
         self.ids = {}            # id -> (kind, path, line, index, derived-from-name or None)
 
     def err(self, path, line, msg):
@@ -5044,7 +5046,7 @@ def validate_modes(v, dev, data):
     def new_mode(mid, p, d):
         m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
                 root=None, led=None, blink=False, show=None, keys=[], buttons=[], with_=None, twins=0,
-                cycle=0, colour=0, rgb=None, name=None, enabled=True, step=False)
+                cycle=0, colour=0, rgb=None, name=None, enabled=True, step=False, modifier=False)
         modes.append(m)
         by_id[mid] = m
         return m
@@ -5273,20 +5275,26 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
             return
         if w == idx:
             v.err(f"{p}.{key}.with", holder.line_of("with"), "the button can't be held with itself")
-        elif idx in v.mode_toggles or idx in v.mode_with_toggles:
+        elif idx in v.mode_toggles or idx in v.mode_with_toggles or idx in v.mode_modifiers:
             v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode "
-                                    f"'{v.mode_toggles.get(idx) or v.mode_with_toggles[idx]}'")
+                                    f"'{v.mode_toggles.get(idx) or v.mode_with_toggles.get(idx) or v.mode_modifiers[idx]}'")
         elif w in v.mode_toggles:
             v.err(f"{p}.{key}.with", holder.line_of("with"), f"button '{dev.buttons[w].id}' enters mode "
                                                              f"'{v.mode_toggles[w]}' itself")
         else:
             v.mode_with_toggles[idx] = m.id
+            v.mode_with_of[idx] = w
             v.mode_with_buttons.setdefault(w, m.id)
             m.toggle, m.with_ = idx, w
         return
-    if idx in v.mode_toggles or idx in v.mode_with_toggles:
+    if idx in v.mode_toggles or idx in v.mode_with_toggles or idx in v.mode_modifiers:
         v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode "
-                                f"'{v.mode_toggles.get(idx) or v.mode_with_toggles[idx]}'")
+                                f"'{v.mode_toggles.get(idx) or v.mode_with_toggles.get(idx) or v.mode_modifiers[idx]}'")
+    elif key == "hold" and d.get("layer") is not None and d.get("keys") is None and d.get("buttons") is None:
+        # a hold mode with only a layer: is a modifier (Shift): its button keeps its own action, and
+        # while it is held the layer's twins take their buttons' presses (core/README.md "Button layers")
+        v.mode_modifiers[idx] = m.id
+        m.toggle, m.modifier = idx, True
     elif b.action_name != "none":
         v.err(f"{p}.{key}", tl, f"button '{b.id}' {verb} this mode, so its own action would never run: remove "
                                 f"`action: {b.action_name}` (and its cc:/note:) from the button")
@@ -5309,7 +5317,7 @@ def mode_buttons(v, dev, m, btns, bp, bl):
         idx = v.ref(holder, "button", path, line, "button", "buttons")
         if idx is None:
             continue
-        if idx in v.mode_toggles or idx in v.mode_with_toggles or idx == m.toggle:
+        if idx in v.mode_toggles or idx in v.mode_with_toggles or idx in v.mode_modifiers or idx == m.toggle:
             v.err(path, line, f"button '{bid}' enters a mode (toggle:/hold:): it can't also be bound in one")
             continue
         b = btns[bid]
@@ -5373,8 +5381,12 @@ def mode_layer(v, dev, m, layer, lp, ll):
         else:
             b = dev.buttons[idx]
             if (idx == m.with_ or idx in v.mode_toggles or idx in v.mode_with_buttons or
-                    (idx == m.toggle and m.with_ is None)):
+                    idx in v.mode_modifiers or (idx == m.toggle and m.with_ is None)):
                 v.err(path, line, f"button '{bid}' enters a mode (or is held for one): it can't have a twin")
+                continue
+            if m.modifier and v.mode_with_of.get(idx) == m.toggle:
+                v.err(path, line, f"{dev.buttons[m.toggle].id} + {bid} already toggles mode "
+                                  f"'{v.mode_with_toggles[idx]}', so this twin's action would never run")
                 continue
             if idx in bound:
                 v.err(path, line, f"button '{bid}' is also in this mode's buttons:; give it one of the two")
@@ -5623,9 +5635,10 @@ def mode_tables(dev):
         rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
                     f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr}"
                     f", {0 if m.with_ is None else m.with_ + 1}, {m.cycle}, 0x{m.colour:02X}, "
-                    f"{c_str(m.name if m.name is not None else m.id)} }}, /* {_comment(m.id)} */")
+                    f"{c_str(m.name if m.name is not None else m.id)}, {int(m.modifier)} }}, "
+                    f"/* {_comment(m.id)} */")
     c += ["/* { toggle/hold/cycle button, parent, root, led, led_blink, blink_count, blink_done, n_keys, keys, "
-          "hold, n_buttons, buttons, with, cycle, colour, name } */",
+          "hold, n_buttons, buttons, with, cycle, colour, name, modifier } */",
           "const gm_mode_t gm_modes[GM_N_MODES] = {", *rows, "};", ""]
     rgb = mode_rgb(dev)
     if rgb:

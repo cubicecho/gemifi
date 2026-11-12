@@ -2,8 +2,9 @@
  * test_modes.c: host test of modes on a device without a key matrix (#117)
  * with core/test/modes-test.yaml: a layer-only toggle (fx), a Shift + button
  * toggle with a layer (arm), a hold mode with buttons: (chan), a toggle with
- * buttons: (menu) and a cycle (encs). Layer twins send their own CCs, the
- * cycle steps round its enabled steps.
+ * buttons: (menu), a cycle (encs) and a modifier (shifted: Shift held).
+ * Layer twins send their own CCs, the cycle steps round its enabled steps,
+ * and Shift keeps its own CC while it holds its layer.
  *
  * Buttons 0 b_a CC 20, 1 mute CC 24 toggle, 2 shift CC 22, 3 lmode CC 23,
  * 4 fx, 5 chan, 6 emode, 7 up CC 25, 8 menu (PB0.., inverted). LEDs
@@ -19,7 +20,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_HAS_MATRIX || GM_N_MODES != 7 || GM_N_CYCLES != 1 || GM_BTN_TWINS != 3 || GM_ENC_TWINS != 2
+#if GM_HAS_MATRIX || GM_N_MODES != 8 || GM_N_CYCLES != 1 || GM_BTN_TWINS != 5 || GM_ENC_TWINS != 2
 #error "test_modes.c needs the modes-test.yaml config"
 #endif
 
@@ -140,6 +141,20 @@ static int count(uint8_t st, int d1, int *last)
     return n;
 }
 
+/* Program Changes (2 bytes) on channel 1 sent since the last clear. */
+static int pcs(void)
+{
+    int n = 0;
+    for (int i = 0; i + 1 < out_n; i++)
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+        } else if (out[i] == 0xC0) {
+            n++;
+        }
+    return n;
+}
+
 /* Any CC on channel 1 sent since the last clear. */
 static int any_cc(void)
 {
@@ -255,6 +270,45 @@ int main(void)
     out_n = 0;
     detent();
     CHECK(count(0xB0, 30, &v) == 1 && v == 3, "ONE: the encoder's CC 30 = 3");
+
+    /* -- shifted: a modifier, Shift + up / b_a ------------------------------ */
+    out_n = 0;
+    hold(SHIFT, 1);
+    CHECK(count(0xB0, 22, &v) == 1 && v == 127, "Shift keeps its own action: CC 22 on");
+    tap(UP);
+    CHECK(pcs() == 1 && count(0xB0, 25, 0) == 0, "Shift + up: a Program Change, not CC 25");
+    tap(UP);
+    CHECK(pcs() == 2, "Shift + up again: the next program");
+    tap(B_A);
+    CHECK(count(0xB0, 41, 0) == 2 && count(0xB0, 20, 0) == 0, "Shift + b_a: its twin CC 41, not 20");
+    tap(LMODE);
+    CHECK(level[PIN_ARM_LED] == 1 && count(0xB0, 23, 0) == 0, "Shift + lmode still toggles arm");
+    tap(LMODE);
+    CHECK(level[PIN_ARM_LED] == 0, "and again: arm off");
+    hold(SHIFT, 0);
+    CHECK(count(0xB0, 22, &v) == 2 && v == 0, "Shift released: CC 22 off");
+    out_n = 0;
+    tap(UP);
+    tap(B_A);
+    CHECK(count(0xB0, 25, 0) == 2 && count(0xB0, 20, 0) == 2 && pcs() == 0,
+          "Shift up: up and b_a are their own again");
+    /* two hold modes: chan held over Shift, then let go: Shift's layer is back */
+    out_n = 0;
+    hold(SHIFT, 1);
+    hold(CHAN, 1);
+    hold(CHAN, 0);
+    tap(UP);
+    CHECK(pcs() == 1, "chan let go while Shift is held: Shift + up is the program again");
+    hold(SHIFT, 0);
+    /* disabled (layer.enabled 0): Shift is just its CC */
+    gm_cfg.layer_enabled[7] = 0;
+    out_n = 0;
+    hold(SHIFT, 1);
+    tap(UP);
+    hold(SHIFT, 0);
+    CHECK(count(0xB0, 22, 0) == 2 && count(0xB0, 25, 0) == 2 && pcs() == 0,
+          "shifted disabled: Shift is CC 22, up CC 25");
+    gm_cfg.layer_enabled[7] = 1;
 
     printf("test_modes: %d checks, %d failed\n", checks, fails);
     return fails != 0;

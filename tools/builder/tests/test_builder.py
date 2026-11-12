@@ -2501,7 +2501,7 @@ class TestModes(unittest.TestCase):
         # it keeps cc_toggle (action 2), with CC 7; sel (5) toggles with shift (3 + 1) held, sel keeps CC 8
         self.assertIn("gm_button_action_defaults[GM_N_BUTTONS] = { 1, 0, 4, 1, 2, 1, 2 }", c)
         self.assertIn("gm_button_number_defaults[GM_N_BUTTONS] = { 1, 0, 60, 5, 6, 8, 7 }", c)
-        self.assertIn("{ 5, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 4, 0, 0x00, \"arm\" }, /* arm */", c)
+        self.assertIn("{ 5, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 4, 0, 0x00, \"arm\", 0 }, /* arm */", c)
         self.assertNotIn("GM_LAYERS", self.gen(MODES_NUC)[1])
         # checks
         self.assertError(modes("- id: arm\n  toggle: { button: sel }\n  layer: { mute: { cc: 7 } }\n", base),
@@ -2645,10 +2645,10 @@ class TestModes(unittest.TestCase):
         self.assertIn("#define GM_ENC_TWINS 4 ", h)
         # steps: toggle sel (4), with shift (3 + 1), root = itself, the cycle's LED (rgb, 2), cycle 1, colour
         # 0x80 | the pins (blue 4, green 2, red 1), the name (or the id)
-        self.assertIn('{ 4, GM_MODE_NONE, 0, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x84, "MIDI" }, /* plain */', c)
-        self.assertIn('{ 4, GM_MODE_NONE, 1, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x82, "DEVICE" }, /* dev */', c)
-        self.assertIn('{ 4, GM_MODE_NONE, 2, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x81, "pan" }, /* pan */', c)
-        self.assertIn('{ 1, GM_MODE_NONE, 3, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0x00, "arm" }, /* arm */', c)
+        self.assertIn('{ 4, GM_MODE_NONE, 0, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x84, "MIDI", 0 }, /* plain */', c)
+        self.assertIn('{ 4, GM_MODE_NONE, 1, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x82, "DEVICE", 0 }, /* dev */', c)
+        self.assertIn('{ 4, GM_MODE_NONE, 2, 2, 0, -1, -1, 0, 0, 0, 0, 0, 4, 1, 0x81, "pan", 0 }, /* pan */', c)
+        self.assertIn('{ 1, GM_MODE_NONE, 3, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0x00, "arm", 0 }, /* arm */', c)
         # twins: layer = step index + 1; cc: none = -1
         self.assertIn('"E1 dev", 4, 2, 0 }', c)
         self.assertIn('"E1 pan", 4, 3, 0 }', c)
@@ -2834,9 +2834,9 @@ class TestModes(unittest.TestCase):
             (24, 10, 1, "C5: channel 1"), (25, 10, 2, "C#5: channel 2"), (26, 10, 3, "D5: channel 3")])
         # toggle, parent, root, led, blink, count LED, done LED, n, keys
         # ..., hold, n_buttons, buttons
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\" }, /* menu */", c)
-        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0, 0, 0, 0x00, \"pick\" }, /* pick */", c)   # parent's LED, blinking
-        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0, 0, 0, 0x00, \"chan\" }, /* chan */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, 1, 0, 7, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\", 0 }, /* menu */", c)
+        self.assertIn("{ GM_MODE_NONE, 0, 0, 0, 1, 1, 0, 5, mode_2_keys, 0, 0, 0, 0, 0, 0x00, \"pick\", 0 }, /* pick */", c)   # parent's LED, blinking
+        self.assertIn("{ GM_MODE_NONE, 1, 0, 1, 1, 1, 0, 3, mode_3_keys, 0, 0, 0, 0, 0, 0x00, \"chan\", 0 }, /* chan */", c)
         self.assertEqual(dev.modes[2].root, 0)
 
     def test_modes_compile(self):
@@ -2957,8 +2957,8 @@ class TestModes(unittest.TestCase):
         self.assertEqual([(int(k), int(op), int(a), t) for k, op, a, t in rows], [
             (0, 2, 0, "a: preset_next"), (2, 10, 3, "other: channel 3"), (0, 14, 0, "a: channel_down")])
         # the hold button's LED is lit while it is held; hold = 1; no keys: the keyboard plays
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons, 0, 0, 0x00, \"hold\" }, /* hold */", c)
-        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons, 0, 0, 0x00, \"edit\" }, /* edit */", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 0, 0, -1, -1, 0, 0, 1, 2, mode_1_buttons, 0, 0, 0x00, \"hold\", 0 }, /* hold */", c)
+        self.assertIn("{ 3, GM_MODE_NONE, 1, -1, 0, -1, -1, 0, 0, 0, 1, mode_2_buttons, 0, 0, 0x00, \"edit\", 0 }, /* edit */", c)
         self.assertEqual(self.warns(modes("- { id: x, hold: menu, buttons: { a: channel_up } }")), [])
         self.assertTrue(any("has no keys, buttons or layer" in w for w in self.warns(modes("- { id: x, hold: menu }"))))
 
@@ -2977,6 +2977,41 @@ class TestModes(unittest.TestCase):
         self.assertError(modes("- { id: x, hold: menu, buttons: { a: preset_next } }", base=nopre),
                          r"preset_next switches presets.*1 preset slot")
 
+    def test_modifier(self):
+        # a hold mode with only a layer: is a modifier: its button keeps its action (CC 1), modifier = 1
+        dev, h, c = self.gen(modes("""\
+- id: shifted
+  hold: a
+  layer: { other: { action: program_next } }
+- id: arm
+  toggle: { button: menu, with: a }
+  keys: { C4: octave_up }
+"""))
+        self.assertIn("{ 0, GM_MODE_NONE, 0, -1, 0, -1, -1, 0, 0, 1, 0, 0, 0, 0, 0x00, \"shifted\", 1 }, /* shifted */", c)
+        self.assertEqual([(b.id, b.action_name) for b in dev.buttons][-1], ("other_shifted", "program_next"))
+        self.assertEqual(dev.buttons[0].action_name, "cc_momentary")
+        # a preset may change the modifier's own action (it isn't a mode toggle)
+        self.assertClean(modes("- { id: s, hold: a, layer: { other: { note: 61 } } }").replace(
+            "presets: { slots: 4 }\n", "presets:\n  slots: 4\n  list:\n    - { name: Default }\n"
+            "    - { name: Two, buttons: { a: { cc: 2 } } }\n"))
+        # with keys: or buttons: it is a plain hold mode again: the action error stands
+        self.assertError(modes("- { id: s, hold: a, layer: { other: { note: 61 } }, buttons: { menu: channel_up } }"),
+                         r"button 'a' holds this mode, so its own action would never run")
+        # its button can't be bound, twinned or used to enter another mode
+        self.assertError(modes("- { id: s, hold: a, layer: { other: { note: 61 } } }\n"
+                               "- { id: m, toggle: menu, buttons: { a: channel_up } }"),
+                         r"button 'a' enters a mode \(toggle:/hold:\): it can't also be bound in one")
+        self.assertError(modes("- { id: s, hold: a, layer: { other: { note: 61 } } }\n"
+                               "- { id: m, toggle: menu, layer: { a: { cc: 5 } } }"),
+                         r"button 'a' enters a mode \(or is held for one\): it can't have a twin")
+        self.assertError(modes("- { id: s, hold: a, layer: { other: { note: 61 } } }\n"
+                               "- { id: m, toggle: { button: a, with: menu }, keys: { C4: octave_up } }"),
+                         r"button 'a' already enters mode 's'")
+        # a twin of a button that the modifier + it already toggles would never run
+        self.assertError(modes("- { id: s, hold: a, layer: { menu: { cc: 5 } } }\n"
+                               "- { id: m, toggle: { button: menu, with: a }, keys: { C4: octave_up } }"),
+                         r"a \+ menu already toggles mode 'm', so this twin's action would never run")
+
     def test_code61(self):
         dev, diags = gd.load_device(os.path.join(REPO, "devices", "m-audio-code61.yaml"))
         self.assertFalse(gd.errors(diags), [str(d) for d in diags])
@@ -2994,7 +3029,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes(base + "  preset_blink: [lamp, menu_led, lamp]"), r"needs one or two LED ids")
         self.assertError(modes(base + "  preset_blink: [lmp]"), r"no LED with id 'lmp'")
         _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
-        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\" }", c)
+        self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\", 0 }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 

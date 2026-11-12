@@ -554,6 +554,9 @@ typedef struct {
     uint8_t cycle;
     uint8_t colour;
     const char *name;
+    /* 1: a modifier (a hold mode with only a layer, like Shift): its button
+     * keeps its own action; while it is held its layer is live. */
+    uint8_t modifier;
 } gm_mode_t;
 
 extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */

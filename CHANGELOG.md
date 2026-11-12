@@ -2,6 +2,16 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.44.0](https://github.com/cubicecho/gemifi/compare/v0.43.0...v0.44.0) (2026-11-12)
+
+
+### Features
+
+* **display:** "PC <n>", and the device's news shows over host text ([f5397ef](https://github.com/cubicecho/gemifi/commit/f5397effa4b85fcbc37cf87bc959b008559acef3))
+* **modes:** modifiers, hold modes whose button keeps its action ([b31b250](https://github.com/cubicecho/gemifi/commit/b31b25004671a1a893964e17600bf4abe5d7ae3a))
+* **pads:** pad octave (pad.octave, pad_octave_down/up); octave on the display ([05abc9b](https://github.com/cubicecho/gemifi/commit/05abc9bbdf542dd11b3a44cdce12886c707da9df))
+* **roles:** device_preset, device_preset_bank; Code 61 ZYN mode E5/E6 ([bbb4456](https://github.com/cubicecho/gemifi/commit/bbb4456d6bbd8d4f74092d54e0a4f322e1027fa7))
+
 # [0.43.0](https://github.com/cubicecho/gemifi/compare/v0.42.0...v0.43.0) (2026-11-10)
 
 

@@ -11,7 +11,6 @@ export const Platform = {
   Esp32: 'esp32',
   Esp32S2: 'esp32s2',
   Esp32S3: 'esp32s3',
-  Esp8266: 'esp8266',
 } as const;
 export type Platform = (typeof Platform)[keyof typeof Platform];
 
@@ -26,7 +25,6 @@ export const PLATFORM_TOOLCHAIN = Object.freeze({
   [Platform.Esp32]: Toolchain.Esp,
   [Platform.Esp32S2]: Toolchain.Esp,
   [Platform.Esp32S3]: Toolchain.Esp,
-  [Platform.Esp8266]: Toolchain.Esp,
 }) satisfies Readonly<Record<Platform, Toolchain>>;
 
 /** The device files shipped with gemifi, usually read-only. */

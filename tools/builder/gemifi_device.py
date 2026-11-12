@@ -252,8 +252,6 @@ STORE_BUDGETS = {
     # nvs: one blob per slot (each <= record bytes), all of them <= total bytes
     **{p: {"kind": "nvs", "record": 1984, "total": 12 * 1024, "what": "NVS"}
        for p in ("esp32", "esp32s2", "esp32s3")},
-    # image: every slot in one image of total bytes
-    "esp8266": {"kind": "image", "total": 4096, "what": "EEPROM sector"},
 }
 BUDGET_WARN = 0.85             # warn above this share of the budget (more erase cycles)
 
@@ -1369,7 +1367,7 @@ class Stm32F1Platform(Platform):
 
 class EspPlatform(Platform):
     is_esp = True
-    i2c = True              # Wire (platform/esp/hal_esp.cpp)
+    i2c = True              # i2c_master (platform/esp/gemifi_esp/hal_esp.c)
 
     def __init__(self, name, valid, flash, strapping, input_only, adc1, adc2, usb_pins=(),
                  uart0=(), psram=(), transports=("serial",), default_transport="serial"):
@@ -1382,28 +1380,23 @@ class EspPlatform(Platform):
         self.rmt_tx = {"esp32": 8, "esp32s2": 4, "esp32s3": 4}.get(name, 0)   # RMT TX channels (ws2812)
 
     def valid_text(self):
-        return _ranges(self.valid - {17} if self.name == "esp8266" else self.valid,
-                       lambda n: f"GPIO{n}") + (", A0" if self.name == "esp8266" else "")
+        return _ranges(self.valid, lambda n: f"GPIO{n}")
 
     def parse_pin(self, v):
         if isinstance(v, bool):
             raise ValueError(f"'{v}' is not a pin")
         s = str(v).strip()
-        if self.name == "esp8266" and s.upper() == "A0":
-            return 17
         m = re.fullmatch(r"(?:GPIO|IO)?(\d{1,2})", s, re.I)
         n = int(m.group(1)) if m else None
-        if n is None or n not in self.valid or (self.name == "esp8266" and n == 17):
+        if n is None or n not in self.valid:
             raise ValueError(f"'{v}' is not a pin on {self.name} (valid: {self.valid_text()})")
         return n
 
     def pin_name(self, num):
-        return "A0" if self.name == "esp8266" and num == 17 else f"GPIO{num}"
+        return f"GPIO{num}"
 
     def check(self, num, role, flags, transport):
         out, nm = [], self.pin_name(num)
-        if self.name == "esp8266" and num == 17 and role != "analog":
-            out.append(("error", "A0 is analog-only on esp8266"))
         if num in self.input_only and role == "out":
             out.append(("error", f"{nm} is input-only on {self.name}"))
         if num in self.flash:
@@ -1425,17 +1418,9 @@ class EspPlatform(Platform):
             if self.name == "esp32" and num in self.input_only:
                 out.append(("error", f"{nm} has no internal pull-up/down on esp32: fit an external one "
                                      "and use mode: INPUT"))
-            if self.name == "esp8266":
-                if num == 16 and flags & PULLUP:
-                    out.append(("error", "GPIO16 on esp8266 has a pull-down only, no pull-up"))
-                if num != 16 and flags & PULLDOWN:
-                    out.append(("error", f"{nm} on esp8266 has no internal pull-down (only GPIO16 has one)"))
         return out
 
     def ledstrip(self, num, others):
-        if self.name == "esp8266":
-            return ("ws2812 isn't supported on esp8266: it has no RMT, and bit-banging a strip would stop "
-                    "the scan for 30 us an LED (use an ESP32, S2 or S3)")
         if len(others) + 1 > self.rmt_tx:
             return f"{len(others) + 1} ws2812 strips: {self.name} has {self.rmt_tx} RMT TX channels, one a strip"
         return None
@@ -1463,8 +1448,6 @@ PLATFORMS = {p.name: p for p in [
                 psram=range(33, 38), strapping=[0, 3, 45, 46], input_only=[], adc1=range(1, 11),
                 adc2=range(11, 21), usb_pins=[19, 20], uart0=[43, 44],
                 transports=("usb", "serial", "ble"), default_transport="usb"),
-    EspPlatform("esp8266", valid=list(range(0, 18)), flash=range(6, 12), strapping=[0, 2, 15],
-                input_only=[], adc1=[17], adc2=[], uart0=[1, 3], transports=("serial",)),
 ]}
 
 
@@ -2030,8 +2013,6 @@ def adc_text(plat):
         return "ADC pins: PA0-PA7"
     if plat.name == "stm32f1":
         return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
-    if plat.name == "esp8266":
-        return "the only ADC pin is A0"
     return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
 
 

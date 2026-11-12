@@ -57,7 +57,7 @@ name: keystation-mini32        # node name: names the built images
 friendly_name: Keystation Mini 32   # what the computer and the web page show
 project: { version: 0.1.9 }
 board_id: 0x0001               # 0x3F00-0x3FFF are free for DIY builds
-platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3 | esp8266
+platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3
 chip: NUC120LC1BN              # ESP: the PlatformIO board id
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 125us           # how often keys and encoders are scanned

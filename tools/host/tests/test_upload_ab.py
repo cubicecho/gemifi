@@ -1,4 +1,4 @@
-"""A/B uploads (ESP32/ESP8266: the app takes FW_* itself, sysex.md 4.1 "Who takes uploads", 4.2 "A/B devices")
+"""A/B uploads (ESP32: the app takes FW_* itself, sysex.md 4.1 "Who takes uploads", 4.2 "A/B devices")
 and the serial transport, against tests/sim_device.py."""
 import argparse
 import contextlib

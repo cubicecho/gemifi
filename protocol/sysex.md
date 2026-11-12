@@ -135,7 +135,7 @@ An app built from a device YAML ends its HELLO reply with `node`: `u8 len` (1..3
 
 Hosts accept a HELLO reply of the base length (no `node`) or longer, and ignore any bytes after the fields they know, so later fields can be added the same way. A `len` of 0, a `len` that runs past the payload, or a name that breaks the rule above counts as "no node name"; the rest of the reply still stands.
 
-**Who takes uploads.** On chips with a separate bootloader (NUC1xx: LDROM) the app answers `FW_*` with BAD_STATE, and the host sends REBOOT(1) first. On chips with A/B app slots (ESP32 OTA partitions, ESP8266 OTA) **the app itself** takes the upload into the inactive slot and switches to it after a good FW_END plus REBOOT(0); there is no gemifi bootloader, and the chip's ROM bootloader (esptool / Web Serial) is only for the first flash and recovery. The host tells them apart by the HELLO `caps` bit 0 (firmware upload) together with `role`: role 0 with bit 0 set means "upload here, no reboot to the bootloader needed". `max_chunk` in HELLO is then non-zero in the app too.
+**Who takes uploads.** On chips with a separate bootloader (NUC1xx: LDROM) the app answers `FW_*` with BAD_STATE, and the host sends REBOOT(1) first. On chips with A/B app slots (ESP32 OTA partitions) **the app itself** takes the upload into the inactive slot and switches to it after a good FW_END plus REBOOT(0); there is no gemifi bootloader, and the chip's ROM bootloader (esptool / Web Serial) is only for the first flash and recovery. The host tells them apart by the HELLO `caps` bit 0 (firmware upload) together with `role`: role 0 with bit 0 set means "upload here, no reboot to the bootloader needed". `max_chunk` in HELLO is then non-zero in the app too.
 
 ### 4.2 Firmware upload rules (bootloader)
 1. `FW_BEGIN`'s `size`, `crc32`, `board_id` and `fw_version` must equal the values in the image header. The `max_chunk` it returns is authoritative for the upload (HELLO's value is informational). It checks `size` (≤ APROM size, multiple of 4) and `board_id`, then **erases APROM page 0 first**, so the app counts as invalid from this point on.
@@ -144,7 +144,7 @@ Hosts accept a HELLO reply of the base length (no `node`) or longer, and ignore 
 4. `FW_END` reads APROM back, checks the CRC over `[0, size)` (with the header's crc field taken as 0) against the `FW_BEGIN` value and the image header, and replies OK or BAD_IMAGE.
 5. A power cut at any point leaves page 0 erased or the CRC wrong, so the next power-up stays in the bootloader.
 
-**A/B devices** (HELLO role 0 with the upload cap): rules 2 and 5 are NUC1xx specifics. The host sends chunks **in plain order from offset 0** (page 0 is not special, and there is no 512-byte page rule; chunks are any multiple of 4 up to `max_chunk`). The old slot stays bootable until FW_END has checked the new one. The host pads the file with 0xFF to a multiple of 4; FW_BEGIN `size` is the padded size and the CRC-32 is over the padded file. FW_BEGIN's reply `max_chunk` is authoritative, as in rule 1. An erase inside FW_DATA can take longer than 200 ms on these chips: the device may reply BUSY, and a resend with the same `seq` is always safe. The image is the chip's own format (e.g. an ESP-IDF / Arduino app `.bin`) without a `.gfw` header; and `board_id`/`fw_version` come from FW_BEGIN. FW_END checks the CRC and marks the new slot to boot; the following REBOOT(0) starts it.
+**A/B devices** (HELLO role 0 with the upload cap): rules 2 and 5 are NUC1xx specifics. The host sends chunks **in plain order from offset 0** (page 0 is not special, and there is no 512-byte page rule; chunks are any multiple of 4 up to `max_chunk`). The old slot stays bootable until FW_END has checked the new one. The host pads the file with 0xFF to a multiple of 4; FW_BEGIN `size` is the padded size and the CRC-32 is over the padded file. FW_BEGIN's reply `max_chunk` is authoritative, as in rule 1. An erase inside FW_DATA can take longer than 200 ms on these chips: the device may reply BUSY, and a resend with the same `seq` is always safe. The image is the chip's own format (e.g. an ESP-IDF app `.bin`) without a `.gfw` header; and `board_id`/`fw_version` come from FW_BEGIN. FW_END checks the CRC and marks the new slot to boot; the following REBOOT(0) starts it.
 
 ### 4.3 Config (app)
 
@@ -541,7 +541,6 @@ What each platform can tell apart:
 | NUC1xx | power-on (POR), brown-out (BOD, LVR), watchdog, software (SYSRESETREQ, CPU reset), pin. Passed on by the gemifi bootloader (§6); 0 under a bootloader from before 2026-11-05 | yes |
 | STM32F1 | power-on (POR/PDR; the chip reports a brown-out as a power-on), low-power, watchdog (IWDG, WWDG), software, pin. Passed on by the gemifi bootloader (§6); under M-Audio's bootloader, RCC_CSR as it finds it | yes, under the gemifi bootloader |
 | ESP32 | `esp_reset_reason()`: power-on, pin, software, watchdog, brown-out, crash (panic), low-power (deep-sleep wake) | no (0) |
-| ESP8266 | `rst_info`: power-on, pin, software, watchdog, crash (exception), low-power (deep-sleep wake) | no (0) |
 
 ## 5. Image format (`.gfw`)
 
@@ -602,7 +601,7 @@ On the Code 61 there is no gemifi bootloader. M-Audio's bootloader stays, and it
 |---|---|---|
 | M-Audio Keystation Mini 32 MK3 | 0x0001 | Nuvoton NUC120LC1BN (32 KB APROM, 4 KB LDROM, 4 KB SRAM) |
 | M-Audio Code 61 | 0x0002 | STM32F103-class (possibly a clone), 1 KB flash pages; M-Audio's bootloader stays |
-| DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F02 `esp8266-example`, 0x3F03 `diy-bluepill`, 0x3F04 `diy-esp32s3-pads-ws2812`, 0x3F05 `diy-floorboard`) |
+| DIY / private builds | 0x3F00–0x3FFF | any; pick one per device design (examples: 0x3F00 `diy-esp32s3-faders`, 0x3F01 `esp32-example`, 0x3F03 `diy-bluepill`, 0x3F04 `diy-esp32s3-pads-ws2812`, 0x3F05 `diy-floorboard`; 0x3F02 is retired, don't reuse it) |
 
 USB IDs during development: pid.codes **test** PIDs, development use only. Bootloader `1209:0001`, app `1209:0002` (verify against pid.codes' test range before relying on them). Strings: manufacturer "gemifi"; product "gemifi boot (<board>)" or "gemifi (<board>)"; serial = chip UID in hex. Chips without a UID (the NUC120BN on the Keystation Mini 32) use a random 96-bit ID made on first boot and kept in the last data-flash page (`platform/nuvoton-nuc1xx/src/hal.c`); a factory reset keeps it. The bootloader reads the same record (it never writes it), so both report the same serial; before any app has made the record, the bootloader's serial is all zeros. Never reuse M-Audio's `0763:3111` or Medeli's `0A67:138F`. A device with a DAW port (core/README.md "DAW feedback") has a second USB-MIDI port (cable 1, "<name> DAW") for Mackie Control: this protocol is only spoken on the first port (cable 0), and only there do hosts find the device.
 

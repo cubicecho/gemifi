@@ -13,7 +13,7 @@ const MANIFEST = {
         { path: 'firmware.bin', offset: '0x10000' },
       ],
     },
-    { chipFamily: 'ESP8266', parts: [{ path: 'esp8266.bin', offset: 0 }] },
+    { chipFamily: 'ESP32-S2', parts: [{ path: 'esp32s2.bin', offset: 0 }] },
   ],
 };
 
@@ -44,7 +44,7 @@ describe('ESP manifests', () => {
     }
     expect(selectBuild(result.manifest, 'ESP32-S3')?.parts).toHaveLength(3);
     expect(selectBuild(result.manifest, 'esp32s3')?.chipFamily).toBe('ESP32-S3');
-    expect(selectBuild(result.manifest, 'ESP8266')?.parts).toHaveLength(1);
+    expect(selectBuild(result.manifest, 'ESP32-S2')?.parts).toHaveLength(1);
     expect(selectBuild(result.manifest, 'ESP32')).toBeNull();
   });
 

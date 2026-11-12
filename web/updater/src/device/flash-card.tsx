@@ -445,7 +445,7 @@ function StockFacts(props: {
 
 /**
  * Picks an image, checks it before anything is sent, and uploads it: a `.gfw` through the gemifi
- * bootloader, or a chip's own `.bin` to an A/B device (ESP32 / ESP8266), whose app takes it itself.
+ * bootloader, or a chip's own `.bin` to an A/B device (ESP32), whose app takes it itself.
  *
  * @param props - The device link, the image, the device's HELLO and the busy and finished callbacks.
  * @returns The card.
@@ -773,7 +773,7 @@ export function FlashCard({
     <CardLayout
       title="Firmware"
       iconSlot={<Upload />}
-      description="A .gfw for the Keystation's bootloader or the Code 61 (through M-Audio's bootloader), an M-Audio update file to restore the Code 61's stock firmware, or an ESP app .bin for an ESP32 or ESP8266 build that updates itself. The image is checked here first; nothing is sent until it passes."
+      description="A .gfw for the Keystation's bootloader or the Code 61 (through M-Audio's bootloader), an M-Audio update file to restore the Code 61's stock firmware, or an ESP app .bin for an ESP32 build that updates itself. The image is checked here first; nothing is sent until it passes."
       contentSlot={
         <>
           {isResumeReady ? (

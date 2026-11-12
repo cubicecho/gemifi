@@ -171,7 +171,7 @@ export function InstallCard({ serialLink, files, onFilesChange, isBusy, onRunnin
     <CardLayout
       title="Install firmware (first flash)"
       iconSlot={<Download />}
-      description="For an ESP32 or ESP8266 that has no gemifi firmware yet, or to recover one. It goes through the chip's ROM bootloader (like ESPHome and WLED); later updates go through the Firmware card. Chrome or Edge only."
+      description="For an ESP32 that has no gemifi firmware yet, or to recover one. It goes through the chip's ROM bootloader (like ESPHome and WLED); later updates go through the Firmware card. Chrome or Edge only."
       contentSlot={
         <>
           {files.length === 0 ? (

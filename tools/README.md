@@ -264,7 +264,7 @@ python3 tools/host/mkimage.py --check out.gfw [--board 1]
 python3 tools/host/gemifi.py flash app.gfw | restore-stock FirmwareFile.hex.txt    # Code 61, see below
 python3 tools/host/gemifi.py ports | hello [--diag] | log | reboot app|boot [--wait 5] | unlock
 python3 tools/host/gemifi.py flash app.gfw [--dry-run] [--port NAME] [--boot-port NAME]
-python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32/ESP8266)
+python3 tools/host/gemifi.py flash app.bin --board 0x3F00 --version 1.2.3     # A/B device (ESP32)
 python3 tools/host/gemifi.py --serial /dev/ttyUSB0 [--baud 115200] hello      # any command, over a serial port
 python3 tools/host/gemifi.py schema | get | set | commit | factory-reset | backup | restore   # config, below
 python3 tools/host/gemifi.py presets | preset select|save|reset|rename|delete|move     # presets, below
@@ -291,7 +291,7 @@ It picks the path from HELLO: a device whose **app** answers with role 0, caps b
 
 **Physical unlock** (HELLO caps bit 10, `protocol/sysex.md` §4.9). Opt-in: only a device whose YAML sets `unlock:` has it (the shipped device files leave it off). On such a device, REBOOT(1) (`reboot boot`, and step 2 of a flash), an A/B FW_BEGIN and FACTORY_RESET first reply LOCKED. The tool then prints what to do, for example `Hold Pitch down + Pitch up on the device for 2 s`, and waits (the unlock window, 30 s, plus 5 s). Once you hold the combo, the device sends UNLOCKED and the tool sends the request again. If the window closes first, it stops with "device not unlocked". `gemifi.py unlock` does the unlock on its own, before a flash or a reset. The device locks again after 5 minutes without a request, and on a reboot. `gemifi.py hello --diag` shows why the app last started (reset reason, boot-loop guard, settings) and its scan timings (§4.10).
 
-### ESP32 / ESP8266
+### ESP32 / S2 / S3
 
 ESP chips have no gemifi bootloader. The chip's ROM bootloader does the first install; after that the app updates itself over SysEx into its inactive OTA slot (`protocol/sysex.md` §4.1 "Who takes uploads", §4.2 "A/B devices").
 
@@ -303,7 +303,7 @@ esptool.py --chip esp32s3 -p /dev/ttyACM0 write_flash 0x0 factory.bin
 
 If the board doesn't enter its bootloader by itself, hold BOOT (IO0) while pressing RESET.
 
-**Serial transport**: a classic ESP32 or ESP8266 has no native USB, so a gemifi build for it (`GM_MIDI_SERIAL`) speaks raw MIDI bytes over the board's USB-UART at 115200 baud. Same protocol and frames; the tool cuts the SysEx out of the byte stream and drops everything else (the ROM's boot log, other MIDI). Every command takes `--serial DEV [--baud N]` (needs `pip install pyserial`; without it the tool says so). Opening the port releases RTS before DTR, so it doesn't reset the board through the usual auto-reset circuit. ESP32-S2/S3 builds with native USB show up as a USB-MIDI port like the Keystation and need no `--serial`.
+**Serial transport**: a classic ESP32 has no native USB, so a gemifi build for it (`GM_MIDI_SERIAL`) speaks raw MIDI bytes over the board's USB-UART at 115200 baud. Same protocol and frames; the tool cuts the SysEx out of the byte stream and drops everything else (the ROM's boot log, other MIDI). Every command takes `--serial DEV [--baud N]` (needs `pip install pyserial`; without it the tool says so). Opening the port releases RTS before DTR, so it doesn't reset the board through the usual auto-reset circuit. ESP32-S2/S3 builds with native USB show up as a USB-MIDI port like the Keystation and need no `--serial`.
 
 ```sh
 gemifi.py --serial /dev/ttyUSB0 hello

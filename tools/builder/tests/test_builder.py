@@ -404,16 +404,13 @@ class TestValidation(unittest.TestCase):
         self.assertError(dev() + "din_midi: { tx_pin: PA9, rx_pin: PA10, dma: true }\n",
                          r"needs DMA1 channel 5 \(USART1_RX\), which ws2812 's' uses \(SPI2_TX\)", path="din_midi.dma")
         self.assertClean(dev("pin: PA7, count: 4") + "din_midi: { tx_pin: PA9, rx_pin: PA10, dma: true }\n")
-        # other platforms: ESP32 / S2 / S3 by RMT (a channel a strip); not ESP8266, NUC (yet)
+        # other platforms: ESP32 / S2 / S3 by RMT (a channel a strip); not NUC (yet)
         esp = MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons:\n  - { id: a, pin: GPIO1, action: cc_momentary, cc: 1 }\n"
         self.assertClean(dev("pin: GPIO48, count: 16", base=esp))
         five = esp + "ws2812:\n" + "".join(f"  - {{ id: s{k}, pin: GPIO{38 + k}, count: 1 }}\n" for k in range(5))
         self.assertError(five + "leds:\n" + "".join(f"  - {{ id: l{k}, pin: {{ ws2812: s{k}, number: 0 }} }}\n"
                                                    for k in range(5)),
                          r"5 ws2812 strips: esp32s3 has 4 RMT TX channels", path="ws2812[4].pin")
-        self.assertError(dev("pin: GPIO4, count: 4", base=MINIMAL_ESP.format(plat="esp8266", tr="serial") +
-                             "buttons:\n  - { id: a, pin: GPIO5, action: cc_momentary, cc: 1 }\n"),
-                         r"ws2812 isn't supported on esp8266: it has no RMT")
         self.assertError(dev("pin: PA2, count: 4", base=MINIMAL_NUC), r"ws2812 isn't supported on nuvoton-nuc1xx yet")
         # RGBW: 4 pins an LED, white: 4 entries; a full-colour LED starts at LED * 4
         self.assertClean(dev("pin: PB15, count: 2, order: GRBW, white: [255, 200, 220, 128]"))
@@ -1259,10 +1256,6 @@ class TestValidation(unittest.TestCase):
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",
                          r"PB0 has no ADC on nuvoton-nuc1xx \(ADC pins: PA0-PA7", line=10)
-        self.assertError(MINIMAL_ESP.format(plat="esp8266", tr="serial") +
-                         "analog: [{ id: v, pin: GPIO4, cc: 7 }]\n", r"only ADC pin is A0")
-        self.assertClean(MINIMAL_ESP.format(plat="esp8266", tr="serial") +
-                         "analog: [{ id: v, pin: A0, cc: 7 }]\n")
 
     def test_adc2_and_flash_warnings(self):
         t = MINIMAL_ESP.format(plat="esp32", tr="serial") + "analog: [{ id: v, pin: GPIO25, cc: 7 }]\n" \
@@ -1276,7 +1269,7 @@ class TestValidation(unittest.TestCase):
                          r"GPIO34 is input-only")
         self.assertError(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons: [{ id: b, pin: GPIO19 }]\n",
                          r"native USB data line")
-        self.assertError(MINIMAL_ESP.format(plat="esp8266", tr="usb"), r"'usb' is not available on esp8266")
+        self.assertError(MINIMAL_ESP.format(plat="esp32", tr="usb"), r"'usb' is not available on esp32")
 
     def test_pin_modes(self):
         btn = MINIMAL_NUC.replace("pin: PA1", "pin: { number: PA1, mode: %s }")
@@ -1568,7 +1561,7 @@ class TestValidation(unittest.TestCase):
                 f"pcf8574 isn't supported on {plat} yet (no I2C driver: the platform's hal_i2c_* are stubs)"])
             self.assertEqual({e.path for e in es}, {"mcp23017[0]", "pcf8574[0]"})
         self.assertFalse(gd.PLATFORMS["stm32f1"].i2c or gd.PLATFORMS["nuvoton-nuc1xx"].i2c)
-        self.assertTrue(all(gd.PLATFORMS[n].i2c for n in ("esp32", "esp32s2", "esp32s3", "esp8266")))
+        self.assertTrue(all(gd.PLATFORMS[n].i2c for n in ("esp32", "esp32s2", "esp32s3")))
         self.assertClean(MINIMAL_ESP.format(plat="esp32s3", tr="usb") + hubs + "i2c: { sda: GPIO8, scl: GPIO9 }\n")
 
     def test_matrix_at_most_32(self):
@@ -1800,6 +1793,7 @@ class TestValidation(unittest.TestCase):
 
     def test_platform_and_keys(self):
         self.assertError(MINIMAL_NUC.replace("nuvoton-nuc1xx", "esp33"), r"unknown platform 'esp33'")
+        self.assertError(MINIMAL_ESP.format(plat="esp8266", tr="serial"), r"unknown platform 'esp8266'")
         e = self.assertError(MINIMAL_NUC + "scan_intervall: 100us\n", r"unknown key \(did you mean 'scan_interval'")
         self.assertEqual(e.line, 9)
         self.assertError(MINIMAL_NUC.replace("gemifi: 2", "gemifi: 3"), r"format version 3")
@@ -2289,21 +2283,6 @@ list:
                                       r"journal \(at most 512 B\)", w) for w in self.warns(many)))
         self.assertClean(many)        # without presets: a warning, as with the v1 record
         self.assertIn("71 per-preset values", self.assertError(many + "presets: { slots: 2 }\n", r"one record").msg)
-
-    def test_budget_esp8266(self):
-        """ESP8266: every slot in one 4096 B EEPROM image."""
-        base = MINIMAL_ESP.format(plat="esp8266", tr="serial") + "buttons: [{ id: a, pin: GPIO4, action: cc_toggle, cc: 3 }]\n"
-        dev, _ = load(presets("slots: 2", base=base))
-        bd = dev.budget
-        self.assertEqual((bd["preset_record"], bd["global_record"], bd["capacity"], bd["unit"]), (108, 68, 4096, "B"))
-        self.assertEqual(bd["max_slots"], 37)          # (4096 - 68) // 108
-        self.assertEqual(bd["max_slots_calm"], 31)     # 31 * 108 + 68 = 3416 <= 0.85 * 4096
-        self.assertFalse(any("presets use" in w for w in self.warns(presets("slots: 31", base=base))))
-        self.assertTrue(any("presets use 86% of the esp8266 EEPROM sector" in w
-                            for w in self.warns(presets("slots: 32", base=base))))
-        e = self.assertError(presets("slots: 38", base=base), r"don't fit the esp8266 EEPROM sector")
-        self.assertIn("4172 of 4096 B", e.msg)
-        self.assertIn("At most 37 slots", e.msg)
 
     def test_budget_esp32(self):
         """ESP32: one NVS blob per slot (<= 1984 B), 12 KB for all."""

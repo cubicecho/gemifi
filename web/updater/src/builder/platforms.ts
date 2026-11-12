@@ -7,7 +7,6 @@ const PLATFORM_LABELS = Object.freeze({
   esp32: 'ESP32',
   esp32s2: 'ESP32-S2',
   esp32s3: 'ESP32-S3',
-  esp8266: 'ESP8266',
 }) satisfies Readonly<Record<Platform, string>>;
 
 /**

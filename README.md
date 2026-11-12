@@ -2,7 +2,7 @@
 
 An "ESPHome for MIDI controllers": open firmware for existing MIDI controllers (and new builds), with everything after the first install done over USB from a web page. That covers firmware updates, debug logs and, later, config such as what each button does.
 
-First target: **M-Audio Keystation Mini 32 MK3** (Nuvoton NUC120). Also: custom builds on **ESP32 / ESP32-S2 / S3 / ESP8266**, described ESPHome-style in a device YAML (pins, buttons, LEDs, pots, encoders, key matrix, and expanders like 74HC595/165/4051/4067, MCP23017, PCF8574). Later: M-Audio Code 61 (STM32F103) and the Behringer FCB1010.
+First target: **M-Audio Keystation Mini 32 MK3** (Nuvoton NUC120). Also: custom builds on **ESP32 / ESP32-S2 / S3**, described ESPHome-style in a device YAML (pins, buttons, LEDs, pots, encoders, key matrix, and expanders like 74HC595/165/4051/4067, MCP23017, PCF8574). Later: M-Audio Code 61 (STM32F103) and the Behringer FCB1010.
 
 ## How it fits together
 
@@ -55,7 +55,7 @@ Early and experimental: expect the YAML format and the protocol to change.
 
 - **Keystation Mini 32 MK3: works.** The gemifi bootloader is in LDROM (installed once over SWD) and the generic `midi-controller` app is installed over USB. Checked on hardware on 2026-10-31: all 32 keys with velocity, all 7 buttons, the volume knob, all LEDs, settings from the web page, app updates over USB (about 4 s) and app ↔ bootloader reboots (milestones M1–M4 in [`tools/README.md`](tools/README.md) §4a).
 - **Merged but not yet checked on hardware:** the bootloader's boot-loop guard and stored serial, the resumable SWD verify, DAW feedback (host-driven LEDs, a second "DAW" port, the Mackie Control framework), and the USB product name "gemifi (<board>)".
-- **ESP32 / S2 / S3 / ESP8266:** build and pass host tests; not yet checked on hardware.
+- **ESP32 / S2 / S3:** build and pass host tests; not yet checked on hardware.
 - **M-Audio Code 61: works.** The gemifi bootloader replaces the stock updater, and the `midi-controller` app is installed over USB. Checked on hardware on 2026-11-03: all 61 keys with velocity (scanned by timer + DMA every 36 us), the panel buttons and encoders, faders, pitch and mod wheels, aftertouch, the 16 pads and their LEDs, the button LEDs, the 6-character display, presets on Up / Down with Channel + Up / Down for the MIDI channel, and settings saved to flash. Pad sensing and some fader details are still untuned (`devices/m-audio-code61.yaml`).
 - **Code 49, FCB1010:** researched or planned (`research/devices/`).
 

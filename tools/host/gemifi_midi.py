@@ -1,5 +1,5 @@
 """MIDI port access for gemifi.py: python-rtmidi, then mido, then (Linux) raw ALSA /dev/snd/midiC*D*.
-A serial port (raw MIDI bytes over a USB-UART, e.g. a classic ESP32 or ESP8266 built with GM_MIDI_SERIAL) is
+A serial port (raw MIDI bytes over a USB-UART, e.g. a classic ESP32 built with GM_MIDI_SERIAL) is
 one more backend, chosen with --serial; it needs pyserial.
 
 Every backend exposes the same small interface:

@@ -17,14 +17,14 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 
 ## Platforms
 
-| | Code 61 (STM32F103RB) | Keystation Mini 32 (NUC120LC1BN) | ESP32 / S3 | ESP8266 |
-|---|---|---|---|---|
-| CPU | Cortex-M3, 72 MHz | Cortex-M0 at 48 MHz (rated 50 MHz), no divide instruction | Xtensa 240 MHz | 80/160 MHz |
-| RAM used / total (measured) | 12.8 KB / 20 KB | 1.8 KB / 4 KB (512 B kept for the stack) | n/a | n/a |
-| Flash used (measured) | 61 KB of the 100 KB app slot | 25.7 KB of 32 KB | n/a | n/a |
-| One ADC conversion (derived) | 4.5 us (ADC2, 41.5-cycle sample) | ~5 us (6 MHz ADC clock) | tens of us (`analogRead`) | ~100 us (`analogRead`, blocks; #71) |
-| Fast pin paths (one store or load per row, run of columns, decoder output, TM1628 pin) | yes | yes | no: one HAL call per pin (#71) | no |
-| Hardware scan | `hardware_scan:` (timer + DMA) | no | no | no |
+| | Code 61 (STM32F103RB) | Keystation Mini 32 (NUC120LC1BN) | ESP32 / S3 |
+|---|---|---|---|
+| CPU | Cortex-M3, 72 MHz | Cortex-M0 at 48 MHz (rated 50 MHz), no divide instruction | Xtensa 240 MHz |
+| RAM used / total (measured) | 12.8 KB / 20 KB | 1.8 KB / 4 KB (512 B kept for the stack) | n/a |
+| Flash used (measured) | 61 KB of the 100 KB app slot | 25.7 KB of 32 KB | n/a |
+| One ADC conversion (derived) | 4.5 us (ADC2, 41.5-cycle sample) | ~5 us (6 MHz ADC clock) | tens of us (`analogRead`) |
+| Fast pin paths (one store or load per row, run of columns, decoder output, TM1628 pin) | yes | yes | no: one HAL call per pin (#71) |
+| Hardware scan | `hardware_scan:` (timer + DMA) | no | no |
 
 ## Per component
 
@@ -107,7 +107,7 @@ Already filed:
 - #68: an index from CC or note to component, for host feedback.
 - #69: overlap row processing with the next row's settle in the software scan.
 - #70: faster HC165/HC595 hubs.
-- #71: ESP fast GPIO paths, ESP8266 `analogRead`.
+- #71: ESP fast GPIO paths.
 - #72: MCP23017 polling. Output-only chips are no longer read; interrupt-driven reads remain.
 - #73: smaller leftovers (`gm_cfg` as `int16_t`, ADC buffers, CRC, etc.).
 

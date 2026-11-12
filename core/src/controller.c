@@ -1259,6 +1259,19 @@ static void shift(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset)
         *v = n;
         app_param_changed(id, 0);
     }
+    /* "OCT +1", "TR -12", "OCT 0" on the display, also at a limit */
+    char t[8];
+    uint32_t j = 0, a = (uint32_t)(n < 0 ? -n : n);
+    const char *l = id == P_OCTAVE ? "OCT " : id == P_TRANSPOSE ? "TR " : "PAD ";
+    while (*l)
+        t[j++] = *l++;
+    if (n)
+        t[j++] = n < 0 ? '-' : '+';
+    if (a >= 10u)
+        t[j++] = (char)('0' + a / 10u % 10u);
+    t[j++] = (char)('0' + a % 10u);
+    t[j] = 0;
+    gm_display_message(t);
 }
 
 static void button_changed(uint32_t i, int down)
@@ -1305,6 +1318,15 @@ static void button_changed(uint32_t i, int down)
     case ACT_BEND_UP:
         bend_retarget();
         break;
+#if GM_N_PADS > 0
+    case ACT_PAD_OCTAVE_DOWN:
+    case ACT_PAD_OCTAVE_UP:
+        if (down) {     /* both held: back to 0, as the octave buttons */
+            int other = held_with_action(act == ACT_PAD_OCTAVE_UP ? ACT_PAD_OCTAVE_DOWN : ACT_PAD_OCTAVE_UP, i);
+            shift(&gm_cfg.pad_octave, act == ACT_PAD_OCTAVE_UP ? 1 : -1, 4, P_PAD_OCTAVE, other);
+        }
+        break;
+#endif
     case ACT_PROGRAM_NEXT:
     case ACT_PROGRAM_PREV:
         if (down) {
@@ -2209,7 +2231,11 @@ static void pad_hit(uint32_t i, uint32_t now)
         return;
     }
 #endif
-    int32_t n = gm_cfg.pad_note[i];
+    int32_t n = gm_cfg.pad_note[i] + 12 * gm_cfg.pad_octave;
+    while (n > 127)
+        n -= 12;                        /* off the top or bottom: the octave in range */
+    while (n < 0)
+        n += 12;
     uint32_t v = pad_velocity(pad_peak[i]);
     pad_at[i] = 0;
     pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : chan();

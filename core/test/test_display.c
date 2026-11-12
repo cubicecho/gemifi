@@ -135,7 +135,14 @@ int main(void)
     CHECK(shows("C#-1 9"), "Note Off and pitch bend leave it");
     gm_display_midi(0xC0, 12, 0);
     gm_display_poll(now);
-    CHECK(shows("PG  12"), "program change 12");
+    CHECK(shows("PC  12"), "program change 12");
+    gm_display_midi(0xB0, 102, 0);  /* Shift's release after Shift + Up */
+    gm_display_poll(now);
+    CHECK(shows("PC  12"), "a program change is kept from plain MIDI for 1.5 s");
+    gm_display_midi(0xC0, 13, 0);
+    gm_display_poll(now);
+    CHECK(shows("PC  13"), "but not from the next program change");
+    now += 1500;
     gm_display_midi(0xB0, 7, 0);
     gm_display_midi(0xB0, 7, 1);
     gm_display_poll(now);
@@ -151,7 +158,11 @@ int main(void)
     CHECK(shows("PIANO"), "a message wins over MIDI recorded before the same poll");
     gm_display_midi(0x90, 60, 100);
     gm_display_poll(now);
-    CHECK(shows("C4 100"), "the next MIDI message replaces it");
+    CHECK(shows("PIANO"), "a message is kept from plain MIDI for 1.5 s");
+    now += 1500;
+    gm_display_midi(0x90, 60, 100);
+    gm_display_poll(now);
+    CHECK(shows("C4 100"), "then the next MIDI message replaces it");
     gm_display_message("Preset 2");  /* 8 characters on 6: scrolls 2 places */
     gm_display_poll(now);
     CHECK(shows("PRESET"), "long message: the start first");
@@ -178,6 +189,8 @@ int main(void)
     now += 1000;
     gm_display_poll(now);
     CHECK(shows(" LONG "), "scrolling (got %04X)", shown(0));
+    now += 500;                     /* past the 1.5 s keep, still scrolling */
+    gm_display_poll(now);
     gm_display_midi(0xB0, 7, 9);
     gm_display_poll(now);
     now += 300;
@@ -188,6 +201,7 @@ int main(void)
     CHECK(shown(1) == DOT && shown(2) == gm_seg14_glyph('2'), "a message's dot takes a place");
 
     /* FB_TEXT (gm_host_on_text): covers the device's own text until released */
+    now += 1500;
     gm_display_midi(0xB0, 1, 2);
     gm_display_poll(now);
     CHECK(shows("1    2"), "the device's own text first");
@@ -195,9 +209,32 @@ int main(void)
     gm_display_poll(now);
     CHECK(shows("HOST  "), "host text from column 0, the rest blank");
     gm_display_midi(0xB0, 3, 4);
+    gm_display_poll(now);
+    CHECK(shows("HOST  "), "the device's MIDI doesn't cover it");
+    gm_display_midi(0xC0, 23, 0);
+    gm_display_poll(now);
+    CHECK(shows("PC  23"), "its program change does, for a moment");
+    now += 1499;
+    gm_display_poll(now);
+    CHECK(shows("PC  23"), "for 1.5 s");
+    now += 1;
+    gm_display_poll(now);
+    CHECK(shows("HOST  "), "then the host's text is back");
     gm_display_message("NOPE");
     gm_display_poll(now);
-    CHECK(shows("HOST  "), "the device's MIDI and messages don't cover it");
+    CHECK(shows("NOPE  "), "a message shows over it too");
+    gm_display_message("A long name");    /* 11 on 6: scrolls 5 places, 3.2 s */
+    gm_display_poll(now);
+    for (int k = 0; k < 3199; k++)
+        gm_display_poll(++now);     /* one scroll step a poll at most */
+    CHECK(shows("G NAME"), "a long one until it has scrolled once");
+    now += 1;
+    gm_display_poll(now);
+    CHECK(shows("HOST  "), "then the host's text");
+    gm_display_message("NOPE");
+    gm_display_poll(now);
+    now += 1500;
+    gm_display_poll(now);
     gm_host_on_text(0, 0, 4, (const uint8_t *)"12345", 5);
     gm_display_poll(now);
     CHECK(shows("HOST12"), "from column 4, clipped at the end of the row");

@@ -496,6 +496,28 @@ int main(void)
     set_param(P_PAD_AFTERTOUCH, 0);
     run_ms(25);
 
+    /* pad.octave: the notes + 12 each; one held across a change keeps its Note Off */
+    set_param(P_PAD_OCTAVE, 1);
+    out_n = 0;
+    mux_a[3] = 2000;
+    run_ms(30);
+    CHECK(find(0x99, 39 + 12) >= 0, "pad.octave 1: pad 4 plays 51");
+    set_param(P_PAD_OCTAVE, -1);
+    mux_a[3] = 0;
+    run_ms(1);
+    CHECK(find(0x89, 39 + 12) >= 0, "changed while held: the Note Off is for 51");
+    run_ms(25);
+    set_param(P_PAD_OCTAVE, 4);
+    gm_cfg.pad_note[3] = 100;           /* 148: off the top, one octave down: 136, ... 124 */
+    out_n = 0;
+    mux_a[3] = 2000;
+    run_ms(30);
+    CHECK(find(0x99, 124) >= 0, "past 127: the highest octave in range (124)");
+    mux_a[3] = 0;
+    run_ms(25);
+    gm_cfg.pad_note[3] = 39;
+    set_param(P_PAD_OCTAVE, 0);
+
     /* noise: a soft reading (under twice the threshold) that is gone again
      * within PAD_MIN_MS (3 ms) is no hit; one that stays 3 ms is, and so is a
      * hard short one (the short hit below) */

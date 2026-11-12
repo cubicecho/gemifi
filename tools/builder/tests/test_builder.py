@@ -2267,26 +2267,26 @@ list:
             .replace("action: preset_prev", "action: program_prev") + "\n"
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (152, 13))
-        # preset: 8 int8 singles (1 word), bend.glide + ramp.time (2), button.action/number 41 values
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (153, 13))
+        # preset: 9 int8 singles (2 words), bend.glide + ramp.time (2), button.action/number 41 values
         # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (9 + 66), 4 * (9 + 19)))   # globals + midi.thru, midi.din_out, midi.usb_to_din (din_midi:)
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (412, 2048 - 300, 1024))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (10 + 66), 4 * (9 + 19)))   # globals + midi.thru, midi.din_out, midi.usb_to_din (din_midi:)
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (416, 2048 - 304, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (5, 4))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
         dev2, _ = load(with_slots(2))
         self.assertEqual((dev2.budget["preset_record"], dev2.budget["used"], dev2.budget["capacity"]),
-                         (4 * (9 + 67), 724, 2048 - 304))  # + program
+                         (4 * (10 + 67), 732, 2048 - 308))  # + program
         for n in (2, 3, 4):           # the Code 61's 3 slots: 1024 of 1744 B (59%), was 99% of one page
             self.assertFalse([d for d in self.errs(with_slots(n), level="warning") if "config page" in d.msg], n)
         w = [str(d) for d in self.errs(with_slots(5), level="warning") if "config page" in d.msg]
-        self.assertTrue(w and "presets use 93% of the stm32f1 config pages" in w[0] and
-                        "1636 of 1744 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
+        self.assertTrue(w and "presets use 95% of the stm32f1 config pages" in w[0] and
+                        "1656 of 1740 B (3 pages of 1024 B, less the room one compaction needs)" in w[0] and
                         "Up to 5 slots fit; 4 or fewer stay under 85%" in w[0], w)
         e = self.assertError(with_slots(6), r"presets don't fit the stm32f1 config pages", path="presets.slots")
-        self.assertIn("1940 of 1744 B", e.msg)
+        self.assertIn("1964 of 1740 B", e.msg)
         self.assertIn("At most 5 slots fit", e.msg)
         # the NUC keeps its 2-word entries
         self.assertEqual(gd.STORE_BUDGETS["nuvoton-nuc1xx"].get("format"), None)
@@ -3012,6 +3012,11 @@ class TestModes(unittest.TestCase):
                                "- { id: m, toggle: { button: menu, with: a }, keys: { C4: octave_up } }"),
                          r"a \+ menu already toggles mode 'm', so this twin's action would never run")
 
+    def test_pad_octave_needs_pads(self):
+        self.assertError(MODES_NUC.replace("{ id: other, pin: PA3, action: note, note: 60 }",
+                                           "{ id: other, pin: PA3, action: pad_octave_up }"),
+                         r"action pad_octave_up moves the pads' notes, and this device has no pads:")
+
     def test_code61(self):
         dev, diags = gd.load_device(os.path.join(REPO, "devices", "m-audio-code61.yaml"))
         self.assertFalse(gd.errors(diags), [str(d) for d in diags])
@@ -3073,11 +3078,11 @@ class TestPads(unittest.TestCase):
         self.assertIn('{ { 1, 0, 0 }, "Kick", -1 }, /* kick: m.0 */', c)
         self.assertIn('{ { 0, 0, 1 }, "Snare", -1 }, /* snare: PA1 */', c)
         self.assertIn("gm_pad_note_defaults[GM_N_PADS] = { 36, 38 };", c)
-        # stored values: 2 notes + channel, curve, aftertouch per preset; 5 sensing globals
+        # stored values: 2 notes + channel, curve, aftertouch, octave per preset; 5 sensing globals
         n_preset, n_global = gd.stored_counts(dev)
         dev0, _ = load(PADS_STM.split("pads:")[0] + "analog: [{ id: k, pin: PA1, cc: 1 }]\n")
         p0, g0 = gd.stored_counts(dev0)
-        self.assertEqual((n_preset - p0, n_global - g0), (5 - 2, 5))   # analog.cc and .mode of dev0
+        self.assertEqual((n_preset - p0, n_global - g0), (6 - 2, 5))   # analog.cc and .mode of dev0
         _, files = self.gen(MINIMAL_NUC)
         self.assertIn("#define GM_N_PADS 0", files["gm_device_config.h"])
         self.assertNotIn("GM_PAD_", files["gm_device_config.h"])

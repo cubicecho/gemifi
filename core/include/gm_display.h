@@ -33,9 +33,11 @@
  * (GM_SHOWS_*). GM_SHOWS_LAST_MESSAGE (display 0's default): "gemifi" at
  * boot, then the last MIDI message the device sent (a CC as
  * "<number>.<value>", a note as its name and velocity, a program change as
- * "PG <n>") and the device's messages (gm_display_message: the preset's
+ * "PC <n>") and the device's messages (gm_display_message: the preset's
  * name when it is selected, "CH <n>" when the channel changes on the
- * device). The others show one value: the active preset's number or name,
+ * device). A message or a program change is kept from plain MIDI for 1.5 s
+ * and shows over a host's FB_TEXT meanwhile (a long message until it has
+ * scrolled once). The others show one value: the active preset's number or name,
  * or the MIDI channel; GM_SHOWS_NONE shows nothing of its own.
  *
  * SPDX-License-Identifier: MIT

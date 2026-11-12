@@ -88,7 +88,9 @@ static const char *const stored_opts[] = {
 #endif
 /* The highest action this device has, + 1: the option list runs from 0 to
  * it, and an action it doesn't have is "" (params_set refuses it). */
-#if GM_N_SYSEX
+#if GM_N_PADS > 0
+#define N_ACTIONS (ACT_PAD_OCTAVE_UP + 1)
+#elif GM_N_SYSEX
 #define N_ACTIONS (ACT_SYSEX + 1)
 #elif GM_MSG_MMC
 #define N_ACTIONS (ACT_MMC + 1)
@@ -118,6 +120,10 @@ static const char *const action_opts[N_ACTIONS] = {
 #endif
 #if GM_N_SYSEX
     [ACT_SYSEX] = "SysEx",
+#endif
+#if GM_N_PADS > 0
+    [ACT_PAD_OCTAVE_DOWN] = "Pad octave down",
+    [ACT_PAD_OCTAVE_UP] = "Pad octave up",
 #endif
 };
 #if GM_MSG_PROGRAM || GM_MSG_MMC || GM_N_SYSEX
@@ -370,6 +376,9 @@ static const param_def_t params[] = {
     { .id = P_PAD_AFTERTOUCH, .flags = PF_PRESET, .type = PT_BOOL, .group = G_PADS, .count = 1,
       .min = 0, .max = 1, .def = GM_PAD_AFTERTOUCH_DEFAULT,
       .name = "pad.aftertouch", .label = "Poly aftertouch", .values = &gm_cfg.pad_aftertouch },
+    { .id = P_PAD_OCTAVE, .flags = PF_PRESET, .type = PT_INT, .group = G_PADS, .count = 1,
+      .min = -4, .max = 4, .def = 0,
+      .name = "pad.octave", .label = "Octave", .values = &gm_cfg.pad_octave },
     /* the sensing: global (the pads' calibration) */
     { .id = P_PAD_THRESHOLD, .type = PT_INT, .group = G_PADS, .count = 1,
       .min = 1, .max = 4095, .def = GM_PAD_THRESHOLD_DEFAULT,

@@ -402,7 +402,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **FB_METER** (reserved) sets a meter (kind 8). The device draws the fall-off itself, so a host sends rises only, at most about 25 a second for each meter. Current firmware drops it, as it drops any unknown notification.
 
-**FB_TEXT** writes characters into a display from (`row`, `col`). Text is printable ASCII (0x20–0x7E); other bytes show as blank. It's clipped at the end of the row (it doesn't wrap), and a `row` or `col` outside the display drops the message. Nothing else on the row changes, so a host clears old text by sending spaces. Characters a display can't show (a 7-segment one) show as blank.
+**FB_TEXT** writes characters into a display from (`row`, `col`). Text is printable ASCII (0x20–0x7E); other bytes show as blank. It's clipped at the end of the row (it doesn't wrap), and a `row` or `col` outside the display drops the message. Nothing else on the row changes, so a host clears old text by sending spaces. The device's own news (its messages, such as a preset's name, and program changes it sent) shows over the host's text for about 1.5 s, then the host's text is back. Characters a display can't show (a 7-segment one) show as blank.
 
 **Out of range:** an index past the last LED, encoder or analog input is ignored. A `kind`, ring `mode` or release `what` the device doesn't know drops the message. Unused `flags` bits are sent as 0 and ignored.
 

@@ -1589,6 +1589,7 @@ int main(int argc, char **argv)
     out_n = 0;
     button(3, 1);
     CHECK(gm_cfg.octave == 1, "oct+ -> 1");
+    CHECK(!strcmp(shown, "OCT +1"), "the display: OCT +1 (got %s)", shown);
     CHECK(find_sysex(GSX_MSG_PARAM_CHANGED, 0) >= 0, "PARAM_CHANGED sent");
     run_ms(20);
     CHECK(level[11] == 0 && level[15] == 1, "oct+ LED level 1 = colour A only");
@@ -1602,6 +1603,7 @@ int main(int argc, char **argv)
     button(2, 1);
     button(3, 1);                    /* oct- held + oct+ = reset */
     CHECK(gm_cfg.octave == 0, "oct- + oct+ resets the octave (got %d)", (int)gm_cfg.octave);
+    CHECK(!strcmp(shown, "OCT 0"), "the display: OCT 0 (got %s)", shown);
     button(3, 0); button(2, 0);
     release_key(0);
     CHECK(find_msg(0x80, &d1, 0) && d1 == 60, "held note released as 60");

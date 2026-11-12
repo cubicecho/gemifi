@@ -127,7 +127,7 @@ optionally an `led:`. The actions: `cc_momentary`, `cc_toggle`, `cc_ramp`
 (glides to 127 while held), `note`, `octave_down` / `octave_up`,
 `transpose_down` / `transpose_up`, `bend_down` / `bend_up`, `program_next` /
 `program_prev`, `preset_next` / `preset_prev` / `preset_select`, `mcu`
-(Mackie Control), and `none`. The [MIDI message](#messages) actions add
+(Mackie Control), `pad_octave_down` / `pad_octave_up` (devices with pads), and `none`. The [MIDI message](#messages) actions add
 `program` (with an optional bank), `panic`, `mmc` (play, stop, record, ...)
 and `sysex`.
 

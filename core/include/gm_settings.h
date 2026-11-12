@@ -61,6 +61,7 @@ enum {
     /* read-only: the hash of the YAML the firmware was built from (GM_CONFIG_HASH,
      * core/README.md "Config hash") */
     P_CONFIG_HASH = 39,
+    P_PAD_OCTAVE = 40,               /* pads (GM_N_PADS > 0): per preset, -4..4 */
     /* MIDI messages (core/README.md "MIDI messages"): 41-59 */
     P_PRESET_BANK = 41,              /* -1 none, 0..16383 (GM_PRESET_BANK) */
     /* diagnostics (sysex.md 4.10): READ_ONLY, VOLATILE; 72-74 kept for more */
@@ -175,6 +176,9 @@ enum {
 #define ACT_PANIC   18
 #define ACT_MMC     19               /* button.number = MMC command (stop 1, play 2, ...) */
 #define ACT_SYSEX   20               /* button.number = SysEx index */
+/* The pads' octave, only on devices with pads (GM_N_PADS > 0). */
+#define ACT_PAD_OCTAVE_DOWN 21
+#define ACT_PAD_OCTAVE_UP   22
 
 enum {
     ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET,
@@ -224,6 +228,7 @@ typedef struct {
     int32_t pad_channel;           /* 1..16; 0 = midi.channel        */
     int32_t pad_curve;               /* CURVE_*                        */
     int32_t pad_aftertouch;          /* 1: poly pressure while held    */
+    int32_t pad_octave;              /* -4..4: the pads' notes + 12 each */
     int32_t pad_threshold;           /* reading 0..4095 that starts a hit */
     int32_t pad_release;             /* below this the pad is let go   */
     int32_t pad_full;                /* peak reading for velocity 127  */

@@ -35,11 +35,13 @@ VERSION = "0.43.0"
 ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note": 4, "octave_down": 5,
               "octave_up": 6, "transpose_down": 7, "transpose_up": 8, "bend_down": 9, "bend_up": 10,
               "program_next": 11, "program_prev": 12, "preset_next": 13, "preset_prev": 14,
-              "preset_select": 15, "mcu": 16, "program": 17, "panic": 18, "mmc": 19, "sysex": 20}
+              "preset_select": 15, "mcu": 16, "program": 17, "panic": 18, "mmc": 19, "sysex": 20,
+              "pad_octave_down": 21, "pad_octave_up": 22}
 ACTIONS = list(ACTION_IDS)
 CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
 PRESET_ACTIONS = {"preset_next", "preset_prev", "preset_select"}
 PROGRAM_ACTIONS = {"program_next", "program_prev", "program"}     # these take bank:
+PAD_ACTIONS = {"pad_octave_down", "pad_octave_up"}                  # only on devices with pads
 # the YAML keys that give button.number (mcu: aside)
 NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
 
@@ -118,7 +120,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     *((n, i, s, (lambda d: 1 if d.pads else 0)) for n, i, s in (
         ("pad.channel", 21, PRESET), ("pad.curve", 22, PRESET), ("pad.aftertouch", 23, PRESET),
         ("pad.threshold", 24, GLOBAL), ("pad.release", 25, GLOBAL), ("pad.full", 26, GLOBAL),
-        ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL))),
+        ("pad.window", 27, GLOBAL), ("pad.retrigger", 28, GLOBAL), ("pad.octave", 40, PRESET))),
     ("analog.mode", 29, PRESET, lambda d: len(d.analogs)),
     ("midi.thru", 30, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
@@ -205,7 +207,8 @@ PRESET_GLOBALS = {
     # default: the device's own pad_settings: (a function of the device)
     "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
                      "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
-                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1)},
+                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1),
+                     "octave": ("pad.octave", 0, "int", -4, 4)},
 }
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
@@ -299,6 +302,7 @@ DAW_ROLES = {
     *(f"{r}_{i}" for r in ("mute", "solo", "arm", "select", "volume", "pan", "device_param") for i in range(1, 9)),
     "bank_prev", "bank_next", "master_volume", "master_mute", "cue_volume", "crossfader", "tempo",
     "device_prev", "device_next", "device_bank_prev", "device_bank_next", "device_on",
+    "device_preset", "device_preset_bank",
     "scene_launch", "scene_prev", "scene_next", "stop_all_clips",
     # navigation, clip grid, encoder assign, modifiers, banking, sends, master, markers, displays,
     # meters (reserved): issue #21 (protocol/daw-scripts.md "Roles")
@@ -1429,6 +1433,7 @@ class Device:
     def __init__(self):
         self.msg = set()             # MIDI message kinds compiled in (MSG_FEATURES, "sysex"): msg_features()
         self.msg_used = set()        # ... those the YAML uses
+        self.pad_action_uses = []    # (path, line, action): pad_octave_* (checked once pads: is read)
         self.msg_enable = set()      # ... and midi_messages.enable
         self.sysex = []              # midi_messages.sysex: Hub(id, data (bytes, GM_SX_* codes), flags)
         self.sysex_ids = {}
@@ -2193,6 +2198,9 @@ def validate(data, file=None):
     validate_presets(v, dev, data)
     validate_layout(v, dev, data)
     validate_write_to_flash(v, dev, data)
+    if not dev.pads:
+        for p, line, act in dev.pad_action_uses:
+            v.err(p, line, f"action {act} moves the pads' notes, and this device has no pads:")
     msg_features(v, dev, data)
     check_budget(v, dev, data)
 
@@ -3187,6 +3195,8 @@ def button_action(v, dev, d, p, base=None):
             v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
                   "action sysex sends one of the midi_messages.sysex strings, and there are none")
         dev.msg_used.add(MSG_ACTIONS[act])
+    if act in PAD_ACTIONS:
+        dev.pad_action_uses.append((f"{p}.action", d.line_of("action") if "action" in d else d.line, act))
     if act in PRESET_ACTIONS and dev.n_presets < 2:
         v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
               f"action {act} switches presets, but this device has {dev.n_presets} preset slot: add "

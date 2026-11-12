@@ -37,7 +37,7 @@ name: m-audio-code61
 friendly_name: Code 61
 description: "M-Audio Code 61 (STM32F103): keys, panel, encoders, faders, wheels, aftertouch, XY pad, pads, LEDs, display, MIDI jacks and presets"
 project:
-  version: 0.2.108
+  version: 0.2.109
 board_id: 0x0002
 platform: stm32f1
 chip: STM32F103RB          # [sure] STM32F103RBT6 (chip marking, SWD IDCODE 0x20036410)
@@ -386,8 +386,11 @@ buttons:
   - { id: stop, name: "Stop", pin: { switch_matrix: panel, number: 12 }, action: cc_momentary, cc: 112, daw: stop }
   - { id: play, name: "Play", pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113, daw: play }
   - { id: record, name: "Record", pin: { switch_matrix: panel, number: 14 }, action: cc_momentary, cc: 114, daw: record }
-  - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: cc_momentary, cc: 115 }   # Shift + it: the pad grid (modes: pads)
-  - { id: pad_octave_up, name: "Pad octave +", pin: { switch_matrix: panel, number: 16 }, action: cc_momentary, cc: 116 }
+  # Pad octave - / + move the pads' notes by an octave (pad.octave; both:
+  # back to 0); the display shows "PAD +1". Shift + Pad octave -: the pad grid
+  # (modes: pads), where they are grid_left / grid_right
+  - { id: pad_octave_down, name: "Pad octave -", pin: { switch_matrix: panel, number: 15 }, action: pad_octave_down }
+  - { id: pad_octave_up, name: "Pad octave +", pin: { switch_matrix: panel, number: 16 }, action: pad_octave_up }
   - { id: transpose, name: "Transpose", pin: { switch_matrix: panel, number: 17 }, action: cc_momentary, cc: 117 }
   - { id: octave_down, name: "Octave -", pin: { switch_matrix: panel, number: 18 }, action: octave_down }
   - { id: octave_up, name: "Octave +", pin: { switch_matrix: panel, number: 19 }, action: octave_up }
@@ -529,8 +532,8 @@ modes:
       pad_14: { daw: clip_2_1, idle: off }
       pad_15: { daw: clip_3_1, idle: off }
       pad_16: { daw: clip_4_1, idle: off }
-      pad_octave_down: { daw: grid_left }
-      pad_octave_up: { daw: grid_right }
+      pad_octave_down: { action: cc_momentary, cc: 115, daw: grid_left }
+      pad_octave_up: { action: cc_momentary, cc: 116, daw: grid_right }
   # Shift + Encoder mode cycles E1-E8 through the encoder modes below
   # (core/README.md "Cycles"), skipping the disabled ones (layer.enabled in
   # the config; PAN starts disabled). The display shows the mode's name and

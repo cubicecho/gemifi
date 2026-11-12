@@ -1260,7 +1260,9 @@
                       "program",
                       "panic",
                       "mmc",
-                      "sysex"
+                      "sysex",
+                      "pad_octave_down",
+                      "pad_octave_up"
                     ]
                   },
                   {
@@ -2602,6 +2604,18 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ]
+                      },
+                      "octave": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -4,
+                            "maximum": 4
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
                       }
                     },
                     "additionalProperties": false
@@ -2636,7 +2650,9 @@
                                 "program",
                                 "panic",
                                 "mmc",
-                                "sysex"
+                                "sysex",
+                                "pad_octave_down",
+                                "pad_octave_up"
                               ]
                             },
                             {
@@ -3051,7 +3067,9 @@
                             "program",
                             "panic",
                             "mmc",
-                            "sysex"
+                            "sysex",
+                            "pad_octave_down",
+                            "pad_octave_up"
                           ]
                         },
                         {
@@ -3244,7 +3262,9 @@
                                   "program",
                                   "panic",
                                   "mmc",
-                                  "sysex"
+                                  "sysex",
+                                  "pad_octave_down",
+                                  "pad_octave_up"
                                 ]
                               },
                               {

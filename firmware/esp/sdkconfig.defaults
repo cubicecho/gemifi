@@ -1,0 +1,20 @@
+# gemifi ESP firmware: ESP-IDF settings for every chip and transport. gemifi_esp.py adds
+# sdkconfig.<transport> (serial, usb, ble); ESP-IDF adds <file>.<target> for each.
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# The main loop (app_main: gm_poll) never blocks, so its core's idle task doesn't run: don't
+# watch that one (sdkconfig.defaults.<target> pins the loop).
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../partitions.csv"
+# Rollback: an app from an OTA update boots "pending" and confirms itself (fw_esp.c
+# gm_esp_app_confirm); a reset before that boots the previous app again.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# The task watchdog watches the main loop (hal_esp.c): a pass longer than 5 s resets the chip, so
+# a hung app on trial rolls back too.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y

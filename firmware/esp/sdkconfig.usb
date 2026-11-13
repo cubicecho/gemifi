@@ -1,0 +1,4 @@
+# midi.transport usb (S2 / S3): TinyUSB with one MIDI interface (midi_esp.c has the descriptors).
+CONFIG_TINYUSB_MIDI_COUNT=1
+CONFIG_TINYUSB_CDC_ENABLED=n
+CONFIG_TINYUSB_MSC_ENABLED=n

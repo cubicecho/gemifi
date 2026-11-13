@@ -13,7 +13,7 @@ export interface ManifestPart {
 
 /** One build: the parts for one chip family. */
 export interface ManifestBuild {
-  /** As ESP Web Tools writes it: `ESP32`, `ESP32-S3`, `ESP8266`… */
+  /** As ESP Web Tools writes it: `ESP32`, `ESP32-S2`, `ESP32-S3`… */
   chipFamily: string;
   parts: ManifestPart[];
 }

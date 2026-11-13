@@ -320,14 +320,12 @@ Select = SET_PARAM `preset.active`. A bad slot → BAD_PARAM; a name too long or
 - **Rule 1:** both must fit one record on the platform: `config_store_max_entries()`, and one page on the NUC.
 - **Rule 2:** all live records at worst case must fit, with room left for rewriting.
   - NUC journal: 1 + slots records, packed whole per page, in **pages − 2**. One page is the erase spare, and one is room for a slot's old and new copy while it is rewritten; the power-cut tests showed pages − 1 isn't enough.
-  - ESP8266: the sum of all records ≤ 4096 B.
   - STM32F1 log (`pages` pages, one kept spare): L + (pages − 2) × M ≤ (pages − 1) × page, with L every slot's record together and M the largest. Compaction copies the page with the fewest live words (at most (L − M) / (pages − 1)) into the spare, then the new record. With 2 pages this is every record in one page.
 
 | Platform | Store | Budget |
 |---|---|---|
 | nuvoton-nuc1xx | data-flash journal | 7 pages × 512 B, 2 kept free (5 usable); a named record ≤ 59 entries (508 B) |
 | esp32 | NVS, one blob per slot | 12 KB total (default NVS partition is 20 KB; leave room); a blob ≤ 1984 B (243 entries) |
-| esp8266 | EEPROM sector, one image | 4096 B for all slots together (a power cut during a write can lose the whole sector, as before presets) |
 | stm32f1 | a log over 3 × 1 KB pages, one kept spare (Code 61: 0x0801EC00–0x0801F7FF, the three pages the stock app never uses) | L + M ≤ 2048 B, in packed v3 records (platform/stm32f1/src/config_store.c): one group per param, int8/int16 values and an index bitmap. Code 61: a preset ≤ 304 B, the globals ≤ 108 B, so 3 slots use 1020 of 1744 B; up to 5 fit |
 
 - **Error** when worst case doesn't fit.

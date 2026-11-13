@@ -26,7 +26,7 @@ extern "C" {
 
 /* ---- virtual pins ----------------------------------------------------- */
 /* hub 0 = MCU pin (num = platform pin number: NUC1xx port * 16 + bit, e.g.
- * PB12 = 0x1C; ESP32/ESP8266 GPIO number). hub n >= 1 = gm_device.hubs[n-1],
+ * PB12 = 0x1C; ESP32 GPIO number). hub n >= 1 = gm_device.hubs[n-1],
  * num = that hub's pin / channel (chained chips continue: 8..15 = 2nd chip).
  * TM1628 hubs: num = display RAM bit, byte * 8 + bit (37 = byte 4, bit 5).
  * GM_PIN_INVERT: the signal is active-low (pressed / lit = electrical 0). */

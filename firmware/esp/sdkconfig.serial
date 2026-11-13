@@ -1,0 +1,4 @@
+# midi.transport serial: raw MIDI bytes on UART0, so nothing else may write there.
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y

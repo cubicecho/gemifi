@@ -329,13 +329,12 @@ analog:
 
 ### 6.2 Builder validation
 
-- `wifi:` and `osc:` only on platforms with Wi-Fi (esp32, esp32s2, esp32s3, esp8266). On the NUC and STM32 it's an error naming the platform. The `EspPlatform` table gets a `wifi=True` flag.
+- `wifi:` and `osc:` only on platforms with Wi-Fi (esp32, esp32s2, esp32s3). On the NUC and STM32 it's an error naming the platform. The `EspPlatform` table gets a `wifi=True` flag.
 - `osc:` without `wifi:` (and later without `ethernet:`) is an error.
 - `ssid` 1–32 bytes, password 8–63 or empty (WPA2 rules). A missing `!secret` key gives an error naming the key and the files searched.
 - Addresses must start with `/` and contain no spaces or `#`, and they must be unique per preset among the inputs (two faders on one address is a warning: it's allowed but probably a mistake). `args` can hold at most 4 entries and exactly one `$value`.
 - Ports 1–65535. `listen_port` must not be the same as a target port on `reply` (warning).
 - `midi.transport: ble` plus `wifi:` is a warning with the flash numbers (§2.5). The post-build size check stays the final word.
-- ESP8266 plus `osc:`: a warning that the scan runs from `loop()` and Wi-Fi adds jitter.
 
 ### 6.3 Generated code
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Spike for research/core/osc-design.md: can the core build OSC float32 bits
 for value = num / den (0 <= num <= den < 2^16) with integer ops only (the
-core's no-floating-point rule; the ESP32-S2 and ESP8266 have no FPU)?
+core's no-floating-point rule; the ESP32-S2 has no FPU)?
 
 The function below is written the way the C would be (uint32/uint64 only).
 It is checked against IEEE round-to-nearest-even (struct.pack('>f')) for every

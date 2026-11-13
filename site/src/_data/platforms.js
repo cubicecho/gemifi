@@ -92,18 +92,18 @@ export default [
   },
   {
     id: "esp",
-    name: "ESP32 and ESP8266",
-    keys: ["esp32", "esp32s2", "esp32s3", "esp8266"],
+    name: "ESP32",
+    keys: ["esp32", "esp32s2", "esp32s3"],
     status: "in-progress",
     summary:
-      "Espressif chips on any board PlatformIO knows, on the Arduino framework. No probe needed: the chip's ROM bootloader does the first install.",
+      "Espressif chips on any board PlatformIO knows, on ESP-IDF. No probe needed: the chip's ROM bootloader does the first install.",
     facts: [
-      ["Chips", "ESP32, ESP32-S2, ESP32-S3 and ESP8266. The examples use an ESP32-S3-DevKitC-1 and a Wemos D1 mini."],
-      ["CPU", "ESP32 and ESP32-S3: Xtensa at 240 MHz. ESP8266: 80 or 160 MHz."],
+      ["Chips", "ESP32, ESP32-S2 and ESP32-S3. The examples use an ESP32-S3-DevKitC-1."],
+      ["CPU", "ESP32 and ESP32-S3: Xtensa at 240 MHz."],
       ["RAM", "Not measured for gemifi yet"],
       [
         "Flash",
-        "ESP32 family: two app slots of 1.9 MB each, plus NVS for the settings. ESP8266 (D1 mini, 4 MB): about 1 MB for the app, and an update must fit the free half.",
+        "Two app slots of 1.9 MB each, plus NVS for the settings.",
       ],
       [
         "MIDI",
@@ -115,9 +115,9 @@ export default [
       ],
       [
         "Scanning",
-        "Software. ESP32: a timer task at a priority above the main loop, at most every 100 µs. ESP8266: from the main loop, with some jitter, and flash writes during an update stall it for 30–50 ms. Pins go through one call each (no fast paths yet, #71); the ESP8266's only ADC pin, A0, takes about 100 µs a reading.",
+        "Software. ESP32: a timer task at a priority above the main loop, at most every 100 µs. Pins go through one call each (no fast paths yet, #71).",
       ],
-      ["Settings store", "ESP32 family: NVS, written atomically, 12 KB for all presets. ESP8266: one 4 KB EEPROM sector; a power cut during a save loses the settings (the defaults load)."],
+      ["Settings store", "NVS, written atomically, 12 KB for all presets."],
       ["On hardware", "Nothing yet. The builds compile and pass the host tests."],
     ],
     devices: ["diy-esp32", "behringer-fcb1010"],

@@ -4,7 +4,7 @@
  * - {@link flashFirmware}, a `.gfw` through the gemifi bootloader: reboot into the bootloader if
  *   needed, FW_BEGIN, FW_DATA in the spec's order (0x200 up, page 0 last), FW_END, reboot into the
  *   app and check it answers HELLO.
- * - {@link flashAbFirmware}, a chip image to an A/B device (ESP32 / ESP8266 OTA): the app takes
+ * - {@link flashAbFirmware}, a chip image to an A/B device (ESP32 OTA): the app takes
  *   FW_BEGIN, FW_DATA in plain order from 0 and FW_END itself, then REBOOT(0) starts the new slot.
  *   Never REBOOT(1).
  *

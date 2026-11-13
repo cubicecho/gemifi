@@ -2,7 +2,7 @@
  * gm_hal.h: what a platform (chip family) provides to the gemifi core.
  *
  * Implementations: platform/nuvoton-nuc1xx/src/hal.c (C, bare metal),
- * platform/esp/ (Arduino, ESP32 + ESP8266). Pin numbers here are MCU pins
+ * platform/esp/ (ESP-IDF, ESP32 / S2 / S3). Pin numbers here are MCU pins
  * only (hub 0 of gm_pin_t); expander hubs are handled by core/src/vpin.c.
  *
  * Received MIDI goes the other way: the platform calls gm_midi_rx_byte()
@@ -181,7 +181,7 @@ uint32_t hal_reset_reason(void);
 int hal_boot_loop(void);
 
 /* Profile storage: config_store.h (config_store_load/commit/erase) is
- * implemented per platform (NUC: data-flash journal; ESP: NVS / EEPROM). */
+ * implemented per platform (NUC: data-flash journal; ESP: NVS). */
 
 #ifdef __cplusplus
 }

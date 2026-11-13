@@ -87,7 +87,7 @@ export function ConnectionCard(props: ConnectionCardProps) {
       description={
         isMidi
           ? 'USB MIDI: the Keystation, and ESP32-S2/S3 builds with native USB. A gemifi port is picked by itself, and followed when the device reboots.'
-          : 'Serial: classic ESP32 and ESP8266 builds, which speak MIDI over the board’s USB-UART.'
+          : 'Serial: classic ESP32 builds, which speak MIDI over the board’s USB-UART.'
       }
       contentSlot={
         <>

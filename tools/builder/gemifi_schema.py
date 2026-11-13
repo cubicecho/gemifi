@@ -202,7 +202,7 @@ def device_schema():
                  "description": "node name: lowercase letters, digits and -, at most 31"},
         "friendly_name": {"type": "string", "description": "display name (USB product string, HELLO)"},
         "description": STR,
-        "project": obj(gd.PROJECT_KEYS, {"version": {"type": "string", "pattern": r"^\d+\.\d+\.\d+$"}}),
+        "project": obj(gd.PROJECT_KEYS, {"version": T("string", pattern=r"^\d+\.\d+\.\d+$")}),
         "board_id": T("integer", minimum=0, maximum=0x3FFF),
         "platform": enum(gd.PLATFORMS),
         "chip": STR,

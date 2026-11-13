@@ -1,6 +1,6 @@
 /**
  * Cutting whole SysEx messages out of a raw MIDI byte stream, for links that carry bytes rather
- * than messages: a serial port (classic ESP32 and ESP8266 speak MIDI over their USB-UART,
+ * than messages: a serial port (a classic ESP32 speaks MIDI over its USB-UART,
  * `GM_MIDI_SERIAL`), a TCP socket, a DIN MIDI adapter. The frames inside are the same as over
  * USB-MIDI (`protocol/sysex.md` §1). Same rules as the host tool's `SysexAssembler`:
  *

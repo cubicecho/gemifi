@@ -30,7 +30,8 @@ export interface RebootSettings {
   portSettleMs: number;
   /**
    * A/B devices: how long to keep asking HELLO after REBOOT(0). Longer than a bootloader's
-   * reboot: an ESP8266 copies the new image into place at boot before it starts.
+   * reboot: an ESP goes through its ROM and second-stage bootloaders, which check the new image,
+   * before the app starts.
    */
   abRestartTimeoutMs: number;
   /** A/B devices: the pause before each HELLO while waiting for the restart. */

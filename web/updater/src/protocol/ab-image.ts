@@ -1,6 +1,6 @@
 /**
  * Images for A/B devices (`protocol/sysex.md` §4.1 "Who takes uploads", §4.2 "A/B devices"): ESP32
- * and ESP8266 builds whose app takes the upload into its inactive OTA slot. The image is the
+ * builds whose app takes the upload into its inactive OTA slot. The image is the
  * chip's own app `.bin`, with no `.gfw` header, so the board id and version come from the user
  * and the device. It is padded with 0xFF to a multiple of 4; the size and the CRC-32 are over the
  * padded file; chunks go in plain order from offset 0.
@@ -12,7 +12,7 @@ import { crc32 } from './image.ts';
 import type { HelloInfo } from './messages.ts';
 import { Capability, CHUNK_ALIGN_BYTES, Role } from './wire.ts';
 
-/** The first byte of an ESP-IDF / Arduino app image (`ESP_IMAGE_HEADER_MAGIC`). */
+/** The first byte of an ESP-IDF app image (`ESP_IMAGE_HEADER_MAGIC`). */
 export const ESP_IMAGE_MAGIC = 0xe9;
 /** What pads the last chunk: erased flash. */
 const PAD_BYTE = 0xff;

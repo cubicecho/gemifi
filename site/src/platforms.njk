@@ -1,7 +1,7 @@
 ---
 layout: base.njk
 title: Platforms
-description: The chip families gemifi runs on (STM32F1, Nuvoton NUC1xx, ESP32 and ESP8266) with their clocks, memory, MIDI transports, bootloaders and update paths, and what's been checked on hardware.
+description: The chip families gemifi runs on (STM32F1, Nuvoton NUC1xx and ESP32) with their clocks, memory, MIDI transports, bootloaders and update paths, and what's been checked on hardware.
 permalink: /platforms/
 ---
 <section class="hero">
@@ -38,20 +38,20 @@ permalink: /platforms/
   <div class="prose wide">
     <table>
       <thead>
-        <tr><th></th><th>STM32F1</th><th>NUC1xx</th><th>ESP32 / S2 / S3</th><th>ESP8266</th></tr>
+        <tr><th></th><th>STM32F1</th><th>NUC1xx</th><th>ESP32 / S2 / S3</th></tr>
       </thead>
       <tbody>
-        <tr><th>CPU</th><td>Cortex-M3, 72 MHz</td><td>Cortex-M0, 48 MHz</td><td>Xtensa, 240 MHz (ESP32, S3)</td><td>80 / 160 MHz</td></tr>
-        <tr><th>RAM</th><td>20 KB</td><td>4 KB</td><td>not measured</td><td>not measured</td></tr>
-        <tr><th>App flash</th><td>99 KB</td><td>32 KB</td><td>1.9 MB slot</td><td>about 1 MB</td></tr>
-        <tr><th>USB-MIDI</th><td>yes</td><td>yes</td><td>S2, S3</td><td>no</td></tr>
-        <tr><th>Serial MIDI</th><td>no</td><td>no</td><td>yes</td><td>yes</td></tr>
-        <tr><th>BLE MIDI</th><td>no</td><td>no</td><td>ESP32, S3 (untested)</td><td>no</td></tr>
-        <tr><th>DIN MIDI</th><td>yes</td><td>no</td><td>no</td><td>no</td></tr>
-        <tr><th>First install</th><td>gemifi bootloader, over SWD</td><td>gemifi bootloader, over SWD</td><td>ROM bootloader, Web Serial</td><td>ROM bootloader, Web Serial</td></tr>
-        <tr><th>Updates</th><td>USB, through the bootloader</td><td>USB, through the bootloader</td><td>MIDI, A/B slots</td><td>MIDI, A/B slots</td></tr>
-        <tr><th>Hardware scan (DMA)</th><td>yes</td><td>no</td><td>no</td><td>no</td></tr>
-        <tr><th>On hardware</th><td>works</td><td>works</td><td>not yet</td><td>not yet</td></tr>
+        <tr><th>CPU</th><td>Cortex-M3, 72 MHz</td><td>Cortex-M0, 48 MHz</td><td>Xtensa, 240 MHz (ESP32, S3)</td></tr>
+        <tr><th>RAM</th><td>20 KB</td><td>4 KB</td><td>not measured</td></tr>
+        <tr><th>App flash</th><td>99 KB</td><td>32 KB</td><td>1.9 MB slot</td></tr>
+        <tr><th>USB-MIDI</th><td>yes</td><td>yes</td><td>S2, S3</td></tr>
+        <tr><th>Serial MIDI</th><td>no</td><td>no</td><td>yes</td></tr>
+        <tr><th>BLE MIDI</th><td>no</td><td>no</td><td>ESP32, S3 (untested)</td></tr>
+        <tr><th>DIN MIDI</th><td>yes</td><td>no</td><td>no</td></tr>
+        <tr><th>First install</th><td>gemifi bootloader, over SWD</td><td>gemifi bootloader, over SWD</td><td>ROM bootloader, Web Serial</td></tr>
+        <tr><th>Updates</th><td>USB, through the bootloader</td><td>USB, through the bootloader</td><td>MIDI, A/B slots</td></tr>
+        <tr><th>Hardware scan (DMA)</th><td>yes</td><td>no</td><td>no</td></tr>
+        <tr><th>On hardware</th><td>works</td><td>works</td><td>not yet</td></tr>
       </tbody>
     </table>
   </div>

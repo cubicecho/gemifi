@@ -26,14 +26,14 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `src/gm_hub.h` | the hub driver interface (`gm_hub_ops_t`) and the per-hub state, inside the core |
 | `src/settings.c` | the param table, sized from the device's component counts |
 
-Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 has 4 KB of RAM and 32 KB of flash). Headers are C++-safe (the ESP platform is Arduino C++).
+Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 has 4 KB of RAM and 32 KB of flash). Headers are C++-safe (`extern "C"`), for platforms written in C++.
 
 What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the YAML knobs that trade them: [performance.md](performance.md).
 
 ## Virtual pins and hubs
 
 Every pin in a device is a `gm_pin_t { hub, flags, num }`:
-- `hub = 0`: a pin of the MCU. `num` is the platform's pin number: NUC1xx `port * 16 + bit` (`PA0` = 0, `PB12` = 28, `PC7` = 39); ESP32/ESP8266 the GPIO number.
+- `hub = 0`: a pin of the MCU. `num` is the platform's pin number: NUC1xx `port * 16 + bit` (`PA0` = 0, `PB12` = 28, `PC7` = 39); ESP32 the GPIO number.
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
 - `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` or `tm1637` `dio_pin`, platform mode `HAL_OUT_OD`).
 
@@ -215,9 +215,9 @@ leds:
 
 - **`order:`** the colours in the order the LED takes them: `GRB` (WS2812B, SK6812 RGB; the default), `RGB`, `BRG`, ..., and `GRBW`, `RGBW`, ... for RGBW LEDs (SK6812 RGBW). With a W, each LED is 4 pins (red, green, blue, white) and `white:` takes 4 values. The white part of a colour (the least of red, green and blue) goes on the white LED, so `white` or `#ffffff` lights only the white LED; the white pin on its own (`{ ws2812: strip, number: 4 * LED + 3 }`) is a single-colour LED.
 - **When a frame goes out:** pins only change a copy in RAM; the main loop builds a frame (order, `gamma:`, `white:` applied) only when a colour changed, and sends it only if it differs from the last, at most every 5 ms (`WS_FRAME_MS`), never while the last frame and its latch (280 us low) are still going out, and never from the scan interrupt. The platform sends it in the background (`hal_ledstrip_*`), so the main loop doesn't wait either: a frame is 30 us an LED on the wire (16 LEDs about 0.5 ms).
-- **ESP32, S2, S3:** RMT, through the Arduino core (`rmtWriteAsync`): any output pin, a TX channel a strip (ESP32 8, S2 and S3 4).
+- **ESP32, S2, S3:** RMT, ESP-IDF's TX driver with a bytes encoder (`platform/esp/gemifi_esp/ledstrip_esp.c`): any output pin, a TX channel a strip (ESP32 8, S2 and S3 4).
 - **stm32f1:** the SPI's MOSI with DMA: PA7 (SPI1, DMA1 channel 3) or PB15 (SPI2, channel 5), one strip each. The SPI runs at about 2.25 MHz and each LED bit is three SPI bits (0 = 100, 1 = 110: 0.44 / 0.89 us high, 1.33 us a bit). The DMA channel goes through the allocator ("DMA channels"). RAM: the hub's bytes twice (the colours and the last frame), and 3 bytes per colour byte for the SPI frame, plus 91.
-- **Not supported:** ESP8266 (no RMT: bit-banging would stop the scan for 30 us an LED) and the NUC (no driver yet); the builder refuses them. APA102 (clock and data) isn't there yet.
+- **Not supported:** the NUC (no driver yet); the builder refuses it. APA102 (clock and data) isn't there yet.
 - **Wiring:** WS2812B take 5 V data; at 3.3 V most work, a 74AHCT125 level shifter makes sure. A resistor (about 330 ohm) in the data line and a big capacitor across the strip's supply are good practice; at full white a WS2812B draws about 60 mA.
 
 ### M-Audio pad LEDs
@@ -619,7 +619,7 @@ friendly_name: Keystation Mini 32   # display name: USB product string, HELLO, w
 project:
   version: 0.1.3               # firmware version (major.minor.patch): HELLO, .gfw header; default 0.1.0
 board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DIY/private
-platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3 | esp8266
+platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
 board: keystation-mini32-mk3   # stm32f1 / nuvoton-nuc1xx: the board profile ("Board profiles"); default per platform
 usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms

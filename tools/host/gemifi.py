@@ -9,7 +9,7 @@
   gemifi.py reboot app|boot           ask the device to reboot into the app or the bootloader
   gemifi.py flash FILE.gfw            upload firmware through the bootloader (NUC1xx)
   gemifi.py flash FILE.bin --board 0x3F00 --version 1.2.3
-                                      upload to an A/B device (ESP32/ESP8266): the app takes it itself
+                                      upload to an A/B device (ESP32): the app takes it itself
   gemifi.py flash FILE --dry-run      check the image and print the upload plan; no MIDI
   gemifi.py flash FILE.gfw            Code 61 (board 0x0002): through its gemifi bootloader, or through M-Audio's
                                       own (maudio_update.py) on a unit that still has it (--via picks)
@@ -60,8 +60,8 @@ device for 2 s") and waits up to 35 s; once the device sends UNLOCKED it sends t
 
 Backends: python-rtmidi, then mido, then raw ALSA /dev/snd/midiC*D* (Linux, no dependencies).
 Choose one with --backend. --port picks a port by substring instead of the "gemifi" name match.
---serial /dev/ttyUSB0 [--baud 115200] talks raw MIDI bytes over a serial port instead (classic ESP32 and
-ESP8266 builds with GM_MIDI_SERIAL; needs pyserial). Every command works over it.
+--serial /dev/ttyUSB0 [--baud 115200] talks raw MIDI bytes over a serial port instead (classic ESP32
+builds with GM_MIDI_SERIAL; needs pyserial). Every command works over it.
 """
 import argparse
 import dataclasses
@@ -1975,7 +1975,7 @@ def build_parser():
     ap.add_argument("--retries", type=int, default=gp.MAX_RESENDS,
                     help="resends per request (same seq) after a timeout, BAD_CHECKSUM or BUSY (default 5 = 6 sends)")
     ap.add_argument("--serial", metavar="DEV", help="talk raw MIDI over this serial port instead (e.g. /dev/ttyUSB0; "
-                    "classic ESP32/ESP8266 with GM_MIDI_SERIAL; needs pyserial)")
+                    "classic ESP32 with GM_MIDI_SERIAL; needs pyserial)")
     ap.add_argument("--baud", type=int, default=115200, help="baud rate for --serial (default 115200)")
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1997,8 +1997,8 @@ def build_parser():
                    "route: 'Code' or 'M-Audio')")
     f.add_argument("--wait", type=float, default=None,
                    help="seconds to wait for the device after a reboot (default 6; 15 for A/B devices, since an "
-                        "ESP8266 copies the new image into place before it starts; Code 61 vendor route: 120 for "
-                        "the power cycle)")
+                        "ESP checks the new image in its bootloaders before it starts; Code 61 vendor route: 120 "
+                        "for the power cycle)")
     f.add_argument("--via", choices=("auto", "gemifi", "vendor"), default="auto",
                    help="Code 61: the gemifi bootloader or M-Audio's (default auto: ask the device; a dry run "
                         "shows the gemifi plan)")

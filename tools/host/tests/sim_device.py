@@ -1,7 +1,7 @@
 """A simulated gemifi bootloader/app that follows protocol/sysex.md, for host-tool tests.
 It enforces the upload rules strictly (order, page 0 last, page boundaries, no double programming).
 Given a `schema` (gemifi_proto.Schema) it also acts as an app with config (sysex.md 4.3).
-With `ab=True` it is an A/B app (ESP32/ESP8266 OTA, sysex.md 4.1 "Who takes uploads"): role 0, caps bit 0, a
+With `ab=True` it is an A/B app (ESP32 OTA, sysex.md 4.1 "Who takes uploads"): role 0, caps bit 0, a
 non-zero max_chunk, FW_* taken by the app in plain order from 0, and REBOOT(0) after a good FW_END boots the
 new slot (its fw_version then shows in HELLO).
 With `presets` (a list of {"name", "vals": {(id, index): value}, "program"}; slot 1 first, its "vals" must be

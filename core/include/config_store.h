@@ -2,7 +2,7 @@
  * config_store.h: stored settings, per slot (research/core/presets-design.md
  * §4 and §10.3). Implemented per platform:
  *   - NUC1xx data-flash journal (platform/nuvoton-nuc1xx/src/config_store.c)
- *   - ESP32 NVS / ESP8266 EEPROM sector (platform/esp/config_store_esp.cpp)
+ *   - ESP32 NVS (platform/esp/gemifi_esp/config_store_esp.c)
  *   - STM32F1 a log over main-flash pages with one spare kept for compaction
  *     (platform/stm32f1/src/config_store.c), in a packed record v3 of its own
  *     (one group per param id, int8/int16 values and an index bitmap; it
@@ -34,16 +34,14 @@
  *
  * Power cuts: the newest record of every slot is never erased before a
  * newer copy of it exists (NUC: compaction copies live records forward
- * before a page is erased; ESP32: NVS writes are atomic; ESP8266: the one
- * EEPROM sector is rewritten, so a cut there can lose everything; STM32F1:
- * a page is erased only when it holds no slot's only copy).
+ * before a page is erased; ESP32: NVS writes are atomic; STM32F1: a page is
+ * erased only when it holds no slot's only copy).
  *
  * Capacity (§10.5): config_store_max_entries() is 59 on the NUC (a named
  * record fills one 512 B page: 4 + 4 + 2 x 59 + 1 = 127 words), 243 on
- * ESP32 (a 1984 B blob), 507 on ESP8266 (the 4 KB sector, shared by all
- * slots). NUC journal: 7 pages; the worst-case records of all slots,
- * packed whole into pages, must fit in 5 (one page is the erase spare,
- * one is room for a slot's old and new copy while it is rewritten).
+ * ESP32 (a 1984 B blob). NUC journal: 7 pages; the worst-case records of
+ * all slots, packed whole into pages, must fit in 5 (one page is the erase
+ * spare, one is room for a slot's old and new copy while it is rewritten).
  * STM32F1: 82 as a lower bound (the real number depends on the ids and
  * values; the Code 61's 153 per-preset values take 304 B); on 3 pages of
  * 1 KB, every slot's newest record together (L) and the largest (M) need

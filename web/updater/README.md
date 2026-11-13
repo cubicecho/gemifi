@@ -1,7 +1,7 @@
 # gemifi web updater
 
-A browser page that talks to a gemifi device over Web MIDI SysEx, or over Web Serial for ESP32
-and ESP8266 builds without native USB. It shows what the device says about itself (HELLO),
+A browser page that talks to a gemifi device over Web MIDI SysEx, or over Web Serial for classic
+ESP32 builds without native USB. It shows what the device says about itself (HELLO),
 streams its LOG and EVENT messages, reboots it into the bootloader or the app, flashes a `.gfw`
 through the gemifi bootloader or an ESP app `.bin` to a device that updates itself, and does the
 first install on an ESP chip through its ROM bootloader (esptool-js). It implements
@@ -108,7 +108,7 @@ the GitHub Pages address) gets its own add-on.
 ## Using it
 
 1. **Connect.** Choose the transport: **USB MIDI** (the Keystation, ESP32-S2/S3 builds with
-   native USB) or **Serial (ESP)** (classic ESP32 and ESP8266, whose gemifi build speaks MIDI over
+   native USB) or **Serial (ESP)** (classic ESP32, whose gemifi build speaks MIDI over
    the board's USB-UART). For Serial, set the baud rate (115200, gemifi's default) and press
    **Choose port**; the browser shows its own port chooser. Opening the port releases RTS before
    DTR, so the board is not reset. The protocol is the same; the SysEx frames are cut out of the

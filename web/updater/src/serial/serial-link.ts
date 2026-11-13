@@ -1,6 +1,6 @@
 /**
  * Web Serial side of the updater: the same protocol as over USB-MIDI, carried as raw MIDI bytes
- * on a serial port. Classic ESP32 and ESP8266 have no native USB; a gemifi build for them
+ * on a serial port. A classic ESP32 has no native USB; a gemifi build for it
  * (`GM_MIDI_SERIAL`) speaks MIDI over the board's USB-UART at 115200 baud. The SysEx frames are cut
  * out of the byte stream by {@link SysexStreamParser}; the rest (boot log, other MIDI) is dropped.
  *

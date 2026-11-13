@@ -339,7 +339,8 @@ static int tp_idle(void)
  * 7.5-11.25 ms, then the BLE-MIDI spec's 7.5-15 ms (Apple's hosts only take
  * a range at least 15 ms wide). A host that rejects a stage, or hasn't
  * granted it in time, gets the next one; given a range, BlueZ on a Pi takes
- * its slow end. The interval the host settles on goes out as a LOG
+ * its slow end. A request that collided with one of the host's own link
+ * procedures (HCI 0x23 / 0x2A: no answer to it) is made again, the same. The interval the host settles on goes out as a LOG
  * ("BLE interval 11.25 ms, ...") and shows on the displays ("BLE
  * 11.25ms"); a host's refusal does too ("BLE st 0x23B"). */
 #define BLE_ITVL_FAST 6                     /* x 1.25 ms: 7.5 ms */
@@ -360,6 +361,7 @@ static volatile uint16_t rx_head, rx_tail;  /* BLE task writes, loop reads */
 static volatile uint16_t ble_itvl, ble_latency, ble_timeout;
 static volatile uint8_t ble_params_new, ble_conn_new;
 static volatile uint8_t ble_stage;          /* ble_itvl_max index being asked for */
+static volatile uint8_t ble_collided;       /* the last request collided: ask the same again */
 static volatile int ble_upd_rc;             /* ble_gap_update_params() refused it */
 static volatile int ble_upd_st;             /* the host rejected it (CONN_UPDATE status) */
 
@@ -478,8 +480,11 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ev->conn_update.status == 0) {
             ble_note_params(ev->conn_update.conn_handle);
         } else {
-            ble_upd_st = ev->conn_update.status;
-            if (ble_stage < 2) {            /* refused: ask for the next, wider range */
+            int st = ev->conn_update.status;
+            ble_upd_st = st;
+            if (st == BLE_HS_HCI_ERR(BLE_ERR_LMP_COLLISION) || st == BLE_HS_HCI_ERR(BLE_ERR_DIFF_TRANS_COLL)) {
+                ble_collided = 1;           /* not an answer: tp_tx asks again */
+            } else if (ble_stage < 2) {     /* refused: ask for the next, wider range */
                 ble_stage++;
                 ble_want_params(ev->conn_update.conn_handle);
             }
@@ -619,14 +624,28 @@ static void tp_tx(void)
     static const struct { uint16_t ms; uint8_t stage; } plan[] = {
         { 2000, 0 }, { 4000, 1 }, { 6000, 2 }, { 9000, 2 },
     };
-    static uint32_t t_conn, t_refused;
-    static uint8_t step;
+    static uint32_t t_conn, t_refused, t_again;
+    static uint8_t step, again;
     uint32_t now = hal_millis();
     if (ble_conn_new) {
         ble_conn_new = 0;
         t_conn = now;
         t_refused = now - 5000u;
         step = 0;
+        again = 0;
+        t_again = 0;
+    }
+    if (ble_collided) {                     /* the same request in 0.5 s, twice at most */
+        ble_collided = 0;
+        if (again < 2) {
+            again++;
+            t_again = now + 500u;
+        }
+    }
+    if (t_again && (int32_t)(now - t_again) >= 0) {
+        t_again = 0;
+        if (ble_itvl > ble_itvl_max[ble_stage])
+            ble_want_params(conn);
     }
     if (step < sizeof plan / sizeof plan[0] && now - t_conn >= plan[step].ms) {
         if (ble_itvl > ble_itvl_max[ble_stage] && ble_stage < plan[step].stage)
@@ -641,7 +660,7 @@ static void tp_tx(void)
         char s[24];
         if (rc) {                           /* NimBLE didn't send it (host/ble_hs.h): busy, retried */
             snprintf(s, sizeof s, "BLE rc %d", rc);
-        } else {                            /* the host said no: on the displays too, for 2 s */
+        } else {                            /* the host's answer: on the displays too, for 2 s */
             snprintf(s, sizeof s, "BLE st 0x%X", st);
             if (gm_display_message)
                 gm_display_message(s);

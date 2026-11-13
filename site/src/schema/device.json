@@ -72,8 +72,15 @@
           "type": "object",
           "properties": {
             "version": {
-              "type": "string",
-              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                },
+                {
+                  "$ref": "#/definitions/substitution"
+                }
+              ]
             }
           },
           "additionalProperties": false

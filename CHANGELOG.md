@@ -2,6 +2,31 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.45.0](https://github.com/cubicecho/gemifi/compare/v0.44.0...v0.45.0) (2026-11-13)
+
+
+### Bug Fixes
+
+* **controller:** mon_bits only where buttons or a key matrix use it ([941cdef](https://github.com/cubicecho/gemifi/commit/941cdef980481a52e553f69f10fcbef01bd968b5))
+* **esp:** a BLE interval request that collided is made again, not given up ([e11ffdd](https://github.com/cubicecho/gemifi/commit/e11ffdd76f2b38b4b550f701de1cf09370ccbef6))
+* **esp:** ask for the short BLE interval again after encryption, report refusals ([52dea84](https://github.com/cubicecho/gemifi/commit/52dea8432f7f147665beaf5b53497fea32e53f01))
+* **host:** --serial takes a Windows COM port ([6e5356a](https://github.com/cubicecho/gemifi/commit/6e5356a2bd3dd35928017c16678e8fc41dc63cf9))
+* **schema:** project.version may be a ${substitution} ([22e3d1e](https://github.com/cubicecho/gemifi/commit/22e3d1e73c5bbd11a3c07fd25ad0ea46055ed6e8))
+
+
+### Features
+
+* **devices:** diy-esp32-pot-oled, an ESP32 DevKitC with a pot and an SSD1306 ([76fecf5](https://github.com/cubicecho/gemifi/commit/76fecf5d81bf47427e2e9ac5f1a8ba1b5d1f71ea))
+* **devices:** diy-esp32-pot-oled: the OLED on GPIO25 (SDA) / GPIO27 (SCL) ([fd3db8a](https://github.com/cubicecho/gemifi/commit/fd3db8a64213a9b0d711dd3cee01c1a81169ac9b))
+* **displays:** ssd1306 hub and text displays for I2C OLEDs ([#120](https://github.com/cubicecho/gemifi/issues/120)) ([5605fca](https://github.com/cubicecho/gemifi/commit/5605fca16e6343291b147ae867d1095a72f005bb))
+* **esp:** app rollback, the main loop on the task watchdog, BLE pairing ([24ec7ad](https://github.com/cubicecho/gemifi/commit/24ec7ad2694a10f484c579cf736eacfdafa38862))
+* **esp:** BLE asks for 7.5 ms first, then 7.5-15 ms ([1b453bd](https://github.com/cubicecho/gemifi/commit/1b453bd04864d08a63dbe6526597dbd21551e6fe))
+* **esp:** BLE asks for a 7.5-15 ms connection interval and logs what it gets ([f9c14b5](https://github.com/cubicecho/gemifi/commit/f9c14b519867a601330df4019a38c671d8e64078))
+* **esp:** BLE interval stages 7.5, 7.5-11.25, 7.5-15 ms ([45ae0a2](https://github.com/cubicecho/gemifi/commit/45ae0a27b38b0a750a42b789f0dd2d490251f602))
+* **esp:** drop ESP8266 support ([6dbeca3](https://github.com/cubicecho/gemifi/commit/6dbeca370d578f967996bd19f471b757e5c0b595))
+* **esp:** show the BLE connection interval on the displays ([e54cf8d](https://github.com/cubicecho/gemifi/commit/e54cf8d3c8327b56b387742df213e432908b9104))
+* **esp:** the ESP platform on ESP-IDF (PlatformIO framework = espidf) ([1e8aa98](https://github.com/cubicecho/gemifi/commit/1e8aa9891450e6bae9a1ed28078bde5b213163d7))
+
 # [0.44.0](https://github.com/cubicecho/gemifi/compare/v0.43.0...v0.44.0) (2026-11-12)
 
 

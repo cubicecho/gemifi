@@ -27,7 +27,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.44.0"
+VERSION = "0.45.0"
 
 # core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the

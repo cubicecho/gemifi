@@ -247,6 +247,14 @@ class TestSerial(unittest.TestCase):
         self.assertEqual(mod.opened, [("loop://", 115200)])
         self.assertEqual(mod.ports[0].lines, [("rts", False), ("dtr", False)])    # RTS (EN) first: no reset pulse
 
+    def test_windows_com_port_is_listed(self):
+        # COM5 isn't a file on Windows: os.path.exists would miss it and every command would find no device
+        for path in ("COM5", "com12", "\\\\.\\COM12"):
+            b = gm.SerialBackend(path, 115200, serial_module=FakeSerialModule(SimDevice(ab=True, board_id=BOARD)))
+            self.assertEqual(b.ports(), [path], path)
+        b = gm.SerialBackend("/dev/no-such-tty", 115200, serial_module=FakeSerialModule(SimDevice(ab=True)))
+        self.assertEqual(b.ports(), [])
+
     def test_flash_over_serial(self):
         img = esp_bin(900)
         dev = SimDevice(ab=True, board_id=BOARD, fw_version=V_OLD)

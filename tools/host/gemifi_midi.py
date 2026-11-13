@@ -237,6 +237,9 @@ class _AlsaRawPort(_PortBase):
 
 # ---------------- serial (raw MIDI byte stream over a UART, pyserial) ----------------
 
+WIN_COM_RE = re.compile(r"(?:\\\\\.\\)?COM\d+", re.I)
+
+
 class SerialBackend:
     """One serial device, e.g. /dev/ttyUSB0 at 115200 baud. The bytes on the wire are plain MIDI (the same
     SysEx frames as over USB-MIDI), so SysEx is cut out of the stream; anything else (an ESP boot log, other
@@ -254,8 +257,9 @@ class SerialBackend:
         self.serial, self.path, self.baud = serial_module, path, baud
 
     def ports(self):
+        # A Windows COM port (COM5, \\.\COM12) is no file: it's taken as there, and open() says if not.
         return [self.path] if self.path.startswith(("socket://", "loop://", "rfc2217://")) or \
-            os.path.exists(self.path) else []
+            WIN_COM_RE.fullmatch(self.path) or os.path.exists(self.path) else []
 
     def open(self, name=None):
         try:

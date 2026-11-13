@@ -18,6 +18,9 @@ platform: esp32
 chip: esp32dev                 # PlatformIO board id (ESP32-WROOM-32 DevKitC)
 substitutions:
   transport: serial            # or ble
+  version: 0.1.0               # e.g. -s version 0.1.1 for an update to test
+
+project: { version: "${version}" }
 
 midi: { transport: "${transport}" }
 scan_interval: 1ms

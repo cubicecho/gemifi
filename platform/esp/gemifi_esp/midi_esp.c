@@ -351,9 +351,12 @@ static volatile uint16_t ble_conn = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t ble_addr_type;
 static uint8_t rxq[RXQ_SIZE];
 static volatile uint16_t rx_head, rx_tail;  /* BLE task writes, loop reads */
-/* The connection's parameters, from the BLE task, for the loop's LOG. */
+/* The connection's parameters, from the BLE task, for the loop's LOG; and
+ * how the last request for a short interval went (0 = fine). */
 static volatile uint16_t ble_itvl, ble_latency, ble_timeout;
-static volatile uint8_t ble_params_new;
+static volatile uint8_t ble_params_new, ble_conn_new;
+static volatile int ble_upd_rc;             /* ble_gap_update_params() refused it */
+static volatile int ble_upd_st;             /* the host rejected it (CONN_UPDATE status) */
 
 static void ble_note_params(uint16_t conn)
 {
@@ -366,7 +369,10 @@ static void ble_note_params(uint16_t conn)
     ble_params_new = 1;
 }
 
-/* Ask for a short interval: every connection event, 7.5-15 ms. */
+/* Ask for a short interval: every connection event, 7.5-15 ms. NimBLE
+ * refuses while another link procedure runs (the encryption a bonded host
+ * starts on connecting), so it is asked again: on connecting, when the link
+ * is encrypted, and 2 s and 6 s in while it is still longer (tp_tx). */
 static void ble_want_params(uint16_t conn)
 {
     const struct ble_gap_upd_params p = {
@@ -375,7 +381,9 @@ static void ble_want_params(uint16_t conn)
         .latency = 0,
         .supervision_timeout = BLE_SUPERVISION,
     };
-    ble_gap_update_params(conn, &p);
+    int rc = ble_gap_update_params(conn, &p);
+    if (rc != 0)
+        ble_upd_rc = rc;
 }
 
 static void rxq_put(uint8_t b)
@@ -453,6 +461,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (ev->connect.status == 0) {
             ble_conn = ev->connect.conn_handle;
+            ble_conn_new = 1;
             ble_note_params(ev->connect.conn_handle);
             ble_want_params(ev->connect.conn_handle);
         } else {
@@ -462,6 +471,12 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_CONN_UPDATE:         /* the host changed (or kept) the parameters */
         if (ev->conn_update.status == 0)
             ble_note_params(ev->conn_update.conn_handle);
+        else
+            ble_upd_st = ev->conn_update.status;
+        break;
+    case BLE_GAP_EVENT_ENC_CHANGE:          /* paired / encrypted: the link is free again */
+        if (ev->enc_change.status == 0)
+            ble_want_params(ev->enc_change.conn_handle);
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         ble_conn = BLE_HS_CONN_HANDLE_NONE;
@@ -586,6 +601,30 @@ static void tp_tx(void)
     if (conn == BLE_HS_CONN_HANDLE_NONE) {
         tx_tail = tx_head;
         return;
+    }
+    static uint32_t t_conn;
+    static uint8_t tries;
+    if (ble_conn_new) {
+        ble_conn_new = 0;
+        t_conn = hal_millis();
+        tries = 0;
+    }
+    if (ble_itvl > BLE_ITVL_MAX && tries < 2 && hal_millis() - t_conn >= (tries ? 6000u : 2000u)) {
+        tries++;
+        ble_want_params(conn);
+    }
+    int rc = ble_upd_rc, st = ble_upd_st;
+    if (rc || st) {
+        ble_upd_rc = ble_upd_st = 0;
+        char s[24];
+        if (rc)
+            snprintf(s, sizeof s, "BLE rc %d", rc);         /* NimBLE didn't send it (host/ble_hs.h) */
+        else
+            snprintf(s, sizeof s, "BLE st 0x%X", st);       /* the host said no */
+        if (app_log)
+            app_log(BLE_LOG_INFO, "interval request: ", s);
+        if (gm_display_message)
+            gm_display_message(s);
     }
     if (ble_params_new) {
         ble_params_new = 0;

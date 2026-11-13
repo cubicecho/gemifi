@@ -39,7 +39,11 @@
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include <stdio.h>
 void ble_store_config_init(void);           /* NimBLE's NVS bond store (store/config) */
+/* The core's LOG (app_proto.c); weak, so hello (no core) links without it. */
+extern void app_log(uint8_t level, const char *a, const char *b) __attribute__((weak));
+#define BLE_LOG_INFO 2                      /* app_proto.h LOG_INFO */
 #endif
 
 #define TXQ_SIZE 1024u                      /* power of 2 */
@@ -324,7 +328,16 @@ static int tp_idle(void)
  * for the main loop. UUIDs are little-endian here. Pairing is Just Works
  * (no input or output, LE Secure Connections), bonds in NVS: BlueZ (so
  * Zynthian) trusts and pairs a device before it connects to it again.
- * Nothing needs encryption, so a host that doesn't pair works too. */
+ * Nothing needs encryption, so a host that doesn't pair works too.
+ *
+ * Latency: data only moves at connection events, one every connection
+ * interval, which the central picks (BlueZ: 30-50 ms). On connecting we ask
+ * for BLE_ITVL_MIN..MAX with no peripheral latency (every event), as the
+ * BLE-MIDI spec suggests; the host may grant it or not. The interval it
+ * settles on goes out as a LOG ("BLE interval 11.25 ms"). */
+#define BLE_ITVL_MIN 6                      /* x 1.25 ms: 7.5 ms */
+#define BLE_ITVL_MAX 12                     /* 15 ms */
+#define BLE_SUPERVISION 400                 /* x 10 ms: 4 s without a packet drops the link */
 static const ble_uuid128_t ble_svc_uuid = BLE_UUID128_INIT(
     0x00, 0xC7, 0xC4, 0x4E, 0xE3, 0x6C, 0x51, 0xA7, 0x33, 0x4B, 0xE8, 0xED, 0x5A, 0x0E, 0xB8, 0x03);
 static const ble_uuid128_t ble_chr_uuid = BLE_UUID128_INIT(
@@ -335,6 +348,32 @@ static volatile uint16_t ble_conn = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t ble_addr_type;
 static uint8_t rxq[RXQ_SIZE];
 static volatile uint16_t rx_head, rx_tail;  /* BLE task writes, loop reads */
+/* The connection's parameters, from the BLE task, for the loop's LOG. */
+static volatile uint16_t ble_itvl, ble_latency, ble_timeout;
+static volatile uint8_t ble_params_new;
+
+static void ble_note_params(uint16_t conn)
+{
+    struct ble_gap_conn_desc d;
+    if (ble_gap_conn_find(conn, &d) != 0)
+        return;
+    ble_itvl = d.conn_itvl;
+    ble_latency = d.conn_latency;
+    ble_timeout = d.supervision_timeout;
+    ble_params_new = 1;
+}
+
+/* Ask for a short interval: every connection event, 7.5-15 ms. */
+static void ble_want_params(uint16_t conn)
+{
+    const struct ble_gap_upd_params p = {
+        .itvl_min = BLE_ITVL_MIN,
+        .itvl_max = BLE_ITVL_MAX,
+        .latency = 0,
+        .supervision_timeout = BLE_SUPERVISION,
+    };
+    ble_gap_update_params(conn, &p);
+}
 
 static void rxq_put(uint8_t b)
 {
@@ -409,10 +448,17 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     (void)arg;
     switch (ev->type) {
     case BLE_GAP_EVENT_CONNECT:
-        if (ev->connect.status == 0)
+        if (ev->connect.status == 0) {
             ble_conn = ev->connect.conn_handle;
-        else
+            ble_note_params(ev->connect.conn_handle);
+            ble_want_params(ev->connect.conn_handle);
+        } else {
             advertise();
+        }
+        break;
+    case BLE_GAP_EVENT_CONN_UPDATE:         /* the host changed (or kept) the parameters */
+        if (ev->conn_update.status == 0)
+            ble_note_params(ev->conn_update.conn_handle);
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         ble_conn = BLE_HS_CONN_HANDLE_NONE;
@@ -537,6 +583,14 @@ static void tp_tx(void)
     if (conn == BLE_HS_CONN_HANDLE_NONE) {
         tx_tail = tx_head;
         return;
+    }
+    if (ble_params_new && app_log) {
+        ble_params_new = 0;
+        char s[56];
+        unsigned us = 1250u * ble_itvl;     /* the interval in us */
+        snprintf(s, sizeof s, "%u.%02u ms, latency %u, timeout %u ms", us / 1000u, (us % 1000u) / 10u,
+                 (unsigned)ble_latency, 10u * ble_timeout);
+        app_log(BLE_LOG_INFO, "BLE interval ", s);
     }
     for (int k = 0; k < 4 && ble_send_packet(conn); k++) {
     }

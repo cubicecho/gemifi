@@ -44,6 +44,8 @@ void ble_store_config_init(void);           /* NimBLE's NVS bond store (store/co
 /* The core's LOG (app_proto.c); weak, so hello (no core) links without it. */
 extern void app_log(uint8_t level, const char *a, const char *b) __attribute__((weak));
 #define BLE_LOG_INFO 2                      /* app_proto.h LOG_INFO */
+/* ... and the displays' messages (display.c), weak for the same reason. */
+extern void gm_display_message(const char *s) __attribute__((weak));
 #endif
 
 #define TXQ_SIZE 1024u                      /* power of 2 */
@@ -334,7 +336,8 @@ static int tp_idle(void)
  * interval, which the central picks (BlueZ: 30-50 ms). On connecting we ask
  * for BLE_ITVL_MIN..MAX with no peripheral latency (every event), as the
  * BLE-MIDI spec suggests; the host may grant it or not. The interval it
- * settles on goes out as a LOG ("BLE interval 11.25 ms"). */
+ * settles on goes out as a LOG ("BLE interval 11.25 ms, ...") and shows
+ * on the displays as a message ("BLE 11.25ms"). */
 #define BLE_ITVL_MIN 6                      /* x 1.25 ms: 7.5 ms */
 #define BLE_ITVL_MAX 12                     /* 15 ms */
 #define BLE_SUPERVISION 400                 /* x 10 ms: 4 s without a packet drops the link */
@@ -584,13 +587,25 @@ static void tp_tx(void)
         tx_tail = tx_head;
         return;
     }
-    if (ble_params_new && app_log) {
+    if (ble_params_new) {
         ble_params_new = 0;
-        char s[56];
-        unsigned us = 1250u * ble_itvl;     /* the interval in us */
-        snprintf(s, sizeof s, "%u.%02u ms, latency %u, timeout %u ms", us / 1000u, (us % 1000u) / 10u,
-                 (unsigned)ble_latency, 10u * ble_timeout);
-        app_log(BLE_LOG_INFO, "BLE interval ", s);
+        unsigned us = 1250u * ble_itvl;     /* the interval in us: 7500, 11250, 15000, 30000 ... */
+        char ms[12], s[56];
+        if (us % 1000u == 0)
+            snprintf(ms, sizeof ms, "%u", us / 1000u);
+        else if (us % 100u == 0)
+            snprintf(ms, sizeof ms, "%u.%u", us / 1000u, (us % 1000u) / 100u);
+        else
+            snprintf(ms, sizeof ms, "%u.%02u", us / 1000u, (us % 1000u) / 10u);
+        if (app_log) {
+            snprintf(s, sizeof s, "%s ms, latency %u, timeout %u ms", ms, (unsigned)ble_latency,
+                     10u * ble_timeout);
+            app_log(BLE_LOG_INFO, "BLE interval ", s);
+        }
+        if (gm_display_message) {
+            snprintf(s, sizeof s, "BLE %sms", ms);
+            gm_display_message(s);
+        }
     }
     for (int k = 0; k < 4 && ble_send_packet(conn); k++) {
     }

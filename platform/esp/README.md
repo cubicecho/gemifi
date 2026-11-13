@@ -66,10 +66,20 @@ HELLO reports role 0 (app) with caps bit 0 (FW upload) and `max_chunk` 256, so t
 
 The image is the plain `firmware.bin`, with no `.gfw` header. A device on an Arduino build (gemifi before ESP-IDF) takes the ESP-IDF image the same way: same partition table, same NVS.
 
+## Rollback
+
+The bootloader is ESP-IDF's own (the ROM's download mode does the first install; there's no gemifi bootloader), built with rollback (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`):
+1. After an OTA update, the bootloader starts the new app as "pending verify".
+2. The app keeps itself (`gm_esp_app_confirm`, `fw_esp.c`) once it has been up 5 s (`GM_ESP_CONFIRM_MS`), checked from the main loop, or at once when a host sends it FW_BEGIN: answering over MIDI is proof enough, and ESP-IDF won't open the other slot for an update while the running app is pending.
+3. A reset before that (a crash, the watchdog, a power cut) boots the previous app again, marked bad. A host then sees the old version in HELLO, and `gemifi.py flash` and the web updater say the new slot didn't boot.
+
+The task watchdog watches the main loop (`esp_task_wdt_add` in `gm_esp_begin`, fed by `gm_esp_loop`): a pass longer than 5 s resets the chip, so an app that hangs rolls back too, instead of staying on trial until the next power cycle. The bootloader is only written by a first install (the `-factory.bin`), so a device first installed from an Arduino build, or before rollback, gets it at its next install over USB; until then updates work as before, without rollback.
+
 ## Recovery
 
 - A bad upload (CRC, size, image check) leaves the old slot booting. Run FW_BEGIN again.
-- If an image boots but is broken (a crash loop, no MIDI), re-flash over USB with the ROM bootloader (above). It can't be bricked from SysEx.
+- An image that crashes, hangs or resets in its first 5 s rolls back by itself (above).
+- One that runs but is broken later (no MIDI after 5 s, wrong pins): re-flash over USB with the ROM bootloader (above). It can't be bricked from SysEx.
 - Safe mode: hold the device's `boot_combo` buttons at reset to start with default settings and ignore the stored profile.
 
 ## Test firmware

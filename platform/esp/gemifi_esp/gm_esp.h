@@ -89,6 +89,17 @@ void gm_esp_loop(void);
 /* microseconds since boot (wraps) */
 uint32_t gm_esp_micros(void);
 
+/* Rollback (README "Rollback"): an app that an OTA update started is on
+ * trial until it calls this; a reset before then boots the previous app.
+ * gm_esp_loop calls it once the device has been up GM_ESP_CONFIRM_MS (from
+ * the main loop, which the task watchdog watches: a loop that hangs resets
+ * the chip instead), and FW_BEGIN does (a host reached the app over MIDI).
+ * Only the first call after such a boot writes anything. */
+#ifndef GM_ESP_CONFIRM_MS
+#define GM_ESP_CONFIRM_MS 5000u
+#endif
+void gm_esp_app_confirm(void);
+
 /* internal */
 void gm_esp_midi_begin(void);
 uint32_t gm_crc32(uint32_t crc, const uint8_t *p, uint32_t n);   /* zlib */

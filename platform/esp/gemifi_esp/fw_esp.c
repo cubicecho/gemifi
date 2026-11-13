@@ -9,6 +9,14 @@
  * image (its header, segments and SHA-256) and marks the new slot to boot;
  * the old slot stays bootable until then. REBOOT(0) starts it.
  *
+ * Rollback (sdkconfig CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE): the bootloader
+ * starts the new app as "pending verify"; it is kept once it confirms
+ * itself (gm_esp_app_confirm), and a reset before that (a crash, the
+ * watchdog, a power cut) boots the previous app again. ESP-IDF won't open
+ * the other slot for an update while the running app is pending (it holds
+ * the only app known to work), so FW_BEGIN confirms first: a host reaching
+ * the app over MIDI is proof enough.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_esp.h"
@@ -31,10 +39,23 @@ static void fw_abort(void)
     esp_ota_abort(fw.h);
 }
 
+void gm_esp_app_confirm(void)
+{
+    static uint8_t done;
+    esp_ota_img_states_t st;
+    if (done)
+        return;
+    done = 1;
+    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK &&
+        st == ESP_OTA_IMG_PENDING_VERIFY)
+        esp_ota_mark_app_valid_cancel_rollback();
+}
+
 static int fw_begin(uint32_t size, uint32_t crc32, uint16_t board_id, uint32_t fw_version)
 {
     (void)fw_version;
     fw_abort();
+    gm_esp_app_confirm();
     if (board_id != GM_BOARD_ID)
         return GSX_BAD_BOARD;
     if (size == 0 || (size & 3u))

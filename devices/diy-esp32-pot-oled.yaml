@@ -8,6 +8,7 @@
 # MIDI goes over the board's USB-UART at 115200 baud (midi.transport serial: the classic ESP32 has no
 # native USB). The web updater talks to it over Web Serial; for a DAW, bridge it to a MIDI port
 # (ttymidi -s /dev/ttyUSB0 -b 115200 on Linux, Hairless MIDI on Windows / macOS).
+# Or BLE-MIDI: build with -s transport ble (gemifi_build.py build -s transport ble ...).
 gemifi: 2
 name: diy-esp32-pot-oled
 friendly_name: DIY ESP32 Pot + OLED
@@ -15,7 +16,10 @@ description: ESP32 DevKitC test device, 1 pot (CC 7), a 128x64 SSD1306 OLED show
 board_id: 0x3F18               # 0x3F00-0x3FFF: DIY / private (protocol/sysex.md section 7)
 platform: esp32
 chip: esp32dev                 # PlatformIO board id (ESP32-WROOM-32 DevKitC)
-midi: { transport: serial }
+substitutions:
+  transport: serial            # or ble
+
+midi: { transport: "${transport}" }
 scan_interval: 1ms
 
 i2c: { sda: GPIO25, scl: GPIO27 }

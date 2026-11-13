@@ -15,6 +15,7 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
+#include "esp_task_wdt.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_adc/adc_oneshot.h"
@@ -282,6 +283,9 @@ void gm_esp_begin(void)
     i2c_begin();
 #endif
     gm_esp_midi_begin();
+    /* The task watchdog watches the caller, the main loop: gm_esp_loop feeds
+     * it each pass, and a pass longer than 5 s (sdkconfig) resets the chip. */
+    esp_task_wdt_add(NULL);
 }
 
 void gm_esp_loop(void)
@@ -292,7 +296,13 @@ void gm_esp_loop(void)
     if (t_last)
         gm_diag_loop_us(t - t_last);
     t_last = t | 1u;
+    esp_task_wdt_reset();
     hal_midi_poll();
+    static uint8_t confirmed;
+    if (!confirmed && hal_millis() >= GM_ESP_CONFIRM_MS) {
+        confirmed = 1;                      /* up for a while: keep this app (rollback) */
+        gm_esp_app_confirm();
+    }
 }
 
 /* ---- why the app started (diag.reset_reason, sysex.md 4.10) ------------ */

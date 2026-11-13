@@ -39,6 +39,7 @@
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+void ble_store_config_init(void);           /* NimBLE's NVS bond store (store/config) */
 #endif
 
 #define TXQ_SIZE 1024u                      /* power of 2 */
@@ -320,7 +321,10 @@ static int tp_idle(void)
  * timestamp byte (0x80 | ts_lo) and the message; a SysEx continues in the
  * next packet after its header, and its F7 gets a timestamp of its own.
  * NimBLE's host runs in its own task; the write callback queues the bytes
- * for the main loop. UUIDs are little-endian here. */
+ * for the main loop. UUIDs are little-endian here. Pairing is Just Works
+ * (no input or output, LE Secure Connections), bonds in NVS: BlueZ (so
+ * Zynthian) trusts and pairs a device before it connects to it again.
+ * Nothing needs encryption, so a host that doesn't pair works too. */
 static const ble_uuid128_t ble_svc_uuid = BLE_UUID128_INIT(
     0x00, 0xC7, 0xC4, 0x4E, 0xE3, 0x6C, 0x51, 0xA7, 0x33, 0x4B, 0xE8, 0xED, 0x5A, 0x0E, 0xB8, 0x03);
 static const ble_uuid128_t ble_chr_uuid = BLE_UUID128_INIT(
@@ -418,6 +422,13 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ble_conn == BLE_HS_CONN_HANDLE_NONE)
             advertise();
         break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING: {
+        /* the host lost our bond (forgot the device): drop ours and pair again */
+        struct ble_gap_conn_desc d;
+        if (ble_gap_conn_find(ev->repeat_pairing.conn_handle, &d) == 0)
+            ble_store_util_delete_peer(&d.peer_id_addr);
+        return BLE_GAP_REPEAT_PAIRING_RETRY;
+    }
     default:
         break;
     }
@@ -443,11 +454,18 @@ void gm_esp_midi_begin(void)
     if (nimble_port_init() != ESP_OK)
         return;
     ble_hs_cfg.sync_cb = ble_on_sync;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;   /* Just Works */
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_gatts_count_cfg(ble_svcs);
     ble_gatts_add_svcs(ble_svcs);
     ble_svc_gap_device_name_set(GM_DEVICE_NAME);
+    ble_store_config_init();
     ble_att_set_preferred_mtu(185);
     nimble_port_freertos_init(ble_host_task);
 }

@@ -26,10 +26,13 @@ ssd1306:
     # rotate: 180              # if the text is upside down
 
 analog:
-  - { id: pot, name: Volume, pin: GPIO1, cc: 7 }
+  - { id: pot, name: Param 1, daw: device_param_1, pin: GPIO1, cc: 7 }
 
+# daw: roles are for a host with a gemifi driver (Zynthian: hosts/zynthian/README.md); without one
+# the pot is CC 7 and the displays show their own (shows:).
 displays:
-  # big: the last MIDI message ("7 127" as the pot turns) and the device's messages
-  - { id: oled_main, ssd1306: oled, line: 1, scale: 2, shows: last_message }
-  # small, along the bottom: the MIDI channel
-  - { id: oled_channel, ssd1306: oled, line: 6, shows: channel }
+  # big: the last MIDI message ("7 127" as the pot turns) and the device's messages; with the
+  # Zynthian driver, the parameter the pot moves ("Cut 64"), else the selected chain's name
+  - { id: oled_main, ssd1306: oled, line: 1, scale: 2, shows: last_message, daw: param }
+  # small, along the bottom: the MIDI channel; with the Zynthian driver, the selected chain's name
+  - { id: oled_channel, ssd1306: oled, line: 6, shows: channel, daw: track_name }

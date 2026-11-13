@@ -334,14 +334,16 @@ static int tp_idle(void)
  *
  * Latency: data only moves at connection events, one every connection
  * interval, which the central picks (BlueZ: 30-50 ms). We ask for no
- * peripheral latency (every event) and first exactly BLE_ITVL_FAST (7.5 ms,
- * the shortest there is); a host that rejects it, or hasn't granted it by
- * 4 s, is asked for the BLE-MIDI spec's BLE_ITVL_FAST..BLE_ITVL_MAX instead
- * (Apple's hosts only take a range at least 15 ms wide). The interval the
- * host settles on goes out as a LOG ("BLE interval 7.5 ms, ...") and shows
- * on the displays as a message ("BLE 7.5ms"). */
+ * peripheral latency (every event) and an interval from 7.5 ms (the
+ * shortest there is) up to ble_itvl_max[ble_stage]: exactly 7.5 ms, then
+ * 7.5-11.25 ms, then the BLE-MIDI spec's 7.5-15 ms (Apple's hosts only take
+ * a range at least 15 ms wide). A host that rejects a stage, or hasn't
+ * granted it in time, gets the next one; given a range, BlueZ on a Pi takes
+ * its slow end. The interval the host settles on goes out as a LOG
+ * ("BLE interval 11.25 ms, ...") and shows on the displays ("BLE
+ * 11.25ms"); a host's refusal does too ("BLE st 0x23B"). */
 #define BLE_ITVL_FAST 6                     /* x 1.25 ms: 7.5 ms */
-#define BLE_ITVL_MAX 12                     /* 15 ms */
+static const uint8_t ble_itvl_max[3] = { 6, 9, 12 };   /* 7.5, 11.25, 15 ms */
 #define BLE_SUPERVISION 400                 /* x 10 ms: 4 s without a packet drops the link */
 static const ble_uuid128_t ble_svc_uuid = BLE_UUID128_INIT(
     0x00, 0xC7, 0xC4, 0x4E, 0xE3, 0x6C, 0x51, 0xA7, 0x33, 0x4B, 0xE8, 0xED, 0x5A, 0x0E, 0xB8, 0x03);
@@ -357,7 +359,7 @@ static volatile uint16_t rx_head, rx_tail;  /* BLE task writes, loop reads */
  * how the last request for a short interval went (0 = fine). */
 static volatile uint16_t ble_itvl, ble_latency, ble_timeout;
 static volatile uint8_t ble_params_new, ble_conn_new;
-static volatile uint8_t ble_wide;           /* 0: asking for 7.5 ms, 1: for 7.5-15 ms */
+static volatile uint8_t ble_stage;          /* ble_itvl_max index being asked for */
 static volatile int ble_upd_rc;             /* ble_gap_update_params() refused it */
 static volatile int ble_upd_st;             /* the host rejected it (CONN_UPDATE status) */
 
@@ -372,16 +374,15 @@ static void ble_note_params(uint16_t conn)
     ble_params_new = 1;
 }
 
-/* Ask for a short interval, every connection event: 7.5 ms, or 7.5-15 ms
- * once ble_wide. NimBLE refuses while another link procedure runs (the
- * encryption a bonded host starts on connecting), so it is asked again: on
- * connecting, when the link is encrypted, and from tp_tx (2 s in for
- * 7.5 ms; then 4 s and 8 s in for the range, while the interval is longer). */
+/* Ask for the current stage's interval, every connection event. NimBLE
+ * refuses while another link procedure runs (the encryption a bonded host
+ * starts on connecting), so it is asked again: on connecting, when the link
+ * is encrypted, and on tp_tx's schedule while the interval is longer. */
 static void ble_want_params(uint16_t conn)
 {
     const struct ble_gap_upd_params p = {
         .itvl_min = BLE_ITVL_FAST,
-        .itvl_max = ble_wide ? BLE_ITVL_MAX : BLE_ITVL_FAST,
+        .itvl_max = ble_itvl_max[ble_stage],
         .latency = 0,
         .supervision_timeout = BLE_SUPERVISION,
     };
@@ -466,7 +467,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ev->connect.status == 0) {
             ble_conn = ev->connect.conn_handle;
             ble_conn_new = 1;
-            ble_wide = 0;
+            ble_stage = 0;
             ble_note_params(ev->connect.conn_handle);
             ble_want_params(ev->connect.conn_handle);
         } else {
@@ -478,8 +479,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             ble_note_params(ev->conn_update.conn_handle);
         } else {
             ble_upd_st = ev->conn_update.status;
-            if (!ble_wide) {                /* 7.5 ms refused: ask for the range */
-                ble_wide = 1;
+            if (ble_stage < 2) {            /* refused: ask for the next, wider range */
+                ble_stage++;
                 ble_want_params(ev->conn_update.conn_handle);
             }
         }
@@ -612,20 +613,25 @@ static void tp_tx(void)
         tx_tail = tx_head;
         return;
     }
-    /* The interval requests' schedule (ble_want_params): 2 s in, 7.5 ms
-     * again; 4 s and 8 s in, the 7.5-15 ms range, while it is longer. */
-    static const uint16_t at_ms[3] = { 2000, 4000, 8000 };
-    static uint32_t t_conn;
+    /* The interval requests' schedule: at plan[k].ms after connecting, a
+     * stage the host hasn't granted gives way to plan[k].stage, which is
+     * asked for again while the interval is longer than it. */
+    static const struct { uint16_t ms; uint8_t stage; } plan[] = {
+        { 2000, 0 }, { 4000, 1 }, { 6000, 2 }, { 9000, 2 },
+    };
+    static uint32_t t_conn, t_refused;
     static uint8_t step;
+    uint32_t now = hal_millis();
     if (ble_conn_new) {
         ble_conn_new = 0;
-        t_conn = hal_millis();
+        t_conn = now;
+        t_refused = now - 5000u;
         step = 0;
     }
-    if (step < 3 && hal_millis() - t_conn >= at_ms[step]) {
-        if (step >= 1)
-            ble_wide = 1;                   /* no 7.5 ms by now: the range */
-        if (ble_itvl > (ble_wide ? BLE_ITVL_MAX : BLE_ITVL_FAST))
+    if (step < sizeof plan / sizeof plan[0] && now - t_conn >= plan[step].ms) {
+        if (ble_itvl > ble_itvl_max[ble_stage] && ble_stage < plan[step].stage)
+            ble_stage = plan[step].stage;
+        if (ble_itvl > ble_itvl_max[ble_stage])
             ble_want_params(conn);
         step++;
     }
@@ -633,16 +639,18 @@ static void tp_tx(void)
     if (rc || st) {
         ble_upd_rc = ble_upd_st = 0;
         char s[24];
-        if (rc)
-            snprintf(s, sizeof s, "BLE rc %d", rc);         /* NimBLE didn't send it (host/ble_hs.h) */
-        else
-            snprintf(s, sizeof s, "BLE st 0x%X", st);       /* the host said no */
+        if (rc) {                           /* NimBLE didn't send it (host/ble_hs.h): busy, retried */
+            snprintf(s, sizeof s, "BLE rc %d", rc);
+        } else {                            /* the host said no: on the displays too, for 2 s */
+            snprintf(s, sizeof s, "BLE st 0x%X", st);
+            if (gm_display_message)
+                gm_display_message(s);
+            t_refused = now;
+        }
         if (app_log)
             app_log(BLE_LOG_INFO, "interval request: ", s);
-        if (gm_display_message)
-            gm_display_message(s);
     }
-    if (ble_params_new) {
+    if (ble_params_new && now - t_refused >= 2000u) {
         ble_params_new = 0;
         unsigned us = 1250u * ble_itvl;     /* the interval in us: 7500, 11250, 15000, 30000 ... */
         char ms[12], s[56];

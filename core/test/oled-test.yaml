@@ -1,0 +1,24 @@
+# core/test test_oled: SSD1306 / SH1106 OLED hubs with text displays (test_oled.c):
+# a 128x64 SSD1306 given by its 8-bit address (0x78 = 0x3C) with two text
+# displays, and a turned SH1106 (0x3D) with one. A pot sends CC 7.
+gemifi: 2
+name: oled-test
+friendly_name: OLED Test
+board_id: 0x3F19
+platform: esp32
+chip: esp32dev
+midi: { transport: serial }
+i2c: { sda: GPIO21, scl: GPIO22 }
+scan_interval: 1ms
+
+ssd1306:
+  - { id: oled, address: 0x78 }
+  - { id: small, model: sh1106, address: 0x3D, rotate: 180, contrast: 64 }
+
+analog:
+  - { id: pot, pin: GPIO34, cc: 7 }
+
+displays:
+  - { id: big, ssd1306: oled, line: 1, scale: 2 }                     # last_message: 10 characters
+  - { id: chan, ssd1306: oled, line: 6, x: 4, length: 8, shows: channel }
+  - { id: host, ssd1306: small, line: 0 }                             # none: a host's text

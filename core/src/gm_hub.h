@@ -101,6 +101,9 @@ struct gm_hub_state {
         struct {          /* MAX7219 / TM1637 / HT16K33 */
             uint8_t dirty;        /* RAM changed since the last write */
         } seg;
+        struct {          /* SSD1306 */
+            uint8_t pages;        /* bit = framebuffer page changed since sent */
+        } oled;
         struct {          /* SWMATRIX */
             uint32_t seen_hi;     /* bits read high / low by any scan */
             uint32_t seen_lo;     /*   since the last vpin_span_take() */

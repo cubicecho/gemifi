@@ -1,7 +1,8 @@
 /*
  * gm_display.h: character displays (displays: in the device YAML).
  *
- * A segment display is a row of characters on output pins of hubs. Each
+ * A segment display is a row of characters on output pins of hubs (a text
+ * display, GM_DISPLAY_TEXT, a row of characters on an OLED). Each
  * character is its segments' pins, in order: either a run of pins from its
  * first one (chars, the usual wiring: a character's segments on one digit's
  * lines) or a list per character (map: characters on the SEG lines, or any
@@ -54,6 +55,11 @@ extern "C" {
 
 #define GM_DISPLAY_SEG14 1
 #define GM_DISPLAY_SEG7  2
+/* A text display: one row of 5x7 characters (6 x 8 pixels each, x scale)
+ * on an OLED hub (GM_HUB_SSD1306), drawn with vpin_oled_draw. Every
+ * printable ASCII character has a glyph, lower case too, and a '.' takes a
+ * place. */
+#define GM_DISPLAY_TEXT  3
 
 /* gm_display_t.shows: what the display shows of its own (YAML shows:). */
 #define GM_SHOWS_LAST_MESSAGE  0      /* MIDI messages and the device's messages */
@@ -72,6 +78,10 @@ typedef struct {
      * segment order; GM_NO_PIN = not wired. 0 = chars. */
     const gm_pin_t *map;
     uint8_t shows;                /* GM_SHOWS_*                             */
+    /* GM_DISPLAY_TEXT: chars[0] is where the row starts (hub = the OLED,
+     * num = its framebuffer byte, page * width + x); each character is
+     * 6 x scale pixels wide and 8 x scale tall. */
+    uint8_t scale;
 } gm_display_t;
 
 /* Segment bits of one character: bit 0 = a ... bit 13 = m, bit 14 = dot.
@@ -84,8 +94,12 @@ uint16_t gm_seg14_glyph(char c);
  * not) are blank. */
 uint8_t gm_seg7_glyph(char c);
 
+/* A text display's character (GM_DISPLAY_TEXT): its 5 columns, bit 0 at the
+ * top; 0x20..0x7E, others blank. */
+const uint8_t *gm_text_glyph(char c);
+
 /* Set display d's text. A '.' lights the previous character's dot instead
- * of taking a place. Short text is padded with blanks, long text cut. */
+ * of taking a place (on a text display it takes one). Short text is padded with blanks, long text cut. */
 void gm_display_text(uint32_t d, const char *s);
 
 /* Show an outgoing MIDI message on the last_message displays (status

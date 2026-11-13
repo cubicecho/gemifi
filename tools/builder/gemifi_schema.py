@@ -102,7 +102,11 @@ def hub(typ, alias=None):
     if typ in gd.ROW_HUBS:
         types["address"] = lst(ref("pin"), "the address pins, A0 first")
     elif "address" in keys:
-        types["address"] = T("integer", minimum=0x08, maximum=0x77)
+        # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
+        types["address"] = T("integer", minimum=0x08, maximum=0x7A if typ == "ssd1306" else 0x77)
+    if typ == "ssd1306":
+        types["model"] = enum(gd.OLED_MODELS)
+        types["rotate"] = {"enum": [0, 180], "description": "degrees"}
     types["id"] = ref("id")
     what = f"{alias}: the old name of {typ}" if alias else f"{typ} hubs"
     return lst(obj(keys, types), f"{what} (core/README.md \"Virtual pins and hubs\")")
@@ -262,7 +266,12 @@ def device_schema():
                                                                                 for n in ns})),
                                                                    "the segments in pin order"),
                                               "chars": lst(one_of(ref("pin"), lst(ref("pin"))),
-                                                           "each character's first pin, or its segments' pins")})),
+                                                           "each character's first pin, or its segments' pins"),
+                                              "ssd1306": ref("id"),
+                                              "line": T("integer", minimum=0, maximum=7),
+                                              "x": T("integer", minimum=0, maximum=127),
+                                              "scale": T("integer", minimum=1, maximum=4),
+                                              "length": T("integer", minimum=1, maximum=gd.MAX_TEXT_CHARS)})),
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
                                       "port_name": STR, "thru": BOOL, "controller_out": BOOL,
                                       "usb_to_din": BOOL}),

@@ -6,10 +6,10 @@
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
  * TM1628, MAX7219, TM1637, HT16K33, MAUDIO_PADS and WS2812 hubs keep their
- * pins in the hub RAM (hub_ram, GM_HUB_RAM bytes, each hub's back to back
- * from s->ram), since a chip has more than 32 bits: an LED driver's display
- * RAM (a MAX7219's digit registers); the LEDs of the pad LED board and of an
- * LED strip a byte per colour (pin = LED * 3 + colour, LED * 4 on an RGBW
+ * pins (an SSD1306 its framebuffer) in the hub RAM (hub_ram, GM_HUB_RAM
+ * bytes, each hub's back to back from s->ram), since a chip has more than
+ * 32 bits: an LED driver's display RAM (a MAX7219's digit registers); the
+ * LEDs of the pad LED board and of an LED strip a byte per colour (pin = LED * 3 + colour, LED * 4 on an RGBW
  * strip: a pin on is 255, off 0; vpin_rgb sets any colour). ram_sent[] has
  * what the chip, board or strip was sent.
  *
@@ -2115,7 +2115,164 @@ static void ht16k33_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int l
     (void)h;
     ledram_write(s, HT_RAM, num, level);
 }
+
+/* SSD1306 / SH1106 (I2C OLED): a framebuffer in the hub RAM, byte = page *
+ * width + x, bit 0 at the top of the page; text displays draw into it
+ * (vpin_oled_draw) and s->u.oled.pages marks the pages changed. The first
+ * write: the set-up commands (display off), every page, then display on.
+ * After that, runs of changed bytes, page by page: one write each, its page
+ * and column (each command after a 0x80 control byte), then 0x40 and up to
+ * OLED_RUN data bytes (a write fits the ESP Wire buffer, 128 bytes). A run
+ * is ~24 bus bytes (~0.55 ms at 400 kHz): at least one goes out a pass,
+ * more while the budget lasts (a bus byte counts OLED_COST, as an
+ * HT16K33's); vpin_send_all sends everything. The SH1106's RAM is 132
+ * columns, the panel's 128 from column 2. The writes aren't checked, as
+ * the other I2C hubs' aren't. */
+#define OLED_RUN 16u
+#define OLED_HEAD 7u                /* page, column low, column high (3 x 2), 0x40 */
+#define OLED_COST 2u
+
+static uint32_t oled_bytes(const gm_hub_t *h)
+{
+    return (uint32_t)h->oled.width * (h->oled.height / 8u);
+}
+
+static void oled_setup(const gm_hub_t *h)
+{
+    const gm_hub_ssd1306_t *o = &h->oled;
+    int sh = (o->flags & GM_OLED_SH1106) != 0, rot = (o->flags & GM_OLED_ROTATE) != 0;
+    uint8_t b[32];
+    uint32_t n = 0;
+    b[n++] = 0x00;                          /* control: commands follow */
+    b[n++] = 0xAE;                          /* display off */
+    b[n++] = 0xD5; b[n++] = 0x80;           /* clock divide, oscillator */
+    b[n++] = 0xA8; b[n++] = (uint8_t)(o->height - 1u);   /* multiplex ratio */
+    b[n++] = 0xD3; b[n++] = 0x00;           /* display offset */
+    b[n++] = 0x40;                          /* start line 0 */
+    if (sh) {
+        b[n++] = 0xAD; b[n++] = 0x8B;       /* SH1106: DC-DC on */
+    } else {
+        b[n++] = 0x8D; b[n++] = 0x14;       /* SSD1306: charge pump on */
+        b[n++] = 0x20; b[n++] = 0x02;       /* page addressing (as the SH1106 has) */
+    }
+    b[n++] = rot ? 0xA0 : 0xA1;             /* segment remap */
+    b[n++] = rot ? 0xC0 : 0xC8;             /* COM scan direction */
+    b[n++] = 0xDA; b[n++] = o->height > 32u ? 0x12 : 0x02;   /* COM pins */
+    b[n++] = 0x81; b[n++] = o->contrast;
+    b[n++] = 0xD9; b[n++] = sh ? 0x22 : 0xF1;   /* pre-charge */
+    b[n++] = 0xDB; b[n++] = sh ? 0x35 : 0x40;   /* VCOMH */
+    b[n++] = 0xA4;                          /* show the RAM */
+    b[n++] = 0xA6;                          /* not inverted */
+    hal_i2c_write(o->addr, b, n);
+}
+
+/* n (<= OLED_RUN) framebuffer bytes from column x of page pg. */
+static void oled_write(const gm_hub_t *h, uint32_t pg, uint32_t x, const uint8_t *d, uint32_t n)
+{
+    uint8_t b[OLED_HEAD + OLED_RUN];
+    uint32_t col = x + ((h->oled.flags & GM_OLED_SH1106) ? 2u : 0u), k = 0;
+    b[k++] = 0x80; b[k++] = (uint8_t)(0xB0u | pg);
+    b[k++] = 0x80; b[k++] = (uint8_t)(col & 0x0Fu);
+    b[k++] = 0x80; b[k++] = (uint8_t)(0x10u | (col >> 4));
+    b[k++] = 0x40;                          /* data follows */
+    for (uint32_t i = 0; i < n; i++)
+        b[k++] = d[i];
+    hal_i2c_write(h->oled.addr, b, k);
+}
+
+static uint32_t ssd1306_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
+{
+    uint32_t w = h->oled.width, np = h->oled.height / 8u;
+    if (!s->u.oled.pages || s->ram + oled_bytes(h) > GM_HUB_RAM)
+        return budget;
+    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
+    uint32_t all = s->never, used = 0;
+    if (all)
+        oled_setup(h);
+    for (uint32_t pg = 0; pg < np; pg++) {
+        if (!(s->u.oled.pages & (1u << pg)))
+            continue;
+        uint8_t *r = ram + pg * w, *t = sent + pg * w;
+        uint32_t x = 0;
+        for (;;) {
+            if (!all)
+                while (x < w && r[x] == t[x])
+                    x++;
+            if (x >= w) {
+                s->u.oled.pages = (uint8_t)(s->u.oled.pages & ~(1u << pg));
+                break;
+            }
+            if (!all && used && used >= budget)
+                return 0;                   /* the rest on the next passes */
+            uint32_t end = x + OLED_RUN < w ? x + OLED_RUN : w;
+            if (!all)
+                while (end > x + 1u && r[end - 1u] == t[end - 1u])
+                    end--;
+            oled_write(h, pg, x, r + x, end - x);
+            for (uint32_t i = x; i < end; i++)
+                t[i] = r[i];
+            used += (OLED_HEAD + 1u + end - x) * OLED_COST;
+            x = end;
+        }
+    }
+    if (all) {
+        uint8_t on[2] = { 0x00, 0xAF };     /* display on, the RAM now clear (or drawn) */
+        hal_i2c_write(h->oled.addr, on, 2);
+        s->never = 0;
+    }
+    return budget > used ? budget - used : 0u;
+}
+
+static void ssd1306_init(const gm_hub_t *h, hub_state_t *s)
+{
+    uint32_t n = oled_bytes(h);
+    s->ram = ram_alloc(n);
+    for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
+        hub_ram[s->ram + k] = 0;
+    s->u.oled.pages = (uint8_t)((1u << (h->oled.height / 8u)) - 1u);
+}
+
+void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale)
+{
+    const gm_hub_t *h = hub_of(at);
+    if (!h || h->type != GM_HUB_SSD1306)
+        return;
+    hub_state_t *s = &hs[at.hub - 1];
+    uint32_t w = h->oled.width, np = h->oled.height / 8u;
+    if (s->ram + oled_bytes(h) > GM_HUB_RAM)
+        return;
+    uint8_t *fb = &hub_ram[s->ram];
+    uint32_t page = at.num / w, x0 = at.num % w;
+    scale = scale < 1u ? 1u : scale > 4u ? 4u : scale;
+    uint32_t ones = (1u << scale) - 1u;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t v = 0;                     /* the column, each pixel scale tall */
+        for (uint32_t b = 0; b < 8u; b++)
+            if (cols[i] & (1u << b))
+                v |= ones << (b * scale);
+        for (uint32_t r = 0; r < scale; r++) {
+            uint32_t x = x0 + i * scale + r;
+            if (x >= w)
+                return;
+            for (uint32_t k = 0; k < scale && page + k < np; k++) {
+                uint8_t *p = &fb[(page + k) * w + x], byte = (uint8_t)(v >> (8u * k));
+                if (*p != byte) {
+                    *p = byte;
+                    s->u.oled.pages = (uint8_t)(s->u.oled.pages | (1u << (page + k)));
+                }
+            }
+        }
+    }
+}
 #else
+void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale)
+{
+    (void)at;
+    (void)cols;
+    (void)n;
+    (void)scale;
+}
+
 int vpin_fades(gm_pin_t p)
 {
     (void)p;
@@ -2260,6 +2417,9 @@ static const gm_hub_ops_t tm1637_ops = {
 static const gm_hub_ops_t ht16k33_ops = {
     .flags = GM_HUBF_NO_READ, .init = ht16k33_init, .write = ht16k33_write, .send = ht16k33_send,
 };
+static const gm_hub_ops_t ssd1306_ops = {
+    .flags = GM_HUBF_NO_READ, .init = ssd1306_init, .send = ssd1306_send,   /* drawn: vpin_oled_draw */
+};
 #endif
 static const gm_hub_ops_t xy_ops = {
     .flags = GM_HUBF_IN_REG, .init = xy_init, .analog = xy_analog,
@@ -2282,6 +2442,7 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_MAX7219, max7219_ops),
     HUB(GM_HUB_TM1637, tm1637_ops),
     HUB(GM_HUB_HT16K33, ht16k33_ops),
+    HUB(GM_HUB_SSD1306, ssd1306_ops),
 #endif
     HUB(GM_HUB_XY, xy_ops),
 };

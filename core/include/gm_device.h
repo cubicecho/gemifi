@@ -29,8 +29,10 @@ extern "C" {
 #endif
 
 /* ---- hubs (pin expanders) ---------------------------------------------
- * A hub is its type (which driver runs it: core/src/vpin.c, gm_hub.h) and
- * that type's config, the gm_hub_t union member named with each below. */
+ * A hub is its type (which driver runs it: gm_hub.h; its component,
+ * components/<key>/, or core/src/vpin.c) and that type's config, the
+ * gm_hub_t union member named with each below (a component's own comes in
+ * through GM_HUB_CONFIG_MEMBERS). */
 enum {
     GM_HUB_HC595 = 1,     /* serial-in shift register: outputs (.sr)      */
     GM_HUB_HC165 = 2,     /* parallel-in shift register: inputs (.sr)     */
@@ -117,64 +119,6 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
-/* .mpads: the M-Audio Code pad LED board (YAML maudio_pad_leds:, formerly
- * rgb_serial:): RGB LEDs behind a serial link with the board's own protocol
- * (vpin.c), 115200 baud on tx. Outputs only, pin n = LED n / 3, colour n % 3
- * (0 red, 1 green, 2 blue); sent from the main loop, a byte per colour in
- * the hub RAM. */
-typedef struct {
-    gm_pin_t tx;
-    gm_pin_t rx;          /* the board's answers (acks), optional          */
-    /* the brightness curve applied first (gamma:; 256 entries,
-     * 0 = straight) */
-    const uint8_t *curve;
-    uint8_t count;        /* LEDs                                          */
-    uint8_t dma;          /* send by DMA (dma:), else interrupt            */
-    uint8_t white[3];     /* what full red, green and blue send (white:,
-                             the white balance; 0 = 255)                   */
-} gm_hub_maudio_pads_t;
-
-/* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
- * software (vpin.c), one axis per ms in turn. A touch: both readings within
- * touch_min..touch_max. */
-typedef struct {
-    gm_pin_t drive[4];    /* X+, X-, Y+, Y- (MCU pins)                     */
-    gm_pin_t sense[2];    /* the pins X and Y are read on: a Y-plate and an
-                             X-plate pin (ADC pins)                        */
-    uint16_t touch_min, touch_max;
-} gm_hub_xy_t;
-
-/* .mx: a chain of MAX7219 LED drivers (MAX7221 too), bit-banged from the
- * main loop: outputs, pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
- * 7 = DP; digit 0 = DIG0). Chip 0 is the one whose DIN is the MCU's. The
- * chips' own decode is off: the core sends segments. */
-typedef struct {
-    gm_pin_t clk;
-    gm_pin_t din;
-    gm_pin_t cs;          /* LOAD / CS: the words are taken on its rising edge */
-    uint8_t chips;        /* in the chain, 1..8                            */
-    uint8_t intensity;    /* 0..15 (register 0x0A)                         */
-    uint8_t scan_limit;   /* digits scanned, 1..8 (register 0x0B: it - 1)  */
-} gm_hub_max7219_t;
-
-/* .tm37: a TM1637 (2-wire: CLK, DIO, no chip select; one chip per pair),
- * bit-banged from the main loop: outputs, pin = grid * 8 + segment (bit 0
- * = SEG1 = a ... bit 7 = SEG8, the point or colon). */
-typedef struct {
-    gm_pin_t clk;
-    gm_pin_t dio;
-    uint8_t grids;        /* digits written, 1..6                          */
-    uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
-} gm_hub_tm1637_t;
-
-/* .ht: an HT16K33 LED driver on the I2C bus (the 14-segment and 7-segment
- * backpacks), written from the main loop: outputs, pin = COM * 16 + ROW
- * (display RAM bit: byte * 8 + bit). The key scan isn't read. */
-typedef struct {
-    uint8_t addr;         /* 7-bit I2C address, 0x70..0x77                 */
-    uint8_t brightness;   /* 0..15 (dimming 0xE0 | it)                     */
-} gm_hub_ht16k33_t;
-
 typedef struct {
     uint8_t type;         /* GM_HUB_*                                      */
     union {
@@ -184,11 +128,6 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
-        gm_hub_maudio_pads_t mpads; /* GM_HUB_MAUDIO_PADS */
-        gm_hub_xy_t xy;           /* GM_HUB_XY */
-        gm_hub_max7219_t mx;      /* GM_HUB_MAX7219 */
-        gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
-        gm_hub_ht16k33_t ht;      /* GM_HUB_HT16K33 */
         GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */
     };
 } gm_hub_t;

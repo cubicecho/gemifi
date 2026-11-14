@@ -30,6 +30,7 @@
 
 #include <stdint.h>
 #include "gm_device.h"
+#include "gm_hal.h"
 
 /* gm_hub_ops_t.flags */
 #define GM_HUBF_BUS     (1u << 0)   /* refresh / flush from the main loop (I2C), not the scan tick */
@@ -107,14 +108,6 @@ struct gm_hub_state {
             uint32_t span_hi;     /* seen_hi / seen_lo as of that take */
             uint32_t span_lo;
         } sm;
-        struct {          /* MAUDIO_PADS (the M-Audio Code pad LED board) */
-            uint32_t t_ka, t_any; /* last A5 keepalive, last write   */
-            uint32_t t_led;       /* when the awaited LED went out   */
-            uint8_t repainted;    /* every LED sent again once        */
-            uint8_t wait_led;     /* rx_pin: the answer awaited, LED + 1, 0 = none */
-            uint8_t misses;       /* ... unanswered in a row          */
-            uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
-        } mpads;
         struct {          /* XY */
             uint16_t raw[2];      /* last X / Y reading, 0xFFFF = none */
             uint8_t touch;        /* readings in a row with both in the window */
@@ -137,5 +130,30 @@ uint16_t gm_hub_ram_alloc(uint32_t n);
  * value v of a full-colour hub: through its curve (gamma:), then scaled to
  * its white (white:, 0 = 255). A value above 0 stays above 0. */
 uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v);
+/* The LED drivers with a bit per pin in the hub RAM (u.seg): n bytes,
+ * all off and written whole on the first send (init); pin num = RAM bit,
+ * byte * 8 + bit, of `bytes` bytes, marking the chip dirty if it changed
+ * (write). */
+void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n);
+void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level);
+/* An MCU pin (hub 0) as a hub's control line: driven to level, open-drain
+ * with GM_PIN_OPEN_DRAIN. A hub pin is left alone. */
+void gm_hub_mcu_out(gm_pin_t p, int level);
+/* The I2C expanders' (u.io) init, input and output ops: each pin's
+ * direction and pull-up, which flush writes when cfg_dirty; a PCF8574
+ * input is written high. */
+void gm_hub_i2c_init(const gm_hub_t *h, gm_hub_state_t *s);
+void gm_hub_i2c_input(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
+void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
+/* A multiplexer (.mux), hub i, to channel ch: its select lines, and the
+ * other muxes' channels where they share them (vpin_read's path). */
+void gm_hub_mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch);
+/* A clock (or latch) pulse on MCU pin `pin`, high then low: the shift
+ * registers' (.sr), from the scan tick, so inline. */
+static inline void gm_hub_pulse(uint16_t pin)
+{
+    hal_pin_write(pin, 1);
+    hal_pin_write(pin, 0);
+}
 
 #endif

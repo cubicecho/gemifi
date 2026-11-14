@@ -268,82 +268,82 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_modes
 	$(BUILD)/test_ws2812
 
-$(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(DEV)/gm_device_config.h
+$(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(DEV) $(SRCS) -Wl,--wrap=gm_display_message -o $@
 
-$(BUILD)/test_controller_wtf: $(WTF_SRCS) $(wildcard $(ROOT)/core/include/*.h) fake_config_store.h $(WTF_DEV)/gm_device_config.h
+$(BUILD)/test_controller_wtf: $(WTF_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) fake_config_store.h $(WTF_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHAL_APP_FW_UPLOAD=0 -I$(WTF_DEV) $(WTF_SRCS) -Wl,--wrap=gm_display_message -o $@
 
-$(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(FB_DEV)/gm_device_config.h
+$(BUILD)/test_feedback: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(FB_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(FB_DEV) $(FB_SRCS) -o $@
 
-$(BUILD)/test_matrix: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MX_DEV)/gm_device_config.h
+$(BUILD)/test_matrix: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MX_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MX_DEV) $(MX_SRCS) -Wl,--wrap=gm_display_message -o $@
 
-$(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(HW_DEV)/gm_device_config.h
+$(BUILD)/test_matrix_hw: $(HW_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(HW_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHW_SCAN_TEST -I$(HW_DEV) $(HW_SRCS) -Wl,--wrap=gm_display_message -o $@
 
-$(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TM_DEV)/gm_device_config.h
+$(BUILD)/test_tm1628: $(TM_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(TM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DGM_TEST_STORE -I$(TM_DEV) $(TM_SRCS) -o $@
 
-$(BUILD)/test_tm1628_ack: $(TMA_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(TMA_DEV)/gm_device_config.h
+$(BUILD)/test_tm1628_ack: $(TMA_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(TMA_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DGM_TEST_STORE -DRGB_ACK_TEST -I$(TMA_DEV) $(TMA_SRCS) -o $@
 
-$(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PAD_DEV)/gm_device_config.h
+$(BUILD)/test_pads: $(PAD_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(PAD_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(PAD_DEV) $(PAD_SRCS) -o $@
 
-$(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(PADHW_DEV)/gm_device_config.h
+$(BUILD)/test_pads_hw: $(PADHW_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(PADHW_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DHW_ADC_TEST -I$(PADHW_DEV) $(PADHW_SRCS) -o $@
 
-$(BUILD)/test_seg_hubs: $(SEG_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(SEG_DEV)/gm_device_config.h
+$(BUILD)/test_seg_hubs: $(SEG_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(SEG_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(SEG_DEV) $(SEG_SRCS) -o $@
 
-$(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) display-cfg/gm_device_config.h
+$(BUILD)/test_display: test_display.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) display-cfg/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -Wno-missing-field-initializers -Idisplay-cfg test_display.c $(ROOT)/core/src/display.c -o $@
 
-$(BUILD)/test_displays: test_displays.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h) displays-cfg/gm_device_config.h
+$(BUILD)/test_displays: test_displays.c $(ROOT)/core/src/display.c $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) displays-cfg/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -Idisplays-cfg test_displays.c $(ROOT)/core/src/display.c -o $@
 
-$(BUILD)/test_din_port: $(DINP_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(DINP_DEV)/gm_device_config.h
+$(BUILD)/test_din_port: $(DINP_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(DINP_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(DINP_DEV) $(DINP_SRCS) -o $@
 
-$(BUILD)/test_din_merge: $(DINM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(DINM_DEV)/gm_device_config.h
+$(BUILD)/test_din_merge: $(DINM_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(DINM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(DINM_DEV) $(DINM_SRCS) -o $@
 
-$(BUILD)/test_leds: $(LED_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(LED_DEV)/gm_device_config.h
+$(BUILD)/test_leds: $(LED_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(LED_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(LED_DEV) $(LED_SRCS) -o $@
 
-$(BUILD)/test_leds_local: $(LEDL_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(LEDL_DEV)/gm_device_config.h
+$(BUILD)/test_leds_local: $(LEDL_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(LEDL_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(LEDL_DEV) $(LEDL_SRCS) -o $@
 
-$(BUILD)/test_leds_many: $(LEDM_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(LEDM_DEV)/gm_device_config.h
+$(BUILD)/test_leds_many: $(LEDM_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(LEDM_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(LEDM_DEV) $(LEDM_SRCS) -o $@
 
-$(BUILD)/test_encoders: $(ENC_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(ENC_DEV)/gm_device_config.h
+$(BUILD)/test_encoders: $(ENC_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(ENC_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(ENC_DEV) $(ENC_SRCS) -o $@
 
 clean:
 	rm -rf $(BUILD)
 
-$(BUILD)/test_i2c: $(I2C_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(I2C_DEV)/gm_device_config.h
+$(BUILD)/test_i2c: $(I2C_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(I2C_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(I2C_DEV) $(I2C_SRCS) -o $@
 
@@ -351,11 +351,11 @@ $(BUILD)/test_oled: $(OLED_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/com
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(OLED_DEV) $(OLED_SRCS) -o $@
 
-$(BUILD)/test_msg: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MSG_DEV)/gm_device_config.h
+$(BUILD)/test_msg: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MSG_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MSG_DEV) $(MSG_SRCS) -o $@
 
-$(BUILD)/test_modes: $(MODES_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MODES_DEV)/gm_device_config.h
+$(BUILD)/test_modes: $(MODES_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MODES_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MODES_DEV) $(MODES_SRCS) -Wl,--wrap=gm_display_message -o $@
 

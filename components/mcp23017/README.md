@@ -1,0 +1,5 @@
+# mcp23017
+
+A hub type ([hub](../hub/gm_hub.h), [core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)): `mcp23017.c` (the driver), `__init__.py` (the YAML: an `I2CExpander` of the hub base). Its config (`.i2c`, the address) and pin state (`u.io`, `gm_hub_i2c_*`) are the hub base's, shared with the `pcf8574`. Its host test is `core/test/test_i2c.c`, with the other I2C hubs'.
+
+`mcp23017` is an MCP23017: 16 GPIO on the I2C bus (`address`, default 0x20; the `i2c:` pins), numbered `0`–`15` or `GPA0`–`GPB7`, with pull-ups (`mode: INPUT_PULLUP`). Its pin key is `mcp23xxx`, as in ESPHome: `{ mcp23xxx: io, number: GPB7 }`. It is read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt. A chip with no input on it is never read (a read is two transactions, ~120 µs at 400 kHz), and outputs are written only when they change; the writes aren't checked. ESP only for now: stm32f1 and nuvoton-nuc1xx have no I2C driver, so the builder refuses it there.

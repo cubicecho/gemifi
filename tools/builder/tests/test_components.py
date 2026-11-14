@@ -1,0 +1,42 @@
+"""The hub types the builder knows, and that they match the core's GM_HUB_* values."""
+import os
+import re
+import sys
+import unittest
+
+TESTS = os.path.dirname(os.path.abspath(__file__))
+BUILDER = os.path.dirname(TESTS)
+REPO = os.path.dirname(os.path.dirname(BUILDER))
+sys.path.insert(0, BUILDER)
+import gemifi_device as gd  # noqa: E402
+
+HUB_KEYS = {
+    "sn74hc595", "sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "decoder", "switch_matrix",
+    "tm1628", "maudio_pad_leds", "xy_pad", "ws2812", "max7219", "tm1637", "ht16k33", "ssd1306",
+}
+
+
+def core_hub_enum():
+    """GM_HUB_* name -> value, from core/include/gm_device.h."""
+    with open(os.path.join(REPO, "core", "include", "gm_device.h")) as f:
+        return {m[1]: int(m[2]) for m in re.finditer(r"\b(GM_HUB_[A-Z0-9_]+) = (\d+),", f.read())}
+
+
+class HubTypes(unittest.TestCase):
+    def test_every_hub_type_is_known(self):
+        self.assertEqual(set(gd.HUB_DEFS), HUB_KEYS)
+
+    def test_enums_match_the_core(self):
+        core = core_hub_enum()
+        for key, t in gd.HUB_DEFS.items():
+            with self.subTest(key):
+                self.assertEqual(core[t.enum], t.num)
+
+    def test_every_hub_type_is_a_top_level_key(self):
+        for key in gd.HUB_DEFS:
+            with self.subTest(key):
+                self.assertIn(key, gd.TOP_KEYS)
+
+
+if __name__ == "__main__":
+    unittest.main()

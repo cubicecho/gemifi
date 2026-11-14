@@ -123,7 +123,7 @@ class TestGenerateCompiles(unittest.TestCase):
         for p in paths:
             os.utime(p, (1, 1))
         gd.write_generated(dev, out, "x.yaml")
-        self.assertEqual([os.stat(p).st_mtime for p in paths], [1, 1])
+        self.assertEqual([os.stat(p).st_mtime for p in paths], [1] * len(paths))
 
     def test_header_and_banner(self):
         dev, _ = gd.load_device(KEYSTATION)

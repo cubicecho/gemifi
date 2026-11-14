@@ -5,7 +5,14 @@
  * starts, so the rest of the page does not carry it.
  */
 
-import { type FlashPart, type PickedBytes, planInstall, resolveParts, selectBuild } from './esp-manifest.ts';
+import {
+  checkPartsChip,
+  type FlashPart,
+  type PickedBytes,
+  planInstall,
+  resolveParts,
+  selectBuild,
+} from './esp-manifest.ts';
 
 /** The ROM bootloader's own speed; esptool switches to {@link InstallOptions.baudRate} once its stub runs. */
 const ROM_BAUD = 115_200;
@@ -99,6 +106,11 @@ export async function installFirmware(options: InstallOptions): Promise<InstallR
         throw new Error(`Pick these files with the manifest too: ${resolved.missing.join(', ')}.`);
       }
       parts = resolved.parts;
+    }
+    // Before anything is erased: a build for another chip would only fail once it boots.
+    const wrongChip = checkPartsChip(parts, loader.chip.IMAGE_CHIP_ID, family);
+    if (wrongChip !== null) {
+      throw new Error(wrongChip);
     }
     if (options.eraseAll) {
       report('erasing');

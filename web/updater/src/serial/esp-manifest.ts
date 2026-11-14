@@ -159,6 +159,77 @@ export function resolveParts(
   return missing.length > 0 ? { ok: false, missing } : { ok: true, parts };
 }
 
+/** An ESP image header (`esp_image_header_t`) starts with this byte. */
+const IMAGE_MAGIC = 0xe9;
+/** Where the header's `chip_id` (u16, little-endian) is. */
+const CHIP_ID_OFFSET = 12;
+/** Where a merged image's bootloader starts on the S3, C3 and later. */
+const BOOTLOADER_AT_0 = 0x0;
+/** … on the ESP32 and S2 (the bytes before it are 0xFF). */
+const BOOTLOADER_AT_1000 = 0x1000;
+/** … on the C5 and P4. */
+const BOOTLOADER_AT_2000 = 0x2000;
+const BOOTLOADER_OFFSETS = [BOOTLOADER_AT_0, BOOTLOADER_AT_1000, BOOTLOADER_AT_2000] as const;
+
+/** The header's `chip_id` (esptool's `IMAGE_CHIP_ID`) for each chip. */
+const CHIP_NAMES: Readonly<Record<number, string>> = {
+  0: 'ESP32',
+  2: 'ESP32-S2',
+  5: 'ESP32-C3',
+  9: 'ESP32-S3',
+  12: 'ESP32-C2',
+  13: 'ESP32-C6',
+  16: 'ESP32-H2',
+  18: 'ESP32-P4',
+  20: 'ESP32-C61',
+  23: 'ESP32-C5',
+};
+
+/**
+ * Finds which chip a part was built for, from its first ESP image header: the part's start, or for a
+ * part written at 0x0 (a merged image) the first bootloader offset that has one.
+ *
+ * @param part - A part.
+ * @returns The header's `chip_id`, or null when the part has no image header (a partition table,
+ * OTA data, or not an ESP image).
+ */
+export function imageChipId(part: FlashPart): number | null {
+  const offsets = part.address === 0 ? BOOTLOADER_OFFSETS : [0];
+  for (const offset of offsets) {
+    if (part.data.length >= offset + CHIP_ID_OFFSET + 2 && part.data[offset] === IMAGE_MAGIC) {
+      return (part.data[offset + CHIP_ID_OFFSET] ?? 0) | ((part.data[offset + CHIP_ID_OFFSET + 1] ?? 0) << 8);
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks that every part with an ESP image header was built for the chip esptool found, as esptool's
+ * own `write_flash` does (esptool-js doesn't): a wrong one only fails once it is written and booted.
+ *
+ * @param parts - What would be written.
+ * @param chipId - The chip's `IMAGE_CHIP_ID`; undefined skips the check (the ESP8266 has none).
+ * @param chipName - esptool's `CHIP_NAME`, for the message.
+ * @returns What is wrong, or null.
+ */
+export function checkPartsChip(
+  parts: readonly FlashPart[],
+  chipId: number | undefined,
+  chipName: string,
+): string | null {
+  if (chipId === undefined) {
+    return null;
+  }
+  for (const part of parts) {
+    const built = imageChipId(part);
+    if (built !== null && built !== chipId) {
+      const builtName = CHIP_NAMES[built] ?? `chip ID ${built}`;
+      return `${part.name} is built for an ${builtName}, but this chip is an ${chipName}. Nothing was written: pick the ${chipName} build.`;
+    }
+  }
+  return null;
+}
+
 /** What the picked files are. */
 export type InstallPlan =
   | { kind: 'merged'; part: FlashPart }

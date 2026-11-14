@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest, planInstall, resolveParts, selectBuild } from './esp-manifest.ts';
+import { checkPartsChip, imageChipId, parseManifest, planInstall, resolveParts, selectBuild } from './esp-manifest.ts';
 
 const MANIFEST = {
   name: 'gemifi faders',
@@ -88,5 +88,52 @@ describe('ESP manifests', () => {
     ).toBe('invalid');
     expect(planInstall([{ name: 'manifest.json', bytes: bytes('nope') }]).kind).toBe('invalid');
     expect(planInstall([{ name: 'empty.bin', bytes: new Uint8Array(0) }]).kind).toBe('invalid');
+  });
+
+  /**
+   * @param chipId - The header's chip_id.
+   * @param at - Where the header goes.
+   * @param size - The image size.
+   * @returns An image: 0xFF, with an ESP image header at `at`.
+   */
+  const image = (chipId: number, at = 0, size = 0x2000) => {
+    const data = new Uint8Array(size).fill(0xff);
+    data.set([0xe9, 3, 2, 0x20, 0, 0, 0, 0, 0xee, 0, 0, 0, chipId & 0xff, chipId >> 8], at);
+    return data;
+  };
+
+  it('reads the chip a merged image or a part is built for', () => {
+    expect(imageChipId({ name: 's3.bin', address: 0, data: image(9) })).toBe(9);
+    expect(imageChipId({ name: 'esp32.bin', address: 0, data: image(0, 0x1000) })).toBe(0);
+    expect(imageChipId({ name: 'c5.bin', address: 0, data: image(23, 0x2000, 0x3000) })).toBe(23);
+    expect(imageChipId({ name: 'app.bin', address: 0x10000, data: image(2) })).toBe(2);
+    // Only a part at 0x0 is looked into further; a partition table or OTA data has no header.
+    expect(imageChipId({ name: 'x.bin', address: 0x10000, data: image(9, 0x1000) })).toBeNull();
+    expect(
+      imageChipId({ name: 'partitions.bin', address: 0x8000, data: new Uint8Array([0xaa, 0x50, 1, 2]) }),
+    ).toBeNull();
+    expect(imageChipId({ name: 'short.bin', address: 0, data: new Uint8Array([0xe9, 1]) })).toBeNull();
+  });
+
+  it('refuses a build for another chip before anything is written', () => {
+    const s3Merged = { name: 'diy-s3-factory.bin', address: 0, data: image(9) };
+    expect(checkPartsChip([s3Merged], 0, 'ESP32')).toBe(
+      'diy-s3-factory.bin is built for an ESP32-S3, but this chip is an ESP32. Nothing was written: pick the ESP32 build.',
+    );
+    expect(checkPartsChip([s3Merged], 9, 'ESP32-S3')).toBeNull();
+    expect(checkPartsChip([{ name: 'esp32-factory.bin', address: 0, data: image(0, 0x1000) }], 9, 'ESP32-S3')).toMatch(
+      /built for an ESP32, but this chip is an ESP32-S3/,
+    );
+    // A manifest's parts: the header-less ones are skipped, a mislabelled app is caught.
+    const parts = [
+      { name: 'bootloader.bin', address: 0, data: image(9) },
+      { name: 'partitions.bin', address: 0x8000, data: new Uint8Array([0xaa, 0x50]) },
+      { name: 'firmware.bin', address: 0x10000, data: image(2) },
+    ];
+    expect(checkPartsChip(parts, 9, 'ESP32-S3')).toMatch(/^firmware\.bin is built for an ESP32-S2/);
+    expect(checkPartsChip([{ name: 'odd.bin', address: 0, data: image(99) }], 9, 'ESP32-S3')).toMatch(/chip ID 99/);
+    // Not an ESP image at all, or a chip without IMAGE_CHIP_ID (ESP8266): left to esptool.
+    expect(checkPartsChip([{ name: 'x.bin', address: 0, data: bytes('x') }], 0, 'ESP32')).toBeNull();
+    expect(checkPartsChip([s3Merged], undefined, 'ESP8266')).toBeNull();
   });
 });

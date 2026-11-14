@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.48.0](https://github.com/cubicecho/gemifi/compare/v0.47.0...v0.48.0) (2026-11-14)
+
+
+### Features
+
+* **i2c:** several I2C buses with ids; I2C components name theirs with i2c_id (F1) ([d4d5cc5](https://github.com/cubicecho/gemifi/commit/d4d5cc588457b5a0049545ac02890e555e55b5b7))
+
 # [0.47.0](https://github.com/cubicecho/gemifi/compare/v0.46.0...v0.47.0) (2026-11-14)
 
 

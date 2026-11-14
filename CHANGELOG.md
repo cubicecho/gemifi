@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.45.2](https://github.com/cubicecho/gemifi/compare/v0.45.1...v0.45.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **updater:** refuse an ESP build for another chip before flashing ([a373e21](https://github.com/cubicecho/gemifi/commit/a373e2158440520a3bc664b316ea7a8ea0e806c3))
+
 ## [0.45.1](https://github.com/cubicecho/gemifi/compare/v0.45.0...v0.45.1) (2026-11-14)
 
 

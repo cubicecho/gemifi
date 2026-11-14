@@ -71,7 +71,8 @@ if [ "$(id -u)" = 0 ] && [ "${PUID:-1000}" != 0 ]; then
     mkdir -p "$CACHE/platformio" "$CACHE/pio-workspace" "$CACHE/home" "${GEMIFI_BUILD_DIR:-$CONFIG/.build}"
     # Fix ownership only where it's wrong, so a populated 6 GB cache isn't walked every start.
     for d in "$CACHE" "$CACHE/platformio" "$CACHE/pio-workspace" "$CACHE/home" \
-             "${GEMIFI_BUILD_DIR:-$CONFIG/.build}" "$CONFIG/.tls"; do
+             "${GEMIFI_BUILD_DIR:-$CONFIG/.build}" "$CONFIG/.tls" \
+             /opt/gemifi/firmware/esp/midi-controller /opt/gemifi/firmware/esp/hello; do
         [ -e "$d" ] || continue
         [ "$(stat -c %u:%g "$d")" = "$uid:$gid" ] || chown -R "$uid:$gid" "$d"
     done

@@ -40,6 +40,10 @@ COPY tools/host/ tools/host/
 COPY README.md LICENSE ./
 COPY --from=web /src/web/updater/dist/ web/updater/dist/
 COPY docker/entrypoint.sh /usr/local/bin/gemifi-entrypoint
+# `pio run -d` needs a writable project dir, and ESP-IDF writes dependencies.lock and
+# managed_components/ there (the build itself goes in the device's build dir). Writable for any
+# `user:`; with PUID/PGID the entrypoint also gives them to that user.
+RUN chmod a+rwx firmware/esp/midi-controller firmware/esp/hello
 
 ENV GEMIFI_HOST=0.0.0.0 \
     GEMIFI_PORT=6055 \

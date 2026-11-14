@@ -31,6 +31,10 @@ config/
 **/*.gfw
 **/*.o
 **/*.d
+# ESP-IDF component manager / sdkconfig leftovers of a local build (firmware/esp/*)
+firmware/esp/*/managed_components/
+firmware/esp/*/dependencies.lock
+firmware/esp/*/sdkconfig.*
 
 # Not used by the builds
 bootloader/

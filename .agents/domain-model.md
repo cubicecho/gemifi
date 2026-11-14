@@ -110,7 +110,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   A base component defines what the components on it implement (`hub`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`,
-  `ws2812`, `max7219`, `tm1637`, `ht16k33`, `maudio_pad_leds`, `tm1628`, `mcp23017`, `pcf8574`, `xy_pad` and `sn74hc595`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
+  `ws2812`, `max7219`, `tm1637`, `ht16k33`, `maudio_pad_leds`, `tm1628`, `mcp23017`, `pcf8574`, `xy_pad`, `sn74hc595` and `sn74hc165`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named

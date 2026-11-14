@@ -501,7 +501,6 @@ class SSD1306(HubType):
 
 # The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
 _HUBS_HERE = (
-    ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
     Decoder(), SwitchMatrix(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}

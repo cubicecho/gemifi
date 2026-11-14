@@ -451,37 +451,6 @@ static void mcu_in(gm_pin_t p)
                             (p.flags & GM_PIN_PULLDOWN) ? HAL_IN_PULLDOWN : HAL_IN);
 }
 
-/* ---- 74HC165 shift registers (scan tick) ------------------------------- */
-
-static void hc165_init(const gm_hub_t *h, hub_state_t *s)
-{
-    (void)s;
-    gm_hub_mcu_out(h->sr.clock, 0);
-    gm_hub_mcu_out(h->sr.latch, 1);
-    if (h->sr.data.hub == 0)
-        hal_pin_mode(h->sr.data.num, HAL_IN);
-}
-
-static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
-{
-    /* Pin numbers as ESPHome: 0-7 on the chip wired to the MCU, 0 = its A.
-     * SH/LD low loads the parallel inputs; then QH = first chip's H
-     * (pin 7), and each clock shifts the next bit in. */
-    hal_pin_write(h->sr.latch.num, 0);
-    hal_delay_us(1);
-    hal_pin_write(h->sr.latch.num, 1);
-    uint32_t bits = 8u * (h->sr.chain ? h->sr.chain : 1u), v = 0;
-    if (bits > 32)
-        bits = 32;
-    for (uint32_t b = 0; b < bits; b++) {
-        uint32_t pin = (b / 8u) * 8u + 7u - (b % 8u);
-        if (hal_pin_read(h->sr.data.num))
-            v |= 1u << pin;
-        gm_hub_pulse(h->sr.clock.num);
-    }
-    s->in = v;
-}
-
 /* ---- XY pads: a new touch (the driver: components/xy_pad) ------------- */
 
 int vpin_analog_jump(gm_pin_t p)
@@ -1429,9 +1398,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
 
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
-static const gm_hub_ops_t hc165_ops = {
-    .flags = GM_HUBF_IN_REG, .init = hc165_init, .refresh = hc165_refresh,
-};
 static const gm_hub_ops_t mux_ops = {
     .init = mux_init, .analog = mux_analog,         /* digital reads: vpin_read */
 };
@@ -1452,7 +1418,6 @@ static const gm_hub_ops_t no_ops = { 0 };
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
-    HUB(GM_HUB_HC165, hc165_ops),
     HUB(GM_HUB_MUX, mux_ops),
     HUB(GM_HUB_DECODER, decoder_ops),
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),

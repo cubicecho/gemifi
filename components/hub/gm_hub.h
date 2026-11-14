@@ -30,6 +30,7 @@
 
 #include <stdint.h>
 #include "gm_device.h"
+#include "gm_hal.h"
 
 /* gm_hub_ops_t.flags */
 #define GM_HUBF_BUS     (1u << 0)   /* refresh / flush from the main loop (I2C), not the scan tick */
@@ -147,5 +148,12 @@ void gm_hub_mcu_out(gm_pin_t p, int level);
 void gm_hub_i2c_init(const gm_hub_t *h, gm_hub_state_t *s);
 void gm_hub_i2c_input(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
 void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
+/* A clock (or latch) pulse on MCU pin `pin`, high then low: the shift
+ * registers' (.sr), from the scan tick, so inline. */
+static inline void gm_hub_pulse(uint16_t pin)
+{
+    hal_pin_write(pin, 1);
+    hal_pin_write(pin, 0);
+}
 
 #endif

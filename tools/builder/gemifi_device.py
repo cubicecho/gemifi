@@ -21,7 +21,7 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, rgb_curve  # noqa: E402
+from components.hub import HubType, ShiftRegister, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -339,35 +339,6 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
 # type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the ones
 # below are still here and in core/src/vpin.c.
-class ShiftRegister(HubType):
-    """74HC595 (outputs) / 74HC165 (inputs): sr_count chips in a chain, 8 pins each."""
-    lines = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data", "oe_pin": "enable"}
-
-    def __init__(self, key, enum, num, out):
-        self.key, self.enum, self.num, self.out = key, enum, num, out
-        self.keys = ("id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count") if out else \
-            ("id", "data_pin", "clock_pin", "load_pin", "sr_count")
-        self.roles = frozenset({"out"} if out else {"in"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
-        hub.n_pins = 8 * hub.chain
-        hub.data = ctl("data_pin", "out" if self.out else "in")
-        hub.clock = ctl("clock_pin", "out")
-        if self.out:
-            hub.latch = ctl("latch_pin", "out")
-            hub.enable = ctl("oe_pin", "out", required=False)
-        else:
-            hub.latch = ctl("load_pin", "out")
-
-    def range_text(self, hub):
-        return f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)"
-
-    def c_fields(self, hub):
-        return [f"        .sr = {{ .data = {hub.data.c()}, .clock = {hub.clock.c()}, .latch = {hub.latch.c()},",
-                f"                .oe = {hub.enable.c()}, .chain = {hub.chain} }},"]
-
-
 class Mux(HubType):
     """CD74HC4051 (3 select lines, 8 channels) / 4067 (4, 16): one common pin routed to a channel;
     analog or digital inputs."""
@@ -530,7 +501,6 @@ class SSD1306(HubType):
 
 # The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
 _HUBS_HERE = (
-    ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
     Decoder(), SwitchMatrix(), SSD1306())

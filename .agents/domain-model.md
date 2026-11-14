@@ -110,7 +110,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   A base component defines what the components on it implement (`hub`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`,
-  `ws2812`, `max7219`, `tm1637`, `ht16k33`, `maudio_pad_leds`, `tm1628`, `mcp23017`, `pcf8574` and `xy_pad`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
+  `ws2812`, `max7219`, `tm1637`, `ht16k33`, `maudio_pad_leds`, `tm1628`, `mcp23017`, `pcf8574`, `xy_pad` and `sn74hc595`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named
@@ -125,7 +125,8 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   `hub_ops[]` in `vpin.c` (component types through `GM_HUB_OPS`). What the base gives its types: the
   hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`), the LED drivers' bit pins in it (`gm_hub_ledram_*`), the
   full-colour output (`gm_hub_colour_out`), control-pin output (`gm_hub_mcu_out`) and the I2C expanders'
-  pins (`gm_hub_i2c_*`); in the builder, `I2CExpander`.
+  pins (`gm_hub_i2c_*`), the shift registers' clock pulse (`gm_hub_pulse`); in the builder,
+  `ShiftRegister` and `I2CExpander`.
 - **Virtual pin (vpin):** the core's pin dispatch: a pin's read or write goes to the MCU or its hub's
   driver. Owner: `core/src/vpin.c`, `core/include/gm_vpin.h`.
 - **I2C bus:** the one I2C bus a device may have (`i2c: { sda, scl }`), shared by the I2C hubs.

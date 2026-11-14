@@ -451,41 +451,7 @@ static void mcu_in(gm_pin_t p)
                             (p.flags & GM_PIN_PULLDOWN) ? HAL_IN_PULLDOWN : HAL_IN);
 }
 
-/* ---- 74HC595 / 74HC165 shift registers (scan tick) --------------------- */
-
-static void pulse(uint16_t pin)
-{
-    hal_pin_write(pin, 1);
-    hal_pin_write(pin, 0);
-}
-
-static void hc595_init(const gm_hub_t *h, hub_state_t *s)
-{
-    (void)s;
-    gm_hub_mcu_out(h->sr.data, 0);
-    gm_hub_mcu_out(h->sr.clock, 0);
-    gm_hub_mcu_out(h->sr.latch, 0);
-    gm_hub_mcu_out(h->sr.oe, 0);
-}
-
-static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
-{
-    if (s->out == s->written && !s->never)
-        return;
-    /* The first bit shifted ends up in the last chip: send the highest
-     * pin first. */
-    uint32_t bits = 8u * (h->sr.chain ? h->sr.chain : 1u);
-    if (bits > 32)
-        bits = 32;
-    uint32_t v = s->out;
-    for (uint32_t b = bits; b-- > 0;) {
-        hal_pin_write(h->sr.data.num, (v >> b) & 1u);
-        pulse(h->sr.clock.num);
-    }
-    pulse(h->sr.latch.num);
-    s->written = v;
-    s->never = 0;
-}
+/* ---- 74HC165 shift registers (scan tick) ------------------------------- */
 
 static void hc165_init(const gm_hub_t *h, hub_state_t *s)
 {
@@ -511,7 +477,7 @@ static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
         uint32_t pin = (b / 8u) * 8u + 7u - (b % 8u);
         if (hal_pin_read(h->sr.data.num))
             v |= 1u << pin;
-        pulse(h->sr.clock.num);
+        gm_hub_pulse(h->sr.clock.num);
     }
     s->in = v;
 }
@@ -1463,9 +1429,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
 
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
-static const gm_hub_ops_t hc595_ops = {
-    .flags = GM_HUBF_IN_REG, .init = hc595_init, .flush = hc595_flush,
-};
 static const gm_hub_ops_t hc165_ops = {
     .flags = GM_HUBF_IN_REG, .init = hc165_init, .refresh = hc165_refresh,
 };
@@ -1489,7 +1452,6 @@ static const gm_hub_ops_t no_ops = { 0 };
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
-    HUB(GM_HUB_HC595, hc595_ops),
     HUB(GM_HUB_HC165, hc165_ops),
     HUB(GM_HUB_MUX, mux_ops),
     HUB(GM_HUB_DECODER, decoder_ops),

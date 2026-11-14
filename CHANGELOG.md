@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.46.0](https://github.com/cubicecho/gemifi/compare/v0.45.2...v0.46.0) (2026-11-14)
+
+
+### Features
+
+* **devices:** pot + OLED devices drive Zynthian's first device parameter ([7fa630d](https://github.com/cubicecho/gemifi/commit/7fa630de3d20c84c61a7641105006bc1c5c26fda))
+
 ## [0.45.2](https://github.com/cubicecho/gemifi/compare/v0.45.1...v0.45.2) (2026-11-14)
 
 

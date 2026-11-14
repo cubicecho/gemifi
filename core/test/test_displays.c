@@ -32,12 +32,12 @@ static const gm_pin_t c3[4] = { { 4, 0, 0 }, { 4, 0, 8 }, { 4, 0, 16 }, { 4, 0, 
 static const gm_pin_t c4[5] = { { 5, 0, 0 }, { 5, 0, 8 }, { 5, 0, 16 }, { 5, 0, 24 }, { 5, 0, 32 } };
 static const gm_pin_t c5[2] = { { 6, 0, 0 }, { 6, 0, 8 } };
 const gm_display_t gm_displays[6] = {
-    { GM_DISPLAY_SEG7, 3, c0, 0, GM_SHOWS_PRESET_NUMBER, 0 },
-    { GM_DISPLAY_SEG7, 2, 0, m1, GM_SHOWS_CHANNEL, 0 },
-    { GM_DISPLAY_SEG14, 6, c2, 0, GM_SHOWS_LAST_MESSAGE, 0 },
-    { GM_DISPLAY_SEG7, 4, c3, 0, GM_SHOWS_PRESET_NAME, 0 },
-    { GM_DISPLAY_SEG7, 5, c4, 0, GM_SHOWS_CHANNEL, 0 },
-    { GM_DISPLAY_SEG7, 2, c5, 0, GM_SHOWS_NONE, 0 },
+    { GM_DISPLAY_SEG7, 3, c0, 0, GM_SHOWS_PRESET_NUMBER, 0, 0, 0 },
+    { GM_DISPLAY_SEG7, 2, 0, m1, GM_SHOWS_CHANNEL, 0, 0, 0 },
+    { GM_DISPLAY_SEG14, 6, c2, 0, GM_SHOWS_LAST_MESSAGE, 0, 0, 0 },
+    { GM_DISPLAY_SEG7, 4, c3, 0, GM_SHOWS_PRESET_NAME, 0, 0, 0 },
+    { GM_DISPLAY_SEG7, 5, c4, 0, GM_SHOWS_CHANNEL, 0, 0, 0 },
+    { GM_DISPLAY_SEG7, 2, c5, 0, GM_SHOWS_NONE, 0, 0, 0 },
 };
 
 static uint8_t pin[7][128];

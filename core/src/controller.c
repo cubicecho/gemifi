@@ -19,6 +19,9 @@
 #include "gm_controller.h"
 #include "gm_device.h"
 #include "gm_device_config.h"
+#if GM_N_SCREENS > 0
+#include "gm_screen.h"                  /* display: (components/display) */
+#endif
 #include "gm_settings.h"
 #include "gm_vpin.h"
 #include "gm_hal.h"
@@ -3409,6 +3412,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
     has_matrices = (caps & VPIN_MATRIX) != 0;
     has_main_hubs = (caps & VPIN_MAIN) != 0;
     vpin_init();
+#if GM_N_SCREENS > 0
+    gm_screen_init();
+#endif
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
@@ -3572,6 +3578,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
     vpin_flush();
     vpin_flush_i2c();
     vpin_send_all();
+#if GM_N_SCREENS > 0
+    (void)gm_screen_send(0xFFFFFFFFu);
+#endif
     hal_delay_us(200000);
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
         led_pins(&gm_device.leds[i], 0);
@@ -3580,6 +3589,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
     vpin_flush();
     vpin_flush_i2c();
     vpin_send_all();
+#if GM_N_SCREENS > 0
+    (void)gm_screen_send(0xFFFFFFFFu);
+#endif
 }
 
 /* ---- raw readings (sysex.md 4.8) ---------------------------------------- */
@@ -3860,8 +3872,15 @@ void gm_poll(void)
 #else
     int round_open = 0;
 #endif
+#if GM_N_SCREENS > 0
+    /* The screens (display:) send what the hubs left of the bus budget. */
+    uint32_t left = vpin_poll(now, led_pass || round_open);
+    if (left)
+        (void)gm_screen_send(left);
+#else
     if (has_main_hubs)
         vpin_poll(now, led_pass || round_open);
+#endif
     poll_part_done(6, &tc);
     if (!booted && now >= BOOT_LOG_MS) {
         booted = 1;

@@ -276,6 +276,9 @@ const uint8_t *gm_text_glyph(char c)
 #define HAS_TEXT ((GM_DISPLAY_TYPES >> GM_DISPLAY_TEXT) & 1u)
 #define IS_SEG7(type) (HAS_SEG7 && (!HAS_SEG14 || (type) == GM_DISPLAY_SEG7))
 #define IS_TEXT(type) (HAS_TEXT && (type) == GM_DISPLAY_TEXT)
+#if HAS_TEXT
+#include "gm_screen.h"                  /* text displays draw on a screen (components/display) */
+#endif
 
 extern const gm_display_t gm_displays[GM_N_DISPLAYS];   /* generated config */
 
@@ -626,9 +629,7 @@ static void text_draw(const gm_display_t *dp, uint32_t i, uint32_t cell)
     for (uint32_t k = 0; k < 5u; k++)
         cols[k] = g[k];
     cols[5] = 0;
-    gm_pin_t at = dp->chars[0];
-    at.num = (uint16_t)(at.num + i * 6u * sc);
-    vpin_oled_draw(at, cols, 6, sc);
+    gm_screen_draw(dp->screen, dp->at + i * 6u * sc, cols, 6, sc);
 }
 #endif
 

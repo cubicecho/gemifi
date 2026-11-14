@@ -102,14 +102,25 @@ def hub(typ, alias=None):
     if typ in gd.ROW_HUBS:
         types["address"] = lst(ref("pin"), "the address pins, A0 first")
     elif "address" in keys:
-        # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
-        types["address"] = T("integer", minimum=0x08, maximum=0x7A if typ == "ssd1306" else 0x77)
-    if typ == "ssd1306":
-        types["model"] = enum(gd.OLED_MODELS)
-        types["rotate"] = {"enum": [0, 180], "description": "degrees"}
+        types["address"] = T("integer", minimum=0x08, maximum=0x77)
     types["id"] = ref("id")
     what = f"{alias}: the old name of {typ}" if alias else f"{typ} hubs"
     return lst(obj(keys, types), f"{what} (core/README.md \"Virtual pins and hubs\")")
+
+
+def screen():
+    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys)."""
+    plats = list(gd.DISPLAY_PLATFORMS.values())
+    keys = list(dict.fromkeys(k for t in plats for k in t.keys))
+    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS)}
+    for t in plats:
+        types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in t.schema.items()})
+        types.update({k: enum(vals) for k, vals in t.enums.items()})
+        if t.i2c:
+            # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
+            types["address"] = T("integer", minimum=0x08, maximum=0x7A)
+    return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
+               ", ... } (components/display/README.md); text displays name one with display: <id>")
 
 
 def matrix_lines():
@@ -260,6 +271,7 @@ def device_schema():
                                                    "window": PERIOD, "retrigger": PERIOD}),
         "presets": presets(),
         "modes": modes(),
+        "display": screen(),
         "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES), "shows": enum(gd.DISPLAY_SHOWS),
                                               "segment_step": T("integer", minimum=1, maximum=64),
                                               "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
@@ -267,7 +279,7 @@ def device_schema():
                                                                    "the segments in pin order"),
                                               "chars": lst(one_of(ref("pin"), lst(ref("pin"))),
                                                            "each character's first pin, or its segments' pins"),
-                                              "ssd1306": ref("id"),
+                                              "display": ref("id"),
                                               "line": T("integer", minimum=0, maximum=7),
                                               "x": T("integer", minimum=0, maximum=127),
                                               "scale": T("integer", minimum=1, maximum=4),

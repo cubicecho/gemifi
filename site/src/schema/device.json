@@ -1176,95 +1176,6 @@
         }
       ]
     },
-    "ssd1306": {
-      "anyOf": [
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "$ref": "#/definitions/id"
-              },
-              "address": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 8,
-                    "maximum": 122
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "model": {
-                "anyOf": [
-                  {
-                    "enum": [
-                      "ssd1306",
-                      "sh1106"
-                    ]
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "width": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 64,
-                    "maximum": 128
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "height": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 16,
-                    "maximum": 64
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "contrast": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 255
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "rotate": {
-                "enum": [
-                  0,
-                  180
-                ],
-                "description": "degrees"
-              }
-            },
-            "additionalProperties": false
-          },
-          "description": "ssd1306 hubs (core/README.md \"Virtual pins and hubs\")"
-        },
-        {
-          "type": "string",
-          "description": "!include file.yaml"
-        }
-      ]
-    },
     "rgb_serial": {
       "anyOf": [
         {
@@ -3510,6 +3421,113 @@
         }
       ]
     },
+    "display": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "platform": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "ssd1306"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 122
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "ssd1306",
+                      "sh1106"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 128
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 16,
+                    "maximum": 64
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "contrast": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "rotate": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      0,
+                      180
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "screens, ESPHome style: { id, platform: ssd1306, ... } (components/display/README.md); text displays name one with display: <id>"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
     "displays": {
       "anyOf": [
         {
@@ -3614,7 +3632,7 @@
               "daw": {
                 "type": "string"
               },
-              "ssd1306": {
+              "display": {
                 "$ref": "#/definitions/id"
               },
               "line": {
@@ -4292,10 +4310,6 @@
               "description": "the id of another component"
             },
             "ht16k33": {
-              "type": "string",
-              "description": "the id of another component"
-            },
-            "ssd1306": {
               "type": "string",
               "description": "the id of another component"
             },

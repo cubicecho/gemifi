@@ -48,8 +48,8 @@ enum {
     GM_HUB_MAX7219 = 12,  /* MAX7219 LED drivers, a chain (.mx)           */
     GM_HUB_TM1637 = 13,   /* TM1637 2-wire LED driver (.tm37)             */
     GM_HUB_HT16K33 = 14,  /* HT16K33 I2C LED driver (.ht)                 */
-    GM_HUB_SSD1306 = 15,  /* SSD1306 / SH1106 I2C OLED (.oled)            */
-    GM_HUB_N_TYPES        /* (one more than the last)                     */
+    /* 15 was GM_HUB_SSD1306: an OLED is a display now (components/display, components/ssd1306) */
+    GM_HUB_N_TYPES = 16   /* (one more than the last)                     */
 };
 #define GM_HUB_RGB_SERIAL GM_HUB_MAUDIO_PADS     /* its old name */
 
@@ -119,20 +119,6 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
-/* .oled: an SSD1306 or SH1106 OLED on the I2C bus, a framebuffer in the hub
- * RAM (width x height / 8 bytes: byte = page * width + x, bit = y % 8),
- * written from the main loop a page run at a time. No pins: text displays
- * (gm_display.h GM_DISPLAY_TEXT) draw into it with vpin_oled_draw. */
-#define GM_OLED_SH1106  (1u << 0)   /* SH1106: 132-column RAM, 2 columns in, page addressing only */
-#define GM_OLED_ROTATE  (1u << 1)   /* turned 180 degrees (segment remap and COM scan reversed)   */
-typedef struct {
-    uint8_t addr;         /* 7-bit I2C address, 0x3C or 0x3D               */
-    uint8_t width;        /* pixels, 128 (or 64, 96)                       */
-    uint8_t height;       /* pixels, 64 or 32 (or 16)                      */
-    uint8_t contrast;     /* 0..255 (command 0x81)                         */
-    uint8_t flags;        /* GM_OLED_*                                     */
-} gm_hub_ssd1306_t;
-
 typedef struct {
     uint8_t type;         /* GM_HUB_*                                      */
     union {
@@ -142,7 +128,6 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
-        gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */
         GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */
     };
 } gm_hub_t;

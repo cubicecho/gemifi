@@ -1,6 +1,7 @@
 /*
- * test_oled.c: host test of the SSD1306 / SH1106 OLED hubs (core/src/vpin.c)
- * and text displays (core/src/display.c) with core/test/oled-test.yaml, on
+ * test_oled.c: host test of the ssd1306 display platform (SSD1306 / SH1106
+ * OLEDs, components/ssd1306 on components/display) and text displays
+ * (core/src/display.c) with oled-test.yaml here, on
  * a fake bus: each panel decodes the I2C writes (control bytes, commands,
  * page-mode data) into its RAM, and the test reads the pixels back.
  *   oled (0x3C, given as 0x78): big, line 1 at scale 2 (10 characters, the
@@ -17,7 +18,7 @@
 #include "gm_display.h"
 #include "gm_feedback.h"
 
-#if !(GM_N_HUBS == 2 && GM_N_ANALOGS == 1 && GM_N_DISPLAYS == 3)
+#if !(GM_N_HUBS == 0 && GM_N_SCREENS == 2 && GM_N_ANALOGS == 1 && GM_N_DISPLAYS == 3)
 #error "test_oled.c needs the oled-test.yaml config"
 #endif
 

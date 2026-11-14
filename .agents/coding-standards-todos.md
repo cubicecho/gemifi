@@ -34,7 +34,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R2 | Refactor [pattern] | The builder writes the list of component sources a device uses, and every build (make, ESP-IDF, host tests) compiles from it. | M1: only used components are compiled, no glob of the core | R1 | done |
 | R3 | Refactor [pattern] | The hub interface moves into the `hub` component, and each hub type's own state moves out of the shared union into its component. | M2: a new hub type stops editing shared core files | R2 | done |
 | R4 | Refactor [move] | The WS2812 driver, builder class and docs move into `components/ws2812/`, as the template for the rest (changed from the SSD1306, which A1 moves once, as a display). | M1; the shape every other hub follows | R3 | done |
-| R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | approved |
+| R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | done |
 | R6 | Refactor [pattern] | The controls move out of the controller into one component each, after a short design note on the state they share, keeping the scan's hot paths as fast. | M7 | R2 | deferred: after the display work is merged (2026-11-14) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | approved |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | approved |
@@ -149,6 +149,9 @@ maudio_pad_leds, ws2812, max7219, tm1637, ht16k33. One commit each; types sharin
 folder, named after the ESPHome component where there is one. The hot paths written out in
 `vpin.c` (mux and cached reads, decoder rows, the switch-matrix scan) stay in `vpin.c` or become
 `static inline` in the component's header, so a pin costs what it does now.
+Done 2026-11-14: the fast paths stayed in `vpin.c` (their tables built by its `fast_init`), so the
+mux, decoder, switch matrix, TM1628 (fade) and XY pad (state) keep the config or state the core reads
+in `gm_device.h` / `gm_hub.h`; what several types share went to the hub base (`gm_hub_*`).
 
 ### R6 [pattern] — the controls as components
 

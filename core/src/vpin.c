@@ -2,7 +2,12 @@
  * vpin.c: virtual pins. See gm_vpin.h.
  *
  * Hubs are drivers behind one interface (gm_hub.h): each hub type has a
- * gm_hub_ops_t, in hub_ops[] at the bottom, one section per type above it.
+ * gm_hub_ops_t, in hub_ops[] at the bottom, from its component
+ * (components/<key>/, through GM_HUB_OPS) or, the SSD1306's, from above.
+ * What else is here: the pin dispatch, the scan's written-out paths (mux
+ * channels, decoder rows, the switch-matrix scan, the hardware analog scan)
+ * with their tables, the core's calls for some types (TM1628 fade, XY
+ * touch), and what the hub base gives its types (gm_hub.h).
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
  * TM1628, MAX7219, TM1637, HT16K33, MAUDIO_PADS and WS2812 hubs keep their
@@ -216,6 +221,8 @@ static void fast_init(uint32_t i, const gm_hub_t *h)
         mux_masks(i, h);
     else if (USES(GM_HUB_DECODER) && h->type == GM_HUB_DECODER)
         dec_fast_init(i, h);
+    else if (USES(GM_HUB_SWMATRIX) && h->type == GM_HUB_SWMATRIX)
+        sm_fast_init(i, h);
 }
 
 /* Hubs refreshed / flushed from the scan tick, in hub order: the tick goes
@@ -836,18 +843,10 @@ int32_t vpin_analog(gm_pin_t p)
     return v;
 }
 
-/* ---- switch matrices ---------------------------------------------------
- * Scanned from the scan tick by vpin_scan_matrices (or fed by the hardware
- * scan, vpin_scan_feed), not through the table: the scan's own path. */
-
-static void swmatrix_init(const gm_hub_t *h, hub_state_t *s)
-{
-    for (uint32_t c = 0; c < h->sm.n_cols; c++)
-        vpin_input(h->sm.cols[c]);
-    for (uint32_t r = 0; r < h->sm.n_rows; r++)
-        vpin_output(h->sm.rows[r]);
-    sm_fast_init((uint32_t)(s - hs), h);
-}
+/* ---- switch matrices: the scan's path ----------------------------------
+ * The driver is components/switch_matrix. Scanned from the scan tick by
+ * vpin_scan_matrices (or fed by the hardware scan, vpin_scan_feed), not
+ * through the table: the scan's own path. */
 
 int vpin_select_word(gm_pin_t p, volatile uint32_t **reg, uint32_t *word)
 {
@@ -1382,9 +1381,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
 
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
-static const gm_hub_ops_t swmatrix_ops = {
-    .flags = GM_HUBF_IN_REG | GM_HUBF_MATRIX, .init = swmatrix_init,   /* scan: vpin_scan_matrices */
-};
 #if GM_HUB_RAM > 0
 static const gm_hub_ops_t ssd1306_ops = {
     .flags = GM_HUBF_NO_READ, .init = ssd1306_init, .send = ssd1306_send,   /* drawn: vpin_oled_draw */
@@ -1396,7 +1392,6 @@ static const gm_hub_ops_t no_ops = { 0 };
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
-    HUB(GM_HUB_SWMATRIX, swmatrix_ops),
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_SSD1306, ssd1306_ops),
 #endif

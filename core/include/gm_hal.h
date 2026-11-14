@@ -3,7 +3,8 @@
  *
  * Implementations: platform/nuvoton-nuc1xx/src/hal.c (C, bare metal),
  * platform/esp/ (ESP-IDF, ESP32 / S2 / S3). Pin numbers here are MCU pins
- * only (hub 0 of gm_pin_t); expander hubs are handled by core/src/vpin.c.
+ * only (hub 0 of gm_pin_t); expander hubs are handled by core/src/vpin.c
+ * and their drivers (components/).
  *
  * Received MIDI goes the other way: the platform calls gm_midi_rx_byte()
  * (controller.h) for every MIDI byte that arrives.

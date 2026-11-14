@@ -338,51 +338,8 @@ COMP_STR_MAX = 31               # sysex.md lstring
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
-# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the ones
-# below are still here and in core/src/vpin.c.
-class SwitchMatrix(HubType):
-    """A switch matrix scanned from the scan interrupt: inputs only, pin n = row n / columns,
-    column n % columns."""
-    key, enum, num = "switch_matrix", "GM_HUB_SWMATRIX", 8
-    keys = ("id", "rows", "columns", "settle", "rows_per_scan")
-    roles = frozenset({"in"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        # Rows may name a decoder declared further down: pins are resolved after all hubs
-        # (resolve_switch_matrices). The size is known now, for pin numbers on this hub.
-        rows, cols = h.get("rows"), h.get("columns")
-        nr = rows.get("count", 0) if isinstance(rows, dict) else len(rows) if isinstance(rows, list) else 0
-        nc = len(cols) if isinstance(cols, list) else 0
-        hub.n_pins = max(nr if isinstance(nr, int) else 0, 0) * nc
-        if hub.n_pins > 32:
-            v.err(p, line, f"{nr} rows x {nc} columns = {hub.n_pins} switches: at most 32 per switch_matrix "
-                           "(split it into two)")
-        hub.settle_us = v.period(h, "settle", p, 0, 255, default=1, example="2us")
-        # rows read per scan, in turn (0 = all): spreads a big panel over several scans
-        hub.rows_per_scan = v.integer(h, "rows_per_scan", p, 1, 32, default=0)
-        if hub.rows_per_scan and isinstance(nr, int) and nr and hub.rows_per_scan >= nr:
-            v.warn(f"{p}.rows_per_scan", h.line_of("rows_per_scan"), f"{hub.rows_per_scan} >= its {nr} rows: "
-                                                                      "every row is read on every scan anyway")
-
-    def c_tables(self, hub):
-        if not hub.rows or not hub.cols:
-            return []
-        c = []
-        for nm, lst in (("rows", hub.rows), ("cols", hub.cols)):
-            c.append(f"static const gm_pin_t hub{hub.index + 1}_{nm}[{len(lst)}] = {{")
-            c += [f"    {x.c()}, /* {_comment(x.desc)} */" for x in lst]
-            c += ["};"]
-        return c
-
-    def c_fields(self, hub):
-        if not hub.rows or not hub.cols:
-            return [f"        .sm = {{ .settle_us = {hub.settle_us} }},"]
-        n = hub.index + 1
-        return [f"        .sm = {{ .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hub.rows)}, "
-                f".n_cols = {len(hub.cols)},",
-                f"                .settle_us = {hub.settle_us}, .rows_per_scan = {hub.rows_per_scan or 0} }},"]
-
-
+# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the SSD1306
+# below is still here and in core/src/vpin.c (A1 makes it a display).
 # SSD1306 / SH1106 OLEDs on the I2C bus: a framebuffer (width x height / 8 bytes) in the hub RAM, no
 # pins; text displays (displays: type text) draw on it.
 OLED_MODELS = {"ssd1306": 0, "sh1106": 1}       # gm_device.h GM_OLED_SH1106
@@ -447,9 +404,8 @@ class SSD1306(HubType):
                 f".contrast = {hub.intensity}, .flags = {flags} }},"]
 
 
-# The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
-_HUBS_HERE = (
-    SwitchMatrix(), SSD1306())
+# The hub types: the one still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
+_HUBS_HERE = (SSD1306(),)
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)

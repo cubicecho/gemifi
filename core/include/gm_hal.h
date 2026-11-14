@@ -54,9 +54,11 @@ volatile uint32_t *hal_pin_out_reg(uint16_t pin);
 /* 12-bit reading 0..4095 (blocking, a few us), or -1 if pin has no ADC. */
 int32_t hal_adc_read(uint16_t pin);
 
-/* I2C (only needed for MCP23017 / PCF8574 hubs). Return 0 or -1. */
-int hal_i2c_write(uint8_t addr, const uint8_t *p, uint32_t n);
-int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n);
+/* I2C (the I2C hubs and screens; components/i2c): bus = the i2c: bus's
+ * index (GM_I2C_PINS in gm_device_config.h, GM_I2C_BUSES of them), addr its
+ * 7-bit address. Return 0 or -1. */
+int hal_i2c_write(uint8_t bus, uint8_t addr, const uint8_t *p, uint32_t n);
+int hal_i2c_read(uint8_t bus, uint8_t addr, uint8_t *p, uint32_t n);
 
 /* MIDI out: one complete message (channel message, or F0 ... F7).
  * Queues; hal_midi_poll() sends what it can without blocking. */

@@ -15,6 +15,7 @@
 
 typedef struct {
     uint8_t addr;         /* 7-bit I2C address, 0x3C or 0x3D               */
+    uint8_t bus;          /* the i2c: bus, hal_i2c_*'s bus                 */
     uint8_t contrast;     /* 0..255 (command 0x81)                         */
     uint8_t flags;        /* GM_OLED_*                                     */
 } gm_screen_ssd1306_t;

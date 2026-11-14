@@ -8,7 +8,7 @@ class HT16K33(HubType):
     """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
     loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
     key, enum, num = "ht16k33", "GM_HUB_HT16K33", 14
-    keys = ("id", "address", "intensity")
+    keys = ("id", "address", "intensity", "i2c_id")
     roles = frozenset({"out"})
     ram = True
     i2c = True
@@ -28,7 +28,7 @@ class HT16K33(HubType):
         return " (16 RAM bytes x 8; pin = COM * 16 + ROW)"
 
     def c_fields(self, hub):
-        return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
+        return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .bus = {hub.bus}, .brightness = {hub.intensity} }},"]
 
 
 HUB_TYPES = (HT16K33(),)

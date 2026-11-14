@@ -13,6 +13,7 @@ displays:
 
 | Key | |
 |---|---|
+| `i2c_id` | its [`i2c:`](../i2c/README.md) bus (may be left out with one bus) |
 | `address` | the 7-bit I2C address, default 0x3C. 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning |
 | `model` | `ssd1306` (the default) or `sh1106` |
 | `width` × `height` | 128 × 64 (the default); an SSD1306 also 128 × 32, 96 × 16, 64 × 48, 64 × 32 |

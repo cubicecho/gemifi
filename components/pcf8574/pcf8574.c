@@ -14,7 +14,7 @@
 static void pcf8574_refresh(const gm_hub_t *h, gm_hub_state_t *s)
 {
     uint8_t b;
-    if (s->u.io.in_used && hal_i2c_read(h->i2c.addr, &b, 1) == 0)
+    if (s->u.io.in_used && hal_i2c_read(h->i2c.bus, h->i2c.addr, &b, 1) == 0)
         s->in = b;
 }
 
@@ -24,7 +24,7 @@ static void pcf8574_flush(const gm_hub_t *h, gm_hub_state_t *s)
     uint32_t v = (s->out | ~s->u.io.dir_out) & 0xFFu;
     if (v != s->written || s->never) {
         uint8_t b = (uint8_t)v;
-        hal_i2c_write(h->i2c.addr, &b, 1);
+        hal_i2c_write(h->i2c.bus, h->i2c.addr, &b, 1);
         s->written = v;
         s->never = 0;
     }

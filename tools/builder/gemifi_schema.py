@@ -104,6 +104,8 @@ def hub(typ, alias=None):
     elif "address" in keys:
         types["address"] = T("integer", minimum=0x08, maximum=0x77)
     types["id"] = ref("id")
+    if "i2c_id" in keys:
+        types["i2c_id"] = ref("id")
     what = f"{alias}: the old name of {typ}" if alias else f"{typ} hubs"
     return lst(obj(keys, types), f"{what} (core/README.md \"Virtual pins and hubs\")")
 
@@ -112,7 +114,7 @@ def screen():
     """display: the screens, each on a platform (components/<platform>, its ScreenType's keys)."""
     plats = list(gd.DISPLAY_PLATFORMS.values())
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
-    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS)}
+    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS), "i2c_id": ref("id")}
     for t in plats:
         types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in t.schema.items()})
         types.update({k: enum(vals) for k, vals in t.enums.items()})
@@ -224,7 +226,10 @@ def device_schema():
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
-        "i2c": obj(gd.I2C_KEYS, {"sda": ref("pin"), "scl": ref("pin")}),
+        "i2c": one_of(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")},
+                          "one I2C bus (its id optional)"),
+                      lst(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")}),
+                          "I2C buses, each with an id that I2C components name with i2c_id:")),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
             "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),

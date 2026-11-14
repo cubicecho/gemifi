@@ -106,8 +106,10 @@ static void data(panel_t *p, uint8_t d)
     p->col++;
 }
 
-int hal_i2c_write(uint8_t a, const uint8_t *b, uint32_t n)
+int hal_i2c_write(uint8_t bus, uint8_t a, const uint8_t *b, uint32_t n)
 {
+    if (bus != 0)
+        bad_addr++;                     /* oled-test.yaml has one bus */
     panel_t *p = panel_at(a);
     if (!p) {
         bad_addr++;
@@ -150,7 +152,7 @@ int hal_i2c_write(uint8_t a, const uint8_t *b, uint32_t n)
     return 0;
 }
 
-int hal_i2c_read(uint8_t a, uint8_t *b, uint32_t n) { (void)a; (void)b; (void)n; return -1; }
+int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *b, uint32_t n) { (void)bus; (void)a; (void)b; (void)n; return -1; }
 
 static uint8_t out[4096];
 static int out_n;

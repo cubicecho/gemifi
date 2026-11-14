@@ -249,16 +249,18 @@ int32_t hal_adc_read(uint16_t pin)
     return (int32_t)(ADC2_DR & 0xFFFu);
 }
 
-int hal_i2c_write(uint8_t addr, const uint8_t *p, uint32_t n)
+int hal_i2c_write(uint8_t bus, uint8_t addr, const uint8_t *p, uint32_t n)
 {
+    (void)bus;
     (void)addr;
     (void)p;
     (void)n;
     return -1;
 }
 
-int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n)
+int hal_i2c_read(uint8_t bus, uint8_t addr, uint8_t *p, uint32_t n)
 {
+    (void)bus;
     (void)addr;
     (void)p;
     (void)n;

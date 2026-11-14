@@ -23,6 +23,7 @@ import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType, ShiftRegister, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
+import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -374,7 +375,6 @@ PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 # these lists, so a new key goes here.
 MIDI_KEYS = ["transport"]
 USB_KEYS = ["vid", "pid", "daw_port"]
-I2C_KEYS = ["sda", "scl"]
 PROJECT_KEYS = ["version"]
 FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
 MCU_KEYS = ["extender"]
@@ -681,6 +681,7 @@ class Platform:
     is_esp = False
     # Features the platform's HAL implements (a hub that needs one is refused where it's missing):
     i2c = False             # hal_i2c_write / hal_i2c_read (mcp23017, pcf8574)
+    i2c_buses = 0           # its I2C controllers (i2c: buses)
 
     def parse_pin(self, v):
         """-> pin number, or raise ValueError(friendly message)."""
@@ -844,6 +845,7 @@ class Stm32F1Platform(Platform):
 class EspPlatform(Platform):
     is_esp = True
     i2c = True              # i2c_master (platform/esp/gemifi_esp/hal_esp.c)
+    i2c_buses = 2           # the ESP32, S2 and S3 each have two I2C controllers
 
     def __init__(self, name, valid, flash, strapping, input_only, adc1, adc2, usb_pins=(),
                  uart0=(), psram=(), transports=("serial",), default_transport="serial"):
@@ -971,7 +973,7 @@ class Device:
         self.reset_combo, self.reset_hold_ms = [], RESET_HOLD_DEFAULT_MS
         self.unlock, self.unlock_hold_ms = [], UNLOCK_HOLD_DEFAULT_MS   # [] = unlock off
         self.status_led = None   # LED index
-        self.i2c = None
+        self.i2c_buses = []         # i2c: (components/i2c)
         self.feedback = True
         self.led_owner, self.led_timeout = 0, DEFAULT_LED_TIMEOUT_MS // 10
         self.host_fb = True          # feedback.script: GET_COMPONENT and FB_* (sysex.md 4.6)
@@ -1545,7 +1547,7 @@ def suggest_id(text, kind="item"):
 
 def example_id(kind):
     return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
-            "hub": "faders", "pad": "pad_1"}.get(kind, "item")
+            "hub": "faders", "pad": "pad_1", "i2c bus": "bus_a"}.get(kind, "item")
 
 
 def a_(kind):
@@ -1657,26 +1659,7 @@ def validate(data, file=None):
             v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
                                   "the platform's hal_i2c_* are stubs)")
         need_i2c = False        # don't also ask for the i2c: pins
-    if "i2c" in data:
-        i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
-        if i2c is not None:
-            sda = v.pin(i2c.get("sda"), "i2c.sda", i2c.line_of("sda"), "out", allow_hub=False)
-            scl = v.pin(i2c.get("scl"), "i2c.scl", i2c.line_of("scl"), "out", allow_hub=False)
-            if sda and scl:
-                dev.i2c = (sda, scl)
-            if not need_i2c:
-                v.warn("i2c", data.line_of("i2c"), "nothing uses it (no I2C hub: mcp23017 / pcf8574 / ht16k33, "
-                                                   "or display: ssd1306)")
-    elif need_i2c:
-        first = on_i2c[0]
-        what = "display" if first in dev.screens else "hub"
-        v.err("i2c", data.line, f"{what} '{first.id}' ({first.type}) needs the I2C pins: "
-                                "add i2c: { sda: ..., scl: ... }")
-    addrs = {}
-    for h in on_i2c:
-        if h.addr in addrs:
-            v.err(f"{h.path}.address", h.line, f"I2C address 0x{h.addr:02X} is already used by {addrs[h.addr]}")
-        addrs[h.addr] = f"{'display' if h in dev.screens else 'hub'} '{h.id}'"
+    i2c_buses.validate_buses(v, dev, data, on_i2c if need_i2c else [], plat.i2c_buses)
     stbs = {}
     for h in dev.hubs:
         if h.type in TM_HUBS and h.latch.hub == 0:
@@ -2771,7 +2754,7 @@ def validate_screens(v, dev, data):
         index = len(dev.screens)
         sid = v.ident(d, p, "display", index, allow_name=False)
         scr = Hub(id=sid or f"#{index}", type=plat, kind=kind, index=index, path=p, line=d.line, used=False,
-                  addr=0, width=0, height=0)
+                  addr=0, bus=0, width=0, height=0, raw=d)
         kind.validate(v, dev, scr, d, p)
         if sid is not None:
             if sid in v.hub_by_id:
@@ -2793,7 +2776,7 @@ def validate_hub(v, dev, h, typ, p, line):
     hub = Hub(id=hid or f"#{index}", type=typ, kind=kind, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
               common_adc=False, enable=NO_PIN, settle_us=0, n_pins=0, en=[], group_lv=[], rows=[], cols=[],
-              ram_bytes=0, intensity=0, grids=0, fade=False, touch_min=0, touch_max=0, dma=False, raw=h)
+              ram_bytes=0, intensity=0, grids=0, fade=False, touch_min=0, touch_max=0, dma=False, bus=0, raw=h)
     if hid is not None:
         v.hub_by_id[hid] = hub
     dev.hubs.append(hub)
@@ -5434,9 +5417,7 @@ def generate(dev, source="device.yaml"):
     if m and getattr(m, "vel_slow", None) is not None:
         h.append(f"#define GM_VEL_SLOW_DEFAULT {m.vel_slow} /* {m.vel_slow / 10:g} ms */")
     h += screen_defines(dev)
-    if dev.i2c:
-        h += [f"#define GM_I2C_SDA {dev.i2c[0].num} /* {dev.i2c[0].desc} */",
-              f"#define GM_I2C_SCL {dev.i2c[1].num} /* {dev.i2c[1].desc} */"]
+    h += i2c_buses.c_defines(dev)
     h += feedback_defines(dev)
     h += ["", "/* presets (research/core/presets-design.md §10.1) */",
           f"#define GM_N_PRESETS {dev.n_presets} /* " +

@@ -80,6 +80,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 | Every pin used by the YAML exists on its MCU or hub, and two uses of one pin are allowed only with `allow_other_uses` on each | builder, `gemifi_device.py` pin resolution |
 | Only the drivers of hub types the device uses are linked | `GM_HUB_TYPES` bits + `USES()` in `core/src/vpin.c` `hub_ops[]`; a type's component is compiled only for a device that uses it (`gm_components.mk` / `.cmake`) |
 | A bus (I2C) hub is never touched from the scan interrupt | `GM_HUBF_BUS`, `vpin_refresh_i2c` / `vpin_flush_i2c` called from the main loop only |
+| Two components on one I2C bus never share an address | `components/i2c` `validate_buses` |
 | Text displays on one screen never overlap | builder, `validate_text_display` |
 | No heap, no floating point, no libc beyond `<stdint.h>` in core | convention (`core/README.md`), the NUC120's 4 KB RAM / 32 KB flash |
 | A param id never changes meaning | convention, `core/src/settings.c` id list |
@@ -110,7 +111,8 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   A base component defines what the components on it implement (`hub`, `display`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. Every hub
-  type is one (`components/<key>/`), and so are the `display` base and its `ssd1306` platform.
+  type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform and
+  the `i2c` base.
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named
@@ -139,8 +141,11 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   builder. In C it is a "screen" because `gm_display_t` is the line of text.
 - **Virtual pin (vpin):** the core's pin dispatch: a pin's read or write goes to the MCU or its hub's
   driver. Owner: `core/src/vpin.c`, `core/include/gm_vpin.h`.
-- **I2C bus:** the one I2C bus a device may have (`i2c: { sda, scl }`), shared by the I2C hubs and screens.
-  Owner: `hal_i2c_write` / `hal_i2c_read` (`gm_hal.h`, no bus argument), `GM_I2C_SDA/SCL`.
+- **I2C bus:** a two-wire bus the device's I2C hubs and screens are on, declared with `i2c:`: one bus
+  (`{ sda, scl }`) or a list of them with ids, which I2C components name with `i2c_id:` (optional with one
+  bus). Owner: the `i2c` base component (`components/i2c/`: `validate_buses`, `c_defines`); the platform's
+  `hal_i2c_write` / `hal_i2c_read` (`gm_hal.h`, the bus index first), `GM_I2C_BUSES` / `GM_I2C_PINS`
+  (generated); each I2C config's `bus` (`gm_hub_i2c_t`, `gm_hub_ht16k33_t`, `gm_screen_ssd1306_t`).
 - **Scan:** reading inputs on a timer (`scan_interval`): the key matrix, switch matrices, encoders and
   scan hubs, in software or with timer + DMA (hardware scan). Owner: `gm_scan_tick`, `gm_scan_hw`
   (`controller.c`), `vpin_scan_*`.

@@ -211,6 +211,9 @@
         {
           "type": "object",
           "properties": {
+            "id": {
+              "$ref": "#/definitions/id"
+            },
             "sda": {
               "$ref": "#/definitions/pin"
             },
@@ -218,11 +221,27 @@
               "$ref": "#/definitions/pin"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "one I2C bus (its id optional)"
         },
         {
-          "type": "string",
-          "description": "!include file.yaml"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "sda": {
+                "$ref": "#/definitions/pin"
+              },
+              "scl": {
+                "$ref": "#/definitions/pin"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "I2C buses, each with an id that I2C components name with i2c_id:"
         }
       ]
     },
@@ -636,6 +655,9 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
+              },
+              "i2c_id": {
+                "$ref": "#/definitions/id"
               }
             },
             "additionalProperties": false
@@ -669,6 +691,9 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
+              },
+              "i2c_id": {
+                "$ref": "#/definitions/id"
               }
             },
             "additionalProperties": false
@@ -1164,6 +1189,9 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
+              },
+              "i2c_id": {
+                "$ref": "#/definitions/id"
               }
             },
             "additionalProperties": false
@@ -3454,6 +3482,9 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
+              },
+              "i2c_id": {
+                "$ref": "#/definitions/id"
               },
               "model": {
                 "anyOf": [

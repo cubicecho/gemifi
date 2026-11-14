@@ -104,8 +104,8 @@ int32_t hal_adc_read(uint16_t pin)
     default: return -1;
     }
 }
-int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
-int hal_i2c_read(uint8_t a, uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_write(uint8_t bus, uint8_t a, const uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
 
 static uint8_t out[16384];
 static int out_n;

@@ -7,7 +7,7 @@
  *   GM_MIDI_TRANSPORT  GM_MIDI_USB (S2/S3 native USB), GM_MIDI_SERIAL
  *                      (raw MIDI bytes on UART0), GM_MIDI_BLE (ESP32, S3)
  *   GM_MIDI_BAUD       serial transport baud rate (115200)
- *   GM_I2C_SDA/SCL     I2C pins for the I2C hubs (GPIO numbers)
+ *   GM_I2C_BUSES/PINS  the I2C buses (i2c:) and their { sda, scl } GPIOs
  *   GM_BOARD_ID, GM_DEVICE_NAME, GM_USB_VID, GM_USB_PID
  * The transport also picks the sdkconfig fragment (firmware/esp/
  * sdkconfig.<transport>: TinyUSB, NimBLE, the console), in gemifi_esp.py.

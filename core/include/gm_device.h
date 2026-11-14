@@ -73,10 +73,11 @@ typedef struct {
     uint8_t n_sel;        /* select lines, 3 or 4                          */
 } gm_hub_mux_t;
 
-/* .i2c: MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional GPIO) on the
- * I2C bus (GM_I2C_SDA / _SCL). */
+/* .i2c: MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional GPIO) on an
+ * I2C bus (components/i2c). */
 typedef struct {
     uint8_t addr;         /* 7-bit I2C address                             */
+    uint8_t bus;          /* the i2c: bus, hal_i2c_*'s bus                 */
 } gm_hub_i2c_t;
 
 /* .dec: a 74HC138-style one-of-N decoder: outputs only, and only as matrix

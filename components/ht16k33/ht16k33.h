@@ -15,6 +15,7 @@
  * (display RAM bit: byte * 8 + bit). The key scan isn't read. */
 typedef struct {
     uint8_t addr;         /* 7-bit I2C address, 0x70..0x77                 */
+    uint8_t bus;          /* the i2c: bus, hal_i2c_*'s bus                 */
     uint8_t brightness;   /* 0..15 (dimming 0xE0 | it)                     */
 } gm_hub_ht16k33_t;
 

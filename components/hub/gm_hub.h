@@ -1,6 +1,6 @@
 /*
- * gm_hub.h: the hub driver interface (core-internal; core/README.md
- * "Adding a hub type").
+ * gm_hub.h: the hub driver interface, the base component of every hub type
+ * (components/hub/; core/README.md "Adding a hub type").
  *
  * Each hub type (gm_device.h GM_HUB_*) has one gm_hub_ops_t: what vpin.c
  * calls for a hub of that type. An op left NULL has the default given with
@@ -130,6 +130,7 @@ struct gm_hub_state {
             uint8_t fresh;        /* bit = axis, touched since vpin_analog_jump */
             uint32_t t;           /* ms of the last axis switch      */
         } xy;
+        GM_HUB_STATE_MEMBERS  /* the hub types in components/ (gm_components.h) */
     } u;
 };
 

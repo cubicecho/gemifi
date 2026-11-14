@@ -19,29 +19,14 @@
 #define GEMIFI_GM_DEVICE_H
 
 #include <stdint.h>
+#include "gm_pin.h"
+/* The C side of the components the device builds (generated with the config: their headers and what
+ * they add to the hub base, GM_HUB_CONFIG_MEMBERS ...). */
+#include "gm_components.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ---- virtual pins ----------------------------------------------------- */
-/* hub 0 = MCU pin (num = platform pin number: NUC1xx port * 16 + bit, e.g.
- * PB12 = 0x1C; ESP32 GPIO number). hub n >= 1 = gm_device.hubs[n-1],
- * num = that hub's pin / channel (chained chips continue: 8..15 = 2nd chip).
- * TM1628 hubs: num = display RAM bit, byte * 8 + bit (37 = byte 4, bit 5).
- * GM_PIN_INVERT: the signal is active-low (pressed / lit = electrical 0). */
-typedef struct {
-    uint8_t hub;
-    uint8_t flags;
-    uint16_t num;
-} gm_pin_t;
-
-#define GM_HUB_NONE     0xFFu        /* "no pin" */
-#define GM_PIN_INVERT   (1u << 0)
-#define GM_PIN_PULLUP   (1u << 1)    /* MCU pins: enable the internal pull-up   */
-#define GM_PIN_PULLDOWN (1u << 2)    /* MCU pins: enable the internal pull-down */
-#define GM_PIN_OPEN_DRAIN (1u << 3)  /* MCU outputs: open-drain (TM1628 DIO)     */
-#define GM_NO_PIN       { GM_HUB_NONE, 0, 0 }
 
 /* ---- hubs (pin expanders) ---------------------------------------------
  * A hub is its type (which driver runs it: core/src/vpin.c, gm_hub.h) and
@@ -236,6 +221,7 @@ typedef struct {
         gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
         gm_hub_ht16k33_t ht;      /* GM_HUB_HT16K33 */
         gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */
+        GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */
     };
 } gm_hub_t;
 

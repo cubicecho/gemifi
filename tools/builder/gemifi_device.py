@@ -5911,7 +5911,7 @@ def _comment(s):
 
 
 def generate(dev, source="device.yaml"):
-    """-> {"gm_device_config.h": str, "gm_device_config.c": str}"""
+    """-> {"gm_device_config.h": str, "gm_device_config.c": str, "gm_components.h": str}"""
     src = _comment(source)
     head = (f"/* gm_device_config: do not edit; generated from {src}\n"
             f" * by tools/builder/gemifi_build.py (format: core/README.md). */\n")
@@ -6116,7 +6116,8 @@ def generate(dev, source="device.yaml"):
     c += display_tables(dev)
     c += layout_tables(dev)
     c += label_tables(dev)
-    return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+    return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c),
+            **component_header(dev, source)}
 
 
 
@@ -6501,6 +6502,33 @@ def component_lists(dev, source):
           f"set(GM_COMPONENT_SRCS {' '.join(f'${{GM_ROOT}}/{s}' for s in srcs)})",
           f"set(GM_COMPONENT_INCS {' '.join(f'${{GM_ROOT}}/{d}' for d in incs)})", ""]
     return {"gm_components.mk": "\n".join(mk), "gm_components.cmake": "\n".join(cm)}
+
+
+def component_header(dev, source):
+    """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
+    code is in components/ (HubType.c_header), and what they add to the hub base: GM_HUB_CONFIG_MEMBERS
+    (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS and GM_HUB_OPS
+    (core/src/vpin.c hub_ops[])."""
+    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_header}.values(), key=lambda t: (t.num, t.key))
+    by_enum = {}
+    for t in kinds:
+        by_enum.setdefault(t.enum, t)       # types sharing an enum share their C parts
+    parts = list(by_enum.values())
+    headers = list(dict.fromkeys(t.c_header for t in parts))
+
+    def macro(name, items):
+        return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
+    lines = [f"/* gm_components.h: do not edit; generated from {_comment(source)}",
+             " * by tools/builder/gemifi_build.py. The C side of the components this device builds:",
+             " * their headers, and what they add to the hub base (components/hub/gm_hub.h). */",
+             "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
+             *[f'#include "{h}"' for h in headers], *([""] if headers else []),
+             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts]),
+             macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
+             macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
+             macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),
+             "", "#endif", ""]
+    return {"gm_components.h": "\n".join(lines)}
 
 
 def write_generated(dev, out_dir, source):

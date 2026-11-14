@@ -2427,6 +2427,8 @@ static const gm_hub_ops_t xy_ops = {
 static const gm_hub_ops_t no_ops = { 0 };
 
 #define HUB(t, ops) [t] = USES(t) ? &(ops) : 0
+GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
+
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_HC595, hc595_ops),
     HUB(GM_HUB_HC165, hc165_ops),
@@ -2445,6 +2447,7 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_SSD1306, ssd1306_ops),
 #endif
     HUB(GM_HUB_XY, xy_ops),
+    GM_HUB_OPS
 };
 
 static const gm_hub_ops_t *hub_ops_of(uint32_t type)

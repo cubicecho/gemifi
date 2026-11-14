@@ -111,10 +111,10 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   after the chip (`sn74hc595:`, `mcp23017:`, `ws2812:`, `ssd1306:` ...). Most give pins (shift
   registers, I/O expanders, multiplexers, decoders, switch matrices, XY pads, LED drivers, LED strips);
   the `ssd1306` gives none and is drawn on. Owner: `gm_hub_t` (config union, `gm_device.h`),
-  `gm_hub_state_t` (`core/src/gm_hub.h`), the drivers in `core/src/vpin.c`, `HubType` subclasses and
+  `gm_hub_state_t` (`components/hub/gm_hub.h`), the drivers in `core/src/vpin.c`, `HubType` subclasses and
   `HUB_DEFS` in `gemifi_device.py`.
 - **Hub driver:** the code for one hub type behind the hub ops interface (`init`, `read`, `write`,
-  `analog`, `rgb`, `refresh`, `flush`, `send`, `poll`). Owner: `gm_hub_ops_t` (`core/src/gm_hub.h`),
+  `analog`, `rgb`, `refresh`, `flush`, `send`, `poll`). Owner: `gm_hub_ops_t` (`components/hub/gm_hub.h`),
   `hub_ops[]` in `vpin.c`.
 - **Virtual pin (vpin):** the core's pin dispatch: a pin's read or write goes to the MCU or its hub's
   driver. Owner: `core/src/vpin.c`, `core/include/gm_vpin.h`.

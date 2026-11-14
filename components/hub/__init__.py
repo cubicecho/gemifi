@@ -2,7 +2,7 @@
 multiplexers, LED drivers ...). Each hub type is a component of its own (components/<chip>/) whose
 __init__.py lists its HubType instances in HUB_TYPES; this is the class they derive from.
 
-The C side is core/src/gm_hub.h (gm_hub_ops_t) and core/src/vpin.c; core/README.md "Virtual pins and
+The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; core/README.md "Virtual pins and
 hubs".
 """
 
@@ -27,6 +27,11 @@ class HubType:
     schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
     i2c = False                 # on the i2c: bus (address:)
     what = "pin"                # a pin's name in messages
+    # The C side, for a hub type whose code is in its component (components/<name>/; gm_components.h):
+    c_header = None             # its header, e.g. "ws2812.h"
+    c_config = None             # its config in gm_hub_t's union: (C type, member), e.g. ("gm_hub_ws2812_t", "ws")
+    c_state = None              # its state in gm_hub_state_t's union, the same way (or None)
+    c_ops = None                # its gm_hub_ops_t, e.g. "gm_ws2812_ops"
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         """Check hub h (the YAML mapping at path p) and fill in hub. ctl(key, role, ...) resolves a

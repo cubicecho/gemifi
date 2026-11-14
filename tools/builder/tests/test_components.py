@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import unittest
+from types import SimpleNamespace
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 BUILDER = os.path.dirname(TESTS)
@@ -72,6 +73,26 @@ class SourceLists(unittest.TestCase):
             if line.startswith(("GM_COMPONENT_SRCS", "GM_COMPONENT_INCS")):
                 for path in line.split(":=")[1].split():
                     self.assertTrue(path.startswith("$(GM_ROOT)/components/"), path)
+
+
+class Header(unittest.TestCase):
+    def test_no_component_hub_types(self):
+        dev, _ = gd.load_device(KEYSTATION)
+        h = gd.generate(dev)["gm_components.h"]
+        for macro in ("GM_HUB_CONFIG_MEMBERS", "GM_HUB_STATE_MEMBERS", "GM_HUB_OPS_EXTERNS", "GM_HUB_OPS"):
+            self.assertRegex(h, rf"(?m)^#define {macro}$")
+
+    def test_a_component_hub_type(self):
+        class Strip(HubType):
+            key, enum, num = "strip", "GM_HUB_STRIP", 20
+            c_header, c_config, c_state, c_ops = "strip.h", ("gm_hub_strip_t", "st"), ("gm_strip_state_t", "st"), "gm_strip_ops"
+        dev = SimpleNamespace(hubs=[SimpleNamespace(kind=Strip()), SimpleNamespace(kind=Strip())])
+        h = gd.component_header(dev, "x.yaml")["gm_components.h"]
+        self.assertEqual(h.count('#include "strip.h"'), 1)
+        self.assertIn("gm_hub_strip_t st;", h)
+        self.assertIn("gm_strip_state_t st;", h)
+        self.assertIn("extern const gm_hub_ops_t gm_strip_ops;", h)
+        self.assertIn("[GM_HUB_STRIP] = &gm_strip_ops,", h)
 
 
 if __name__ == "__main__":

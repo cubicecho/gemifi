@@ -99,9 +99,6 @@ struct gm_hub_state {
             uint16_t peak[2];     /* fade: brightest LED noted + 1, 0 = none:
                                      [0] looks and plain levels, [1] host colours */
         } tm;
-        struct {          /* MAX7219 / TM1637 / HT16K33 */
-            uint8_t dirty;        /* RAM changed since the last write */
-        } seg;
         struct {          /* SWMATRIX */
             uint32_t seen_hi;     /* bits read high / low by any scan */
             uint32_t seen_lo;     /*   since the last vpin_span_take() */
@@ -126,12 +123,6 @@ struct gm_hub_state {
 extern uint8_t gm_hub_ram[];
 extern uint8_t gm_hub_ram_sent[];
 uint16_t gm_hub_ram_alloc(uint32_t n);
-/* The LED drivers with a bit per pin in the hub RAM (u.seg): n bytes,
- * all off and written whole on the first send (init); pin num = RAM bit,
- * byte * 8 + bit, of `bytes` bytes, marking the chip dirty if it changed
- * (write). */
-void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n);
-void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level);
 /* An MCU pin (hub 0) as a hub's control line: driven to level, open-drain
  * with GM_PIN_OPEN_DRAIN. A hub pin is left alone. */
 void gm_hub_mcu_out(gm_pin_t p, int level);

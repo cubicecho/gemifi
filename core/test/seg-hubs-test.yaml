@@ -11,10 +11,9 @@ chip: STM32F103RB
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 500us
 
-max7219:
-  - { id: mx, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, num_chips: 2, intensity: 8, scan_limit: 3 }
-tm1637:
-  - { id: t37, clk_pin: PB6, dio_pin: PB7, length: 4, intensity: 2 }
+led_driver:
+  - { id: mx, platform: max7219, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, num_chips: 2, intensity: 8, scan_limit: 3 }
+  - { id: t37, platform: tm1637, clk_pin: PB6, dio_pin: PB7, length: 4, intensity: 2 }
 
 buttons:
   - { id: p1, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: preset_select, preset: 1 }
@@ -22,24 +21,24 @@ buttons:
   - { id: btn, pin: { number: PB2, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: btn_led }
 
 leds:
-  - { id: btn_led, pin: { max7219: mx, number: 64 } }     # chip 1, digit 0, segment A
+  - { id: btn_led, pin: { led_driver: mx, number: 64 } }     # chip 1, digit 0, segment A
 
 displays:
   - id: number                 # chip 0, DIG0..DIG2, left to right
     type: segment7
     shows: preset_number
     chars:
-      - { max7219: mx, number: 0 }
-      - { max7219: mx, number: 8 }
-      - { max7219: mx, number: 16 }
+      - { led_driver: mx, number: 0 }
+      - { led_driver: mx, number: 8 }
+      - { led_driver: mx, number: 16 }
   - id: text
     type: segment7
     shows: last_message
     chars:
-      - { tm1637: t37, number: 0 }
-      - { tm1637: t37, number: 8 }
-      - { tm1637: t37, number: 16 }
-      - { tm1637: t37, number: 24 }
+      - { led_driver: t37, number: 0 }
+      - { led_driver: t37, number: 8 }
+      - { led_driver: t37, number: 16 }
+      - { led_driver: t37, number: 24 }
 
 presets:
   slots: 3

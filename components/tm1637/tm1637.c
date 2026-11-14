@@ -1,14 +1,15 @@
 /*
- * tm1637.c: the tm1637 hub type, a TM1637 2-wire LED driver bit-banged from
- * the main loop (components/tm1637/README.md). A hub type on the hub base
- * (components/hub/gm_hub.h): its pins are bits in the hub RAM
- * (gm_hub_ledram_*), and send writes what changed.
+ * tm1637.c: the tm1637 LED driver platform, a TM1637 2-wire LED driver
+ * bit-banged from the main loop (components/tm1637/README.md). A hub type
+ * on the led_driver base (components/led_driver): its pins are bits in the
+ * hub RAM (gm_led_driver_*), and send writes what changed.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_device_config.h"
 #include "gm_hal.h"
 #include "gm_hub.h"
+#include "led_driver.h"
 
 /* TM1637: 2-wire, start (DIO falls while CLK is high), bytes LSB first
  * (DIO set while CLK is low, taken on its rising edge), each followed by
@@ -66,7 +67,7 @@ static void t37_cmd(const gm_hub_t *h, uint32_t cmd)
 static uint32_t tm1637_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budget)
 {
     uint32_t n = h->tm37.grids;
-    if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
+    if (!s->u.led_driver.dirty || s->ram + n > GM_HUB_RAM)
         return budget;
     uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     uint32_t k = 0, all = s->never;
@@ -93,7 +94,7 @@ static uint32_t tm1637_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budge
     }
     while (k < n && ram[k] == sent[k])
         k++;
-    s->u.seg.dirty = k < n;
+    s->u.led_driver.dirty = k < n;
     return budget;
 }
 
@@ -101,12 +102,12 @@ static void tm1637_init(const gm_hub_t *h, gm_hub_state_t *s)
 {
     gm_hub_mcu_out(h->tm37.clk, 1);     /* idle: both high */
     gm_hub_mcu_out(h->tm37.dio, 1);
-    gm_hub_ledram_init(s, h->tm37.grids);
+    gm_led_driver_init(s, h->tm37.grids);
 }
 
 static void tm1637_write(const gm_hub_t *h, gm_hub_state_t *s, uint32_t num, int level)
 {
-    gm_hub_ledram_write(s, h->tm37.grids, num, level);
+    gm_led_driver_write(s, h->tm37.grids, num, level);
 }
 
 const gm_hub_ops_t gm_tm1637_ops = {

@@ -1,19 +1,22 @@
-"""tm1637: a TM1637 2-wire LED driver, bit-banged from the main loop, a hub type on the hub base
-(components/hub). The YAML and the C: README.md here.
+"""tm1637: a TM1637 2-wire LED driver, bit-banged from the main loop, a platform on the led_driver base
+(components/led_driver): `led_driver: [{ id: digits, platform: tm1637, ... }]`. The YAML and the C:
+README.md here.
 """
-from components.hub import HubType
+from components.led_driver import LedDriver
+
+DEPENDENCIES = ("led_driver",)
 
 
-class TM1637(HubType):
+class TM1637(LedDriver):
     """A TM1637 LED driver (2-wire, ESPHome tm1637 keys), bit-banged from the main loop: pin = grid * 8
     + segment (bit 0 = SEG1 = a ... bit 7 = SEG8)."""
     key, enum, num = "tm1637", "GM_HUB_TM1637", 13
-    keys = ("id", "clk_pin", "dio_pin", "intensity", "length")
+    old_keys = ("tm1637",)
+    keys = ("id", "platform", "clk_pin", "dio_pin", "intensity", "length")
     lines = {"clk_pin": "tm37_clk", "dio_pin": "tm37_dio"}
-    roles = frozenset({"out"})
-    ram = True
     schema = {"length": (1, 6), "intensity": (0, 7)}
     c_header, c_config, c_ops = "tm1637.h", ("gm_hub_tm1637_t", "tm37"), "gm_tm1637_ops"
+    c_state = ("gm_led_driver_state_t", "led_driver")
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         hub.ram_bytes = v.integer(h, "length", p, 1, 6, default=6)

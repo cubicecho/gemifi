@@ -1,7 +1,8 @@
 /*
- * tm1637.h: the tm1637 hub type's config (gm_hub_t .tm37);
+ * tm1637.h: the tm1637 LED driver platform's config (gm_hub_t .tm37);
  * components/tm1637/README.md. gm_device.h includes it through the
- * generated gm_components.h. Its state is the hub base's u.seg (gm_hub.h).
+ * generated gm_components.h. Its state is the led_driver base's
+ * gm_led_driver_state_t (.u.led_driver, led_driver.h).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -9,6 +10,8 @@
 #define GEMIFI_TM1637_H
 
 #include <stdint.h>
+#define GM_LED_DRIVER_BITS 1     /* its pins are the led_driver base's bit pins */
+#include "led_driver.h"
 #include "gm_pin.h"
 
 /* .tm37: a TM1637 (2-wire: CLK, DIO, no chip select; one chip per pair),

@@ -323,9 +323,9 @@ leds:
 ```
 {% endraw %}
 
-An LED can sit on an MCU pin, a 74HC595, an MCP23017 or PCF8574, a
-**TM1628**-family LED driver (and relatives with the same commands), or an
-LED strip (`led_strip:`): a **`ws2812`** strip (WS2812B / SK6812, RGB or
+An LED can sit on an MCU pin, a 74HC595, an MCP23017 or PCF8574, an LED
+driver (`led_driver:`: a **`tm1628`**-family chip and relatives with the
+same commands, a MAX7219, TM1637 or HT16K33), or an LED strip (`led_strip:`): a **`ws2812`** strip (WS2812B / SK6812, RGB or
 RGBW, on one pin: ESP32, S2, S3 and STM32F1) or the **`maudio_pads`** board
 (the Code 61's pad LED board, on the STM32F1). LEDs on a strip show any
 colour: `idle: blue 20%`, `active: "#ff8000"`, in `led_defaults:` too, with
@@ -351,8 +351,8 @@ walk: each listed LED lights on its own in turn, and the log names it.
 
 <h2 id="displays">Displays</h2>
 
-A display is a row of segment characters on a hub's outputs: a TM1628, a
-MAX7219, a TM1637, an HT16K33 backpack or shift registers. `type:` is `segment14` (like the Code
+A display is a row of segment characters on a hub's outputs: an LED driver
+(`led_driver:` TM1628, MAX7219, TM1637, HT16K33 backpack) or shift registers. `type:` is `segment14` (like the Code
 61's six characters, the default) or `segment7` (digits a to g and the
 point). Up to 4 displays per device, up to 16 characters each.
 
@@ -385,15 +385,15 @@ displays:
     type: segment14
     daw: param
     chars:
-      - { tm1628: leds_a, number: 48 }
-      - { tm1628: leds_a, number: 64 }
+      - { led_driver: leds_a, number: 48 }
+      - { led_driver: leds_a, number: 64 }
   - id: preset_display          # 3 digits on a MAX7219
     type: segment7
     shows: preset_number
     chars:
-      - { max7219: digits, number: 0 }
-      - { max7219: digits, number: 8 }
-      - { max7219: digits, number: 16 }
+      - { led_driver: digits, number: 0 }
+      - { led_driver: digits, number: 8 }
+      - { led_driver: digits, number: 16 }
 ```
 {% endraw %}
 
@@ -404,9 +404,9 @@ list, named as in ESPHome, and a pin on it names the hub:
 `{ sn74hc595: leds, number: 3 }`. Chips that do one job the same way share
 one list and pick theirs with `platform:`, as ESPHome's `display:` does:
 `led_strip: [{ id: strip, platform: ws2812, ... }]`, pins
-`{ led_strip: strip, number: 0 }`. Hubs that share a control line (one clock
-for a 74HC595 and a 74HC165, say) mark it `allow_other_uses: true` on every
-use.
+`{ led_strip: strip, number: 0 }`; LED drivers likewise, `led_driver:`.
+Hubs that share a control line (one clock for a 74HC595 and a 74HC165, say)
+mark it `allow_other_uses: true` on every use.
 
 | Hub | Gives | Cost |
 |---|---|---|
@@ -417,10 +417,10 @@ use.
 | `pcf8574` | 8 GPIO over I2C | read every 1 ms if it has inputs: about 50 µs |
 | `decoder` | 74HC138-style row selects for a matrix | one register write per row on STM32F1 |
 | `switch_matrix` | up to 32 buttons or encoder contacts on a matrix | scanned with the key matrix |
-| `tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
-| `max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
-| `tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
-| `ht16k33` | 128 LED outputs over I2C (ESP only): 14- and 7-segment backpacks | changed bytes only, from the main loop |
+| `led_driver`, `platform: tm1628` | LED driver outputs (LEDs, displays) | see LEDs |
+| `led_driver`, `platform: max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
+| `led_driver`, `platform: tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
+| `led_driver`, `platform: ht16k33` | 128 LED outputs over I2C (ESP only): 14- and 7-segment backpacks | changed bytes only, from the main loop |
 | `led_strip` | LED strips, any colour per LED: `platform: ws2812` (addressable strips) or `maudio_pads` (the M-Audio Code pad LED board) | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 

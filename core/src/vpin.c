@@ -1045,15 +1045,7 @@ int vpin_read_span(gm_pin_t p, int *any)
 
 /* ---- TM1628 fade (gm_vpin.h vpin_fade*; driver: components/tm1628) ---- */
 
-#if GM_HUB_RAM > 0
-/* For the bit-banged LED drivers' bus timing (components/tm1628, max7219). */
-__attribute__((weak)) uint32_t hal_ns_to_cycles(uint32_t ns)
-{
-    (void)ns;
-    return 0;
-}
-
-#if GM_TM_FADE
+#if GM_HUB_RAM > 0 && GM_TM_FADE
 /* How bright each step looks, 0..255: the chip's pulse widths (1, 2, 4,
  * 10, 11, 12, 13, 14 sixteenths) through gamma 2.2. */
 static const uint8_t tm_seen[8] = { 72, 99, 136, 206, 215, 224, 232, 240 };
@@ -1111,53 +1103,6 @@ void vpin_fade_apply(void)
         }
     }
 }
-#else
-int vpin_fades(gm_pin_t p)
-{
-    (void)p;
-    return 0;
-}
-
-void vpin_fade(gm_pin_t p, uint32_t v, int colour)
-{
-    (void)p;
-    (void)v;
-    (void)colour;
-}
-
-void vpin_fade_apply(void)
-{
-}
-#endif
-
-/* ---- bit pins in the hub RAM (the LED drivers', gm_hub.h) ------------- */
-
-/* The pins of an LED driver with a bit per pin in the hub RAM (MAX7219,
- * TM1637, HT16K33: components/max7219, tm1637, ht16k33). Pin num = RAM
- * bit, byte * 8 + bit, of `bytes` bytes; marks the chip dirty if it
- * changed. */
-void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level)
-{
-    uint32_t k = num >> 3u;
-    if (k >= bytes || s->ram + k >= GM_HUB_RAM)
-        return;
-    uint8_t *b = &gm_hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
-    uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
-    if (v != *b) {
-        *b = v;
-        s->u.seg.dirty = 1;
-    }
-}
-
-/* n bytes of the hub RAM, all off, written whole on the first send. */
-void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n)
-{
-    s->ram = gm_hub_ram_alloc(n);
-    s->u.seg.dirty = 1;
-    for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
-        gm_hub_ram[s->ram + k] = 0;
-}
-
 #else
 int vpin_fades(gm_pin_t p)
 {

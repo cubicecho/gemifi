@@ -117,13 +117,15 @@ cd74hc4051:
 # display. A pin on them is a RAM bit: number = byte * 8 + bit. PA15 is a
 # JTAG pin at reset; the board config turns JTAG off (BOARD_SWJ_NOJTAG, SWD
 # stays on). grids: and intensity: are left at their defaults [guess].
-tm1628:
+led_driver:
   - id: leds_a             # 14 RAM bytes, the TM1628 size [sure]
+    platform: tm1628
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PA15
     ram_bytes: 14
   - id: leds_b             # 6 RAM bytes: the 48 bits of the RGB button LEDs [sure]
+    platform: tm1628
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
@@ -185,12 +187,12 @@ displays:
     type: segment14
     daw: param             # a DAW script's text: the control being moved, the chain name
     chars:
-      - { tm1628: leds_a, number: 48 }
-      - { tm1628: leds_a, number: 64 }
-      - { tm1628: leds_a, number: 80 }
-      - { tm1628: leds_a, number: 0 }
-      - { tm1628: leds_a, number: 16 }
-      - { tm1628: leds_a, number: 32 }
+      - { led_driver: leds_a, number: 48 }
+      - { led_driver: leds_a, number: 64 }
+      - { led_driver: leds_a, number: 80 }
+      - { led_driver: leds_a, number: 0 }
+      - { led_driver: leds_a, number: 16 }
+      - { led_driver: leds_a, number: 32 }
 
 # LEDs, mapped on hardware (2026-11-03) with the LED-map build
 # (devices/m-audio-code61-ledmap.yaml). Chip A bits 0-95 are the display;
@@ -207,29 +209,29 @@ displays:
 # dim blue (blue 25%) and a hit stands out (the user's request, 2026-11-09).
 led_defaults: { idle: blue, active: white }
 leds:
-  - { id: channel_led, name: "Channel", pin: { tm1628: leds_a, number: 96 } }
-  - { id: edit_led, name: "Edit", pin: { tm1628: leds_a, number: 97 } }
-  - { id: zone_led, name: "Zone", pin: { tm1628: leds_a, number: 98 } }
-  - { id: num_1_led, name: "1", pin: { tm1628: leds_a, number: 99 } }
-  - { id: num_2_led, name: "2", pin: { tm1628: leds_a, number: 100 } }
-  - { id: num_3_led, name: "3", pin: { tm1628: leds_a, number: 101 } }
-  - { id: num_4_led, name: "4", pin: { tm1628: leds_a, number: 102 } }
-  - { id: b1_led, name: "B1", pin: { tm1628: leds_b, number: 32 }, pin2: { tm1628: leds_b, number: 16 }, pin3: { tm1628: leds_b, number: 0 }, idle: white, active: blue }
-  - { id: b2_led, name: "B2", pin: { tm1628: leds_b, number: 33 }, pin2: { tm1628: leds_b, number: 17 }, pin3: { tm1628: leds_b, number: 1 }, idle: white, active: blue }
-  - { id: b3_led, name: "B3", pin: { tm1628: leds_b, number: 34 }, pin2: { tm1628: leds_b, number: 18 }, pin3: { tm1628: leds_b, number: 2 }, idle: white, active: blue }
-  - { id: b4_led, name: "B4", pin: { tm1628: leds_b, number: 35 }, pin2: { tm1628: leds_b, number: 19 }, pin3: { tm1628: leds_b, number: 3 }, idle: white, active: blue }
-  - { id: b5_led, name: "B5", pin: { tm1628: leds_b, number: 36 }, pin2: { tm1628: leds_b, number: 20 }, pin3: { tm1628: leds_b, number: 4 }, idle: white, active: blue }
-  - { id: b6_led, name: "B6", pin: { tm1628: leds_b, number: 37 }, pin2: { tm1628: leds_b, number: 21 }, pin3: { tm1628: leds_b, number: 5 }, idle: white, active: blue }
-  - { id: b7_led, name: "B7", pin: { tm1628: leds_b, number: 38 }, pin2: { tm1628: leds_b, number: 22 }, pin3: { tm1628: leds_b, number: 6 }, idle: white, active: blue }
-  - { id: b8_led, name: "B8", pin: { tm1628: leds_b, number: 39 }, pin2: { tm1628: leds_b, number: 23 }, pin3: { tm1628: leds_b, number: 7 }, idle: white, active: blue }
-  - { id: b9_led, name: "B9", pin: { tm1628: leds_b, number: 40 }, pin2: { tm1628: leds_b, number: 24 }, pin3: { tm1628: leds_b, number: 8 }, idle: white, active: blue }
-  - { id: button_mode_led, name: "Button mode", pin: { tm1628: leds_b, number: 41 }, pin2: { tm1628: leds_b, number: 25 }, pin3: { tm1628: leds_b, number: 9 }, idle: blue, active: red }
-  - { id: bank_left_led, name: "Bank left", pin: { tm1628: leds_b, number: 42 }, pin2: { tm1628: leds_b, number: 26 }, pin3: { tm1628: leds_b, number: 10 } }
-  - { id: bank_right_led, name: "Bank right", pin: { tm1628: leds_b, number: 43 }, pin2: { tm1628: leds_b, number: 27 }, pin3: { tm1628: leds_b, number: 11 } }
-  - { id: fader_mode_led, name: "Fader mode", pin: { tm1628: leds_b, number: 44 }, pin2: { tm1628: leds_b, number: 28 }, pin3: { tm1628: leds_b, number: 12 } }
-  - { id: encoder_mode_led, name: "Encoder mode", pin: { tm1628: leds_b, number: 45 }, pin2: { tm1628: leds_b, number: 29 }, pin3: { tm1628: leds_b, number: 13 }, idle: blue, active: red }
-  - { id: x_mode_led, name: "X mode", pin: { tm1628: leds_b, number: 46 }, pin2: { tm1628: leds_b, number: 30 }, pin3: { tm1628: leds_b, number: 14 } }
-  - { id: y_mode_led, name: "Y mode", pin: { tm1628: leds_b, number: 47 }, pin2: { tm1628: leds_b, number: 31 }, pin3: { tm1628: leds_b, number: 15 } }
+  - { id: channel_led, name: "Channel", pin: { led_driver: leds_a, number: 96 } }
+  - { id: edit_led, name: "Edit", pin: { led_driver: leds_a, number: 97 } }
+  - { id: zone_led, name: "Zone", pin: { led_driver: leds_a, number: 98 } }
+  - { id: num_1_led, name: "1", pin: { led_driver: leds_a, number: 99 } }
+  - { id: num_2_led, name: "2", pin: { led_driver: leds_a, number: 100 } }
+  - { id: num_3_led, name: "3", pin: { led_driver: leds_a, number: 101 } }
+  - { id: num_4_led, name: "4", pin: { led_driver: leds_a, number: 102 } }
+  - { id: b1_led, name: "B1", pin: { led_driver: leds_b, number: 32 }, pin2: { led_driver: leds_b, number: 16 }, pin3: { led_driver: leds_b, number: 0 }, idle: white, active: blue }
+  - { id: b2_led, name: "B2", pin: { led_driver: leds_b, number: 33 }, pin2: { led_driver: leds_b, number: 17 }, pin3: { led_driver: leds_b, number: 1 }, idle: white, active: blue }
+  - { id: b3_led, name: "B3", pin: { led_driver: leds_b, number: 34 }, pin2: { led_driver: leds_b, number: 18 }, pin3: { led_driver: leds_b, number: 2 }, idle: white, active: blue }
+  - { id: b4_led, name: "B4", pin: { led_driver: leds_b, number: 35 }, pin2: { led_driver: leds_b, number: 19 }, pin3: { led_driver: leds_b, number: 3 }, idle: white, active: blue }
+  - { id: b5_led, name: "B5", pin: { led_driver: leds_b, number: 36 }, pin2: { led_driver: leds_b, number: 20 }, pin3: { led_driver: leds_b, number: 4 }, idle: white, active: blue }
+  - { id: b6_led, name: "B6", pin: { led_driver: leds_b, number: 37 }, pin2: { led_driver: leds_b, number: 21 }, pin3: { led_driver: leds_b, number: 5 }, idle: white, active: blue }
+  - { id: b7_led, name: "B7", pin: { led_driver: leds_b, number: 38 }, pin2: { led_driver: leds_b, number: 22 }, pin3: { led_driver: leds_b, number: 6 }, idle: white, active: blue }
+  - { id: b8_led, name: "B8", pin: { led_driver: leds_b, number: 39 }, pin2: { led_driver: leds_b, number: 23 }, pin3: { led_driver: leds_b, number: 7 }, idle: white, active: blue }
+  - { id: b9_led, name: "B9", pin: { led_driver: leds_b, number: 40 }, pin2: { led_driver: leds_b, number: 24 }, pin3: { led_driver: leds_b, number: 8 }, idle: white, active: blue }
+  - { id: button_mode_led, name: "Button mode", pin: { led_driver: leds_b, number: 41 }, pin2: { led_driver: leds_b, number: 25 }, pin3: { led_driver: leds_b, number: 9 }, idle: blue, active: red }
+  - { id: bank_left_led, name: "Bank left", pin: { led_driver: leds_b, number: 42 }, pin2: { led_driver: leds_b, number: 26 }, pin3: { led_driver: leds_b, number: 10 } }
+  - { id: bank_right_led, name: "Bank right", pin: { led_driver: leds_b, number: 43 }, pin2: { led_driver: leds_b, number: 27 }, pin3: { led_driver: leds_b, number: 11 } }
+  - { id: fader_mode_led, name: "Fader mode", pin: { led_driver: leds_b, number: 44 }, pin2: { led_driver: leds_b, number: 28 }, pin3: { led_driver: leds_b, number: 12 } }
+  - { id: encoder_mode_led, name: "Encoder mode", pin: { led_driver: leds_b, number: 45 }, pin2: { led_driver: leds_b, number: 29 }, pin3: { led_driver: leds_b, number: 13 }, idle: blue, active: red }
+  - { id: x_mode_led, name: "X mode", pin: { led_driver: leds_b, number: 46 }, pin2: { led_driver: leds_b, number: 30 }, pin3: { led_driver: leds_b, number: 14 } }
+  - { id: y_mode_led, name: "Y mode", pin: { led_driver: leds_b, number: 47 }, pin2: { led_driver: leds_b, number: 31 }, pin3: { led_driver: leds_b, number: 15 } }
   - { id: pad_1_led, name: "Pad 1", pin: { led_strip: pad_leds, number: 36 }, pin2: { led_strip: pad_leds, number: 37 }, pin3: { led_strip: pad_leds, number: 38 }, idle: blue 25% }
   - { id: pad_2_led, name: "Pad 2", pin: { led_strip: pad_leds, number: 39 }, pin2: { led_strip: pad_leds, number: 40 }, pin3: { led_strip: pad_leds, number: 41 }, idle: blue 25% }
   - { id: pad_3_led, name: "Pad 3", pin: { led_strip: pad_leds, number: 42 }, pin2: { led_strip: pad_leds, number: 43 }, pin3: { led_strip: pad_leds, number: 44 }, idle: blue 25% }

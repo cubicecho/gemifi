@@ -1,19 +1,22 @@
 """ht16k33: an HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
-loop, a hub type on the hub base (components/hub). The YAML and the C: README.md here.
+loop, a platform on the led_driver base (components/led_driver): `led_driver: [{ id: alpha, platform:
+ht16k33, address: 0x70 }]`. The YAML and the C: README.md here.
 """
-from components.hub import HubType
+from components.led_driver import LedDriver
+
+DEPENDENCIES = ("led_driver",)
 
 
-class HT16K33(HubType):
+class HT16K33(LedDriver):
     """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
     loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
     key, enum, num = "ht16k33", "GM_HUB_HT16K33", 14
-    keys = ("id", "address", "intensity", "i2c_id")
-    roles = frozenset({"out"})
-    ram = True
+    old_keys = ("ht16k33",)
+    keys = ("id", "platform", "address", "intensity", "i2c_id")
     i2c = True
     schema = {"intensity": (0, 15)}
     c_header, c_config, c_ops = "ht16k33.h", ("gm_hub_ht16k33_t", "ht"), "gm_ht16k33_ops"
+    c_state = ("gm_led_driver_state_t", "led_driver")
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x70)

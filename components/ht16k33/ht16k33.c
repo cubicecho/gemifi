@@ -1,14 +1,15 @@
 /*
- * ht16k33.c: the ht16k33 hub type, an HT16K33 LED driver on the I2C bus,
+ * ht16k33.c: the ht16k33 LED driver platform, an HT16K33 on the I2C bus,
  * written from the main loop (components/ht16k33/README.md). A hub type on
- * the hub base (components/hub/gm_hub.h): its pins are bits in the hub RAM
- * (gm_hub_ledram_*), and send writes what changed.
+ * the led_driver base (components/led_driver): its pins are bits in the hub
+ * RAM (gm_led_driver_*), and send writes what changed.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_device_config.h"
 #include "gm_hal.h"
 #include "gm_hub.h"
+#include "led_driver.h"
 
 /* HT16K33 (I2C): 16 bytes of display RAM, COM c = bytes 2c (ROW0-7) and
  * 2c + 1 (ROW8-15). The first write: 0x21 (oscillator on), the RAM from
@@ -27,7 +28,7 @@ static void ht_cmd(const gm_hub_t *h, uint8_t c)
 
 static uint32_t ht16k33_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budget)
 {
-    if (!s->u.seg.dirty || s->ram + HT_RAM > GM_HUB_RAM)
+    if (!s->u.led_driver.dirty || s->ram + HT_RAM > GM_HUB_RAM)
         return budget;
     uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram], b[HT_RAM + 1];
     uint32_t k = 0, all = s->never, used = 0;
@@ -55,20 +56,20 @@ static uint32_t ht16k33_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budg
     }
     while (k < HT_RAM && ram[k] == sent[k])
         k++;
-    s->u.seg.dirty = k < HT_RAM;
+    s->u.led_driver.dirty = k < HT_RAM;
     return budget > used ? budget - used : 0u;
 }
 
 static void ht16k33_init(const gm_hub_t *h, gm_hub_state_t *s)
 {
     (void)h;
-    gm_hub_ledram_init(s, HT_RAM);
+    gm_led_driver_init(s, HT_RAM);
 }
 
 static void ht16k33_write(const gm_hub_t *h, gm_hub_state_t *s, uint32_t num, int level)
 {
     (void)h;
-    gm_hub_ledram_write(s, HT_RAM, num, level);
+    gm_led_driver_write(s, HT_RAM, num, level);
 }
 
 const gm_hub_ops_t gm_ht16k33_ops = {

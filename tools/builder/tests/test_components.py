@@ -105,6 +105,14 @@ class Header(unittest.TestCase):
         self.assertIn("extern const gm_hub_ops_t gm_strip_ops;", h)
         self.assertIn("[GM_HUB_STRIP] = &gm_strip_ops,", h)
 
+    def test_platforms_share_their_base_state(self):
+        """Two LED driver platforms with the led_driver base's state: one union member, both headers."""
+        dev = SimpleNamespace(hubs=[SimpleNamespace(kind=gd.HUB_DEFS[k]) for k in ("max7219", "tm1637")], screens=[])
+        h = gd.component_header(dev, "x.yaml")["gm_components.h"]
+        self.assertEqual(h.count("gm_led_driver_state_t led_driver;"), 1)
+        self.assertIn('#include "max7219.h"', h)
+        self.assertIn('#include "tm1637.h"', h)
+
 
 if __name__ == "__main__":
     unittest.main()

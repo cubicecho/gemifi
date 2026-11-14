@@ -1,7 +1,8 @@
 /*
- * max7219.h: the max7219 hub type's config (gm_hub_t .mx);
+ * max7219.h: the max7219 LED driver platform's config (gm_hub_t .mx);
  * components/max7219/README.md. gm_device.h includes it through the
- * generated gm_components.h. Its state is the hub base's u.seg (gm_hub.h).
+ * generated gm_components.h. Its state is the led_driver base's
+ * gm_led_driver_state_t (.u.led_driver, led_driver.h).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -9,6 +10,8 @@
 #define GEMIFI_MAX7219_H
 
 #include <stdint.h>
+#define GM_LED_DRIVER_BITS 1     /* its pins are the led_driver base's bit pins */
+#include "led_driver.h"
 #include "gm_pin.h"
 
 /* .mx: a chain of MAX7219 LED drivers (MAX7221 too), bit-banged from the

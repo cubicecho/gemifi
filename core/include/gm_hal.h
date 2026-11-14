@@ -168,7 +168,8 @@ uint32_t hal_cycles(void);
 /* Optional: how many hal_cycles() counts make ns (< 1000000, rounded up),
  * for short waits on hal_cycles() (the TM1628 bit timing); 0 if hal_cycles()
  * doesn't count. Must not divide at run time on a chip without a fast
- * divider. A weak default returning 0 is in core/src/vpin.c. */
+ * divider. A weak default returning 0 is in
+ * components/led_driver/led_driver.c. */
 uint32_t hal_ns_to_cycles(uint32_t ns);
 
 /* A set/reset register for pin's port, where writing 1 << *bit sets the pin

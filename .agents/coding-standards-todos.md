@@ -39,9 +39,9 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | done |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | done |
 | D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | approved |
-| M8 | Model change | LED strips and LED/segment drivers become base components with platforms, ESPHome style: `led_strip:` (ws2812, maudio_pads) and `led_driver:` (tm1628, max7219, tm1637, ht16k33); I/O expanders, muxes and matrices stay top-level by chip. | Interchangeable chips for one job share a base and its code | — | approved |
+| M8 | Model change | LED strips and LED/segment drivers become base components with platforms, ESPHome style: `led_strip:` (ws2812, maudio_pads) and `led_driver:` (tm1628, max7219, tm1637, ht16k33); I/O expanders, muxes and matrices stay top-level by chip. | Interchangeable chips for one job share a base and its code | — | done |
 | A2 | API change | `led_strip: [{ id, platform: ws2812 \| maudio_pads, ... }]`, pins `{ led_strip: id, number: n }`, the full-colour LED code in the base; the old `ws2812:` / `maudio_pad_leds:` keys refused with the new form. | M8 | R5, A1 | done |
-| A3 | API change | `led_driver: [{ id, platform: tm1628 \| max7219 \| tm1637 \| ht16k33, ... }]`, pins `{ led_driver: id, number: n }`, the LED-byte RAM and send code in the base; the old keys refused with the new form. | M8 | R5, A1 | approved |
+| A3 | API change | `led_driver: [{ id, platform: tm1628 \| max7219 \| tm1637 \| ht16k33, ... }]`, pins `{ led_driver: id, number: n }`, the LED-byte RAM and send code in the base; the old keys refused with the new form. | M8 | R5, A1 | done |
 | R7 | Refactor [pattern] | A builder hook for checks across hubs and late resolution, so `resolve_switch_matrices` and the one-`stb_pin` / one-`cs_pin` checks move into their components. | M1: the last hub-specific code in `gemifi_device.py` | R5 | open |
 | R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | open |
 | D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | open |
@@ -102,7 +102,7 @@ interchangeable chips for one job get a base component with platforms, as the di
 ht16k33`; the base holds the LED-byte RAM and the send budget code). Both still give pins
 (`{ led_strip: id, number: n }`). I/O expanders, multiplexers and matrices stay top-level by chip, as in
 ESPHome. The old keys are refused with the new form in the message (decided 2026-11-14). Implemented
-by: A2, A3. Status: approved.
+by: A2, A3. Status: done.
 
 ---
 

@@ -1,7 +1,8 @@
 /*
- * ht16k33.h: the ht16k33 hub type's config (gm_hub_t .ht);
+ * ht16k33.h: the ht16k33 LED driver platform's config (gm_hub_t .ht);
  * components/ht16k33/README.md. gm_device.h includes it through the
- * generated gm_components.h. Its state is the hub base's u.seg (gm_hub.h).
+ * generated gm_components.h. Its state is the led_driver base's
+ * gm_led_driver_state_t (.u.led_driver, led_driver.h).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -9,6 +10,8 @@
 #define GEMIFI_HT16K33_H
 
 #include <stdint.h>
+#define GM_LED_DRIVER_BITS 1     /* its pins are the led_driver base's bit pins */
+#include "led_driver.h"
 
 /* .ht: an HT16K33 LED driver on the I2C bus (the 14-segment and 7-segment
  * backpacks), written from the main loop: outputs, pin = COM * 16 + ROW

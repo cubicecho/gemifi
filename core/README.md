@@ -38,7 +38,7 @@ Every pin in a device is a `gm_pin_t { hub, flags, num }`:
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
 - `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` or `tm1637` `dio_pin`, platform mode `HAL_OUT_OD`).
 
-Hubs are declared ESPHome style, one top-level list per chip, named like the ESPHome component. Chips that are interchangeable for one job are platforms of a base component instead, one list for all of them with `platform:` on each item, as ESPHome's `display:` is: `led_strip:` ([components/led_strip](../components/led_strip/README.md)).
+Hubs are declared ESPHome style, one top-level list per chip, named like the ESPHome component. Chips that are interchangeable for one job are platforms of a base component instead, one list for all of them with `platform:` on each item, as ESPHome's `display:` is: `led_strip:` ([components/led_strip](../components/led_strip/README.md)) and `led_driver:` ([components/led_driver](../components/led_driver/README.md)).
 
 | Chip key (YAML) | `gm_device.h` | Pins it uses | Gives |
 |---|---|---|---|
@@ -53,12 +53,12 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `led_strip`, `platform: maudio_pads` | `GM_HUB_MAUDIO_PADS` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). The M-Audio Code pad LED board; see [components/maudio_pads](../components/maudio_pads/README.md) |
 | `led_strip`, `platform: ws2812` | `GM_HUB_WS2812` | `pin` (an MCU pin; stm32f1: PA7 or PB15); `count` (1–256 LEDs); `order` (`GRB`, the default, `RGB`, `BRG`, ...; `GRBW`, `RGBW`, ... for RGBW LEDs); `gamma`, `white` (`[r, g, b]`, `[r, g, b, w]` on RGBW) | 3 × count outputs (4 × on RGBW): pin = LED × 3 + colour (0 red, 1 green, 2 blue, 3 white). WS2812B / SK6812 strips; see [components/ws2812](../components/ws2812/README.md) |
 | `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
-| `tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see "TM1628 LED drivers") |
-| `max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see "MAX7219, TM1637 and HT16K33") |
-| `tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see "MAX7219, TM1637 and HT16K33") |
-| `ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; an [`i2c:`](../components/i2c/README.md) bus, `i2c_id:`), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see "MAX7219, TM1637 and HT16K33") |
+| `led_driver`, `platform: tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see [components/tm1628](../components/tm1628/README.md)) |
+| `led_driver`, `platform: max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see [components/max7219](../components/max7219/README.md)) |
+| `led_driver`, `platform: tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see [components/tm1637](../components/tm1637/README.md)) |
+| `led_driver`, `platform: ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; an [`i2c:`](../components/i2c/README.md) bus, `i2c_id:`), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see [components/ht16k33](../components/ht16k33/README.md)) |
 
-A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
+A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`, `{ led_driver: digits, number: 8 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
 Inputs on HC165 are read once per scan into a cache, and outputs on HC595 are written once per scan, so a whole key matrix can live on shift registers. MCP23017 and PCF8574 are read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt.
 
@@ -102,22 +102,14 @@ The builder writes `GM_HUB_TYPES` (a bit per hub type the device has) into `gm_d
 
 ### Adding a hub type
 
-1. **`components/<key>/`**, a folder named after the YAML key (types that share a driver share one, as `cd74hc4051` and `cd74hc4067` do), as [`components/ws2812`](../components/ws2812/): `<key>.c` (its ops and a `const gm_hub_ops_t gm_<key>_ops`), `<key>.h` (its config struct and, if it keeps any, its state struct, which the generated `gm_components.h` adds to `gm_hub_t`'s and `gm_hub_state_t`'s unions; `vpin_init` resets the state before `init`), `__init__.py`, `README.md` and `test/`. The end of `components/hub/gm_hub.h` lists what the hub base gives a driver: pins kept in the hub RAM (more than 32 of them, or bytes per pin) take `gm_hub_ram_alloc(n)` bytes there in `init` (count them into `GM_HUB_RAM` with `ram = True`); LED drivers with a bit per pin there share `gm_hub_ledram_*`; control pins are set up with `gm_hub_mcu_out`. Only a device with the type compiles its `.c`.
+1. **`components/<key>/`**, a folder named after the YAML key (types that share a driver share one, as `cd74hc4051` and `cd74hc4067` do), as [`components/ws2812`](../components/ws2812/): `<key>.c` (its ops and a `const gm_hub_ops_t gm_<key>_ops`), `<key>.h` (its config struct and, if it keeps any, its state struct, which the generated `gm_components.h` adds to `gm_hub_t`'s and `gm_hub_state_t`'s unions; `vpin_init` resets the state before `init`), `__init__.py`, `README.md` and `test/`. The end of `components/hub/gm_hub.h` lists what the hub base gives a driver: pins kept in the hub RAM (more than 32 of them, or bytes per pin) take `gm_hub_ram_alloc(n)` bytes there in `init` (count them into `GM_HUB_RAM` with `ram = True`); LED drivers with a bit per pin there share the `led_driver` base's `gm_led_driver_*`; control pins are set up with `gm_hub_mcu_out`. Only a device with the type compiles its `.c`.
 2. **`include/gm_device.h`**: a `GM_HUB_*` value (before `GM_HUB_N_TYPES`). A config bigger than the largest (the decoder's, 36 bytes) makes every hub bigger: point at a `const` table instead (as the switch matrix's rows and the LED hubs' `curve` do).
-3. **`__init__.py`**: a `HubType` subclass (its YAML key, `enum` and `num`, its `keys`, the control pins' `lines`, `roles`, `validate`, `c_fields` for its union member, `c_tables` for anything the entry points at, and `c_header`, `c_config`, `c_state`, `c_ops` for its C), listed in `HUB_TYPES`. A hub with an `rgb` op sets `full_colour = True` (and `colour_pins` if an LED isn't 3 pins): its LEDs then take full-colour looks, `led_defaults` and step colours as they are. Old keys of a type go in `old_keys`, refused with the new form (`moved_text`). One of several chips for one job is a platform of a base component instead: it derives from the base's class (`LedStrip`, with `domain`), its key is the `platform:` name, and the base's key is its list and pin key ([Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform)). The YAML key, the pin key, the schema and the "which hubs can be an input / output / analog" checks follow from it. Then `gemifi_build.py schema -o site/src/schema/device.json`.
+3. **`__init__.py`**: a `HubType` subclass (its YAML key, `enum` and `num`, its `keys`, the control pins' `lines`, `roles`, `validate`, `c_fields` for its union member, `c_tables` for anything the entry points at, and `c_header`, `c_config`, `c_state`, `c_ops` for its C), listed in `HUB_TYPES`. A hub with an `rgb` op sets `full_colour = True` (and `colour_pins` if an LED isn't 3 pins): its LEDs then take full-colour looks, `led_defaults` and step colours as they are. Old keys of a type go in `old_keys`, refused with the new form (`moved_text`). One of several chips for one job is a platform of a base component instead: it derives from the base's class (`LedStrip`, `LedDriver`: they set `domain`), its key is the `platform:` name, and the base's key is its list and pin key ([Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform)). The YAML key, the pin key, the schema and the "which hubs can be an input / output / analog" checks follow from it. Then `gemifi_build.py schema -o site/src/schema/device.json`.
 4. **Tests**: a core test YAML with the hub and its test in `test/` (run by `core/test`), and a builder test of its validation and C.
 
-### TM1628 LED drivers
+### LED drivers
 
-See [components/tm1628](../components/tm1628/README.md).
-
-### MAX7219, TM1637 and HT16K33
-
-Three more LED drivers for segment digits (and single LEDs), written from the main loop like the TM1628: the MAX7219 and TM1637 bit-banged on any platform, the HT16K33 on the I2C bus (ESP only for now). Their pins are kept in the hub RAM (`GM_HUB_RAM` counts them too), and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. All three are untested on hardware.
-
-- **`max7219`**: see [components/max7219](../components/max7219/README.md).
-- **`tm1637`**: see [components/tm1637](../components/tm1637/README.md).
-- **`ht16k33`**: see [components/ht16k33](../components/ht16k33/README.md).
+TM1628, MAX7219, TM1637 and HT16K33 chips, for LEDs and segment digits: see [components/led_driver](../components/led_driver/README.md).
 
 ### Full-colour LEDs
 
@@ -408,14 +400,14 @@ displays:
     type: segment14            # the default
     daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
     chars:                     # left to right: each character's segment a
-      - { tm1628: leds_a, number: 48 }
-      - { tm1628: leds_a, number: 64 }
-      - { tm1628: leds_a, number: 0 }
+      - { led_driver: leds_a, number: 48 }
+      - { led_driver: leds_a, number: 64 }
+      - { led_driver: leds_a, number: 0 }
   - id: bank                   # 2 digits with their segments on a TM1628's grids
     type: segment7
     shows: preset_number
     segment_step: 16
-    chars: [{ tm1628: leds_b, number: 0 }, { tm1628: leds_b, number: 1 }]
+    chars: [{ led_driver: leds_b, number: 0 }, { led_driver: leds_b, number: 1 }]
 ```
 
 Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one display a line), graphics, and the TM1640. See #120.

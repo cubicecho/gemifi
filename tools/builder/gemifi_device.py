@@ -3300,7 +3300,7 @@ def validate_displays(v, dev, data):
                     segs.append(got)
                 continue
             if not isinstance(raw, dict):
-                v.err(cp, line, f"must be a hub pin, e.g. {{ tm1628: leds_a, number: 0 }}: the {nseg} pins "
+                v.err(cp, line, f"must be a hub pin, e.g. {{ led_driver: leds_a, number: 0 }}: the {nseg} pins "
                                 f"from it ({what}) must be in a row (or segment_step apart); or a list of "
                                 "its segments' pins")
                 continue
@@ -6000,7 +6000,9 @@ def component_header(dev, source):
              "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
              *[f'#include "{h}"' for h in headers], *([""] if headers else []),
              macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts if t.c_config]),
-             macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
+             # platforms of one base may share its state (led_driver)
+             macro("GM_HUB_STATE_MEMBERS", list(dict.fromkeys(f"{t.c_state[0]} {t.c_state[1]};" for t in parts
+                                                              if t.c_state))),
              macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
              macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),
              macro("GM_SCREEN_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in screens]),

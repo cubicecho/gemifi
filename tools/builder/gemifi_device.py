@@ -23,6 +23,7 @@ import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType, ShiftRegister, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
+from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
 
@@ -339,40 +340,6 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
 # type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the ones
 # below are still here and in core/src/vpin.c.
-class Mux(HubType):
-    """CD74HC4051 (3 select lines, 8 channels) / 4067 (4, 16): one common pin routed to a channel;
-    analog or digital inputs."""
-    enum, num = "GM_HUB_MUX", 3
-    lines = {"common_pin": "common", "enable_pin": "enable",
-             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
-    roles = frozenset({"in", "analog"})
-    what = "channel"
-
-    def __init__(self, key, n_sel):
-        self.key, self.n_sel = key, n_sel
-        self.keys = ("id", *(f"pin_s{i}" for i in range(n_sel)), "common_pin", "enable_pin", "delay")
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.n_sel = self.n_sel
-        hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
-        hub.n_pins = 1 << hub.n_sel
-        hub.common = ctl("common_pin", "common")
-        if hub.common.hub == 0:
-            hub.common_adc = v.plat.adc(hub.common.num)[0]
-        else:
-            hub.common = None
-        hub.enable = ctl("enable_pin", "out", required=False)
-        hub.settle_us = v.period(h, "delay", p, 0, 0xFFFF, default=0, example="5us")   # 0: vpin.c waits 2us
-        if "delay" in h and hub.settle_us == 0:
-            v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
-
-    def c_fields(self, hub):
-        sel = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
-        return [f"        .mux = {{ .sel = {{ {', '.join(sel)} }},",
-                f"                 .common = {(hub.common or NO_PIN).c()}, .enable = {hub.enable.c()}, "
-                f".settle_us = {hub.settle_us}, .n_sel = {hub.n_sel} }},"]
-
-
 class Decoder(HubType):
     """A 74HC138-style one-of-N decoder: outputs only, and only as matrix rows."""
     key, enum, num = "decoder", "GM_HUB_DECODER", 6
@@ -501,7 +468,6 @@ class SSD1306(HubType):
 
 # The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
 _HUBS_HERE = (
-    Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
     Decoder(), SwitchMatrix(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}

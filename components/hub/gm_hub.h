@@ -148,6 +148,9 @@ void gm_hub_mcu_out(gm_pin_t p, int level);
 void gm_hub_i2c_init(const gm_hub_t *h, gm_hub_state_t *s);
 void gm_hub_i2c_input(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
 void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
+/* A multiplexer (.mux), hub i, to channel ch: its select lines, and the
+ * other muxes' channels where they share them (vpin_read's path). */
+void gm_hub_mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch);
 /* A clock (or latch) pulse on MCU pin `pin`, high then low: the shift
  * registers' (.sr), from the scan tick, so inline. */
 static inline void gm_hub_pulse(uint16_t pin)

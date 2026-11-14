@@ -205,6 +205,17 @@ static uint8_t fed_hub[FED_MAX], fed_row[FED_MAX], fed_slot[FED_MAX];
 static uint8_t n_fed, fed_on;
 static void adc_off(void);          /* the hardware analog scan, below */
 
+static void mux_masks(uint32_t i, const gm_hub_t *h);   /* the multiplexers', below */
+
+/* The tables of the scan's fast paths, written out in this file (vpin_read
+ * on a mux channel, vpin_write on a decoder row, the switch-matrix scan),
+ * for hub i once its driver's init has run. */
+static void fast_init(uint32_t i, const gm_hub_t *h)
+{
+    if (USES(GM_HUB_MUX) && h->type == GM_HUB_MUX)
+        mux_masks(i, h);
+}
+
 /* Hubs refreshed / flushed from the scan tick, in hub order: the tick goes
  * through these lists, not every hub. */
 static uint8_t scan_in[N_HUBS], scan_out[N_HUBS];
@@ -237,6 +248,7 @@ void vpin_init(void)
         }
         if (o->init)
             o->init(h, s);
+        fast_init(i, h);
     }
 }
 
@@ -269,7 +281,6 @@ void vpin_output(gm_pin_t p)
     vpin_write(p, 0);
 }
 
-static void mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch);
 static void decoder_select(const gm_hub_t *h, uint32_t i, uint32_t n);
 
 __attribute__((weak)) const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask)
@@ -299,7 +310,7 @@ int vpin_read(gm_pin_t p)
     if (h->type == GM_HUB_MUX) {
         if (h->mux.common.hub != 0)
             return 0;
-        mux_select(h, p.hub - 1u, p.num);
+        gm_hub_mux_select(h, p.hub - 1u, p.num);
         return hal_pin_read(h->mux.common.num) ^ inv;
     }
     if (s->flags & (GM_HUBF_NO_READ | GM_HUBF_READ)) {
@@ -442,15 +453,6 @@ void vpin_poll_tm1628(void)
     (void)send_all(TM_POLL_BUDGET);
 }
 
-/* ---- MCU pins as hub control lines ------------------------------------ */
-
-static void mcu_in(gm_pin_t p)
-{
-    if (p.hub == 0)
-        hal_pin_mode(p.num, (p.flags & GM_PIN_PULLUP) ? HAL_IN_PULLUP :
-                            (p.flags & GM_PIN_PULLDOWN) ? HAL_IN_PULLDOWN : HAL_IN);
-}
-
 /* ---- XY pads: a new touch (the driver: components/xy_pad) ------------- */
 
 int vpin_analog_jump(gm_pin_t p)
@@ -466,11 +468,12 @@ int vpin_analog_jump(gm_pin_t p)
     return 1;
 }
 
-/* ---- 74HC4051 / 4067 multiplexers --------------------------------------
- * Muxes may share select lines (allow_other_uses): switching one switches
- * the others. One with the same lines is now on the same channel; one that
- * shares only some must switch again. Which muxes share select lines with
- * which is worked out once (mux_init): bit j of mux_same[i] = hub j has
+/* ---- 74HC4051 / 4067 multiplexers: the scan's path ----------------------
+ * The driver is components/cd74hc4067. Muxes may share select lines
+ * (allow_other_uses): switching one switches the others. One with the same
+ * lines is now on the same channel; one that shares only some must switch
+ * again. Which muxes share select lines with which is worked out once
+ * (mux_masks, from vpin_init): bit j of mux_same[i] = hub j has
  * exactly hub i's lines (so it is now on the same channel), of mux_some[i] =
  * it shares only some (so it must switch again). Masks cover hubs 0-31; a
  * device with more falls back to the loop. Read digitally by vpin_read
@@ -493,14 +496,9 @@ static void mux_pair(const gm_hub_t *h, const gm_hub_t *o, int *any, int *same)
     *same = n == o->mux.n_sel && o->mux.n_sel == h->mux.n_sel;
 }
 
-static void mux_init(const gm_hub_t *h, hub_state_t *s)
+/* Hub i's masks (vpin_init, after its init). */
+static void mux_masks(uint32_t i, const gm_hub_t *h)
 {
-    (void)s;
-    for (uint32_t k = 0; k < h->mux.n_sel && k < 4; k++)
-        gm_hub_mcu_out(h->mux.sel[k], 0);
-    gm_hub_mcu_out(h->mux.enable, 0);
-    mcu_in(h->mux.common);
-    uint32_t i = (uint32_t)(s - hs);
     mux_same[i] = mux_some[i] = 0;
     for (uint32_t j = 0; MUX_MASKS && j < gm_device.n_hubs; j++) {
         const gm_hub_t *o = &gm_device.hubs[j];
@@ -533,8 +531,8 @@ static void mux_shared(const gm_hub_t *h, uint32_t i, uint32_t ch)
     }
 }
 
-/* Hub i (h) to channel ch. */
-static void mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch)
+/* Hub i (h) to channel ch (gm_hub.h: the mux's analog op uses it too). */
+void gm_hub_mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch)
 {
     if (hs[i].channel == (int8_t)ch)
         return;
@@ -544,14 +542,6 @@ static void mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch)
     hs[i].channel = (int8_t)ch;
     mux_shared(h, i, ch);
     hal_delay_us(h->mux.settle_us ? h->mux.settle_us : 2);
-}
-
-static int32_t mux_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
-{
-    if (h->mux.common.hub != 0)
-        return -1;
-    mux_select(h, (uint32_t)(s - hs), ch);
-    return hal_adc_read(h->mux.common.num);
 }
 
 /* ---- decoders (74HC138 style) ------------------------------------------
@@ -678,7 +668,7 @@ static int adc_plan_source(gm_pin_t p, const gm_hub_t **group)
             if (h->mux.sel[k].hub != 0 || h->mux.sel[k].num != g->mux.sel[k].num)
                 return 0;
     }
-    uint32_t ns = (h->mux.settle_us ? h->mux.settle_us : 2u) * 1000u;   /* as mux_select waits */
+    uint32_t ns = (h->mux.settle_us ? h->mux.settle_us : 2u) * 1000u;   /* as gm_hub_mux_select waits */
     if (ns > aplan.settle_ns)
         aplan.settle_ns = ns;
     return adc_add_pin(h->mux.common.num) >= 0;
@@ -1398,9 +1388,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
 
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
-static const gm_hub_ops_t mux_ops = {
-    .init = mux_init, .analog = mux_analog,         /* digital reads: vpin_read */
-};
 static const gm_hub_ops_t decoder_ops = {
     .flags = GM_HUBF_SELECT, .init = decoder_init,  /* writes: vpin_write */
 };
@@ -1418,7 +1405,6 @@ static const gm_hub_ops_t no_ops = { 0 };
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
-    HUB(GM_HUB_MUX, mux_ops),
     HUB(GM_HUB_DECODER, decoder_ops),
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),
 #if GM_HUB_RAM > 0

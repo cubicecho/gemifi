@@ -1683,11 +1683,12 @@ static void mpads_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     }
 }
 
-/* ---- RAM-backed LED drivers: TM1637, HT16K33 (main loop) -------------- */
+/* ---- RAM-backed LED drivers: HT16K33 (main loop) ----------------------- */
 
-/* The pins of an LED driver with a bit per pin in the hub RAM (MAX7219:
- * components/max7219, TM1637, HT16K33; gm_hub.h). Pin num = RAM bit,
- * byte * 8 + bit, of `bytes` bytes; marks the chip dirty if it changed. */
+/* The pins of an LED driver with a bit per pin in the hub RAM (MAX7219,
+ * TM1637: components/max7219, components/tm1637; HT16K33; gm_hub.h). Pin
+ * num = RAM bit, byte * 8 + bit, of `bytes` bytes; marks the chip dirty if
+ * it changed. */
 void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level)
 {
     uint32_t k = num >> 3u;
@@ -1708,105 +1709,6 @@ void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n)
     s->u.seg.dirty = 1;
     for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
         gm_hub_ram[s->ram + k] = 0;
-}
-
-/* TM1637: 2-wire, start (DIO falls while CLK is high), bytes LSB first
- * (DIO set while CLK is low, taken on its rising edge), each followed by
- * the chip's ACK clock, stop (DIO rises while CLK is high). The ACK isn't
- * read: DIO is driven low through it, the level the chip pulls it to, so a
- * push-pull DIO never fights the chip. Each phase is TM37_HALF_US (a bit
- * ~2 x 3 us plus the pin writes, ~60 us a byte): the chip's clock is slow,
- * and boards often have capacitors on both lines. A bus byte costs
- * TM37_COST of the budget (about its time in TM1628 bytes). */
-#ifndef TM37_HALF_US
-#define TM37_HALF_US 3u
-#endif
-#define TM37_COST 5u
-
-static void t37_start(const gm_hub_t *h)
-{
-    hal_pin_write(h->tm37.dio.num, 0);
-    hal_delay_us(TM37_HALF_US);
-    hal_pin_write(h->tm37.clk.num, 0);
-    hal_delay_us(TM37_HALF_US);
-}
-
-static void t37_stop(const gm_hub_t *h)
-{
-    hal_pin_write(h->tm37.dio.num, 0);
-    hal_delay_us(TM37_HALF_US);
-    hal_pin_write(h->tm37.clk.num, 1);
-    hal_delay_us(TM37_HALF_US);
-    hal_pin_write(h->tm37.dio.num, 1);
-    hal_delay_us(TM37_HALF_US);
-}
-
-static void t37_byte(const gm_hub_t *h, uint32_t v)
-{
-    for (uint32_t b = 0; b < 9u; b++, v >>= 1) {     /* 8 bits, then the ACK clock with DIO low */
-        hal_pin_write(h->tm37.dio.num, (int)(b < 8u ? v & 1u : 0u));
-        hal_delay_us(TM37_HALF_US);
-        hal_pin_write(h->tm37.clk.num, 1);
-        hal_delay_us(TM37_HALF_US);
-        hal_pin_write(h->tm37.clk.num, 0);
-    }
-}
-
-static void t37_cmd(const gm_hub_t *h, uint32_t cmd)
-{
-    t37_start(h);
-    t37_byte(h, cmd);
-    t37_stop(h);
-}
-
-/* The first write: 0x40 (write, auto-increment), every grid from C0, then
- * 0x88 | brightness (on). After that, the first run of changed grids: 0x40,
- * then C0 | its first address and its bytes, as many as the budget has
- * room for (at least one); the rest on the next calls. */
-static uint32_t tm1637_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
-{
-    uint32_t n = h->tm37.grids;
-    if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
-        return budget;
-    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
-    uint32_t k = 0, all = s->never;
-    if (!all)
-        while (k < n && ram[k] == sent[k])
-            k++;
-    if (k < n) {
-        t37_cmd(h, 0x40u);
-        t37_start(h);
-        t37_byte(h, 0xC0u | k);
-        uint32_t used = 2u * TM37_COST;
-        do {
-            t37_byte(h, ram[k]);
-            sent[k] = ram[k];
-            k++;
-            used += TM37_COST;
-        } while (k < n && (all || (ram[k] != sent[k] && used + TM37_COST <= budget)));
-        t37_stop(h);
-        budget = budget > used ? budget - used : 0u;
-    }
-    if (all) {
-        t37_cmd(h, 0x88u | (h->tm37.brightness & 7u));
-        s->never = 0;
-    }
-    while (k < n && ram[k] == sent[k])
-        k++;
-    s->u.seg.dirty = k < n;
-    return budget;
-}
-
-static void tm1637_init(const gm_hub_t *h, hub_state_t *s)
-{
-    gm_hub_mcu_out(h->tm37.clk, 1);     /* idle: both high */
-    gm_hub_mcu_out(h->tm37.dio, 1);
-    gm_hub_ledram_init(s, h->tm37.grids);
-}
-
-static void tm1637_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
-{
-    gm_hub_ledram_write(s, h->tm37.grids, num, level);
 }
 
 /* HT16K33 (I2C): 16 bytes of display RAM, COM c = bytes 2c (ROW0-7) and
@@ -2158,9 +2060,6 @@ static const gm_hub_ops_t mpads_ops = {
     .flags = GM_HUBF_NO_READ, .init = mpads_init, .write = mpads_write, .rgb = mpads_rgb,
     .poll = mpads_poll,
 };
-static const gm_hub_ops_t tm1637_ops = {
-    .flags = GM_HUBF_NO_READ, .init = tm1637_init, .write = tm1637_write, .send = tm1637_send,
-};
 static const gm_hub_ops_t ht16k33_ops = {
     .flags = GM_HUBF_NO_READ, .init = ht16k33_init, .write = ht16k33_write, .send = ht16k33_send,
 };
@@ -2187,7 +2086,6 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_TM1628, tm1628_ops),
     HUB(GM_HUB_MAUDIO_PADS, mpads_ops),
-    HUB(GM_HUB_TM1637, tm1637_ops),
     HUB(GM_HUB_HT16K33, ht16k33_ops),
     HUB(GM_HUB_SSD1306, ssd1306_ops),
 #endif

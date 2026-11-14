@@ -151,16 +151,8 @@ Build and upload it, then light one bit at a time: from the web app's host-feedb
 Three more LED drivers for segment digits (and single LEDs), written from the main loop like the TM1628: the MAX7219 and TM1637 bit-banged on any platform, the HT16K33 on the I2C bus (ESP only for now). Their pins are kept in the hub RAM (`GM_HUB_RAM` counts them too), and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. All three are untested on hardware.
 
 - **`max7219`**: see [components/max7219](../components/max7219/README.md).
-- **`tm1637`** (ESPHome's keys, `length` = grids): a 2-wire chip, one per `clk_pin` / `dio_pin` pair (there's no chip select, so they can't be shared). Pin = grid × 8 + segment, bit 0 = SEG1 (a on the usual 4- and 6-digit modules) to bit 7 = SEG8 (the point, or the colon on clock modules). Start (DIO falls while CLK is high), bytes LSB first, each followed by the chip's ACK clock, stop (DIO rises while CLK is high), each phase 3 µs (`TM37_HALF_US`; the chip's clock is slow and modules often have capacitors on both lines), about 60 µs a byte. The ACK isn't read: DIO is driven low through it, the level the chip pulls it to, so a push-pull DIO never fights the chip (`OUTPUT_OPEN_DRAIN` with a pull-up works too). The first write is 0x40 (write, auto-increment), every grid from 0xC0, then 0x88 | `intensity` (on); after that each pass sends the first run of changed grids, 0x40 then 0xC0 | its address and as many bytes as the budget has room for (a byte counts 5), at least one.
+- **`tm1637`**: see [components/tm1637](../components/tm1637/README.md).
 - **`ht16k33`** (the Adafruit 14-segment and 7-segment backpacks and similar boards): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
-
-```yaml
-tm1637:
-  - { id: clock, clk_pin: PB6, dio_pin: PB7, length: 4 }
-displays:
-  - { id: text, type: segment7, shows: last_message,
-      chars: [{ tm1637: clock, number: 0 }, { tm1637: clock, number: 8 }, { tm1637: clock, number: 16 }, { tm1637: clock, number: 24 }] }
-```
 
 ### SSD1306 and SH1106 OLEDs
 

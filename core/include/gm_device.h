@@ -146,16 +146,6 @@ typedef struct {
     uint16_t touch_min, touch_max;
 } gm_hub_xy_t;
 
-/* .tm37: a TM1637 (2-wire: CLK, DIO, no chip select; one chip per pair),
- * bit-banged from the main loop: outputs, pin = grid * 8 + segment (bit 0
- * = SEG1 = a ... bit 7 = SEG8, the point or colon). */
-typedef struct {
-    gm_pin_t clk;
-    gm_pin_t dio;
-    uint8_t grids;        /* digits written, 1..6                          */
-    uint8_t brightness;   /* 0..7 (display control 0x88 | it)              */
-} gm_hub_tm1637_t;
-
 /* .ht: an HT16K33 LED driver on the I2C bus (the 14-segment and 7-segment
  * backpacks), written from the main loop: outputs, pin = COM * 16 + ROW
  * (display RAM bit: byte * 8 + bit). The key scan isn't read. */
@@ -189,7 +179,6 @@ typedef struct {
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
         gm_hub_maudio_pads_t mpads; /* GM_HUB_MAUDIO_PADS */
         gm_hub_xy_t xy;           /* GM_HUB_XY */
-        gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
         gm_hub_ht16k33_t ht;      /* GM_HUB_HT16K33 */
         gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */
         GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */

@@ -601,36 +601,6 @@ class XYPad(HubType):
                 f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
 
 
-class TM1637(HubType):
-    """A TM1637 LED driver (2-wire, ESPHome tm1637 keys), bit-banged from the main loop: pin = grid * 8
-    + segment (bit 0 = SEG1 = a ... bit 7 = SEG8)."""
-    key, enum, num = "tm1637", "GM_HUB_TM1637", 13
-    keys = ("id", "clk_pin", "dio_pin", "intensity", "length")
-    lines = {"clk_pin": "tm37_clk", "dio_pin": "tm37_dio"}
-    roles = frozenset({"out"})
-    ram = True
-    schema = {"length": (1, 6), "intensity": (0, 7)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.ram_bytes = v.integer(h, "length", p, 1, 6, default=6)
-        hub.n_pins = 8 * hub.ram_bytes
-        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("dio_pin", "out", open_drain=True)
-        for k in ("clk_pin", "dio_pin"):
-            x = h.get(k)
-            if isinstance(x, dict) and x.get("allow_other_uses"):
-                v.err(f"{p}.{k}", h.line_of(k), "a tm1637 has no chip select: its clk_pin and dio_pin "
-                                               "can't be shared")
-
-    def range_text(self, hub):
-        return f" ({hub.ram_bytes} grids x 8; pin = grid * 8 + segment)"
-
-    def c_fields(self, hub):
-        return [f"        .tm37 = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .grids = {hub.ram_bytes}, "
-                f".brightness = {hub.intensity} }},"]
-
-
 class HT16K33(HubType):
     """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
     loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
@@ -729,7 +699,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), TM1637(), HT16K33(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), HT16K33(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)

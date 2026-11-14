@@ -116,8 +116,8 @@ int vpin_rgb(gm_pin_t p, uint32_t rgb);
  * changed pages go out (vpin_poll). Main loop. */
 void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale);
 
-/* TM1628 hubs with fade: (core/README.md "TM1628 LED drivers"): the chip
- * has one brightness (8 steps), so it shows the brightest of its LEDs.
+/* TM1628 hubs with fade: (components/tm1628/README.md): the chip has one
+ * brightness (8 steps), so it shows the brightest of its LEDs.
  * vpin_fade notes that the LED on pin p is lit at v (0..255, as eyes see
  * it), colour = 1 if that is a host's colour; vpin_fade_apply then sets
  * each fade chip from the brightest host colour noted since the last call,

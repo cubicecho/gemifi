@@ -22,6 +22,7 @@ if REPO_ROOT not in sys.path:
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType, rgb_curve  # noqa: E402
+from components.tm1628 import TM1628  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 
 try:
@@ -492,38 +493,6 @@ class SwitchMatrix(HubType):
                 f"                .settle_us = {hub.settle_us}, .rows_per_scan = {hub.rows_per_scan or 0} }},"]
 
 
-# TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
-TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
-
-
-class TM1628(HubType):
-    """A TM1628-class LED driver, bit-banged from the main loop: pin = display RAM bit."""
-    key, enum, num = "tm1628", "GM_HUB_TM1628", 7
-    keys = ("id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids", "fade")
-    # TM1628 lines only pair with each other: they're bit-banged from the main loop
-    lines = {"clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
-    roles = frozenset({"out"})
-    ram = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.ram_bytes = v.integer(h, "ram_bytes", p, 1, TM_RAM_MAX, default=14)
-        hub.n_pins = 8 * hub.ram_bytes
-        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
-        hub.grids = v.integer(h, "grids", p, 4, 7, default=0)   # 0: no display-mode command
-        hub.fade = v.boolean(h, "fade", p, default=False)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("dio_pin", "out", open_drain=True)
-        hub.latch = ctl("stb_pin", "out")
-
-    def range_text(self, hub):
-        return f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)"
-
-    def c_fields(self, hub):
-        return [f"        .tm = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .stb = {hub.latch.c()},",
-                f"                .ram_bytes = {hub.ram_bytes}, .brightness = {hub.intensity}, "
-                f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
-
-
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
@@ -619,7 +588,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), XYPad(), SSD1306())
+    Decoder(), SwitchMatrix(), XYPad(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
@@ -6263,15 +6232,15 @@ def component_lists(dev, source):
 
 def component_header(dev, source):
     """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
-    code is in components/ (HubType.c_header), and what they add to the hub base: GM_HUB_CONFIG_MEMBERS
-    (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS and GM_HUB_OPS
-    (core/src/vpin.c hub_ops[])."""
-    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_header}.values(), key=lambda t: (t.num, t.key))
+    code is in components/ (HubType.c_ops; c_header, if it has one), and what they add to the hub base:
+    GM_HUB_CONFIG_MEMBERS (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS
+    and GM_HUB_OPS (core/src/vpin.c hub_ops[])."""
+    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_ops}.values(), key=lambda t: (t.num, t.key))
     by_enum = {}
     for t in kinds:
         by_enum.setdefault(t.enum, t)       # types sharing an enum share their C parts
     parts = list(by_enum.values())
-    headers = list(dict.fromkeys(t.c_header for t in parts))
+    headers = list(dict.fromkeys(t.c_header for t in parts if t.c_header))
 
     def macro(name, items):
         return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
@@ -6280,7 +6249,7 @@ def component_header(dev, source):
              " * their headers, and what they add to the hub base (components/hub/gm_hub.h). */",
              "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
              *[f'#include "{h}"' for h in headers], *([""] if headers else []),
-             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts]),
+             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts if t.c_config]),
              macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
              macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
              macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),

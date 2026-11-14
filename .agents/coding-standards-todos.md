@@ -47,6 +47,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | open |
 | D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | open |
 | R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | open |
+| F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | open |
 
 ## Model changes
 
@@ -99,7 +100,8 @@ As-is: every hub type is a top-level YAML list named after its chip. To-be: the 
 interchangeable chips for one job get a base component with platforms, as the display base did:
 `led_strip:` (`platform: ws2812 | maudio_pads`; the base holds the full-colour LED code: pins per LED,
 `gamma:` / `white:`, the colour output) and `led_driver:` (`platform: tm1628 | max7219 | tm1637 |
-ht16k33`; the base holds the LED-byte RAM and the send budget code). Both still give pins
+ht16k33`; the base holds the LED-byte RAM helpers; the send budget stays in `vpin_poll` and each
+platform's `send`). Both still give pins
 (`{ led_strip: id, number: n }`). I/O expanders, multiplexers and matrices stay top-level by chip, as in
 ESPHome. The old keys are refused with the new form in the message (decided 2026-11-14). Implemented
 by: A2, A3. Status: done.

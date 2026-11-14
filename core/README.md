@@ -152,7 +152,7 @@ Three more LED drivers for segment digits (and single LEDs), written from the ma
 
 - **`max7219`**: see [components/max7219](../components/max7219/README.md).
 - **`tm1637`**: see [components/tm1637](../components/tm1637/README.md).
-- **`ht16k33`** (the Adafruit 14-segment and 7-segment backpacks and similar boards): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
+- **`ht16k33`**: see [components/ht16k33](../components/ht16k33/README.md).
 
 ### SSD1306 and SH1106 OLEDs
 

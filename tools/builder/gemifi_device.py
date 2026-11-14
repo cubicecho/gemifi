@@ -601,32 +601,6 @@ class XYPad(HubType):
                 f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
 
 
-class HT16K33(HubType):
-    """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
-    loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
-    key, enum, num = "ht16k33", "GM_HUB_HT16K33", 14
-    keys = ("id", "address", "intensity")
-    roles = frozenset({"out"})
-    ram = True
-    i2c = True
-    schema = {"intensity": (0, 15)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x70)
-        if not 0x70 <= hub.addr <= 0x77:
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for an ht16k33 "
-                                                         "(0x70-0x77)")
-        hub.ram_bytes = 16
-        hub.n_pins = 128
-        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
-
-    def range_text(self, hub):
-        return " (16 RAM bytes x 8; pin = COM * 16 + ROW)"
-
-    def c_fields(self, hub):
-        return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
-
-
 # SSD1306 / SH1106 OLEDs on the I2C bus: a framebuffer (width x height / 8 bytes) in the hub RAM, no
 # pins; text displays (displays: type text) draw on it.
 OLED_MODELS = {"ssd1306": 0, "sh1106": 1}       # gm_device.h GM_OLED_SH1106
@@ -699,7 +673,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), HT16K33(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)

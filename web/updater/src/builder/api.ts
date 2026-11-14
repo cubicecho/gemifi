@@ -129,7 +129,7 @@ export interface DmaChannel {
   channel: number;
   /** The peripheral request on it, e.g. `USART2_TX`. */
   request: string;
-  /** The feature that uses it, e.g. `rgb_serial 'pad_leds'`. */
+  /** The feature that uses it, e.g. `maudio_pads 'pad_leds'`. */
   user: string;
 }
 

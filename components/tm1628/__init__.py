@@ -1,20 +1,22 @@
-"""tm1628: TM1628-class LED drivers (TM1628, TM1638, TM1620 ...), bit-banged from the main loop, a hub
-type on the hub base (components/hub). The YAML and the C: README.md here.
+"""tm1628: TM1628-class LED drivers (TM1628, TM1638, TM1620 ...), bit-banged from the main loop, a platform
+on the led_driver base (components/led_driver): `led_driver: [{ id: leds, platform: tm1628, ... }]`. The
+YAML and the C: README.md here.
 """
-from components.hub import HubType
+from components.led_driver import LedDriver
+
+DEPENDENCIES = ("led_driver",)
 
 # TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
 TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
 
 
-class TM1628(HubType):
+class TM1628(LedDriver):
     """A TM1628-class LED driver, bit-banged from the main loop: pin = display RAM bit."""
     key, enum, num = "tm1628", "GM_HUB_TM1628", 7
-    keys = ("id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids", "fade")
+    old_keys = ("tm1628",)
+    keys = ("id", "platform", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids", "fade")
     # TM1628 lines only pair with each other: they're bit-banged from the main loop
     lines = {"clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
-    roles = frozenset({"out"})
-    ram = True
     # its config (.tm) and state (.u.tm) are the core's: the fade (vpin.c vpin_fade*) reads them
     c_ops = "gm_tm1628_ops"
 

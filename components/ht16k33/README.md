@@ -1,7 +1,18 @@
 # ht16k33
 
-A hub type ([hub](../hub/gm_hub.h), [core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)): `ht16k33.c` (the driver), `ht16k33.h` (its config), `__init__.py` (the YAML: validation and generated C). Its host test is `core/test/test_i2c.c`, with the other I2C hubs'.
+An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/gm_hub.h) base): `ht16k33.c` (the driver), `ht16k33.h` (its config), `__init__.py` (the YAML: validation and generated C). Its host test is `core/test/test_i2c.c`, with the other I2C hubs'.
 
 `ht16k33` drives an HT16K33 (the Adafruit 14-segment and 7-segment backpacks and similar boards) on an [`i2c:`](../i2c/README.md) bus (`address`, default 0x70; `i2c_id:` with several buses): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
 
-One of the LED drivers for segment digits written from the main loop ([MAX7219, TM1637 and HT16K33](../../core/README.md#max7219-tm1637-and-ht16k33)), on the I2C bus (ESP only for now, as the other I2C hubs): its pins are kept in the hub RAM, and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. Untested on hardware.
+```yaml
+i2c: { sda: GPIO21, scl: GPIO22 }
+led_driver:
+  - { id: alpha, platform: ht16k33, address: 0x70, intensity: 9 }
+displays:
+  - id: word
+    type: segment14
+    segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]
+    chars: [{ led_driver: alpha, number: 0 }, { led_driver: alpha, number: 16 }, { led_driver: alpha, number: 32 }, { led_driver: alpha, number: 48 }]
+```
+
+One of the LED drivers for segment digits written from the main loop ([led_driver](../led_driver/README.md)), on the I2C bus (ESP only for now, as the other I2C hubs): its pins are kept in the hub RAM, and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass. Untested on hardware.

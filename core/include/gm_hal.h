@@ -77,10 +77,10 @@ void hal_midi_flush(uint32_t timeout_ms);
 void hal_midi_send_usb(const uint8_t ev[4]);
 
 /* hal_din_open / hal_serial_open flags: move the bytes by DMA rather than
- * from an interrupt (din_midi dma:, maudio_pad_leds dma:; the builder checks the
+ * from an interrupt (din_midi dma:, maudio_pads dma:; the builder checks the
  * channels are free). Platforms without DMA ignore it. */
 #define HAL_UART_DMA 1u
-/* hal_serial_open: also receive, on the pin paired with tx_pin (maudio_pad_leds
+/* hal_serial_open: also receive, on the pin paired with tx_pin (maudio_pads
  * rx_pin:), for hal_serial_read. */
 #define HAL_UART_RX 2u
 
@@ -126,14 +126,14 @@ const hal_fw_ops_t *hal_fw_ops(void);
  * default returning 0 is in core/src/app_proto.c. */
 uint16_t hal_extra_caps(void);
 
-/* A serial port on tx_pin (8N1), for maudio_pad_leds hubs.
+/* A serial port on tx_pin (8N1), for maudio_pads LED strips.
  * hal_serial_open sets it up, by DMA or interrupt per HAL_UART_DMA in flags
  * (0 if tx_pin can't be one), receiving too with HAL_UART_RX; hal_serial_write
  * starts sending n <= 16 bytes in the background, copied, and returns 0
  * without sending if the last write is still going; hal_serial_read returns
  * the next byte received (kept by interrupt, at least 16), or -1 for none.
  * Weak defaults that do nothing are in
- * components/maudio_pad_leds/maudio_pad_leds.c. */
+ * components/maudio_pads/maudio_pads.c. */
 int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 int hal_serial_read(uint16_t tx_pin);
@@ -168,7 +168,8 @@ uint32_t hal_cycles(void);
 /* Optional: how many hal_cycles() counts make ns (< 1000000, rounded up),
  * for short waits on hal_cycles() (the TM1628 bit timing); 0 if hal_cycles()
  * doesn't count. Must not divide at run time on a chip without a fast
- * divider. A weak default returning 0 is in core/src/vpin.c. */
+ * divider. A weak default returning 0 is in
+ * components/led_driver/led_driver.c. */
 uint32_t hal_ns_to_cycles(uint32_t ns);
 
 /* A set/reset register for pin's port, where writing 1 << *bit sets the pin

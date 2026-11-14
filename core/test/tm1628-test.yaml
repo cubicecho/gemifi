@@ -10,38 +10,40 @@ chip: STM32F103RB
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 500us
 
-tm1628:
+led_driver:
   - id: leds_a
+    platform: tm1628
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PA15
     intensity: 3
     grids: 7
   - id: leds_b
+    platform: tm1628
     clk_pin: { number: PC10, allow_other_uses: true }
     dio_pin: { number: PC11, mode: OUTPUT_OPEN_DRAIN, allow_other_uses: true }
     stb_pin: PC12
     ram_bytes: 6
 
 # RGB LEDs behind a serial link (the Code 61 pad board): 4 LEDs = 2 RAM bytes.
-maudio_pad_leds:
-  - { id: pads, tx_pin: PA2, count: 4 }
+led_strip:
+  - { id: pads, platform: maudio_pads, tx_pin: PA2, count: 4 }
 
 buttons:
   - { id: btn, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: btn_led }
 
 leds:
-  - { id: btn_led, pin: { tm1628: leds_a, number: 37 } }                       # byte 4, bit 5
-  - { id: fb_led,  pin: { tm1628: leds_b, number: 47 }, feedback: { note: 40 } }   # byte 5, bit 7
-  - { id: inv_led, pin: { tm1628: leds_b, number: 0, inverted: true } }        # lit = bit 0 clear
+  - { id: btn_led, pin: { led_driver: leds_a, number: 37 } }                       # byte 4, bit 5
+  - { id: fb_led,  pin: { led_driver: leds_b, number: 47 }, feedback: { note: 40 } }   # byte 5, bit 7
+  - { id: inv_led, pin: { led_driver: leds_b, number: 0, inverted: true } }        # lit = bit 0 clear
   - id: rgb_led                # RGB on A byte 13: red bit 0, green bit 1, blue bit 2
-    pin: { tm1628: leds_a, number: 104 }
-    pin2: { tm1628: leds_a, number: 105 }
-    pin3: { tm1628: leds_a, number: 106 }
+    pin: { led_driver: leds_a, number: 104 }
+    pin2: { led_driver: leds_a, number: 105 }
+    pin3: { led_driver: leds_a, number: 106 }
   - id: pad_led                # LED 2 of the serial board: any colour
-    pin: { maudio_pad_leds: pads, number: 6 }
-    pin2: { maudio_pad_leds: pads, number: 7 }
-    pin3: { maudio_pad_leds: pads, number: 8 }
+    pin: { led_strip: pads, number: 6 }
+    pin2: { led_strip: pads, number: 7 }
+    pin3: { led_strip: pads, number: 8 }
     idle: "#000010"            # dim blue when off
 
 # An analog input only because a device with host feedback and no analog

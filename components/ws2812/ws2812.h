@@ -1,5 +1,5 @@
 /*
- * ws2812.h: the ws2812 hub type's config (gm_hub_t .ws) and state
+ * ws2812.h: the ws2812 LED strip platform's config (gm_hub_t .ws) and state
  * (gm_hub_state_t .u.ws); components/ws2812/README.md. gm_device.h
  * includes it through the generated gm_components.h.
  *

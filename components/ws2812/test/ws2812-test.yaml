@@ -11,9 +11,9 @@ chip: STM32F103RB
 usb: { vid: 0x1209, pid: 0x0002 }
 scan_interval: 500us
 
-ws2812:
-  - { id: strip, pin: PB15, count: 4 }
-  - { id: rgbw, pin: PA7, count: 2, order: GRBW, gamma: 2.2, white: [255, 200, 220, 128] }
+led_strip:
+  - { id: strip, platform: ws2812, pin: PB15, count: 4 }
+  - { id: rgbw, platform: ws2812, pin: PA7, count: 2, order: GRBW, gamma: 2.2, white: [255, 200, 220, 128] }
 
 led_defaults: { idle: green 10% }
 
@@ -24,15 +24,15 @@ buttons:
 
 leds:
   # 0: strip LED 0, its own looks
-  - { id: l0, pin: { ws2812: strip, number: 0 }, pin2: { ws2812: strip, number: 1 }, pin3: { ws2812: strip, number: 2 }, idle: blue 20%, active: "#ff8000" }
+  - { id: l0, pin: { led_strip: strip, number: 0 }, pin2: { led_strip: strip, number: 1 }, pin3: { led_strip: strip, number: 2 }, idle: blue 20%, active: "#ff8000" }
   # 1: strip LED 1, led_defaults (green 10% idle, white active)
-  - { id: l1, pin: { ws2812: strip, number: 3 }, pin2: { ws2812: strip, number: 4 }, pin3: { ws2812: strip, number: 5 } }
+  - { id: l1, pin: { led_strip: strip, number: 3 }, pin2: { led_strip: strip, number: 4 }, pin3: { led_strip: strip, number: 5 } }
   # 2: strip LED 3, the cycle's
-  - { id: lc, pin: { ws2812: strip, number: 9 }, pin2: { ws2812: strip, number: 10 }, pin3: { ws2812: strip, number: 11 } }
+  - { id: lc, pin: { led_strip: strip, number: 9 }, pin2: { led_strip: strip, number: 10 }, pin3: { led_strip: strip, number: 11 } }
   # 3: RGBW LED 0, full colour: its white part goes on the white LED
-  - { id: lw, pin: { ws2812: rgbw, number: 0 }, pin2: { ws2812: rgbw, number: 1 }, pin3: { ws2812: rgbw, number: 2 }, idle: "#402010", active: "#ffffff" }
+  - { id: lw, pin: { led_strip: rgbw, number: 0 }, pin2: { led_strip: rgbw, number: 1 }, pin3: { led_strip: rgbw, number: 2 }, idle: "#402010", active: "#ffffff" }
   # 4: RGBW LED 1's white LED alone (a single-colour LED); led_defaults: on
-  - { id: lw1, pin: { ws2812: rgbw, number: 7 } }
+  - { id: lw1, pin: { led_strip: rgbw, number: 7 } }
   # 5: an MCU pin: led_defaults green 10% is on there
   - { id: lm, pin: PC0 }
 

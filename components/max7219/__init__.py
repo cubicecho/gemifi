@@ -1,23 +1,26 @@
-"""max7219: a chain of MAX7219 / MAX7221 LED drivers, bit-banged from the main loop, a hub type on the hub
-base (components/hub). The YAML and the C: README.md here.
+"""max7219: a chain of MAX7219 / MAX7221 LED drivers, bit-banged from the main loop, a platform on the
+led_driver base (components/led_driver): `led_driver: [{ id: digits, platform: max7219, ... }]`. The
+YAML and the C: README.md here.
 """
-from components.hub import HubType
+from components.led_driver import LedDriver
+
+DEPENDENCIES = ("led_driver",)
 
 # MAX7219 / MAX7221 LED drivers in a chain: pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
 # 7 = DP), so a 7-segment character is its digit's 8 pins (displays: type segment7).
 MAX7219_CHIPS = 8
 
 
-class MAX7219(HubType):
+class MAX7219(LedDriver):
     """A chain of MAX7219 LED drivers (ESPHome max7219 keys), bit-banged from the main loop."""
     key, enum, num = "max7219", "GM_HUB_MAX7219", 12
-    keys = ("id", "clk_pin", "din_pin", "cs_pin", "num_chips", "intensity", "scan_limit")
+    old_keys = ("max7219",)
+    keys = ("id", "platform", "clk_pin", "din_pin", "cs_pin", "num_chips", "intensity", "scan_limit")
     # chains may share CLK and DIN, each with its own CS
     lines = {"clk_pin": "mx_clk", "din_pin": "mx_din", "cs_pin": "mx_cs"}
-    roles = frozenset({"out"})
-    ram = True
     schema = {"num_chips": (1, MAX7219_CHIPS), "intensity": (0, 15), "scan_limit": (1, 8)}
     c_header, c_config, c_ops = "max7219.h", ("gm_hub_max7219_t", "mx"), "gm_max7219_ops"
+    c_state = ("gm_led_driver_state_t", "led_driver")
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         hub.chain = v.integer(h, "num_chips", p, 1, MAX7219_CHIPS, default=1)

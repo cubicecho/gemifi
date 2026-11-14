@@ -1,26 +1,25 @@
-"""maudio_pad_leds: the M-Audio Code pad LED board (RGB LEDs behind a serial link), a hub type on the hub
-base (components/hub). The YAML and the C: README.md here.
+"""maudio_pads: the M-Audio Code pad LED board (RGB LEDs behind a serial link), a platform on the
+led_strip base (components/led_strip): `led_strip: [{ id: pad_leds, platform: maudio_pads, tx_pin: PA2 }]`.
+The YAML and the C: README.md here.
 """
 import gemifi_device as gd  # the builder, which loads the components: used at call time only
-from components.hub import HubType, c_comment, rgb_curve, validate_rgb_calibration
+from components.led_strip import LedStrip, validate_rgb_calibration
 
-# The M-Audio Code pad LED board (maudio_pad_leds, formerly rgb_serial): RGB LEDs behind a serial
-# link, its own protocol (maudio_pad_leds.c). pin = LED * 3 + colour (0 red, 1 green, 2 blue). Kept in
-# the hub RAM, sent from the main loop.
+DEPENDENCIES = ("led_strip",)
+
+# The M-Audio Code pad LED board: RGB LEDs behind a serial link, its own protocol (maudio_pads.c).
+# pin = LED * 3 + colour (0 red, 1 green, 2 blue). Kept in the hub RAM, sent from the main loop.
 MAUDIO_PADS_MAX = 32
 
 
-class MaudioPadLeds(HubType):
+class MaudioPads(LedStrip):
     """The M-Audio Code pad LED board: RGB LEDs behind a serial link, pin = LED * 3 + colour."""
-    key, enum, num = "maudio_pad_leds", "GM_HUB_MAUDIO_PADS", 9
-    aliases = ("rgb_serial",)
-    keys = ("id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white")
+    key, enum, num = "maudio_pads", "GM_HUB_MAUDIO_PADS", 9
+    old_keys = ("maudio_pad_leds", "rgb_serial")
+    keys = ("id", "platform", "tx_pin", "rx_pin", "count", "dma", "gamma", "white")
     lines = {"tx_pin": "uart_tx", "rx_pin": "uart_rx"}
-    roles = frozenset({"out"})
-    ram = True
-    full_colour = True
-    c_header, c_ops = "maudio_pad_leds.h", "gm_maudio_pad_leds_ops"
-    c_config, c_state = ("gm_hub_maudio_pads_t", "mpads"), ("gm_maudio_pad_leds_state_t", "mpads")
+    c_header, c_ops = "maudio_pads.h", "gm_maudio_pads_ops"
+    c_config, c_state = ("gm_hub_maudio_pads_t", "mpads"), ("gm_maudio_pads_state_t", "mpads")
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         if any(x.type == self.key for x in dev.hubs if x is not hub):
@@ -45,19 +44,11 @@ class MaudioPadLeds(HubType):
     def range_text(self, hub):
         return f" ({hub.chain} LEDs x 3; pin = LED * 3 + colour, 0 red 1 green 2 blue)"
 
-    def c_tables(self, hub):
-        if hub.gamma == 1:
-            return []
-        t = rgb_curve(hub.gamma)
-        return [f"/* {c_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
-                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
-                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
-
     def c_fields(self, hub):
         return [f"        .mpads = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
                 f".dma = {1 if hub.dma else 0},",
                 f"                 .white = {{ {', '.join(str(x) for x in hub.white)} }}, "
-                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
+                f".curve = {self.c_curve(hub)} }},"]
 
 
-HUB_TYPES = (MaudioPadLeds(),)
+HUB_TYPES = (MaudioPads(),)

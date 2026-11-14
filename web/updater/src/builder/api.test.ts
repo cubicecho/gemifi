@@ -173,7 +173,7 @@ describe('builder requests', () => {
     mockFetch(
       json({
         ok: true,
-        summary: 'Code 61 (stm32f1, board 0x0002), 3 hubs\n  DMA1 channels: 7 USART2_TX (rgb_serial), free: 1',
+        summary: 'Code 61 (stm32f1, board 0x0002), 3 hubs\n  DMA1 channels: 7 USART2_TX (maudio_pads), free: 1',
         diags: [],
         presets: {
           slots: [
@@ -185,7 +185,7 @@ describe('builder requests', () => {
           storage: { max_slots: 3 },
         },
         dma: {
-          channels: [{ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" }, { channel: 'x' }],
+          channels: [{ channel: 7, request: 'USART2_TX', user: "maudio_pads 'pad_leds'" }, { channel: 'x' }],
           free: [1, 2, 3, 4, 5, 6],
           text: 'DMA1 channels: ...',
         },
@@ -214,7 +214,7 @@ describe('builder requests', () => {
       maxSlots: 3,
     });
     expect(result.dma).toEqual({
-      channels: [{ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" }],
+      channels: [{ channel: 7, request: 'USART2_TX', user: "maudio_pads 'pad_leds'" }],
       free: [1, 2, 3, 4, 5, 6],
     });
     expect(result.dinMidi).toEqual({

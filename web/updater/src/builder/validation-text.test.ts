@@ -34,9 +34,9 @@ describe('validation text', () => {
   });
 
   it('draws every DMA1 channel, the free ones as nulls', () => {
-    const rows = dmaRows({ channels: [{ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" }], free: [] });
+    const rows = dmaRows({ channels: [{ channel: 7, request: 'USART2_TX', user: "maudio_pads 'pad_leds'" }], free: [] });
     expect(rows).toHaveLength(7);
     expect(rows[0]).toEqual({ channel: 1, request: null, user: null });
-    expect(rows[6]).toEqual({ channel: 7, request: 'USART2_TX', user: "rgb_serial 'pad_leds'" });
+    expect(rows[6]).toEqual({ channel: 7, request: 'USART2_TX', user: "maudio_pads 'pad_leds'" });
   });
 });

@@ -101,7 +101,7 @@ export function ValidationFacts({ result }: ValidationFactsProps) {
           description={
             dma.free.length === 0
               ? 'Every DMA1 channel is in use. A dma: switch that needs one stops the build.'
-              : `Free: ${dma.free.join(', ')}. The dma: switches on maudio_pad_leds and din_midi take the channels the hardware wires them to.`
+              : `Free: ${dma.free.join(', ')}. The dma: switches on a maudio_pads LED strip and din_midi take the channels the hardware wires them to.`
           }
           contentSlot={<DmaTable dma={dma} />}
         />

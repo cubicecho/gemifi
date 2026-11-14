@@ -20,8 +20,8 @@ mcp23017:
   - { id: mixed_io, address: 0x21, i2c_id: bus_a }
 pcf8574:
   - { id: btn_io, address: 0x38, i2c_id: bus_a }
-ht16k33:
-  - { id: alpha, address: 0x70, intensity: 9, i2c_id: bus_b }
+led_driver:
+  - { id: alpha, platform: ht16k33, address: 0x70, intensity: 9, i2c_id: bus_b }
 
 buttons:
   - { id: play, pin: { mcp23xxx: mixed_io, number: GPA0, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 20, led: play_led }
@@ -36,7 +36,7 @@ displays:
   - id: alpha_display
     segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]   # the lower diagonals swapped
     chars:
-      - { ht16k33: alpha, number: 0 }
-      - { ht16k33: alpha, number: 16 }
-      - { ht16k33: alpha, number: 32 }
-      - { ht16k33: alpha, number: 48 }
+      - { led_driver: alpha, number: 0 }
+      - { led_driver: alpha, number: 16 }
+      - { led_driver: alpha, number: 32 }
+      - { led_driver: alpha, number: 48 }

@@ -41,8 +41,8 @@ sn74hc165:
   - { id: switches, data_pin: PB12, clock_pin: { number: PB13, allow_other_uses: true }, load_pin: PB14, sr_count: 2 }
 sn74hc595:
   - { id: leds, data_pin: PB15, clock_pin: { number: PB13, allow_other_uses: true }, latch_pin: PA8, sr_count: 2 }
-max7219:
-  - { id: digits, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, num_chips: 1, intensity: 8, scan_limit: 3 }
+led_driver:
+  - { id: digits, platform: max7219, clk_pin: PA5, din_pin: PA7, cs_pin: PA4, num_chips: 1, intensity: 8, scan_limit: 3 }
 
 buttons:
   - { id: fs_1, name: FS 1, pin: { sn74hc165: switches, number: 0, inverted: true }, action: preset_select, preset: 1, led: fs_1_led }
@@ -81,9 +81,9 @@ displays:
     type: segment7
     shows: preset_number
     chars:                     # DIG0, DIG1, DIG2: each digit's 8 pins, segments A-G, DP
-      - { max7219: digits, number: 0 }
-      - { max7219: digits, number: 8 }
-      - { max7219: digits, number: 16 }
+      - { led_driver: digits, number: 0 }
+      - { led_driver: digits, number: 8 }
+      - { led_driver: digits, number: 16 }
 
 # Presets 1-10: each sends its Program Change (0-9) on the board's channel.
 presets:

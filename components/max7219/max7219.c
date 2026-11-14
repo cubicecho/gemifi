@@ -1,14 +1,15 @@
 /*
- * max7219.c: the max7219 hub type, a chain of MAX7219 / MAX7221 LED drivers
- * bit-banged from the main loop (components/max7219/README.md). A hub type
- * on the hub base (components/hub/gm_hub.h): its pins are bits in the hub
- * RAM (gm_hub_ledram_*), and send writes what changed.
+ * max7219.c: the max7219 LED driver platform, a chain of MAX7219 / MAX7221
+ * LED drivers bit-banged from the main loop (components/max7219/README.md).
+ * A hub type on the led_driver base (components/led_driver): its pins are
+ * bits in the hub RAM (gm_led_driver_*), and send writes what changed.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "gm_device_config.h"
 #include "gm_hal.h"
 #include "gm_hub.h"
+#include "led_driver.h"
 
 /* A bus phase: n hal_cycles() (hal_ns_to_cycles), or 1 us without a
  * cycle counter (n = 0). */
@@ -80,7 +81,7 @@ static void mx_frame(const gm_hub_t *h, uint32_t reg, const uint8_t *ram, uint32
 static uint32_t max7219_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budget)
 {
     uint32_t n = h->mx.chips * 8u, cost = 2u * h->mx.chips;
-    if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
+    if (!s->u.led_driver.dirty || s->ram + n > GM_HUB_RAM)
         return budget;
     uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     uint32_t ph = hal_ns_to_cycles(MX_PHASE_NS);
@@ -95,7 +96,7 @@ static uint32_t max7219_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budg
         for (uint32_t k = 0; k < n; k++)
             sent[k] = ram[k];
         s->never = 0;
-        s->u.seg.dirty = 0;
+        s->u.led_driver.dirty = 0;
         return budget > 13u * cost ? budget - 13u * cost : 0u;
     }
     uint32_t d = 0, left = 0;
@@ -114,7 +115,7 @@ static uint32_t max7219_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budg
             sent[c * 8u + d] = ram[c * 8u + d];
         budget = budget > cost ? budget - cost : 0u;
     }
-    s->u.seg.dirty = (uint8_t)left;
+    s->u.led_driver.dirty = (uint8_t)left;
     return budget;
 }
 
@@ -123,12 +124,12 @@ static void max7219_init(const gm_hub_t *h, gm_hub_state_t *s)
     gm_hub_mcu_out(h->mx.cs, 1);        /* idle: CS high, CLK low */
     gm_hub_mcu_out(h->mx.clk, 0);
     gm_hub_mcu_out(h->mx.din, 0);
-    gm_hub_ledram_init(s, h->mx.chips * 8u);
+    gm_led_driver_init(s, h->mx.chips * 8u);
 }
 
 static void max7219_write(const gm_hub_t *h, gm_hub_state_t *s, uint32_t num, int level)
 {
-    gm_hub_ledram_write(s, h->mx.chips * 8u, num, level);
+    gm_led_driver_write(s, h->mx.chips * 8u, num, level);
 }
 
 const gm_hub_ops_t gm_max7219_ops = {

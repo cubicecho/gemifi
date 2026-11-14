@@ -1,6 +1,6 @@
 /*
- * ws2812.c: the ws2812 hub type, addressable LED strips (WS2812B, SK6812 RGB / RGBW) on one MCU pin
- * (components/ws2812/README.md). A hub type on the hub base (components/hub/gm_hub.h): its pins are
+ * ws2812.c: the ws2812 LED strip platform, addressable LEDs (WS2812B, SK6812 RGB / RGBW) on one MCU pin
+ * (components/ws2812/README.md). A hub type on the led_strip base (components/led_strip): its pins are
  * bytes in the hub RAM, and the platform sends the frames (gm_hal.h hal_ledstrip_*).
  *
  * SPDX-License-Identifier: MIT
@@ -8,6 +8,7 @@
 #include "gm_device_config.h"
 #include "gm_hal.h"
 #include "gm_hub.h"
+#include "led_strip.h"
 
 /* The platform's LED strip driver; these weak ones say there is none (the builder refuses a ws2812
  * where the platform has none). */
@@ -115,7 +116,7 @@ static void ws2812_poll(const gm_hub_t *h, gm_hub_state_t *s, uint32_t now_ms)
         }
         for (uint32_t k = 0; k < ch; k++) {
             uint32_t c = (h->ws.order >> (2u * k)) & 3u;
-            uint8_t b = gm_hub_colour_out(h->ws.curve, h->ws.white, c, v[c]);
+            uint8_t b = gm_led_strip_colour_out(h->ws.curve, h->ws.white, c, v[c]);
             if (sent[led * ch + k] != b) {
                 sent[led * ch + k] = b;
                 changed = 1;

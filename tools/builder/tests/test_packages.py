@@ -425,7 +425,8 @@ class TestSchema(unittest.TestCase):
 
     def test_keys_are_the_validators(self):
         """Every mapping the validator checks has exactly the schema's keys there (fixed sections) or
-        a subset of them (maps keyed by component id), on every device file and example."""
+        a subset of them (maps keyed by component id; a domain's list, whose items take their platform's
+        keys), on every device file and example."""
         schema = gs.device_schema()
         seen = {}
         orig = gd._V.mapping
@@ -458,15 +459,25 @@ class TestSchema(unittest.TestCase):
                     node, dynamic = node["additionalProperties"], True
             return self.resolve(schema, node, True), dynamic
 
+        domains = {f"{d}[]" for d in gd.HUB_DOMAINS}
         for path, keys in seen.items():
             node, dynamic = at(path)
             props = set(node.get("properties", {}))
             if path == "":
                 props -= set(gs.REUSE_KEYS)      # used up by gemifi_yaml.py before validation
-            if dynamic:
+            if dynamic or path in domains:
                 self.assertLessEqual(keys, props, path)
             else:
                 self.assertEqual(keys, props, path)
+
+    def test_a_domain_takes_its_platforms_keys(self):
+        """A domain's list (led_strip: ...) takes the keys of all its platforms, and platform: one of them."""
+        schema = gs.device_schema()
+        for domain, plats in gd.HUB_DOMAINS.items():
+            with self.subTest(domain):
+                item = self.resolve(schema, schema["properties"][domain], False)["items"]
+                self.assertEqual(set(item["properties"]), {k for t in plats for k in gd.HUB_KEYS[t]})
+                self.assertEqual(item["properties"]["platform"]["anyOf"][0]["enum"], list(plats))
 
     @staticmethod
     def resolve(schema, node, want_object):

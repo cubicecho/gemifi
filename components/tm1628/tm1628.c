@@ -1,8 +1,9 @@
 /*
- * tm1628.c: the tm1628 hub type, TM1628-class LED drivers (TM1628, TM1638,
- * TM1620 ...) bit-banged from the main loop (components/tm1628/README.md).
- * A hub type on the hub base (components/hub/gm_hub.h): its pins are bits
- * in the hub RAM, and send writes what changed. Its config (.tm) and state
+ * tm1628.c: the tm1628 LED driver platform, TM1628-class LED drivers
+ * (TM1628, TM1638, TM1620 ...) bit-banged from the main loop
+ * (components/tm1628/README.md). A hub type on the led_driver base
+ * (components/led_driver): its pins are bits in the hub RAM, and send
+ * writes what changed. Its config (.tm) and state
  * (.u.tm) stay in the core (gm_device.h, gm_hub.h): the fade (gm_vpin.h
  * vpin_fade*, core/src/vpin.c) sets the chip's brightness from them.
  *

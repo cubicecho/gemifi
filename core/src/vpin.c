@@ -214,6 +214,8 @@ static void fast_init(uint32_t i, const gm_hub_t *h)
 {
     if (USES(GM_HUB_MUX) && h->type == GM_HUB_MUX)
         mux_masks(i, h);
+    else if (USES(GM_HUB_DECODER) && h->type == GM_HUB_DECODER)
+        dec_fast_init(i, h);
 }
 
 /* Hubs refreshed / flushed from the scan tick, in hub order: the tick goes
@@ -544,18 +546,10 @@ void gm_hub_mux_select(const gm_hub_t *h, uint32_t i, uint32_t ch)
     hal_delay_us(h->mux.settle_us ? h->mux.settle_us : 2);
 }
 
-/* ---- decoders (74HC138 style) ------------------------------------------
- * Written by vpin_write itself (the scan's path): "on" selects the output,
- * "off" does nothing (the next row's select replaces it). */
-
-static void decoder_init(const gm_hub_t *h, hub_state_t *s)
-{
-    for (uint32_t k = 0; k < h->dec.n_addr && k < 4; k++)
-        gm_hub_mcu_out(h->dec.addr[k], 0);
-    for (uint32_t k = 0; k < h->dec.n_en && k < 3; k++)
-        gm_hub_mcu_out(h->dec.en[k], 0);
-    dec_fast_init((uint32_t)(s - hs), h);
-}
+/* ---- decoders (74HC138 style): the scan's path -------------------------
+ * The driver is components/decoder. Written by vpin_write itself: "on"
+ * selects the output, "off" does nothing (the next row's select replaces
+ * it). */
 
 /* Decoder: address lines = n's low bits, enable lines = its group's levels.
  * Written only when the selection changes. */
@@ -1388,9 +1382,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
 
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
-static const gm_hub_ops_t decoder_ops = {
-    .flags = GM_HUBF_SELECT, .init = decoder_init,  /* writes: vpin_write */
-};
 static const gm_hub_ops_t swmatrix_ops = {
     .flags = GM_HUBF_IN_REG | GM_HUBF_MATRIX, .init = swmatrix_init,   /* scan: vpin_scan_matrices */
 };
@@ -1405,7 +1396,6 @@ static const gm_hub_ops_t no_ops = { 0 };
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
 static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
-    HUB(GM_HUB_DECODER, decoder_ops),
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_SSD1306, ssd1306_ops),

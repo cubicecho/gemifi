@@ -1488,10 +1488,10 @@ void vpin_fade_apply(void)
 }
 #endif
 
-/* ---- I2C hubs (main loop) --------------------------------------------- */
+/* ---- the I2C expanders' pins (gm_hub.h) ------------------------------- */
 
-/* The I2C expanders' pins (MCP23017: components/mcp23017, PCF8574;
- * gm_hub.h): their directions and pull-ups in u.io, which flush writes. */
+/* The I2C expanders' pins (MCP23017, PCF8574: components/mcp23017,
+ * pcf8574): their directions and pull-ups in u.io, which flush writes. */
 void gm_hub_i2c_init(const gm_hub_t *h, gm_hub_state_t *s)
 {
     (void)h;
@@ -1516,25 +1516,6 @@ void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p)
     s->u.io.cfg_dirty = 1;
 }
 
-static void pcf8574_refresh(const gm_hub_t *h, hub_state_t *s)
-{
-    uint8_t b;
-    if (s->u.io.in_used && hal_i2c_read(h->i2c.addr, &b, 1) == 0)
-        s->in = b;
-}
-
-static void pcf8574_flush(const gm_hub_t *h, hub_state_t *s)
-{
-    /* Inputs must stay written high. */
-    uint32_t v = (s->out | ~s->u.io.dir_out) & 0xFFu;
-    if (v != s->written || s->never) {
-        uint8_t b = (uint8_t)v;
-        hal_i2c_write(h->i2c.addr, &b, 1);
-        s->written = v;
-        s->never = 0;
-    }
-}
-
 /* ---- the table: one gm_hub_ops_t per hub type -------------------------- */
 
 static const gm_hub_ops_t hc595_ops = {
@@ -1545,10 +1526,6 @@ static const gm_hub_ops_t hc165_ops = {
 };
 static const gm_hub_ops_t mux_ops = {
     .init = mux_init, .analog = mux_analog,         /* digital reads: vpin_read */
-};
-static const gm_hub_ops_t pcf8574_ops = {
-    .flags = GM_HUBF_BUS | GM_HUBF_IN_REG, .init = gm_hub_i2c_init, .input = gm_hub_i2c_input,
-    .output = gm_hub_i2c_output, .refresh = pcf8574_refresh, .flush = pcf8574_flush,
 };
 static const gm_hub_ops_t decoder_ops = {
     .flags = GM_HUBF_SELECT, .init = decoder_init,  /* writes: vpin_write */
@@ -1573,7 +1550,6 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
     HUB(GM_HUB_HC595, hc595_ops),
     HUB(GM_HUB_HC165, hc165_ops),
     HUB(GM_HUB_MUX, mux_ops),
-    HUB(GM_HUB_PCF8574, pcf8574_ops),
     HUB(GM_HUB_DECODER, decoder_ops),
     HUB(GM_HUB_SWMATRIX, swmatrix_ops),
 #if GM_HUB_RAM > 0

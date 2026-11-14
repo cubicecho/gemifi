@@ -21,7 +21,7 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, I2CExpander, rgb_curve  # noqa: E402
+from components.hub import HubType, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 
@@ -555,8 +555,6 @@ _HUBS_HERE = (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
-    I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
-                "0x20-0x27, PCF8574A 0x38-0x3F"),
     Decoder(), SwitchMatrix(), XYPad(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}

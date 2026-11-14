@@ -1,6 +1,6 @@
 /*
- * test_i2c.c: host test of the I2C hubs (components/mcp23017, ht16k33;
- * core/src/vpin.c) with core/test/i2c-test.yaml, on a fake bus: MCP23017
+ * test_i2c.c: host test of the I2C hubs (components/mcp23017, pcf8574,
+ * ht16k33) with core/test/i2c-test.yaml, on a fake bus: MCP23017
  * led_io (0x20, LEDs only), MCP23017 mixed_io (0x21, button play on GPA0,
  * its LED on GPB0) and PCF8574 btn_io (0x38, button stop on P0), and
  * HT16K33 alpha (0x70), a 4-character 14-segment display with Adafruit's

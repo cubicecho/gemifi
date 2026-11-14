@@ -145,7 +145,7 @@ int hal_serial_read(uint16_t tx_pin);
  * change once it returns: the HAL keeps its own copy or encoding).
  * hal_ledstrip_busy: the last frame, or the latch after it (the line low
  * for at least 280 us, so the LEDs show it), is still going.
- * Weak defaults in vpin.c: no strip (open returns 0). */
+ * Weak defaults in components/ws2812/ws2812.c: no strip (open returns 0). */
 int hal_ledstrip_open(uint16_t pin, uint32_t n);
 int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n);
 int hal_ledstrip_busy(uint16_t pin);

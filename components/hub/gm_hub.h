@@ -118,12 +118,6 @@ struct gm_hub_state {
             uint8_t misses;       /* ... unanswered in a row          */
             uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
         } mpads;
-        struct {          /* WS2812 */
-            uint32_t t_frame;     /* ms the last frame went out       */
-            uint8_t dirty;        /* a colour changed since           */
-            uint8_t open;         /* hal_ledstrip_open took the pin   */
-            uint8_t tried;        /* a frame went out (t_frame is set) */
-        } ws;
         struct {          /* XY */
             uint16_t raw[2];      /* last X / Y reading, 0xFFFF = none */
             uint8_t touch;        /* readings in a row with both in the window */
@@ -133,5 +127,18 @@ struct gm_hub_state {
         GM_HUB_STATE_MEMBERS  /* the hub types in components/ (gm_components.h) */
     } u;
 };
+
+
+/* ---- what the hub base gives its hub types (core/src/vpin.c) ----------
+ * The hub RAM: GM_HUB_RAM bytes that RAM-backed hub types keep their pins
+ * in (LED drivers, LED strips), and what the chip has been sent of each.
+ * A hub takes its bytes with gm_hub_ram_alloc(n) in init (s->ram). */
+extern uint8_t gm_hub_ram[];
+extern uint8_t gm_hub_ram_sent[];
+uint16_t gm_hub_ram_alloc(uint32_t n);
+/* What goes on the wire for colour c (0 red, 1 green, 2 blue, 3 white) at
+ * value v of a full-colour hub: through its curve (gamma:), then scaled to
+ * its white (white:, 0 = 255). A value above 0 stays above 0. */
+uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v);
 
 #endif

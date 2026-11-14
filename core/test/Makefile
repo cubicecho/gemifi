@@ -42,7 +42,7 @@
 # test_ws2812:     WS2812 / SK6812 strips through a simulated hal_ledstrip_*:
 #                  bytes and order, gamma / white, RGBW, only changed frames,
 #                  the rate limit, full-colour looks and step colours
-#                  (ws2812-test.yaml)
+#                  (components/ws2812/test/)
 
 ROOT  := ../..
 BUILD ?= build
@@ -88,7 +88,7 @@ MSG_DEVICE := msg-test.yaml
 MSG_DEV    := $(BUILD)/device-msg
 MODES_DEVICE := modes-test.yaml
 MODES_DEV    := $(BUILD)/device-modes
-WS_DEVICE := ws2812-test.yaml
+WS_DEVICE := $(ROOT)/components/ws2812/test/ws2812-test.yaml
 WS_DEV    := $(BUILD)/device-ws2812
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
@@ -231,7 +231,7 @@ I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c $(I2C_DEV_COMP
 OLED_SRCS := test_oled.c $(CORE_SRCS) $(OLED_DEV)/gm_device_config.c $(OLED_DEV_COMP_SRCS)
 MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c $(MSG_DEV_COMP_SRCS)
 MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c $(MODES_DEV_COMP_SRCS)
-WS_SRCS := test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c $(WS_DEV_COMP_SRCS)
+WS_SRCS := $(ROOT)/components/ws2812/test/test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c $(WS_DEV_COMP_SRCS)
 
 .PHONY: test clean
 test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812
@@ -358,6 +358,6 @@ $(BUILD)/test_modes: $(MODES_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(MODES_
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MODES_DEV) $(MODES_SRCS) -Wl,--wrap=gm_display_message -o $@
 
-$(BUILD)/test_ws2812: $(WS_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(WS_DEV)/gm_device_config.h
+$(BUILD)/test_ws2812: $(WS_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(WS_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(WS_DEV) $(WS_SRCS) -o $@

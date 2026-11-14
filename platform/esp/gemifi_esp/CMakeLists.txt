@@ -42,7 +42,7 @@ if(target STREQUAL "esp32" OR target STREQUAL "esp32s3")
     list(APPEND reqs bt)
 endif()
 
-# WHOLE_ARCHIVE: the core's weak hal_* defaults (vpin.c) would otherwise keep the strong ones in
+# WHOLE_ARCHIVE: the weak hal_* defaults (core/src/vpin.c, components/ws2812/ws2812.c) would otherwise keep the strong ones in
 # files nothing else pulls in (ledstrip_esp.c) out of the link.
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${incs}

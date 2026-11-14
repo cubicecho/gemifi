@@ -21,7 +21,8 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType  # noqa: E402
+from components.hub import HubType, rgb_curve, validate_rgb_calibration  # noqa: E402
+from components.hub import c_comment as _comment  # noqa: E402
 
 try:
     import yaml
@@ -577,72 +578,6 @@ class MaudioPadLeds(HubType):
                 f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
 
 
-# Addressable LED chains (WS2812B, SK6812 RGB / RGBW) on one MCU pin: pin = LED * channels + colour (0 red,
-# 1 green, 2 blue, 3 white). A byte per colour in the hub RAM; the platform sends frames (hal_ledstrip_*).
-WS2812_MAX = 256
-WS2812_ORDERS = sorted({"".join(p) for p in itertools.permutations("RGB")}) + \
-    sorted({"".join(p) for p in itertools.permutations("RGBW")})
-
-
-class WS2812(HubType):
-    """An addressable LED strip (WS2812B / SK6812, RGB or RGBW): pin = LED * 3 (4) + colour."""
-    key, enum, num = "ws2812", "GM_HUB_WS2812", 11
-    keys = ("id", "pin", "count", "order", "gamma", "white")
-    lines = {"pin": "ledstrip"}
-    roles = frozenset({"out"})
-    ram = True
-    full_colour = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "count", p, 1, WS2812_MAX, required=True) or 1
-        order = h.get("order", "GRB")
-        order = order.strip().upper() if isinstance(order, str) else order
-        if order not in WS2812_ORDERS:
-            close = difflib.get_close_matches(str(order).upper(), WS2812_ORDERS, 1)
-            hint = f"did you mean {close[0]}? " if close else ""
-            v.err(f"{p}.order", h.line_of("order"), f"unknown order '{h.raw_of('order')}' ({hint}the colours as the "
-                                                    "LED takes them: GRB (WS2812B, the default), RGB, BRG, ...; "
-                                                    "GRBW / RGBW for RGBW LEDs, e.g. SK6812 RGBW)")
-            order = "GRB"
-        hub.order = order
-        hub.channels = len(order)
-        hub.n_pins = hub.channels * hub.chain
-        hub.ram_bytes = hub.n_pins                       # a byte per colour
-        hub.gamma, hub.white = validate_rgb_calibration(v, h, p, white_n=hub.channels)
-        hub.data = ctl("pin", "out")
-        if hub.data.hub == 0 and h.get("pin") is not None:
-            why = v.plat.ledstrip(hub.data.num, [x.data.num for x in dev.hubs if x.type == self.key and
-                                                 x is not hub and x.data.hub == 0])
-            if why:
-                v.err(f"{p}.pin", h.line_of("pin"), why)
-
-    def colour_pins(self, hub):
-        return hub.channels
-
-    def range_text(self, hub):
-        names = " ".join(f"{k} {c}" for k, c in enumerate(("red", "green", "blue", "white")[:hub.channels]))
-        return f" ({hub.chain} LEDs x {hub.channels}; pin = LED * {hub.channels} + colour, {names})"
-
-    def wire_order(self, hub):
-        """gm_hub_ws2812_t.order: byte k of an LED is colour (order >> 2k) & 3."""
-        return sum("RGBW".index(ch) << (2 * k) for k, ch in enumerate(hub.order))
-
-    def c_tables(self, hub):
-        if hub.gamma == 1:
-            return []
-        t = rgb_curve(hub.gamma)
-        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
-                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
-                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
-
-    def c_fields(self, hub):
-        white = list(hub.white) + [255] * (4 - len(hub.white))
-        return [f"        .ws = {{ .pin = {hub.data.c()}, .count = {hub.chain}, .channels = {hub.channels}, "
-                f".order = 0x{self.wire_order(hub):02X} /* {hub.order} */,",
-                f"                .white = {{ {', '.join(str(x) for x in white)} }}, "
-                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
-
-
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
@@ -829,7 +764,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
@@ -2688,35 +2623,6 @@ def colour_exact(kind, c):
     """An on/off LED of this kind shows colour c as it is (each channel 0 or 255, and one it has)."""
     chans = [(c >> sh) & 0xFF for sh in (16, 8, 0)]
     return kind == "rgb" and all(x in (0, 255) for x in chans)
-
-
-def validate_rgb_calibration(v, h, p, white_n=3):
-    """A full-colour hub's gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (or [r, g, b, w] with
-    white_n 4; 1..255 each, default 255s)."""
-    gamma = 1.0
-    if h.get("gamma") is not None:
-        g = h["gamma"]
-        if isinstance(g, bool) or not isinstance(g, (int, float)) or not 1.0 <= float(g) <= 3.0:
-            v.err(f"{p}.gamma", h.line_of("gamma"), f"must be a number from 1.0 to 3.0 (1 = straight; LEDs "
-                                                    f"usually look right at about 2.2), not {g!r}")
-        else:
-            gamma = float(g)
-    white = [255] * white_n
-    if h.get("white") is not None:
-        w = h["white"]
-        if (not isinstance(w, list) or len(w) != white_n or
-                any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 255 for x in w)):
-            what = "[red, green, blue]" if white_n == 3 else "[red, green, blue, white]"
-            v.err(f"{p}.white", h.line_of("white"), f"must be {what}, each 1..255: what full white "
-                                                    "sends, e.g. [255, 200, 220] to take some green and blue out")
-        else:
-            white = list(w)
-    return gamma, white
-
-
-def rgb_curve(gamma):
-    """256 entries: value v (as seen) to the LED's PWM, 255 * (v / 255) ^ gamma; above 0 stays above 0."""
-    return [0] + [max(1, round(255 * (k / 255) ** gamma)) for k in range(1, 256)]
 
 
 def led_kind(pin2, pin3):
@@ -5904,10 +5810,6 @@ def c_str(s):
         else:
             out.append(f"\\{b:03o}")
     return '"' + "".join(out) + '"'
-
-
-def _comment(s):
-    return s.replace("*/", "* /")
 
 
 def generate(dev, source="device.yaml"):

@@ -6,11 +6,11 @@
  * Hub control pins (data, clock, latch, select, common, enable) must be MCU
  * pins (hub 0). /E of a mux and /OE of a 595 are driven low (enabled).
  * TM1628, MAX7219, TM1637, HT16K33, MAUDIO_PADS and WS2812 hubs keep their
- * pins (an SSD1306 its framebuffer) in the hub RAM (hub_ram, GM_HUB_RAM
+ * pins (an SSD1306 its framebuffer) in the hub RAM (gm_hub_ram, GM_HUB_RAM
  * bytes, each hub's back to back from s->ram), since a chip has more than
  * 32 bits: an LED driver's display RAM (a MAX7219's digit registers); the
  * LEDs of the pad LED board and of an LED strip a byte per colour (pin = LED * 3 + colour, LED * 4 on an RGBW
- * strip: a pin on is 255, off 0; vpin_rgb sets any colour). ram_sent[] has
+ * strip: a pin on is 255, off 0; vpin_rgb sets any colour). gm_hub_ram_sent[] has
  * what the chip, board or strip was sent.
  *
  * SPDX-License-Identifier: MIT
@@ -73,27 +73,6 @@ __attribute__((weak)) int hal_serial_read(uint16_t tx_pin)
 {
     (void)tx_pin;
     return -1;
-}
-
-__attribute__((weak)) int hal_ledstrip_open(uint16_t pin, uint32_t n)
-{
-    (void)pin;
-    (void)n;
-    return 0;
-}
-
-__attribute__((weak)) int hal_ledstrip_write(uint16_t pin, const uint8_t *b, uint32_t n)
-{
-    (void)pin;
-    (void)b;
-    (void)n;
-    return 0;
-}
-
-__attribute__((weak)) int hal_ledstrip_busy(uint16_t pin)
-{
-    (void)pin;
-    return 0;
 }
 
 __attribute__((weak)) volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
@@ -170,12 +149,12 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
     sm_reg[i] = reg;
 }
 #if GM_HUB_RAM > 0
-static uint8_t hub_ram[GM_HUB_RAM];
-static uint8_t ram_sent[GM_HUB_RAM];   /* what the chip / LED board has (its bytes of hub_ram) */
+uint8_t gm_hub_ram[GM_HUB_RAM];
+uint8_t gm_hub_ram_sent[GM_HUB_RAM];   /* what the chip / LED board has (its bytes of gm_hub_ram) */
 static uint32_t ram_next;                 /* vpin_init: the next free byte */
 
 /* n bytes of the hub RAM for the hub being initialised (as many as are left). */
-static uint16_t ram_alloc(uint32_t n)
+uint16_t gm_hub_ram_alloc(uint32_t n)
 {
     uint32_t at = ram_next;
     ram_next = at + n < GM_HUB_RAM ? at + n : GM_HUB_RAM;
@@ -1372,7 +1351,7 @@ static uint32_t tm1628_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     uint32_t n = h->tm.ram_bytes;
     if (s->ram + n > GM_HUB_RAM)
         n = GM_HUB_RAM - s->ram;
-    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
+    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     tm_io_t bus;
     const tm_io_t *io = &bus;
     tm_io_init(&bus, h);
@@ -1430,10 +1409,10 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
     mcu_out(h->tm.stb, 1);
     mcu_out(h->tm.clk, 1);
     mcu_out(h->tm.dio, 1);
-    s->ram = ram_alloc(h->tm.ram_bytes);
+    s->ram = gm_hub_ram_alloc(h->tm.ram_bytes);
     s->u.tm.dirty = 1;
     for (uint32_t k = 0; k < h->tm.ram_bytes && s->ram + k < GM_HUB_RAM; k++)
-        hub_ram[s->ram + k] = 0;
+        gm_hub_ram[s->ram + k] = 0;
 }
 
 /* Pin num = RAM bit, byte * 8 + bit. */
@@ -1442,7 +1421,7 @@ static void tm1628_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int le
     uint32_t k = num >> 3u;
     if (k >= h->tm.ram_bytes || s->ram + k >= GM_HUB_RAM)
         return;
-    uint8_t *b = &hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
+    uint8_t *b = &gm_hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
     uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
     if (v != *b) {
         *b = v;
@@ -1562,11 +1541,11 @@ void vpin_fade_apply(void)
 
 static void mpads_init(const gm_hub_t *h, hub_state_t *s)
 {
-    /* All off; every LED is sent once (ram_sent starts different). */
-    s->ram = ram_alloc(3u * h->mpads.count);
+    /* All off; every LED is sent once (gm_hub_ram_sent starts different). */
+    s->ram = gm_hub_ram_alloc(3u * h->mpads.count);
     for (uint32_t k = 0; k < 3u * h->mpads.count && s->ram + k < GM_HUB_RAM; k++) {
-        hub_ram[s->ram + k] = 0;
-        ram_sent[s->ram + k] = 0xFFu;
+        gm_hub_ram[s->ram + k] = 0;
+        gm_hub_ram_sent[s->ram + k] = 0xFFu;
     }
     if (h->mpads.tx.hub == 0)
         (void)hal_serial_open(h->mpads.tx.num, 115200u, (h->mpads.dma ? HAL_UART_DMA : 0u) |
@@ -1577,14 +1556,14 @@ static void mpads_init(const gm_hub_t *h, hub_state_t *s)
 static void mpads_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
     if (num < 3u * h->mpads.count && s->ram + num < GM_HUB_RAM)
-        hub_ram[s->ram + num] = level ? 0xFFu : 0u;
+        gm_hub_ram[s->ram + num] = level ? 0xFFu : 0u;
 }
 
 static int mpads_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
 {
     if (num % 3u || num + 3u > 3u * h->mpads.count || s->ram + num + 3u > GM_HUB_RAM)
         return 0;
-    uint8_t *b = &hub_ram[s->ram + num];
+    uint8_t *b = &gm_hub_ram[s->ram + num];
     b[0] = (uint8_t)(rgb >> 16);
     b[1] = (uint8_t)(rgb >> 8);
     b[2] = (uint8_t)rgb;
@@ -1602,8 +1581,8 @@ static int rgb_differs(const uint8_t *a, const uint8_t *b, uint32_t led)
 /* What goes on the wire for colour c (0 red, 1 green, 2 blue, 3 white) at
  * value v: through the hub's curve (gamma:), then scaled to its white
  * (white:, 0 = 255). A value above 0 stays above 0. Full-colour hubs
- * (MAUDIO_PADS, WS2812) share it. */
-static uint8_t colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v)
+ * (MAUDIO_PADS, WS2812: components/ws2812) share it (gm_hub.h). */
+uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v)
 {
     if (curve)
         v = curve[v];
@@ -1613,7 +1592,7 @@ static uint8_t colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c
     v = (v * w + 127u) / 255u;
     return (uint8_t)(v ? v : 1u);
 }
-#define rgb_out(h, c, v) colour_out((h)->mpads.curve, (h)->mpads.white, (c), (v))
+#define rgb_out(h, c, v) gm_hub_colour_out((h)->mpads.curve, (h)->mpads.white, (c), (v))
 
 /* LED led no longer counts as sent: it goes out again. */
 static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
@@ -1628,8 +1607,8 @@ static void mpads_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     if (h->mpads.tx.hub != 0 || s->ram + 3u * h->mpads.count > GM_HUB_RAM)
         return;
     uint16_t tx = h->mpads.tx.num;
-    const uint8_t *ram = &hub_ram[s->ram];
-    uint8_t *sent = &ram_sent[s->ram];
+    const uint8_t *ram = &gm_hub_ram[s->ram];
+    uint8_t *sent = &gm_hub_ram_sent[s->ram];
     int use_acks = !vpin_is_none(h->mpads.rx) && s->u.mpads.acks != 2u;
     int repaint = 0;
     if (use_acks) {
@@ -1704,111 +1683,6 @@ static void mpads_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     }
 }
 
-/* ---- WS2812 LED strips -------------------------------------------------- */
-
-/* An addressable LED chain (WS2812B, SK6812 RGB / RGBW) on one MCU pin.
- * The pins set a byte per colour in the hub RAM (on 255, off 0; vpin_rgb a
- * whole colour); the main loop (poll) builds a frame of wire bytes in
- * ram_sent and hands it to the platform (hal_ledstrip_write: RMT on ESP32,
- * SPI + DMA on stm32f1), which sends it in the background. A frame goes out
- * only when a colour changed and the frame differs from the last one, at
- * most every WS_FRAME_MS, and never while the last one (or its latch) is
- * still going. Never from the scan interrupt: a frame is 30 us an LED. */
-#ifndef WS_FRAME_MS
-#define WS_FRAME_MS 5u              /* at most 200 frames a second */
-#endif
-
-static void ws2812_init(const gm_hub_t *h, hub_state_t *s)
-{
-    uint32_t n = (uint32_t)h->ws.channels * h->ws.count;
-    s->ram = ram_alloc(n);
-    for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
-        hub_ram[s->ram + k] = ram_sent[s->ram + k] = 0;
-    s->u.ws.dirty = 1;              /* all off once: the strip may still show the last run's */
-    s->u.ws.open = (uint8_t)(h->ws.pin.hub == 0 && s->ram + n <= GM_HUB_RAM &&
-                             hal_ledstrip_open(h->ws.pin.num, n));
-}
-
-/* Pin num = LED * channels + colour: on is 255, off 0. */
-static void ws2812_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
-{
-    if (num >= (uint32_t)h->ws.channels * h->ws.count || s->ram + num >= GM_HUB_RAM)
-        return;
-    uint8_t v = level ? 0xFFu : 0u;
-    if (hub_ram[s->ram + num] != v) {
-        hub_ram[s->ram + num] = v;
-        s->u.ws.dirty = 1;
-    }
-}
-
-/* A whole colour on the LED whose red pin is num (an RGBW LED's white byte
- * stays as its own pin has it). */
-static int ws2812_rgb(const gm_hub_t *h, hub_state_t *s, uint32_t num, uint32_t rgb)
-{
-    uint32_t ch = h->ws.channels;
-    if (num % ch || num + ch > ch * h->ws.count || s->ram + num + ch > GM_HUB_RAM)
-        return 0;
-    uint8_t *b = &hub_ram[s->ram + num];
-    uint8_t c[3] = { (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb };
-    if (b[0] != c[0] || b[1] != c[1] || b[2] != c[2]) {
-        b[0] = c[0];
-        b[1] = c[1];
-        b[2] = c[2];
-        s->u.ws.dirty = 1;
-    }
-    return 1;
-}
-
-/* The next frame, if something changed: built in ram_sent (wire order,
- * curve and white applied). On an RGBW strip the white part of a colour
- * (the least of red, green and blue) goes on the white LED, with what the
- * white pin has. */
-static void ws2812_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
-{
-    uint32_t ch = h->ws.channels, n = ch * h->ws.count;
-    if (!s->u.ws.dirty || !s->u.ws.open)
-        return;
-    if (s->u.ws.tried && now_ms - s->u.ws.t_frame < WS_FRAME_MS)
-        return;
-    if (hal_ledstrip_busy(h->ws.pin.num))
-        return;
-    const uint8_t *ram = &hub_ram[s->ram];
-    uint8_t *sent = &ram_sent[s->ram];
-    int changed = s->never;         /* the strip doesn't have ram_sent yet */
-    for (uint32_t led = 0; led < h->ws.count; led++) {
-        const uint8_t *l = &ram[led * ch];
-        uint32_t v[4] = { l[0], l[1], l[2], ch == 4u ? l[3] : 0u };
-        if (ch == 4u) {
-            uint32_t m = v[0] < v[1] ? v[0] : v[1];
-            if (v[2] < m)
-                m = v[2];
-            v[0] -= m;
-            v[1] -= m;
-            v[2] -= m;
-            v[3] = v[3] + m > 255u ? 255u : v[3] + m;
-        }
-        for (uint32_t k = 0; k < ch; k++) {
-            uint32_t c = (h->ws.order >> (2u * k)) & 3u;
-            uint8_t b = colour_out(h->ws.curve, h->ws.white, c, v[c]);
-            if (sent[led * ch + k] != b) {
-                sent[led * ch + k] = b;
-                changed = 1;
-            }
-        }
-    }
-    s->u.ws.dirty = 0;
-    if (!changed)
-        return;                     /* changed and back: the strip has it */
-    s->u.ws.tried = 1;
-    s->u.ws.t_frame = now_ms;
-    if (hal_ledstrip_write(h->ws.pin.num, sent, n)) {
-        s->never = 0;
-    } else {
-        s->never = 1;               /* not sent: again in WS_FRAME_MS */
-        s->u.ws.dirty = 1;
-    }
-}
-
 /* ---- RAM-backed LED drivers: MAX7219, TM1637, HT16K33 (main loop) ----- */
 
 /* Pin num = RAM bit, byte * 8 + bit, of `bytes` bytes; marks the chip
@@ -1818,7 +1692,7 @@ static void ledram_write(hub_state_t *s, uint32_t bytes, uint32_t num, int level
     uint32_t k = num >> 3u;
     if (k >= bytes || s->ram + k >= GM_HUB_RAM)
         return;
-    uint8_t *b = &hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
+    uint8_t *b = &gm_hub_ram[s->ram + k], m = (uint8_t)(1u << (num & 7u));
     uint8_t v = level ? (uint8_t)(*b | m) : (uint8_t)(*b & ~m);
     if (v != *b) {
         *b = v;
@@ -1829,10 +1703,10 @@ static void ledram_write(hub_state_t *s, uint32_t bytes, uint32_t num, int level
 /* n bytes of the hub RAM, all off, written whole on the first send. */
 static void ledram_init(hub_state_t *s, uint32_t n)
 {
-    s->ram = ram_alloc(n);
+    s->ram = gm_hub_ram_alloc(n);
     s->u.seg.dirty = 1;
     for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
-        hub_ram[s->ram + k] = 0;
+        gm_hub_ram[s->ram + k] = 0;
 }
 
 /* A bus phase: n hal_cycles() (hal_ns_to_cycles), or 1 us without a
@@ -1907,7 +1781,7 @@ static uint32_t max7219_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     uint32_t n = h->mx.chips * 8u, cost = 2u * h->mx.chips;
     if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
         return budget;
-    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
+    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     uint32_t ph = hal_ns_to_cycles(MX_PHASE_NS);
     if (s->never) {
         mx_frame(h, MX_TEST, 0, 0, ph);
@@ -2014,7 +1888,7 @@ static uint32_t tm1637_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     uint32_t n = h->tm37.grids;
     if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
         return budget;
-    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
+    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     uint32_t k = 0, all = s->never;
     if (!all)
         while (k < n && ram[k] == sent[k])
@@ -2074,7 +1948,7 @@ static uint32_t ht16k33_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
 {
     if (!s->u.seg.dirty || s->ram + HT_RAM > GM_HUB_RAM)
         return budget;
-    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram], b[HT_RAM + 1];
+    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram], b[HT_RAM + 1];
     uint32_t k = 0, all = s->never, used = 0;
     if (all)
         ht_cmd(h, 0x21u);
@@ -2185,7 +2059,7 @@ static uint32_t ssd1306_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
     uint32_t w = h->oled.width, np = h->oled.height / 8u;
     if (!s->u.oled.pages || s->ram + oled_bytes(h) > GM_HUB_RAM)
         return budget;
-    uint8_t *ram = &hub_ram[s->ram], *sent = &ram_sent[s->ram];
+    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
     uint32_t all = s->never, used = 0;
     if (all)
         oled_setup(h);
@@ -2226,9 +2100,9 @@ static uint32_t ssd1306_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
 static void ssd1306_init(const gm_hub_t *h, hub_state_t *s)
 {
     uint32_t n = oled_bytes(h);
-    s->ram = ram_alloc(n);
+    s->ram = gm_hub_ram_alloc(n);
     for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
-        hub_ram[s->ram + k] = 0;
+        gm_hub_ram[s->ram + k] = 0;
     s->u.oled.pages = (uint8_t)((1u << (h->oled.height / 8u)) - 1u);
 }
 
@@ -2241,7 +2115,7 @@ void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale
     uint32_t w = h->oled.width, np = h->oled.height / 8u;
     if (s->ram + oled_bytes(h) > GM_HUB_RAM)
         return;
-    uint8_t *fb = &hub_ram[s->ram];
+    uint8_t *fb = &gm_hub_ram[s->ram];
     uint32_t page = at.num / w, x0 = at.num % w;
     scale = scale < 1u ? 1u : scale > 4u ? 4u : scale;
     uint32_t ones = (1u << scale) - 1u;
@@ -2404,10 +2278,6 @@ static const gm_hub_ops_t mpads_ops = {
     .flags = GM_HUBF_NO_READ, .init = mpads_init, .write = mpads_write, .rgb = mpads_rgb,
     .poll = mpads_poll,
 };
-static const gm_hub_ops_t ws2812_ops = {
-    .flags = GM_HUBF_NO_READ, .init = ws2812_init, .write = ws2812_write, .rgb = ws2812_rgb,
-    .poll = ws2812_poll,
-};
 static const gm_hub_ops_t max7219_ops = {
     .flags = GM_HUBF_NO_READ, .init = max7219_init, .write = max7219_write, .send = max7219_send,
 };
@@ -2440,7 +2310,6 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_TM1628, tm1628_ops),
     HUB(GM_HUB_MAUDIO_PADS, mpads_ops),
-    HUB(GM_HUB_WS2812, ws2812_ops),
     HUB(GM_HUB_MAX7219, max7219_ops),
     HUB(GM_HUB_TM1637, tm1637_ops),
     HUB(GM_HUB_HT16K33, ht16k33_ops),

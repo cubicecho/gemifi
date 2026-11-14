@@ -60,3 +60,37 @@ class HubType:
         """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
         `.sr = { ... },`. The first line goes after .type."""
         raise NotImplementedError(self.key)
+
+
+def validate_rgb_calibration(v, h, p, white_n=3):
+    """A full-colour hub's gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (or [r, g, b, w] with
+    white_n 4; 1..255 each, default 255s)."""
+    gamma = 1.0
+    if h.get("gamma") is not None:
+        g = h["gamma"]
+        if isinstance(g, bool) or not isinstance(g, (int, float)) or not 1.0 <= float(g) <= 3.0:
+            v.err(f"{p}.gamma", h.line_of("gamma"), f"must be a number from 1.0 to 3.0 (1 = straight; LEDs "
+                                                    f"usually look right at about 2.2), not {g!r}")
+        else:
+            gamma = float(g)
+    white = [255] * white_n
+    if h.get("white") is not None:
+        w = h["white"]
+        if (not isinstance(w, list) or len(w) != white_n or
+                any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 255 for x in w)):
+            what = "[red, green, blue]" if white_n == 3 else "[red, green, blue, white]"
+            v.err(f"{p}.white", h.line_of("white"), f"must be {what}, each 1..255: what full white "
+                                                    "sends, e.g. [255, 200, 220] to take some green and blue out")
+        else:
+            white = list(w)
+    return gamma, white
+
+
+def rgb_curve(gamma):
+    """256 entries: value v (as seen) to the LED's PWM, 255 * (v / 255) ^ gamma; above 0 stays above 0."""
+    return [0] + [max(1, round(255 * (k / 255) ** gamma)) for k in range(1, 256)]
+
+
+def c_comment(s):
+    """s, safe inside a C comment."""
+    return s.replace("*/", "* /")

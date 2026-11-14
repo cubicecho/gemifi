@@ -14,7 +14,14 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The repo root, for components/ (appended: its core/, platform/ and site/ folders must not shadow
+# anything).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if REPO_ROOT not in sys.path:
+    sys.path.append(REPO_ROOT)
+import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
+from components.hub import HubType  # noqa: E402
 
 try:
     import yaml
@@ -329,53 +336,6 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. To add
 # a type: a subclass here, an instance in HUB_DEFS, and its driver in core/src/vpin.c (core/README.md
 # "Adding a hub type").
-class HubType:
-    key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })
-    pin_key = None              # ... unless the pin key differs (mcp23017: mcp23xxx)
-    aliases = ()                # older names, still taken as the list key and the pin key
-    enum = ""                   # gm_device.h GM_HUB_*
-    num = 0                     # ... its value
-    keys = ("id",)              # a hub's YAML keys
-    lines = {}                  # control-pin keys: the line kind, for allow_other_uses (same kind on each)
-    roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
-    ram = False                 # its pins are in the hub RAM (GM_HUB_RAM): ram_bytes of it
-    # Its LEDs show any colour (vpin.c: the type has an `rgb` op): an LED is colour_pins(hub) pins in a
-    # row from LED * colour_pins (red, green, blue[, white]), and takes full-colour looks.
-    full_colour = False
-    pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
-    schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
-    i2c = False                 # on the i2c: bus (address:)
-    what = "pin"                # a pin's name in messages
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        """Check hub h (the YAML mapping at path p) and fill in hub. ctl(key, role, ...) resolves a
-        control pin."""
-
-    def pin_name(self, s):
-        """The pin number of a pin given by name (s upper-case, e.g. mcp23017 "GPA3"), or None."""
-        return None
-
-    def pin_hint(self, hub):
-        return f"a number 0..{hub.n_pins - 1}"
-
-    def range_text(self, hub):
-        """Said after the type when a pin number is out of range, e.g. ' (2 chips x 8)'."""
-        return ""
-
-    def colour_pins(self, hub):
-        """full_colour: the pins of one LED (3: red, green, blue; 4 with white)."""
-        return 3
-
-    def c_tables(self, hub):
-        """C lines before the hub table: static arrays the entry points at."""
-        return []
-
-    def c_fields(self, hub):
-        """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
-        `.sr = { ... },`. The first line goes after .type."""
-        raise NotImplementedError(self.key)
-
-
 class ShiftRegister(HubType):
     """74HC595 (outputs) / 74HC165 (inputs): sr_count chips in a chain, 8 pins each."""
     lines = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data", "oe_pin": "enable"}
@@ -861,14 +821,16 @@ class SSD1306(HubType):
                 f".contrast = {hub.intensity}, .flags = {flags} }},"]
 
 
-HUB_DEFS = {t.key: t for t in (
+# The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
+_HUBS_HERE = (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33(), SSD1306())}
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key

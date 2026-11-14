@@ -8,7 +8,9 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 BUILDER = os.path.dirname(TESTS)
 REPO = os.path.dirname(os.path.dirname(BUILDER))
 sys.path.insert(0, BUILDER)
-import gemifi_device as gd  # noqa: E402
+import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
+import components  # noqa: E402
+from components.hub import HubType  # noqa: E402
 
 HUB_KEYS = {
     "sn74hc595", "sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "decoder", "switch_matrix",
@@ -36,6 +38,21 @@ class HubTypes(unittest.TestCase):
         for key in gd.HUB_DEFS:
             with self.subTest(key):
                 self.assertIn(key, gd.TOP_KEYS)
+
+
+class Discovery(unittest.TestCase):
+    def test_finds_the_component_folders(self):
+        self.assertIn("hub", components.names())
+        self.assertEqual(components.names(), sorted(components.names()))
+
+    def test_component_hub_types_are_hub_types(self):
+        for t in components.hub_types():
+            with self.subTest(t.key):
+                self.assertIsInstance(t, HubType)
+                self.assertIs(gd.HUB_DEFS[t.key], t)
+
+    def test_hub_types_are_in_enum_order(self):
+        self.assertEqual(list(gd.HUB_DEFS), [t.key for t in sorted(gd.HUB_DEFS.values(), key=lambda t: (t.num, t.key))])
 
 
 if __name__ == "__main__":

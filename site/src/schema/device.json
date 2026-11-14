@@ -710,6 +710,81 @@
         }
       ]
     },
+    "tm1628": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/id"
+              },
+              "clk_pin": {
+                "$ref": "#/definitions/pin"
+              },
+              "dio_pin": {
+                "$ref": "#/definitions/pin"
+              },
+              "stb_pin": {
+                "$ref": "#/definitions/pin"
+              },
+              "ram_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "intensity": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 7
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "grids": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 4,
+                    "maximum": 7
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "fade": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "tm1628 hubs (core/README.md \"Virtual pins and hubs\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
     "switch_matrix": {
       "anyOf": [
         {
@@ -787,81 +862,6 @@
             "additionalProperties": false
           },
           "description": "switch_matrix hubs (core/README.md \"Virtual pins and hubs\")"
-        },
-        {
-          "type": "string",
-          "description": "!include file.yaml"
-        }
-      ]
-    },
-    "tm1628": {
-      "anyOf": [
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "$ref": "#/definitions/id"
-              },
-              "clk_pin": {
-                "$ref": "#/definitions/pin"
-              },
-              "dio_pin": {
-                "$ref": "#/definitions/pin"
-              },
-              "stb_pin": {
-                "$ref": "#/definitions/pin"
-              },
-              "ram_bytes": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "intensity": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 7
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "grids": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 4,
-                    "maximum": 7
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              },
-              "fade": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "$ref": "#/definitions/substitution"
-                  }
-                ]
-              }
-            },
-            "additionalProperties": false
-          },
-          "description": "tm1628 hubs (core/README.md \"Virtual pins and hubs\")"
         },
         {
           "type": "string",
@@ -4263,11 +4263,11 @@
               "type": "string",
               "description": "the id of another component"
             },
-            "switch_matrix": {
+            "tm1628": {
               "type": "string",
               "description": "the id of another component"
             },
-            "tm1628": {
+            "switch_matrix": {
               "type": "string",
               "description": "the id of another component"
             },

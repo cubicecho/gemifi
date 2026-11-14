@@ -33,8 +33,8 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | T1 | Test [pin] | Builder tests for component discovery and for the generated source lists. | Pins R1 and R2 | — | approved |
 | R2 | Refactor [pattern] | The builder writes the list of component sources a device uses, and every build (make, ESP-IDF, host tests) compiles from it. | M1: only used components are compiled, no glob of the core | R1 | approved |
 | R3 | Refactor [pattern] | The hub interface moves into the `hub` component, and each hub type's own state moves out of the shared union into its component. | M2: a new hub type stops editing shared core files | R2 | approved |
-| R4 | Refactor [move] | The SSD1306 driver, builder class and docs move into `components/ssd1306/`, as the template for the rest. | M1; the shape every other hub follows | R3 | approved |
-| R5 | Refactor [sweep] | Every other hub type moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | approved |
+| R4 | Refactor [move] | The WS2812 driver, builder class and docs move into `components/ws2812/`, as the template for the rest (changed from the SSD1306, which A1 moves once, as a display). | M1; the shape every other hub follows | R3 | approved |
+| R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | approved |
 | R6 | Refactor [pattern] | The controls move out of the controller into one component each, after a short design note on the state they share, keeping the scan's hot paths as fast. | M7 | R2 | deferred: after the display work is merged (2026-11-14) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | approved |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | approved |
@@ -131,11 +131,16 @@ and is reached through the hub's state (a per-type state array the builder sizes
 component declares) (unverified: RAM per hub may change by a few bytes; measured on the 10 builds).
 `hub_ops[]` keeps its `USES()` gate, with `extern` ops from each component.
 
-### R4 [move] — `components/ssd1306/`
+### R4 [move] — `components/ws2812/`
 
-**Files:** `core/src/vpin.c` (SSD1306 section, `vpin_oled_draw`), `gemifi_device.py:807-862`
-(`SSD1306`, `OLED_MODELS`, `OLED_SIZES`, `OLED_8BIT`), `core/README.md:168-186`. The template:
-the folder layout, the README shape, the test placement.
+**Files:** `core/src/vpin.c` (WS2812 section, its ops, the weak `hal_ledstrip_*` defaults),
+`gemifi_device.py` (`WS2812`, `WS2812_MAX`, `WS2812_ORDERS`), `core/include/gm_device.h`
+(`gm_hub_ws2812_t`), `components/hub/gm_hub.h` (its state), `core/README.md` "WS2812 LED strips". The
+template: folder layout, README shape, test placement. The hub base exports what the driver used from
+`vpin.c` (the hub RAM, `ram_alloc`, the colour output shared with `maudio_pad_leds`), and the builder
+helpers shared by full-colour hubs (`rgb_curve`, `validate_rgb_calibration`) move to `components/hub`.
+Changed 2026-11-14 from the SSD1306: A1 turns it from a hub into a display platform and rewrites most
+of its driver, so it moves once, there.
 
 ### R5 [sweep] — the other hub types as components
 

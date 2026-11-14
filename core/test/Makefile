@@ -197,29 +197,41 @@ CORE_SRCS := $(ROOT)/core/src/gsx.c $(ROOT)/core/src/params.c $(ROOT)/core/src/a
              $(ROOT)/core/src/midi_in.c $(ROOT)/core/src/mcu.c $(ROOT)/core/src/presets.c $(ROOT)/core/src/safety.c \
              fake_config_store.c
 
-SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c
-WTF_SRCS := test_controller.c $(CORE_SRCS) $(WTF_DEV)/gm_device_config.c
+# Each config's components (its gm_components.mk, written with it above): <its dir var>_COMP_SRCS.
+# Every component folder with headers is an include dir.
+GM_ROOT := $(ROOT)
+define load_components
+include $(2)/gm_components.mk
+$(1)_COMP_SRCS := $$(GM_COMPONENT_SRCS)
+endef
+CONFIG_DIRS := DEV WTF_DEV FB_DEV MX_DEV HW_DEV TM_DEV TMA_DEV SEG_DEV PAD_DEV PADHW_DEV DINP_DEV DINM_DEV \
+               LED_DEV LEDL_DEV LEDM_DEV ENC_DEV I2C_DEV OLED_DEV MSG_DEV MODES_DEV WS_DEV
+$(foreach c,$(CONFIG_DIRS),$(eval $(call load_components,$(c),$($(c)))))
+CFLAGS += $(addprefix -I,$(sort $(dir $(wildcard $(ROOT)/components/*/*.h))))
 
-FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c
+SRCS := test_controller.c $(CORE_SRCS) $(DEV)/gm_device_config.c $(DEV_COMP_SRCS)
+WTF_SRCS := test_controller.c $(CORE_SRCS) $(WTF_DEV)/gm_device_config.c $(WTF_DEV_COMP_SRCS)
 
-MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c
-HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c
-TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c
-TMA_SRCS := test_tm1628.c $(CORE_SRCS) $(TMA_DEV)/gm_device_config.c
-SEG_SRCS := test_seg_hubs.c $(CORE_SRCS) $(SEG_DEV)/gm_device_config.c
-PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c
-PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c
-DINP_SRCS := test_din.c $(CORE_SRCS) $(DINP_DEV)/gm_device_config.c
-DINM_SRCS := test_din.c $(CORE_SRCS) $(DINM_DEV)/gm_device_config.c
-LED_SRCS := test_leds.c $(CORE_SRCS) $(LED_DEV)/gm_device_config.c
-LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c
-LEDM_SRCS := test_leds.c $(CORE_SRCS) $(LEDM_DEV)/gm_device_config.c
-ENC_SRCS := test_encoders.c $(CORE_SRCS) $(ENC_DEV)/gm_device_config.c
-I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c
-OLED_SRCS := test_oled.c $(CORE_SRCS) $(OLED_DEV)/gm_device_config.c
-MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c
-MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c
-WS_SRCS := test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c
+FB_SRCS := test_feedback.c $(CORE_SRCS) $(FB_DEV)/gm_device_config.c $(FB_DEV_COMP_SRCS)
+
+MX_SRCS := test_matrix.c $(CORE_SRCS) $(MX_DEV)/gm_device_config.c $(MX_DEV_COMP_SRCS)
+HW_SRCS := test_matrix.c $(CORE_SRCS) $(HW_DEV)/gm_device_config.c $(HW_DEV_COMP_SRCS)
+TM_SRCS := test_tm1628.c $(CORE_SRCS) $(TM_DEV)/gm_device_config.c $(TM_DEV_COMP_SRCS)
+TMA_SRCS := test_tm1628.c $(CORE_SRCS) $(TMA_DEV)/gm_device_config.c $(TMA_DEV_COMP_SRCS)
+SEG_SRCS := test_seg_hubs.c $(CORE_SRCS) $(SEG_DEV)/gm_device_config.c $(SEG_DEV_COMP_SRCS)
+PAD_SRCS := test_pads.c $(CORE_SRCS) $(PAD_DEV)/gm_device_config.c $(PAD_DEV_COMP_SRCS)
+PADHW_SRCS := test_pads.c $(CORE_SRCS) $(PADHW_DEV)/gm_device_config.c $(PADHW_DEV_COMP_SRCS)
+DINP_SRCS := test_din.c $(CORE_SRCS) $(DINP_DEV)/gm_device_config.c $(DINP_DEV_COMP_SRCS)
+DINM_SRCS := test_din.c $(CORE_SRCS) $(DINM_DEV)/gm_device_config.c $(DINM_DEV_COMP_SRCS)
+LED_SRCS := test_leds.c $(CORE_SRCS) $(LED_DEV)/gm_device_config.c $(LED_DEV_COMP_SRCS)
+LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c $(LEDL_DEV_COMP_SRCS)
+LEDM_SRCS := test_leds.c $(CORE_SRCS) $(LEDM_DEV)/gm_device_config.c $(LEDM_DEV_COMP_SRCS)
+ENC_SRCS := test_encoders.c $(CORE_SRCS) $(ENC_DEV)/gm_device_config.c $(ENC_DEV_COMP_SRCS)
+I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c $(I2C_DEV_COMP_SRCS)
+OLED_SRCS := test_oled.c $(CORE_SRCS) $(OLED_DEV)/gm_device_config.c $(OLED_DEV_COMP_SRCS)
+MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c $(MSG_DEV_COMP_SRCS)
+MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c $(MODES_DEV_COMP_SRCS)
+WS_SRCS := test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c $(WS_DEV_COMP_SRCS)
 
 .PHONY: test clean
 test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812

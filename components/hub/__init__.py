@@ -6,6 +6,9 @@ The C side is core/src/gm_hub.h (gm_hub_ops_t) and core/src/vpin.c; core/README.
 hubs".
 """
 
+# The core's pin dispatch (core/src/vpin.c) is always built, so this is too.
+REQUIRED = True
+
 
 class HubType:
     key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })

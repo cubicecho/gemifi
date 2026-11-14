@@ -6483,9 +6483,29 @@ def preset_tables(dev):
     return c
 
 
+def component_lists(dev, source):
+    """gm_components.mk / gm_components.cmake: the components the device builds, their C sources and include
+    dirs, under the repo root (GM_ROOT, set by the Makefile or CMakeLists that includes them)."""
+    used = components.used(sorted({h.kind.key for h in dev.hubs}))
+    srcs = [s for name in used for s in components.sources(name)]
+    incs = [f"components/{name}" for name in used if components.has_headers(name)]
+    head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"
+            "The components this device builds (components/<name>/), their C sources and include dirs, under the\n"
+            "repo root GM_ROOT, which the including build sets.")
+    mk = ["\n".join(f"# {line}" for line in head.split("\n")),
+          f"GM_COMPONENTS := {' '.join(used)}",
+          f"GM_COMPONENT_SRCS := {' '.join(f'$(GM_ROOT)/{s}' for s in srcs)}".rstrip(),
+          f"GM_COMPONENT_INCS := {' '.join(f'$(GM_ROOT)/{d}' for d in incs)}".rstrip(), ""]
+    cm = ["\n".join(f"# {line}" for line in head.split("\n")),
+          f"set(GM_COMPONENTS {' '.join(used)})",
+          f"set(GM_COMPONENT_SRCS {' '.join(f'${{GM_ROOT}}/{s}' for s in srcs)})",
+          f"set(GM_COMPONENT_INCS {' '.join(f'${{GM_ROOT}}/{d}' for d in incs)})", ""]
+    return {"gm_components.mk": "\n".join(mk), "gm_components.cmake": "\n".join(cm)}
+
+
 def write_generated(dev, out_dir, source):
     os.makedirs(out_dir, exist_ok=True)
-    files = generate(dev, source)
+    files = {**generate(dev, source), **component_lists(dev, source)}
     for name, text in files.items():
         p = os.path.join(out_dir, name)
         try:

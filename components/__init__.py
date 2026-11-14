@@ -21,3 +21,29 @@ def modules():
 def hub_types():
     """The HubType instances every component lists in its HUB_TYPES."""
     return [t for m in modules().values() for t in getattr(m, "HUB_TYPES", ())]
+
+
+def used(hub_keys):
+    """The components a device builds, sorted: the REQUIRED ones, those whose HUB_TYPES it uses (YAML
+    keys), and what those name in DEPENDENCIES."""
+    mods = modules()
+    owner = {t.key: name for name, m in mods.items() for t in getattr(m, "HUB_TYPES", ())}
+    want = [name for name, m in mods.items() if getattr(m, "REQUIRED", False)]
+    want += [owner[k] for k in hub_keys if k in owner]
+    out = set()
+    while want:
+        name = want.pop()
+        if name not in out:
+            out.add(name)
+            want += getattr(mods[name], "DEPENDENCIES", ())
+    return sorted(out)
+
+
+def sources(name):
+    """A component's C sources, as paths from the repo root."""
+    return sorted(f"components/{name}/{f}" for f in os.listdir(os.path.join(HERE, name)) if f.endswith(".c"))
+
+
+def has_headers(name):
+    """Whether a component has C headers (its folder is then an include dir)."""
+    return any(f.endswith(".h") for f in os.listdir(os.path.join(HERE, name)))

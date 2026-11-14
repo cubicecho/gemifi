@@ -55,5 +55,24 @@ class Discovery(unittest.TestCase):
         self.assertEqual(list(gd.HUB_DEFS), [t.key for t in sorted(gd.HUB_DEFS.values(), key=lambda t: (t.num, t.key))])
 
 
+KEYSTATION = os.path.join(REPO, "devices", "keystation-mini32-mk3.yaml")
+
+
+class SourceLists(unittest.TestCase):
+    def test_the_hub_base_is_always_built(self):
+        self.assertIn("hub", components.used([]))
+
+    def test_written_with_the_config(self):
+        dev, _ = gd.load_device(KEYSTATION)
+        lists = gd.component_lists(dev, "devices/keystation-mini32-mk3.yaml")
+        self.assertEqual(set(lists), {"gm_components.mk", "gm_components.cmake"})
+        self.assertRegex(lists["gm_components.mk"], r"(?m)^GM_COMPONENTS := .*\bhub\b")
+        self.assertRegex(lists["gm_components.cmake"], r"(?m)^set\(GM_COMPONENTS .*\bhub\b")
+        for line in lists["gm_components.mk"].splitlines():
+            if line.startswith(("GM_COMPONENT_SRCS", "GM_COMPONENT_INCS")):
+                for path in line.split(":=")[1].split():
+                    self.assertTrue(path.startswith("$(GM_ROOT)/components/"), path)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,17 @@ def load(text):
     return gd.load_device("t.yaml", text)
 
 
+def component_lists(cfg_dir):
+    """The component sources and include dirs a generated config's gm_components.mk lists, as paths."""
+    with open(os.path.join(cfg_dir, "gm_components.mk"), encoding="utf-8") as f:
+        text = f.read()
+
+    def paths(var):
+        m = re.search(rf"^{var} :=(.*)$", text, re.M)
+        return [p.replace("$(GM_ROOT)", REPO) for p in m.group(1).split()]
+    return paths("GM_COMPONENT_SRCS"), paths("GM_COMPONENT_INCS")
+
+
 @unittest.skipUnless(GCC and gd.yaml, "needs host gcc and PyYAML")
 class TestGenerateCompiles(unittest.TestCase):
     def setUp(self):
@@ -81,12 +92,14 @@ class TestGenerateCompiles(unittest.TestCase):
     def compile_with_core(self, cfg_dir):
         """-Werror compile of the config and the core runtime against it; link settings + params."""
         objs = []
+        comp_srcs, comp_incs = component_lists(cfg_dir)
+        incs = [a for d in [CORE_INC, cfg_dir, *comp_incs] for a in ("-I", d)]
         for src in [os.path.join(cfg_dir, "gm_device_config.c")] + sorted(
-                os.path.join(CORE_SRC, f) for f in os.listdir(CORE_SRC) if f.endswith(".c")):
+                os.path.join(CORE_SRC, f) for f in os.listdir(CORE_SRC) if f.endswith(".c")) + comp_srcs:
             o = os.path.join(cfg_dir, os.path.basename(src) + ".o")
             # the generated file must be warning-free; core/ is someone else's: errors only
             flags = CFLAGS if src.startswith(cfg_dir) else ["-std=c11", "-w"]
-            self.gcc(*flags, "-I", CORE_INC, "-I", cfg_dir, "-c", src, "-o", o)
+            self.gcc(*flags, *incs, "-c", src, "-o", o)
             objs.append(o)
         main = os.path.join(cfg_dir, "main.c")
         with open(main, "w") as f:

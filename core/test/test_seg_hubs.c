@@ -1,6 +1,7 @@
 /*
- * test_seg_hubs.c: host test of the MAX7219 and TM1637 hubs (vpin.c) and
- * the 7-segment displays on them, with the device core/test/seg-hubs-test.yaml:
+ * test_seg_hubs.c: host test of the MAX7219 and TM1637 hubs
+ * (components/max7219, components/tm1637) and the 7-segment displays on
+ * them, with the device core/test/seg-hubs-test.yaml:
  * a chain of two MAX7219s (a 3-digit preset_number display on chip 0, an LED
  * on chip 1) and a 4-digit TM1637 (the last_message display).
  *

@@ -22,6 +22,10 @@ import gemifi_device as gd  # noqa: E402
 
 CORE_INC = os.path.join(REPO, "core", "include")
 CORE_SRC = os.path.join(REPO, "core", "src")
+# Every component folder with headers, as core/test/Makefile has them: a config's gm_components.h includes
+# the headers of the components it builds.
+COMPONENT_INCS = [a for n in gd.components.names() if gd.components.has_headers(n)
+                  for a in ("-I", os.path.join(REPO, "components", n))]
 KEYSTATION = os.path.join(REPO, "devices", "keystation-mini32-mk3.yaml")
 EVERYTHING = os.path.join(TESTS, "fixtures", "everything-esp32s3.yaml")
 GCC = shutil.which("gcc")
@@ -85,7 +89,7 @@ class TestGenerateCompiles(unittest.TestCase):
 
     def dump(self, cfg_dir, tag):
         exe = os.path.join(self.tmp, f"dump-{tag}")
-        self.gcc(*CFLAGS, "-I", CORE_INC, "-I", cfg_dir, os.path.join(TESTS, "dump_device.c"),
+        self.gcc(*CFLAGS, "-I", CORE_INC, "-I", cfg_dir, *COMPONENT_INCS, os.path.join(TESTS, "dump_device.c"),
                  os.path.join(cfg_dir, "gm_device_config.c"), "-o", exe)
         return subprocess.run([exe], capture_output=True, text=True, check=True).stdout
 
@@ -686,7 +690,7 @@ class TestValidation(unittest.TestCase):
             gd.gbd.generate("stm32f1", d.board["id"], out)     # board_layout.h, as make does
             r = subprocess.run(["arm-none-eabi-gcc", "-mcpu=cortex-m3", "-mthumb", "-std=gnu11", "-Wall",
                                 "-Wextra", "-Wno-unused-parameter", "-Werror", "-fsyntax-only",
-                                "-I" + out, "-I" + os.path.join(plat, "include"), "-I" + CORE_INC,
+                                "-I" + out, "-I" + os.path.join(plat, "include"), "-I" + CORE_INC, *COMPONENT_INCS,
                                 "-I" + os.path.join(plat, "boards"), '-DBOARD_HEADER="m-audio-code61.h"',
                                 "-DFW_VERSION_MAJOR=0", "-DFW_VERSION_MINOR=0", "-DFW_VERSION_PATCH=0", *srcs],
                                capture_output=True, text=True)

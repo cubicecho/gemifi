@@ -1,7 +1,7 @@
 /*
- * test_tm1628.c: host test of the TM1628 LED driver hub (vpin.c) with the
- * device core/test/tm1628-test.yaml: two chips sharing CLK and DIO, each
- * with its own STB. The simulated HAL decodes the bit stream on the pins
+ * test_tm1628.c: host test of the TM1628 LED driver hub (components/tm1628)
+ * with the device core/test/tm1628-test.yaml: two chips sharing CLK and
+ * DIO, each with its own STB. The simulated HAL decodes the bit stream on the pins
  * (LSB first, DIO taken on the CLK rising edge, STB low = one command) into
  * each chip's display RAM, and checks the timing rules it can see against
  * the time the delays ask for: a virtual clock in ns, moved by hal_delay_us
@@ -11,7 +11,7 @@
  * hal_delay_us, as they are without hal_pin_bsrr. The maudio_pad_leds hub's
  * messages are caught at hal_serial_write.
  *
- * Built with GM_TEST_STORE (vpin.c's TM_STORE calls gm_test_store); with
+ * Built with GM_TEST_STORE (tm1628.c's TM_STORE calls gm_test_store); with
  * GM_TEST_BSRR=1 in the environment, hal_pin_bsrr gives the TM1628 a
  * set/reset register per port, so CLK, DIO and STB go through the store
  * path, as on the STM32. Without it they go through hal_pin_write.
@@ -223,7 +223,7 @@ volatile uint32_t *hal_pin_bsrr(uint16_t pin, uint32_t *bit)
     return use_bsrr && pin < 48 ? &bsrr[pin >> 4] : 0;
 }
 
-/* vpin.c's TM_STORE: bits 0-15 set pins, 16-31 clear them. */
+/* tm1628.c's TM_STORE: bits 0-15 set pins, 16-31 clear them. */
 void gm_test_store(volatile uint32_t *reg, uint32_t w)
 {
     uint32_t port = (uint32_t)(reg - bsrr);

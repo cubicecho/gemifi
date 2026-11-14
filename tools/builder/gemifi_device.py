@@ -21,8 +21,11 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, rgb_curve, validate_rgb_calibration  # noqa: E402
+from components.hub import HubType, ShiftRegister, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
+from components.cd74hc4067 import Mux  # noqa: E402
+from components.tm1628 import TM1628  # noqa: E402
+from components.xy_pad import XYPad  # noqa: E402
 
 try:
     import yaml
@@ -334,364 +337,9 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
-# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. To add
-# a type: a subclass here, an instance in HUB_DEFS, and its driver in core/src/vpin.c (core/README.md
-# "Adding a hub type").
-class ShiftRegister(HubType):
-    """74HC595 (outputs) / 74HC165 (inputs): sr_count chips in a chain, 8 pins each."""
-    lines = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data", "oe_pin": "enable"}
-
-    def __init__(self, key, enum, num, out):
-        self.key, self.enum, self.num, self.out = key, enum, num, out
-        self.keys = ("id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count") if out else \
-            ("id", "data_pin", "clock_pin", "load_pin", "sr_count")
-        self.roles = frozenset({"out"} if out else {"in"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # vpin.c: at most 4 chips (32 pins)
-        hub.n_pins = 8 * hub.chain
-        hub.data = ctl("data_pin", "out" if self.out else "in")
-        hub.clock = ctl("clock_pin", "out")
-        if self.out:
-            hub.latch = ctl("latch_pin", "out")
-            hub.enable = ctl("oe_pin", "out", required=False)
-        else:
-            hub.latch = ctl("load_pin", "out")
-
-    def range_text(self, hub):
-        return f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8)"
-
-    def c_fields(self, hub):
-        return [f"        .sr = {{ .data = {hub.data.c()}, .clock = {hub.clock.c()}, .latch = {hub.latch.c()},",
-                f"                .oe = {hub.enable.c()}, .chain = {hub.chain} }},"]
-
-
-class Mux(HubType):
-    """CD74HC4051 (3 select lines, 8 channels) / 4067 (4, 16): one common pin routed to a channel;
-    analog or digital inputs."""
-    enum, num = "GM_HUB_MUX", 3
-    lines = {"common_pin": "common", "enable_pin": "enable",
-             "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}
-    roles = frozenset({"in", "analog"})
-    what = "channel"
-
-    def __init__(self, key, n_sel):
-        self.key, self.n_sel = key, n_sel
-        self.keys = ("id", *(f"pin_s{i}" for i in range(n_sel)), "common_pin", "enable_pin", "delay")
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.n_sel = self.n_sel
-        hub.sel = [ctl(f"pin_s{i}", "out") for i in range(hub.n_sel)]
-        hub.n_pins = 1 << hub.n_sel
-        hub.common = ctl("common_pin", "common")
-        if hub.common.hub == 0:
-            hub.common_adc = v.plat.adc(hub.common.num)[0]
-        else:
-            hub.common = None
-        hub.enable = ctl("enable_pin", "out", required=False)
-        hub.settle_us = v.period(h, "delay", p, 0, 0xFFFF, default=0, example="5us")   # 0: vpin.c waits 2us
-        if "delay" in h and hub.settle_us == 0:
-            v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
-
-    def c_fields(self, hub):
-        sel = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
-        return [f"        .mux = {{ .sel = {{ {', '.join(sel)} }},",
-                f"                 .common = {(hub.common or NO_PIN).c()}, .enable = {hub.enable.c()}, "
-                f".settle_us = {hub.settle_us}, .n_sel = {hub.n_sel} }},"]
-
-
-class I2CExpander(HubType):
-    """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
-    the main loop."""
-    keys = ("id", "address")
-    roles = frozenset({"in", "out"})
-    i2c = True
-
-    def __init__(self, key, enum, num, n_pins, addrs, addr_text, pin_key=None):
-        self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
-        self.addrs, self.addr_text, self.pin_key = addrs, addr_text, pin_key
-        self.pullup = key == "mcp23017"
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
-        hub.n_pins = self.n_pins
-        if hub.addr not in self.addrs:
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "
-                                                         f"(usually {self.addr_text})")
-
-    def c_fields(self, hub):
-        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X} }},"]
-
-    def pin_name(self, s):
-        if self.key == "mcp23017":
-            m = re.fullmatch(r"(?:GP)?([AB])([0-7])", s)
-            return (8 if m.group(1) == "B" else 0) + int(m.group(2)) if m else None
-        m = re.fullmatch(r"P([0-7])", s)
-        return int(m.group(1)) if m else None
-
-
-class Decoder(HubType):
-    """A 74HC138-style one-of-N decoder: outputs only, and only as matrix rows."""
-    key, enum, num = "decoder", "GM_HUB_DECODER", 6
-    keys = ("id", "address", "groups")
-    roles = frozenset({"row"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        validate_decoder(v, hub, h, p, hub.index)
-
-    def c_fields(self, hub):
-        addr = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
-        en = [x.c() for x in hub.en] + ["GM_NO_PIN"] * (3 - len(hub.en))
-        lv = [str(x) for x in hub.group_lv] + ["0"] * (4 - len(hub.group_lv))
-        return [f"        .dec = {{ .addr = {{ {', '.join(addr)} }},",
-                f"                 .en = {{ {', '.join(en)} }},",
-                f"                 .n_addr = {hub.n_sel}, .n_en = {len(hub.en)}, .n_groups = {len(hub.group_lv)}, "
-                f".group_lv = {{ {', '.join(lv)} }} }},"]
-
-
-class SwitchMatrix(HubType):
-    """A switch matrix scanned from the scan interrupt: inputs only, pin n = row n / columns,
-    column n % columns."""
-    key, enum, num = "switch_matrix", "GM_HUB_SWMATRIX", 8
-    keys = ("id", "rows", "columns", "settle", "rows_per_scan")
-    roles = frozenset({"in"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        # Rows may name a decoder declared further down: pins are resolved after all hubs
-        # (resolve_switch_matrices). The size is known now, for pin numbers on this hub.
-        rows, cols = h.get("rows"), h.get("columns")
-        nr = rows.get("count", 0) if isinstance(rows, dict) else len(rows) if isinstance(rows, list) else 0
-        nc = len(cols) if isinstance(cols, list) else 0
-        hub.n_pins = max(nr if isinstance(nr, int) else 0, 0) * nc
-        if hub.n_pins > 32:
-            v.err(p, line, f"{nr} rows x {nc} columns = {hub.n_pins} switches: at most 32 per switch_matrix "
-                           "(split it into two)")
-        hub.settle_us = v.period(h, "settle", p, 0, 255, default=1, example="2us")
-        # rows read per scan, in turn (0 = all): spreads a big panel over several scans
-        hub.rows_per_scan = v.integer(h, "rows_per_scan", p, 1, 32, default=0)
-        if hub.rows_per_scan and isinstance(nr, int) and nr and hub.rows_per_scan >= nr:
-            v.warn(f"{p}.rows_per_scan", h.line_of("rows_per_scan"), f"{hub.rows_per_scan} >= its {nr} rows: "
-                                                                      "every row is read on every scan anyway")
-
-    def c_tables(self, hub):
-        if not hub.rows or not hub.cols:
-            return []
-        c = []
-        for nm, lst in (("rows", hub.rows), ("cols", hub.cols)):
-            c.append(f"static const gm_pin_t hub{hub.index + 1}_{nm}[{len(lst)}] = {{")
-            c += [f"    {x.c()}, /* {_comment(x.desc)} */" for x in lst]
-            c += ["};"]
-        return c
-
-    def c_fields(self, hub):
-        if not hub.rows or not hub.cols:
-            return [f"        .sm = {{ .settle_us = {hub.settle_us} }},"]
-        n = hub.index + 1
-        return [f"        .sm = {{ .rows = hub{n}_rows, .cols = hub{n}_cols, .n_rows = {len(hub.rows)}, "
-                f".n_cols = {len(hub.cols)},",
-                f"                .settle_us = {hub.settle_us}, .rows_per_scan = {hub.rows_per_scan or 0} }},"]
-
-
-# TM1628-class LED drivers (TM1628, TM1638, TM1620 ...): pin = display RAM bit, byte * 8 + bit.
-TM_RAM_MAX = 16                 # TM1638 has 16 bytes, TM1628 14
-
-
-class TM1628(HubType):
-    """A TM1628-class LED driver, bit-banged from the main loop: pin = display RAM bit."""
-    key, enum, num = "tm1628", "GM_HUB_TM1628", 7
-    keys = ("id", "clk_pin", "dio_pin", "stb_pin", "ram_bytes", "intensity", "grids", "fade")
-    # TM1628 lines only pair with each other: they're bit-banged from the main loop
-    lines = {"clk_pin": "tm_clk", "dio_pin": "tm_dio", "stb_pin": "tm_stb"}
-    roles = frozenset({"out"})
-    ram = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.ram_bytes = v.integer(h, "ram_bytes", p, 1, TM_RAM_MAX, default=14)
-        hub.n_pins = 8 * hub.ram_bytes
-        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
-        hub.grids = v.integer(h, "grids", p, 4, 7, default=0)   # 0: no display-mode command
-        hub.fade = v.boolean(h, "fade", p, default=False)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("dio_pin", "out", open_drain=True)
-        hub.latch = ctl("stb_pin", "out")
-
-    def range_text(self, hub):
-        return f" ({hub.ram_bytes} RAM bytes x 8; pin = byte * 8 + bit)"
-
-    def c_fields(self, hub):
-        return [f"        .tm = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .stb = {hub.latch.c()},",
-                f"                .ram_bytes = {hub.ram_bytes}, .brightness = {hub.intensity}, "
-                f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
-
-
-# The M-Audio Code pad LED board (maudio_pad_leds, formerly rgb_serial): RGB LEDs behind a serial
-# link, its own protocol (vpin.c). pin = LED * 3 + colour (0 red, 1 green, 2 blue). Kept in the hub
-# RAM, sent from the main loop.
-MAUDIO_PADS_MAX = 32
-
-
-class MaudioPadLeds(HubType):
-    """The M-Audio Code pad LED board: RGB LEDs behind a serial link, pin = LED * 3 + colour."""
-    key, enum, num = "maudio_pad_leds", "GM_HUB_MAUDIO_PADS", 9
-    aliases = ("rgb_serial",)
-    keys = ("id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white")
-    lines = {"tx_pin": "uart_tx", "rx_pin": "uart_rx"}
-    roles = frozenset({"out"})
-    ram = True
-    full_colour = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        if any(x.type == self.key for x in dev.hubs if x is not hub):
-            # one LED board: its UART is fixed (USART2 on stm32f1)
-            v.err(p, line, f"a second {self.key} hub: the firmware drives one (one LED board)")
-        hub.chain = v.integer(h, "count", p, 1, MAUDIO_PADS_MAX, default=16)
-        hub.n_pins = 3 * hub.chain
-        hub.ram_bytes = hub.n_pins                       # a byte per colour
-        hub.gamma, hub.white = validate_rgb_calibration(v, h, p)
-        hub.data = ctl("tx_pin", "out")
-        hub.latch = ctl("rx_pin", "in", required=False)     # optional: the board's answers (acks)
-        hub.dma = v.boolean(h, "dma", p, default=True)
-        if hub.data.hub == 0 and h.get("tx_pin") is not None:
-            why = v.plat.serial_tx(hub.data.num)
-            if why:
-                v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
-            elif h.get("rx_pin") is not None and hub.latch is not NO_PIN:
-                why = v.plat.serial_rx(hub.data.num, hub.latch.num)
-                if why:
-                    v.err(f"{p}.rx_pin", h.line_of("rx_pin"), why)
-
-    def range_text(self, hub):
-        return f" ({hub.chain} LEDs x 3; pin = LED * 3 + colour, 0 red 1 green 2 blue)"
-
-    def c_tables(self, hub):
-        if hub.gamma == 1:
-            return []
-        t = rgb_curve(hub.gamma)
-        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
-                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
-                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
-
-    def c_fields(self, hub):
-        return [f"        .mpads = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
-                f".dma = {1 if hub.dma else 0},",
-                f"                 .white = {{ {', '.join(str(x) for x in hub.white)} }}, "
-                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
-
-
-# A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
-XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
-
-
-class XYPad(HubType):
-    key, enum, num = "xy_pad", "GM_HUB_XY", 10
-    keys = ("id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max")
-    lines = {"x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
-    roles = frozenset({"analog"})
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        validate_xy_pad(v, hub, h, p, ctl)
-
-    def pin_hint(self, hub):
-        return "x or y"
-
-    def c_fields(self, hub):
-        drive = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
-        return [f"        .xy = {{ .drive = {{ {', '.join(drive)} }},",
-                f"                .sense = {{ {hub.data.c()}, {hub.clock.c()} }}, "
-                f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
-
-
-# MAX7219 / MAX7221 LED drivers in a chain: pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
-# 7 = DP), so a 7-segment character is its digit's 8 pins (displays: type segment7).
-MAX7219_CHIPS = 8
-
-
-class MAX7219(HubType):
-    """A chain of MAX7219 LED drivers (ESPHome max7219 keys), bit-banged from the main loop."""
-    key, enum, num = "max7219", "GM_HUB_MAX7219", 12
-    keys = ("id", "clk_pin", "din_pin", "cs_pin", "num_chips", "intensity", "scan_limit")
-    # chains may share CLK and DIN, each with its own CS
-    lines = {"clk_pin": "mx_clk", "din_pin": "mx_din", "cs_pin": "mx_cs"}
-    roles = frozenset({"out"})
-    ram = True
-    schema = {"num_chips": (1, MAX7219_CHIPS), "intensity": (0, 15), "scan_limit": (1, 8)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "num_chips", p, 1, MAX7219_CHIPS, default=1)
-        hub.n_pins = 64 * hub.chain
-        hub.ram_bytes = 8 * hub.chain                    # a digit register per byte
-        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
-        hub.grids = v.integer(h, "scan_limit", p, 1, 8, default=8)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("din_pin", "out")
-        hub.latch = ctl("cs_pin", "out")
-
-    def range_text(self, hub):
-        return (f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8 digits x 8; pin = chip * 64 + "
-                "digit * 8 + segment, 0..6 = A..G, 7 = DP)")
-
-    def c_fields(self, hub):
-        return [f"        .mx = {{ .clk = {hub.clock.c()}, .din = {hub.data.c()}, .cs = {hub.latch.c()},",
-                f"                .chips = {hub.chain}, .intensity = {hub.intensity}, "
-                f".scan_limit = {hub.grids} }},"]
-
-
-class TM1637(HubType):
-    """A TM1637 LED driver (2-wire, ESPHome tm1637 keys), bit-banged from the main loop: pin = grid * 8
-    + segment (bit 0 = SEG1 = a ... bit 7 = SEG8)."""
-    key, enum, num = "tm1637", "GM_HUB_TM1637", 13
-    keys = ("id", "clk_pin", "dio_pin", "intensity", "length")
-    lines = {"clk_pin": "tm37_clk", "dio_pin": "tm37_dio"}
-    roles = frozenset({"out"})
-    ram = True
-    schema = {"length": (1, 6), "intensity": (0, 7)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.ram_bytes = v.integer(h, "length", p, 1, 6, default=6)
-        hub.n_pins = 8 * hub.ram_bytes
-        hub.intensity = v.integer(h, "intensity", p, 0, 7, default=7)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("dio_pin", "out", open_drain=True)
-        for k in ("clk_pin", "dio_pin"):
-            x = h.get(k)
-            if isinstance(x, dict) and x.get("allow_other_uses"):
-                v.err(f"{p}.{k}", h.line_of(k), "a tm1637 has no chip select: its clk_pin and dio_pin "
-                                               "can't be shared")
-
-    def range_text(self, hub):
-        return f" ({hub.ram_bytes} grids x 8; pin = grid * 8 + segment)"
-
-    def c_fields(self, hub):
-        return [f"        .tm37 = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .grids = {hub.ram_bytes}, "
-                f".brightness = {hub.intensity} }},"]
-
-
-class HT16K33(HubType):
-    """An HT16K33 LED driver on the I2C bus (the 14- and 7-segment backpacks), written from the main
-    loop: pin = COM * 16 + ROW. ESP only for now, as the other I2C hubs."""
-    key, enum, num = "ht16k33", "GM_HUB_HT16K33", 14
-    keys = ("id", "address", "intensity")
-    roles = frozenset({"out"})
-    ram = True
-    i2c = True
-    schema = {"intensity": (0, 15)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x70)
-        if not 0x70 <= hub.addr <= 0x77:
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for an ht16k33 "
-                                                         "(0x70-0x77)")
-        hub.ram_bytes = 16
-        hub.n_pins = 128
-        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
-
-    def range_text(self, hub):
-        return " (16 RAM bytes x 8; pin = COM * 16 + ROW)"
-
-    def c_fields(self, hub):
-        return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
-
-
+# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
+# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the SSD1306
+# below is still here and in core/src/vpin.c (A1 makes it a display).
 # SSD1306 / SH1106 OLEDs on the I2C bus: a framebuffer (width x height / 8 bytes) in the hub RAM, no
 # pins; text displays (displays: type text) draw on it.
 OLED_MODELS = {"ssd1306": 0, "sh1106": 1}       # gm_device.h GM_OLED_SH1106
@@ -756,15 +404,8 @@ class SSD1306(HubType):
                 f".contrast = {hub.intensity}, .flags = {flags} }},"]
 
 
-# The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
-_HUBS_HERE = (
-    ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
-    ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
-    Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
-    I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
-    I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
-                "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+# The hub types: the one still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
+_HUBS_HERE = (SSD1306(),)
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
@@ -3193,91 +2834,6 @@ def validate_hub(v, dev, h, typ, p, line):
                      owner=index, open_drain=open_drain) or NO_PIN
 
     kind.validate(v, dev, hub, h, p, line, ctl)
-
-
-def validate_xy_pad(v, hub, h, p, ctl):
-    """xy_pad: a 4-wire resistive panel on four MCU pins. Reading X drives x_plus high and x_minus low,
-    and reads the Y plate; reading Y the other way round. Each axis is read on the other plate's minus
-    pin if it has an ADC, else its plus pin."""
-    hub.n_pins = 2
-    hub.sel = [ctl(k, "out") for k in ("x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin")]
-    hub.touch_min = v.integer(h, "touch_min", p, 0, 4095, default=XY_TOUCH[0])
-    hub.touch_max = v.integer(h, "touch_max", p, 0, 4095, default=XY_TOUCH[1])
-    if hub.touch_min >= hub.touch_max:
-        v.err(p, h.line, f"touch_min {hub.touch_min} must be below touch_max {hub.touch_max}")
-
-    def sense(minus, plus, axis, keys):
-        for pn in (minus, plus):
-            if pn.hub == 0 and pn.num >= 0 and v.plat.adc(pn.num)[0]:
-                return pn
-        if all(pn.hub == 0 for pn in (minus, plus)) and all(h.get(k) is not None for k in keys):
-            v.err(p, h.line, f"{axis} is read on {keys[0]} or {keys[1]}: neither has an ADC "
-                             f"({adc_text(v.plat)})")
-        return NO_PIN
-
-    xp, xm, yp, ym = hub.sel
-    hub.data = sense(ym, yp, "X", ("y_minus_pin", "y_plus_pin"))
-    hub.clock = sense(xm, xp, "Y", ("x_minus_pin", "x_plus_pin"))
-
-
-def validate_decoder(v, hub, h, p, index):
-    """decoder: { address: [A0, A1, A2], groups: [{ PB6: 1, PB7: 0 }, ...] }. Output n = address
-    n % 2^len(address) in group n // 2^len(address); a group is the levels of the enable pins."""
-    addr = h.get("address")
-    if not isinstance(addr, list) or not 1 <= len(addr) <= 4:
-        v.err(f"{p}.address", h.line_of("address") if "address" in h else h.line,
-              "needs a list of 1-4 address pins, A0 first")
-        addr = LList()
-    hub.sel = [v.pin(x, f"{p}.address[{i}]", addr.line_of(i), "out", allow_hub=False, line_kind="address",
-                     owner=index) or NO_PIN for i, x in enumerate(addr)]
-    hub.n_sel = len(hub.sel)
-    groups = h.get("groups")
-    if groups is None:
-        hub.group_lv = [0]
-    else:
-        groups = v.seq(groups, f"{p}.groups", h.line_of("groups"))
-        if not 1 <= len(groups) <= 4:
-            v.err(f"{p}.groups", h.line_of("groups"), f"{len(groups)} groups: 1-4 (each a mapping of "
-                                                      "enable pin to level, e.g. { PB6: 1, PB7: 0 })")
-        names = None
-        seen = {}
-        for g, grp in enumerate(groups[:4]):
-            gp = f"{p}.groups[{g}]"
-            if not isinstance(grp, dict) or not grp:
-                v.err(gp, groups.line_of(g), "must be a mapping of enable pin to level, e.g. { PB6: 1, PB7: 0 }")
-                continue
-            nums = {}
-            for k in grp:
-                try:
-                    nums[v.plat.parse_pin(k)] = k
-                except ValueError as e:
-                    v.err(f"{gp}.{k}", grp.line_of(k), str(e))
-            if names is None:
-                if len(nums) > 3:
-                    v.err(gp, groups.line_of(g), f"{len(nums)} enable pins: at most 3")
-                names = list(nums)[:3]
-                hub.en = [v.pin(nums[n], f"{gp}.{nums[n]}", grp.line_of(nums[n]), "out", allow_hub=False,
-                                line_kind="enable", owner=index) or NO_PIN for n in names]
-            elif set(nums) != set(names):
-                v.err(gp, groups.line_of(g), "every group must give a level for the same enable pins "
-                                             f"({', '.join(v.plat.pin_name(n) for n in names)})")
-                continue
-            lv = 0
-            for e, n in enumerate(names):
-                x = grp[nums[n]]
-                if isinstance(x, bool):
-                    x = int(x)
-                if x not in (0, 1):
-                    v.err(f"{gp}.{nums[n]}", grp.line_of(nums[n]), f"level must be 0 or 1 (got {x!r})")
-                    x = 0
-                lv |= x << e
-            if lv in seen:
-                v.err(gp, groups.line_of(g), f"same enable levels as groups[{seen[lv]}]: the two can't be told apart")
-            seen.setdefault(lv, g)
-            hub.group_lv.append(lv)
-        if not hub.group_lv:
-            hub.group_lv = [0]
-    hub.n_pins = len(hub.group_lv) << hub.n_sel
 
 
 def matrix_rows(v, d, path, hubs, why, role="out"):
@@ -6408,15 +5964,15 @@ def component_lists(dev, source):
 
 def component_header(dev, source):
     """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
-    code is in components/ (HubType.c_header), and what they add to the hub base: GM_HUB_CONFIG_MEMBERS
-    (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS and GM_HUB_OPS
-    (core/src/vpin.c hub_ops[])."""
-    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_header}.values(), key=lambda t: (t.num, t.key))
+    code is in components/ (HubType.c_ops; c_header, if it has one), and what they add to the hub base:
+    GM_HUB_CONFIG_MEMBERS (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS
+    and GM_HUB_OPS (core/src/vpin.c hub_ops[])."""
+    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_ops}.values(), key=lambda t: (t.num, t.key))
     by_enum = {}
     for t in kinds:
         by_enum.setdefault(t.enum, t)       # types sharing an enum share their C parts
     parts = list(by_enum.values())
-    headers = list(dict.fromkeys(t.c_header for t in parts))
+    headers = list(dict.fromkeys(t.c_header for t in parts if t.c_header))
 
     def macro(name, items):
         return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
@@ -6425,7 +5981,7 @@ def component_header(dev, source):
              " * their headers, and what they add to the hub base (components/hub/gm_hub.h). */",
              "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
              *[f'#include "{h}"' for h in headers], *([""] if headers else []),
-             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts]),
+             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts if t.c_config]),
              macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
              macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
              macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),

@@ -3,7 +3,8 @@
  *
  * Implementations: platform/nuvoton-nuc1xx/src/hal.c (C, bare metal),
  * platform/esp/ (ESP-IDF, ESP32 / S2 / S3). Pin numbers here are MCU pins
- * only (hub 0 of gm_pin_t); expander hubs are handled by core/src/vpin.c.
+ * only (hub 0 of gm_pin_t); expander hubs are handled by core/src/vpin.c
+ * and their drivers (components/).
  *
  * Received MIDI goes the other way: the platform calls gm_midi_rx_byte()
  * (controller.h) for every MIDI byte that arrives.
@@ -129,7 +130,8 @@ uint16_t hal_extra_caps(void);
  * starts sending n <= 16 bytes in the background, copied, and returns 0
  * without sending if the last write is still going; hal_serial_read returns
  * the next byte received (kept by interrupt, at least 16), or -1 for none.
- * Weak defaults that do nothing are in core/src/vpin.c. */
+ * Weak defaults that do nothing are in
+ * components/maudio_pad_leds/maudio_pad_leds.c. */
 int hal_serial_open(uint16_t tx_pin, uint32_t baud, uint32_t flags);
 int hal_serial_write(uint16_t tx_pin, const uint8_t *b, uint32_t n);
 int hal_serial_read(uint16_t tx_pin);

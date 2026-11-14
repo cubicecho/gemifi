@@ -34,11 +34,19 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R2 | Refactor [pattern] | The builder writes the list of component sources a device uses, and every build (make, ESP-IDF, host tests) compiles from it. | M1: only used components are compiled, no glob of the core | R1 | done |
 | R3 | Refactor [pattern] | The hub interface moves into the `hub` component, and each hub type's own state moves out of the shared union into its component. | M2: a new hub type stops editing shared core files | R2 | done |
 | R4 | Refactor [move] | The WS2812 driver, builder class and docs move into `components/ws2812/`, as the template for the rest (changed from the SSD1306, which A1 moves once, as a display). | M1; the shape every other hub follows | R3 | done |
-| R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | approved |
+| R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | done |
 | R6 | Refactor [pattern] | The controls move out of the controller into one component each, after a short design note on the state they share, keeping the scan's hot paths as fast. | M7 | R2 | deferred: after the display work is merged (2026-11-14) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | approved |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | approved |
 | D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | approved |
+| M8 | Model change | LED strips and LED/segment drivers become base components with platforms, ESPHome style: `led_strip:` (ws2812, maudio_pads) and `led_driver:` (tm1628, max7219, tm1637, ht16k33); I/O expanders, muxes and matrices stay top-level by chip. | Interchangeable chips for one job share a base and its code | — | approved |
+| A2 | API change | `led_strip: [{ id, platform: ws2812 \| maudio_pads, ... }]`, pins `{ led_strip: id, number: n }`, the full-colour LED code in the base; the old `ws2812:` / `maudio_pad_leds:` keys refused with the new form. | M8 | R5, A1 | approved |
+| A3 | API change | `led_driver: [{ id, platform: tm1628 \| max7219 \| tm1637 \| ht16k33, ... }]`, pins `{ led_driver: id, number: n }`, the LED-byte RAM and send code in the base; the old keys refused with the new form. | M8 | R5, A1 | approved |
+| R7 | Refactor [pattern] | A builder hook for checks across hubs and late resolution, so `resolve_switch_matrices` and the one-`stb_pin` / one-`cs_pin` checks move into their components. | M1: the last hub-specific code in `gemifi_device.py` | R5 | open |
+| R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | open |
+| D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | open |
+| D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | open |
+| R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | open |
 
 ## Model changes
 
@@ -85,10 +93,16 @@ As-is: buttons, LEDs, analog inputs, encoders, key matrix, pads, modes and rings
 `controller.c` sharing file statics. To-be: a component each, with an internal header for the state
 they share. Implemented by: R6. Status: approved.
 
-### M8 — other base components (to propose after A1)
+### M8 — LED strips and LED drivers as base components
 
-The user asked to look at the other components after the display base and give them the same shape
-(e.g. LED strips, LED drivers, I/O expanders). Proposed after A1, at its own gate. Status: open.
+As-is: every hub type is a top-level YAML list named after its chip. To-be: the hub types that are
+interchangeable chips for one job get a base component with platforms, as the display base did:
+`led_strip:` (`platform: ws2812 | maudio_pads`; the base holds the full-colour LED code: pins per LED,
+`gamma:` / `white:`, the colour output) and `led_driver:` (`platform: tm1628 | max7219 | tm1637 |
+ht16k33`; the base holds the LED-byte RAM and the send budget code). Both still give pins
+(`{ led_strip: id, number: n }`). I/O expanders, multiplexers and matrices stay top-level by chip, as in
+ESPHome. The old keys are refused with the new form in the message (decided 2026-11-14). Implemented
+by: A2, A3. Status: approved.
 
 ---
 
@@ -149,6 +163,9 @@ maudio_pad_leds, ws2812, max7219, tm1637, ht16k33. One commit each; types sharin
 folder, named after the ESPHome component where there is one. The hot paths written out in
 `vpin.c` (mux and cached reads, decoder rows, the switch-matrix scan) stay in `vpin.c` or become
 `static inline` in the component's header, so a pin costs what it does now.
+Done 2026-11-14: the fast paths stayed in `vpin.c` (their tables built by its `fast_init`), so the
+mux, decoder, switch matrix, TM1628 (fade) and XY pad (state) keep the config or state the core reads
+in `gm_device.h` / `gm_hub.h`; what several types share went to the hub base (`gm_hub_*`).
 
 ### R6 [pattern] — the controls as components
 

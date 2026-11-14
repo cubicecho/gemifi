@@ -56,7 +56,7 @@ extern "C" {
 #define GM_DISPLAY_SEG14 1
 #define GM_DISPLAY_SEG7  2
 /* A text display: one row of 5x7 characters (6 x 8 pixels each, x scale)
- * on an OLED hub (GM_HUB_SSD1306), drawn with vpin_oled_draw. Every
+ * on a screen (display:, components/display gm_screen_draw). Every
  * printable ASCII character has a glyph, lower case too, and a '.' takes a
  * place. */
 #define GM_DISPLAY_TEXT  3
@@ -78,10 +78,12 @@ typedef struct {
      * segment order; GM_NO_PIN = not wired. 0 = chars. */
     const gm_pin_t *map;
     uint8_t shows;                /* GM_SHOWS_*                             */
-    /* GM_DISPLAY_TEXT: chars[0] is where the row starts (hub = the OLED,
-     * num = its framebuffer byte, page * width + x); each character is
-     * 6 x scale pixels wide and 8 x scale tall. */
+    /* GM_DISPLAY_TEXT (chars and map 0): each character is 6 x scale
+     * pixels wide and 8 x scale tall, on screen `screen` (gm_screens[],
+     * components/display) from its framebuffer byte at, page * width + x. */
     uint8_t scale;
+    uint8_t screen;
+    uint16_t at;
 } gm_display_t;
 
 /* Segment bits of one character: bit 0 = a ... bit 13 = m, bit 14 = dot.

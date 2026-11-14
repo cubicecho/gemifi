@@ -1,10 +1,12 @@
 """hub: the base component of the chips that give a device pins (shift registers, I/O expanders,
 multiplexers, LED drivers ...). Each hub type is a component of its own (components/<chip>/) whose
-__init__.py lists its HubType instances in HUB_TYPES; this is the class they derive from.
+__init__.py lists its HubType instances in HUB_TYPES; this is the class they derive from, with what
+several types share (I2CExpander, the full-colour helpers).
 
 The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; core/README.md "Virtual pins and
 hubs".
 """
+import re
 
 # The core's pin dispatch (core/src/vpin.c) is always built, so this is too.
 REQUIRED = True
@@ -60,6 +62,37 @@ class HubType:
         """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
         `.sr = { ... },`. The first line goes after .type."""
         raise NotImplementedError(self.key)
+
+
+class I2CExpander(HubType):
+    """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
+    the main loop: the two share it (components/mcp23017, pcf8574), and their config (.i2c) and pin
+    state (gm_hub.h u.io, gm_hub_i2c_*)."""
+    keys = ("id", "address")
+    roles = frozenset({"in", "out"})
+    i2c = True
+
+    def __init__(self, key, enum, num, n_pins, addrs, addr_text, pin_key=None, c_ops=None):
+        self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
+        self.addrs, self.addr_text, self.pin_key, self.c_ops = addrs, addr_text, pin_key, c_ops
+        self.pullup = key == "mcp23017"
+
+    def validate(self, v, dev, hub, h, p, line, ctl):
+        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
+        hub.n_pins = self.n_pins
+        if hub.addr not in self.addrs:
+            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "
+                                                         f"(usually {self.addr_text})")
+
+    def c_fields(self, hub):
+        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X} }},"]
+
+    def pin_name(self, s):
+        if self.key == "mcp23017":
+            m = re.fullmatch(r"(?:GP)?([AB])([0-7])", s)
+            return (8 if m.group(1) == "B" else 0) + int(m.group(2)) if m else None
+        m = re.fullmatch(r"P([0-7])", s)
+        return int(m.group(1)) if m else None
 
 
 def validate_rgb_calibration(v, h, p, white_n=3):

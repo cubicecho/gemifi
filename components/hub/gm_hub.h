@@ -141,5 +141,11 @@ void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int le
 /* An MCU pin (hub 0) as a hub's control line: driven to level, open-drain
  * with GM_PIN_OPEN_DRAIN. A hub pin is left alone. */
 void gm_hub_mcu_out(gm_pin_t p, int level);
+/* The I2C expanders' (u.io) init, input and output ops: each pin's
+ * direction and pull-up, which flush writes when cfg_dirty; a PCF8574
+ * input is written high. */
+void gm_hub_i2c_init(const gm_hub_t *h, gm_hub_state_t *s);
+void gm_hub_i2c_input(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
+void gm_hub_i2c_output(const gm_hub_t *h, gm_hub_state_t *s, gm_pin_t p);
 
 #endif

@@ -21,9 +21,9 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, rgb_curve  # noqa: E402
-from components.tm1628 import TM1628  # noqa: E402
+from components.hub import HubType, I2CExpander, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
+from components.tm1628 import TM1628  # noqa: E402
 
 try:
     import yaml
@@ -401,36 +401,6 @@ class Mux(HubType):
                 f".settle_us = {hub.settle_us}, .n_sel = {hub.n_sel} }},"]
 
 
-class I2CExpander(HubType):
-    """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
-    the main loop."""
-    keys = ("id", "address")
-    roles = frozenset({"in", "out"})
-    i2c = True
-
-    def __init__(self, key, enum, num, n_pins, addrs, addr_text, pin_key=None):
-        self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
-        self.addrs, self.addr_text, self.pin_key = addrs, addr_text, pin_key
-        self.pullup = key == "mcp23017"
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
-        hub.n_pins = self.n_pins
-        if hub.addr not in self.addrs:
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "
-                                                         f"(usually {self.addr_text})")
-
-    def c_fields(self, hub):
-        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X} }},"]
-
-    def pin_name(self, s):
-        if self.key == "mcp23017":
-            m = re.fullmatch(r"(?:GP)?([AB])([0-7])", s)
-            return (8 if m.group(1) == "B" else 0) + int(m.group(2)) if m else None
-        m = re.fullmatch(r"P([0-7])", s)
-        return int(m.group(1)) if m else None
-
-
 class Decoder(HubType):
     """A 74HC138-style one-of-N decoder: outputs only, and only as matrix rows."""
     key, enum, num = "decoder", "GM_HUB_DECODER", 6
@@ -585,7 +555,6 @@ _HUBS_HERE = (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
-    I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
     Decoder(), SwitchMatrix(), XYPad(), SSD1306())

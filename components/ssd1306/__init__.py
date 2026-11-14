@@ -15,7 +15,7 @@ class SSD1306(ScreenType):
     """An SSD1306 or SH1106 OLED on the I2C bus, written from the main loop a run of changed bytes at a
     time. ESP only for now, as the I2C hubs."""
     platform, enum, num = "ssd1306", "GM_SCREEN_SSD1306", 1
-    keys = ("id", "platform", "address", "model", "width", "height", "contrast", "rotate")
+    keys = ("id", "platform", "address", "i2c_id", "model", "width", "height", "contrast", "rotate")
     i2c = True
     schema = {"width": (64, 128), "height": (16, 64), "contrast": (0, 255)}
     enums = {"model": list(OLED_MODELS), "rotate": [0, 180]}
@@ -58,7 +58,8 @@ class SSD1306(ScreenType):
     def c_fields(self, scr):
         flags = " | ".join(f for f, on in (("GM_OLED_SH1106", scr.model == "sh1106"),
                                           ("GM_OLED_ROTATE", scr.rotate == 180)) if on) or "0"
-        return [f"        .ssd1306 = {{ .addr = 0x{scr.addr:02X}, .contrast = {scr.contrast}, .flags = {flags} }},"]
+        return [f"        .ssd1306 = {{ .addr = 0x{scr.addr:02X}, .bus = {scr.bus}, .contrast = {scr.contrast}, "
+                f".flags = {flags} }},"]
 
 
 DISPLAY_PLATFORMS = (SSD1306(),)

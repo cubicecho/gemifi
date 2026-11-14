@@ -48,7 +48,7 @@ static void oled_setup(const gm_screen_t *c)
     b[n++] = 0xDB; b[n++] = sh ? 0x35 : 0x40;   /* VCOMH */
     b[n++] = 0xA4;                          /* show the RAM */
     b[n++] = 0xA6;                          /* not inverted */
-    hal_i2c_write(o->addr, b, n);
+    hal_i2c_write(o->bus, o->addr, b, n);
 }
 
 /* n (<= OLED_RUN) framebuffer bytes from column x of page pg. */
@@ -62,7 +62,7 @@ static void oled_write(const gm_screen_t *c, uint32_t pg, uint32_t x, const uint
     b[k++] = 0x40;                          /* data follows */
     for (uint32_t i = 0; i < n; i++)
         b[k++] = d[i];
-    hal_i2c_write(c->ssd1306.addr, b, k);
+    hal_i2c_write(c->ssd1306.bus, c->ssd1306.addr, b, k);
 }
 
 static uint32_t ssd1306_send(const gm_screen_t *c, gm_screen_state_t *s, const uint8_t *fb, uint8_t *sent,
@@ -101,7 +101,7 @@ static uint32_t ssd1306_send(const gm_screen_t *c, gm_screen_state_t *s, const u
     }
     if (all) {
         uint8_t on[2] = { 0x00, 0xAF };     /* display on, the RAM now clear (or drawn) */
-        hal_i2c_write(c->ssd1306.addr, on, 2);
+        hal_i2c_write(c->ssd1306.bus, c->ssd1306.addr, on, 2);
         s->never = 0;
     }
     return budget > used ? budget - used : 0u;

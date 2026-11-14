@@ -57,8 +57,8 @@ void hal_pin_mode(uint16_t pin, uint8_t m) { (void)pin; (void)m; }
 void hal_pin_write(uint16_t pin, int l) { if (pin < 64) level[pin] = (uint8_t)(l != 0); }
 int hal_pin_read(uint16_t pin) { return pin < 64 ? level[pin] : 0; }
 int32_t hal_adc_read(uint16_t pin) { (void)pin; return -1; }
-int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
-int hal_i2c_read(uint8_t a, uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_write(uint8_t bus, uint8_t a, const uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
 void hal_midi_send_cable(uint8_t cable, const uint8_t *m, uint32_t n) { (void)cable; (void)m; (void)n; }
 void hal_midi_send(const uint8_t *m, uint32_t n) { (void)m; (void)n; }
 void hal_midi_poll(void) {}

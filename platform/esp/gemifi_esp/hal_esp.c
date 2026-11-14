@@ -125,49 +125,49 @@ int32_t hal_adc_read(uint16_t pin)
 
 /* ---- I2C -------------------------------------------------------------- */
 
-/* The I2C master driver at 400 kHz, a device handle per address (made on
+/* The I2C master driver at 400 kHz: a bus per i2c: entry (GM_I2C_PINS,
+ * each on a free controller), a device handle per bus and address (made on
  * its first use). Blocking: a write returns when it is on the wire. */
 #define I2C_DEVS 8
 #define I2C_TIMEOUT_MS 20
 
-static i2c_master_bus_handle_t i2c_bus;
+#ifdef GM_I2C_BUSES
+static const uint8_t i2c_pins[GM_I2C_BUSES][2] = GM_I2C_PINS;
+static i2c_master_bus_handle_t i2c_bus[GM_I2C_BUSES];
+static uint8_t i2c_failed[GM_I2C_BUSES];
 static struct {
-    uint8_t addr;
+    uint8_t bus, addr;
     i2c_master_dev_handle_t h;
 } i2c_dev[I2C_DEVS];
-static uint8_t n_i2c_dev, i2c_failed;
+static uint8_t n_i2c_dev;
 
-static int i2c_begin(void)
+static int i2c_begin(uint8_t bus)
 {
-    if (i2c_bus)
-        return 0;
-#if defined(GM_I2C_SDA) && defined(GM_I2C_SCL)
-    if (i2c_failed)
+    if (bus >= GM_I2C_BUSES || i2c_failed[bus])
         return -1;
+    if (i2c_bus[bus])
+        return 0;
     i2c_master_bus_config_t c = {
         .i2c_port = -1,                     /* any free controller */
-        .sda_io_num = GM_I2C_SDA,
-        .scl_io_num = GM_I2C_SCL,
+        .sda_io_num = i2c_pins[bus][0],
+        .scl_io_num = i2c_pins[bus][1],
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
-    if (i2c_new_master_bus(&c, &i2c_bus) != ESP_OK) {
-        i2c_failed = 1;
+    if (i2c_new_master_bus(&c, &i2c_bus[bus]) != ESP_OK) {
+        i2c_failed[bus] = 1;
         return -1;
     }
     return 0;
-#else
-    return -1;                              /* no i2c: pins in the device YAML */
-#endif
 }
 
-static i2c_master_dev_handle_t i2c_dev_of(uint8_t addr)
+static i2c_master_dev_handle_t i2c_dev_of(uint8_t bus, uint8_t addr)
 {
-    if (i2c_begin())
+    if (i2c_begin(bus))
         return NULL;
     for (uint32_t i = 0; i < n_i2c_dev; i++)
-        if (i2c_dev[i].addr == addr)
+        if (i2c_dev[i].bus == bus && i2c_dev[i].addr == addr)
             return i2c_dev[i].h;
     if (n_i2c_dev >= I2C_DEVS)
         return NULL;
@@ -177,24 +177,44 @@ static i2c_master_dev_handle_t i2c_dev_of(uint8_t addr)
         .scl_speed_hz = 400000,
     };
     i2c_master_dev_handle_t h;
-    if (i2c_master_bus_add_device(i2c_bus, &c, &h) != ESP_OK)
+    if (i2c_master_bus_add_device(i2c_bus[bus], &c, &h) != ESP_OK)
         return NULL;
+    i2c_dev[n_i2c_dev].bus = bus;
     i2c_dev[n_i2c_dev].addr = addr;
     i2c_dev[n_i2c_dev++].h = h;
     return h;
 }
 
-int hal_i2c_write(uint8_t addr, const uint8_t *p, uint32_t n)
+int hal_i2c_write(uint8_t bus, uint8_t addr, const uint8_t *p, uint32_t n)
 {
-    i2c_master_dev_handle_t h = i2c_dev_of(addr);
+    i2c_master_dev_handle_t h = i2c_dev_of(bus, addr);
     return h && i2c_master_transmit(h, p, n, I2C_TIMEOUT_MS) == ESP_OK ? 0 : -1;
 }
 
-int hal_i2c_read(uint8_t addr, uint8_t *p, uint32_t n)
+int hal_i2c_read(uint8_t bus, uint8_t addr, uint8_t *p, uint32_t n)
 {
-    i2c_master_dev_handle_t h = i2c_dev_of(addr);
+    i2c_master_dev_handle_t h = i2c_dev_of(bus, addr);
     return h && i2c_master_receive(h, p, n, I2C_TIMEOUT_MS) == ESP_OK ? 0 : -1;
 }
+#else
+int hal_i2c_write(uint8_t bus, uint8_t addr, const uint8_t *p, uint32_t n)
+{
+    (void)bus;
+    (void)addr;
+    (void)p;
+    (void)n;
+    return -1;                              /* no i2c: in the device YAML */
+}
+
+int hal_i2c_read(uint8_t bus, uint8_t addr, uint8_t *p, uint32_t n)
+{
+    (void)bus;
+    (void)addr;
+    (void)p;
+    (void)n;
+    return -1;
+}
+#endif
 
 /* ---- identity, reboot ------------------------------------------------- */
 
@@ -279,8 +299,9 @@ void gm_esp_begin(void)
         nvs_flash_erase();
         nvs_flash_init();
     }
-#if defined(GM_I2C_SDA) && defined(GM_I2C_SCL)
-    i2c_begin();
+#ifdef GM_I2C_BUSES
+    for (uint8_t b = 0; b < GM_I2C_BUSES; b++)
+        i2c_begin(b);
 #endif
     gm_esp_midi_begin();
     /* The task watchdog watches the caller, the main loop: gm_esp_loop feeds

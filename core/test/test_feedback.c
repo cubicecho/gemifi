@@ -40,8 +40,8 @@ int hal_pin_read(uint16_t pin) { return level[pin]; }
 const volatile uint32_t *hal_pin_in_reg(uint16_t pin, uint32_t *mask) { (void)pin; (void)mask; return 0; }
 volatile uint32_t *hal_pin_out_reg(uint16_t pin) { (void)pin; return 0; }
 int32_t hal_adc_read(uint16_t pin) { return pin < 8 ? adc[pin] : -1; }
-int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
-int hal_i2c_read(uint8_t a, uint8_t *p, uint32_t n) { (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_write(uint8_t bus, uint8_t a, const uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
+int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *p, uint32_t n) { (void)bus; (void)a; (void)p; (void)n; return -1; }
 
 /* MIDI out: messages with their cable */
 static uint8_t out[8192], out_cable[8192];

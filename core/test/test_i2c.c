@@ -98,8 +98,17 @@ static mcp_t *mcp_at(uint8_t a)
     return 0;
 }
 
-int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n)
+/* The HT16K33 is on the second bus (i2c-test.yaml), the rest on the first. */
+static int wrong_bus;
+static void bus_check(uint8_t bus, uint8_t a)
 {
+    if (bus != (a == 0x70 ? 1u : 0u))
+        wrong_bus++;
+}
+
+int hal_i2c_write(uint8_t bus, uint8_t a, const uint8_t *p, uint32_t n)
+{
+    bus_check(bus, a);
     mcp_t *m = mcp_at(a);
     if (m && n) {
         if (n > 1)
@@ -122,8 +131,9 @@ int hal_i2c_write(uint8_t a, const uint8_t *p, uint32_t n)
     return -1;
 }
 
-int hal_i2c_read(uint8_t a, uint8_t *p, uint32_t n)
+int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *p, uint32_t n)
 {
+    bus_check(bus, a);
     mcp_t *m = mcp_at(a);
     if (m) {
         m->reads++;
@@ -239,6 +249,7 @@ int main(void)
     CHECK(sent_cc(21, 0), "stop released: CC 21 0");
     CHECK(mcp[0].reads == 0, "led_io still never read (%d)", mcp[0].reads);
 
+    CHECK(wrong_bus == 0, "%d transfers on the wrong I2C bus", wrong_bus);
     printf("test_i2c: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }

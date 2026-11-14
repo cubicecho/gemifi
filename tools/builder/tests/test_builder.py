@@ -1006,7 +1006,7 @@ class TestValidation(unittest.TestCase):
         d, diags = load(disp)
         self.assertIsNotNone(d, [str(x) for x in diags])
         files = gd.generate(d, "t.yaml")
-        self.assertIn(".type = GM_HUB_HT16K33, .ht = { .addr = 0x70, .brightness = 9 },", files["gm_device_config.c"])
+        self.assertIn(".type = GM_HUB_HT16K33, .ht = { .addr = 0x70, .bus = 0, .brightness = 9 },", files["gm_device_config.c"])
         self.assertIn("#define GM_HAS_I2C 1", files["gm_device_config.h"])
         self.assertIn("#define GM_HUB_RAM 16 ", files["gm_device_config.h"])
 
@@ -1071,7 +1071,7 @@ class TestValidation(unittest.TestCase):
         files = gd.generate(d, "t.yaml")
         c, h = files["gm_device_config.c"], files["gm_device_config.h"]
         self.assertIn(".type = GM_SCREEN_SSD1306, .width = 128, .height = 64,", c)
-        self.assertIn(".ssd1306 = { .addr = 0x3D, .contrast = 100, .flags = GM_OLED_ROTATE },", c)
+        self.assertIn(".ssd1306 = { .addr = 0x3D, .bus = 0, .contrast = 100, .flags = GM_OLED_ROTATE },", c)
         self.assertIn("{ GM_DISPLAY_TEXT, 10, 0, 0, GM_SHOWS_LAST_MESSAGE, 2, 0, 128 }, /* big: oled line 1 x 0 */", c)
         self.assertIn("{ GM_DISPLAY_TEXT, 20, 0, 0, GM_SHOWS_CHANNEL, 1, 0, 772 }, /* ch: oled line 6 x 4 */", c)
         self.assertIn("#define GM_N_SCREENS 1 ", h)
@@ -1085,6 +1085,39 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(gd.components.used([], ["ssd1306"]), ["display", "hub", "ssd1306"])
         d, _ = load(dev(", model: sh1106"))
         self.assertIn(".flags = GM_OLED_SH1106 }", gd.generate(d, "t.yaml")["gm_device_config.c"])
+
+    def test_i2c_buses(self):
+        esp = MINIMAL_ESP.format(plat="esp32", tr="serial")
+        two = "i2c:\n  - { id: bus_a, sda: GPIO21, scl: GPIO22 }\n  - { id: bus_b, sda: GPIO25, scl: GPIO27 }\n"
+        d, diags = load(esp + two + "mcp23017:\n  - { id: io, address: 0x20, i2c_id: bus_a }\n"
+                        "  - { id: io2, address: 0x20, i2c_id: bus_b }\n"
+                        "display:\n  - { id: oled, platform: ssd1306, i2c_id: bus_b }\n")
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        self.assertEqual([x.bus for x in d.hubs] + [d.screens[0].bus], [0, 1, 1])
+        files = gd.generate(d, "t.yaml")
+        self.assertIn("#define GM_I2C_BUSES 2 ", files["gm_device_config.h"])
+        self.assertIn("#define GM_I2C_PINS { { 21, 22 }, { 25, 27 } } ", files["gm_device_config.h"])
+        self.assertIn(".i2c = { .addr = 0x20, .bus = 1 },", files["gm_device_config.c"])
+        self.assertIn(".ssd1306 = { .addr = 0x3C, .bus = 1,", files["gm_device_config.c"])
+        # one bus: the mapping as before, i2c_id may be left out (or name it, with an id)
+        d, diags = load(esp + "i2c: { sda: GPIO21, scl: GPIO22 }\nmcp23017:\n  - { id: io, address: 0x20 }\n")
+        self.assertIsNotNone(d, [str(x) for x in diags])
+        self.assertIn("#define GM_I2C_PINS { { 21, 22 } } ", gd.generate(d, "t.yaml")["gm_device_config.h"])
+        self.assertClean(esp + "i2c: { id: main, sda: GPIO21, scl: GPIO22 }\nmcp23017:\n  - { id: io, i2c_id: main }\n")
+        self.assertClean(esp + "i2c:\n  - { id: only, sda: GPIO21, scl: GPIO22 }\nmcp23017:\n  - { id: io }\n")
+        # what is refused
+        self.assertError(esp + two + "mcp23017:\n  - { id: io, address: 0x20 }\n",
+                         r"hub 'io': give i2c_id: \(the device has 2 I2C buses: bus_a, bus_b\)")
+        self.assertError(esp + two + "mcp23017:\n  - { id: io, i2c_id: bus_c }\n",
+                         r"no I2C bus with id 'bus_c' \(i2c: bus_a, bus_b\)")
+        self.assertError(esp + "i2c: { sda: GPIO21, scl: GPIO22 }\nmcp23017:\n  - { id: io, i2c_id: main }\n",
+                         r"no I2C bus with id 'main' \(i2c: none: give the i2c: bus an id\)")
+        self.assertError(esp + two + "mcp23017:\n  - { id: io, address: 0x20, i2c_id: bus_a }\n"
+                         "  - { id: io2, address: 0x20, i2c_id: bus_a }\n",
+                         r"I2C address 0x20 is already used by hub 'io' on bus 'bus_a'")
+        self.assertError(esp + two + "  - { id: bus_c, sda: GPIO32, scl: GPIO33 }\n"
+                         "mcp23017:\n  - { id: io, i2c_id: bus_a }\n", r"3 I2C buses: esp32 has 2")
+        self.assertError(esp + "i2c:\n  - { sda: GPIO21, scl: GPIO22 }\nmcp23017:\n  - { id: io }\n", r"needs id:")
 
     def test_tm1628(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")

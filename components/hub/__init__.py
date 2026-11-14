@@ -98,7 +98,7 @@ class I2CExpander(HubType):
     """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
     the main loop: the two share it (components/mcp23017, pcf8574), and their config (.i2c) and pin
     state (gm_hub.h u.io, gm_hub_i2c_*)."""
-    keys = ("id", "address")
+    keys = ("id", "address", "i2c_id")
     roles = frozenset({"in", "out"})
     i2c = True
 
@@ -115,7 +115,7 @@ class I2CExpander(HubType):
                                                          f"(usually {self.addr_text})")
 
     def c_fields(self, hub):
-        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X} }},"]
+        return [f"        .i2c = {{ .addr = 0x{hub.addr:02X}, .bus = {hub.bus} }},"]
 
     def pin_name(self, s):
         if self.key == "mcp23017":

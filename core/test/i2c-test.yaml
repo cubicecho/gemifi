@@ -1,6 +1,7 @@
 # core/test test_i2c: I2C hubs. One MCP23017 with only LEDs on it (never
 # read), one with a button and an LED, one PCF8574 with a button, and an
-# HT16K33 14-segment backpack (Adafruit's segment order) as a display.
+# HT16K33 14-segment backpack (Adafruit's segment order) as a display, on a
+# second I2C bus.
 gemifi: 2
 name: i2c-test
 friendly_name: I2C Test
@@ -9,16 +10,18 @@ platform: esp32s3
 chip: esp32-s3-devkitc-1
 usb: { vid: 0x1209, pid: 0x0002 }
 midi: { transport: usb }
-i2c: { sda: GPIO8, scl: GPIO9 }
+i2c:
+  - { id: bus_a, sda: GPIO8, scl: GPIO9 }
+  - { id: bus_b, sda: GPIO10, scl: GPIO11 }
 scan_interval: 500us
 
 mcp23017:
-  - { id: led_io, address: 0x20 }
-  - { id: mixed_io, address: 0x21 }
+  - { id: led_io, address: 0x20, i2c_id: bus_a }
+  - { id: mixed_io, address: 0x21, i2c_id: bus_a }
 pcf8574:
-  - { id: btn_io, address: 0x38 }
+  - { id: btn_io, address: 0x38, i2c_id: bus_a }
 ht16k33:
-  - { id: alpha, address: 0x70, intensity: 9 }
+  - { id: alpha, address: 0x70, intensity: 9, i2c_id: bus_b }
 
 buttons:
   - { id: play, pin: { mcp23xxx: mixed_io, number: GPA0, mode: INPUT_PULLUP, inverted: true }, action: cc_momentary, cc: 20, led: play_led }

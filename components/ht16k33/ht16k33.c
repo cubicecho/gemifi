@@ -22,7 +22,7 @@
 
 static void ht_cmd(const gm_hub_t *h, uint8_t c)
 {
-    hal_i2c_write(h->ht.addr, &c, 1);
+    hal_i2c_write(h->ht.bus, h->ht.addr, &c, 1);
 }
 
 static uint32_t ht16k33_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budget)
@@ -46,7 +46,7 @@ static uint32_t ht16k33_send(const gm_hub_t *h, gm_hub_state_t *s, uint32_t budg
             k++;
             used += HT_COST;
         } while (k < HT_RAM && (all || (ram[k] != sent[k] && used + HT_COST <= budget)));
-        hal_i2c_write(h->ht.addr, b, n);
+        hal_i2c_write(h->ht.bus, h->ht.addr, b, n);
     }
     if (all) {
         ht_cmd(h, (uint8_t)(0xE0u | (h->ht.brightness & 15u)));

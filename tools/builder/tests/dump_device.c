@@ -157,8 +157,12 @@ int main(void)
 #else
     printf("pads=0\n");
 #endif
-#ifdef GM_I2C_SDA
-    printf("i2c sda=%d scl=%d\n", GM_I2C_SDA, GM_I2C_SCL);
+#ifdef GM_I2C_BUSES
+    {
+        static const int pins[GM_I2C_BUSES][2] = GM_I2C_PINS;
+        for (i = 0; i < GM_I2C_BUSES; i++)
+            printf("i2c sda=%d scl=%d\n", pins[i][0], pins[i][1]);
+    }
 #endif
 #ifdef GM_MIDI_TRANSPORT
     printf("transport=%d\n", GM_MIDI_TRANSPORT);

@@ -14,7 +14,15 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The repo root, for components/ (appended: its core/, platform/ and site/ folders must not shadow
+# anything).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if REPO_ROOT not in sys.path:
+    sys.path.append(REPO_ROOT)
+import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
+from components.hub import HubType, rgb_curve, validate_rgb_calibration  # noqa: E402
+from components.hub import c_comment as _comment  # noqa: E402
 
 try:
     import yaml
@@ -329,53 +337,6 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. To add
 # a type: a subclass here, an instance in HUB_DEFS, and its driver in core/src/vpin.c (core/README.md
 # "Adding a hub type").
-class HubType:
-    key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })
-    pin_key = None              # ... unless the pin key differs (mcp23017: mcp23xxx)
-    aliases = ()                # older names, still taken as the list key and the pin key
-    enum = ""                   # gm_device.h GM_HUB_*
-    num = 0                     # ... its value
-    keys = ("id",)              # a hub's YAML keys
-    lines = {}                  # control-pin keys: the line kind, for allow_other_uses (same kind on each)
-    roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
-    ram = False                 # its pins are in the hub RAM (GM_HUB_RAM): ram_bytes of it
-    # Its LEDs show any colour (vpin.c: the type has an `rgb` op): an LED is colour_pins(hub) pins in a
-    # row from LED * colour_pins (red, green, blue[, white]), and takes full-colour looks.
-    full_colour = False
-    pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
-    schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
-    i2c = False                 # on the i2c: bus (address:)
-    what = "pin"                # a pin's name in messages
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        """Check hub h (the YAML mapping at path p) and fill in hub. ctl(key, role, ...) resolves a
-        control pin."""
-
-    def pin_name(self, s):
-        """The pin number of a pin given by name (s upper-case, e.g. mcp23017 "GPA3"), or None."""
-        return None
-
-    def pin_hint(self, hub):
-        return f"a number 0..{hub.n_pins - 1}"
-
-    def range_text(self, hub):
-        """Said after the type when a pin number is out of range, e.g. ' (2 chips x 8)'."""
-        return ""
-
-    def colour_pins(self, hub):
-        """full_colour: the pins of one LED (3: red, green, blue; 4 with white)."""
-        return 3
-
-    def c_tables(self, hub):
-        """C lines before the hub table: static arrays the entry points at."""
-        return []
-
-    def c_fields(self, hub):
-        """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
-        `.sr = { ... },`. The first line goes after .type."""
-        raise NotImplementedError(self.key)
-
-
 class ShiftRegister(HubType):
     """74HC595 (outputs) / 74HC165 (inputs): sr_count chips in a chain, 8 pins each."""
     lines = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data", "oe_pin": "enable"}
@@ -617,72 +578,6 @@ class MaudioPadLeds(HubType):
                 f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
 
 
-# Addressable LED chains (WS2812B, SK6812 RGB / RGBW) on one MCU pin: pin = LED * channels + colour (0 red,
-# 1 green, 2 blue, 3 white). A byte per colour in the hub RAM; the platform sends frames (hal_ledstrip_*).
-WS2812_MAX = 256
-WS2812_ORDERS = sorted({"".join(p) for p in itertools.permutations("RGB")}) + \
-    sorted({"".join(p) for p in itertools.permutations("RGBW")})
-
-
-class WS2812(HubType):
-    """An addressable LED strip (WS2812B / SK6812, RGB or RGBW): pin = LED * 3 (4) + colour."""
-    key, enum, num = "ws2812", "GM_HUB_WS2812", 11
-    keys = ("id", "pin", "count", "order", "gamma", "white")
-    lines = {"pin": "ledstrip"}
-    roles = frozenset({"out"})
-    ram = True
-    full_colour = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "count", p, 1, WS2812_MAX, required=True) or 1
-        order = h.get("order", "GRB")
-        order = order.strip().upper() if isinstance(order, str) else order
-        if order not in WS2812_ORDERS:
-            close = difflib.get_close_matches(str(order).upper(), WS2812_ORDERS, 1)
-            hint = f"did you mean {close[0]}? " if close else ""
-            v.err(f"{p}.order", h.line_of("order"), f"unknown order '{h.raw_of('order')}' ({hint}the colours as the "
-                                                    "LED takes them: GRB (WS2812B, the default), RGB, BRG, ...; "
-                                                    "GRBW / RGBW for RGBW LEDs, e.g. SK6812 RGBW)")
-            order = "GRB"
-        hub.order = order
-        hub.channels = len(order)
-        hub.n_pins = hub.channels * hub.chain
-        hub.ram_bytes = hub.n_pins                       # a byte per colour
-        hub.gamma, hub.white = validate_rgb_calibration(v, h, p, white_n=hub.channels)
-        hub.data = ctl("pin", "out")
-        if hub.data.hub == 0 and h.get("pin") is not None:
-            why = v.plat.ledstrip(hub.data.num, [x.data.num for x in dev.hubs if x.type == self.key and
-                                                 x is not hub and x.data.hub == 0])
-            if why:
-                v.err(f"{p}.pin", h.line_of("pin"), why)
-
-    def colour_pins(self, hub):
-        return hub.channels
-
-    def range_text(self, hub):
-        names = " ".join(f"{k} {c}" for k, c in enumerate(("red", "green", "blue", "white")[:hub.channels]))
-        return f" ({hub.chain} LEDs x {hub.channels}; pin = LED * {hub.channels} + colour, {names})"
-
-    def wire_order(self, hub):
-        """gm_hub_ws2812_t.order: byte k of an LED is colour (order >> 2k) & 3."""
-        return sum("RGBW".index(ch) << (2 * k) for k, ch in enumerate(hub.order))
-
-    def c_tables(self, hub):
-        if hub.gamma == 1:
-            return []
-        t = rgb_curve(hub.gamma)
-        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
-                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
-                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
-
-    def c_fields(self, hub):
-        white = list(hub.white) + [255] * (4 - len(hub.white))
-        return [f"        .ws = {{ .pin = {hub.data.c()}, .count = {hub.chain}, .channels = {hub.channels}, "
-                f".order = 0x{self.wire_order(hub):02X} /* {hub.order} */,",
-                f"                .white = {{ {', '.join(str(x) for x in white)} }}, "
-                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
-
-
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
@@ -861,14 +756,16 @@ class SSD1306(HubType):
                 f".contrast = {hub.intensity}, .flags = {flags} }},"]
 
 
-HUB_DEFS = {t.key: t for t in (
+# The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
+_HUBS_HERE = (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
     ShiftRegister("sn74hc165", "GM_HUB_HC165", 2, out=False),
     Mux("cd74hc4051", 3), Mux("cd74hc4067", 4),
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), WS2812(), MAX7219(), TM1637(), HT16K33(), SSD1306())}
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
@@ -2726,35 +2623,6 @@ def colour_exact(kind, c):
     """An on/off LED of this kind shows colour c as it is (each channel 0 or 255, and one it has)."""
     chans = [(c >> sh) & 0xFF for sh in (16, 8, 0)]
     return kind == "rgb" and all(x in (0, 255) for x in chans)
-
-
-def validate_rgb_calibration(v, h, p, white_n=3):
-    """A full-colour hub's gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (or [r, g, b, w] with
-    white_n 4; 1..255 each, default 255s)."""
-    gamma = 1.0
-    if h.get("gamma") is not None:
-        g = h["gamma"]
-        if isinstance(g, bool) or not isinstance(g, (int, float)) or not 1.0 <= float(g) <= 3.0:
-            v.err(f"{p}.gamma", h.line_of("gamma"), f"must be a number from 1.0 to 3.0 (1 = straight; LEDs "
-                                                    f"usually look right at about 2.2), not {g!r}")
-        else:
-            gamma = float(g)
-    white = [255] * white_n
-    if h.get("white") is not None:
-        w = h["white"]
-        if (not isinstance(w, list) or len(w) != white_n or
-                any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 255 for x in w)):
-            what = "[red, green, blue]" if white_n == 3 else "[red, green, blue, white]"
-            v.err(f"{p}.white", h.line_of("white"), f"must be {what}, each 1..255: what full white "
-                                                    "sends, e.g. [255, 200, 220] to take some green and blue out")
-        else:
-            white = list(w)
-    return gamma, white
-
-
-def rgb_curve(gamma):
-    """256 entries: value v (as seen) to the LED's PWM, 255 * (v / 255) ^ gamma; above 0 stays above 0."""
-    return [0] + [max(1, round(255 * (k / 255) ** gamma)) for k in range(1, 256)]
 
 
 def led_kind(pin2, pin3):
@@ -5944,12 +5812,8 @@ def c_str(s):
     return '"' + "".join(out) + '"'
 
 
-def _comment(s):
-    return s.replace("*/", "* /")
-
-
 def generate(dev, source="device.yaml"):
-    """-> {"gm_device_config.h": str, "gm_device_config.c": str}"""
+    """-> {"gm_device_config.h": str, "gm_device_config.c": str, "gm_components.h": str}"""
     src = _comment(source)
     head = (f"/* gm_device_config: do not edit; generated from {src}\n"
             f" * by tools/builder/gemifi_build.py (format: core/README.md). */\n")
@@ -6154,7 +6018,8 @@ def generate(dev, source="device.yaml"):
     c += display_tables(dev)
     c += layout_tables(dev)
     c += label_tables(dev)
-    return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c)}
+    return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c),
+            **component_header(dev, source)}
 
 
 
@@ -6521,9 +6386,56 @@ def preset_tables(dev):
     return c
 
 
+def component_lists(dev, source):
+    """gm_components.mk / gm_components.cmake: the components the device builds, their C sources and include
+    dirs, under the repo root (GM_ROOT, set by the Makefile or CMakeLists that includes them)."""
+    used = components.used(sorted({h.kind.key for h in dev.hubs}))
+    srcs = [s for name in used for s in components.sources(name)]
+    incs = [f"components/{name}" for name in used if components.has_headers(name)]
+    head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"
+            "The components this device builds (components/<name>/), their C sources and include dirs, under the\n"
+            "repo root GM_ROOT, which the including build sets.")
+    mk = ["\n".join(f"# {line}" for line in head.split("\n")),
+          f"GM_COMPONENTS := {' '.join(used)}",
+          f"GM_COMPONENT_SRCS := {' '.join(f'$(GM_ROOT)/{s}' for s in srcs)}".rstrip(),
+          f"GM_COMPONENT_INCS := {' '.join(f'$(GM_ROOT)/{d}' for d in incs)}".rstrip(), ""]
+    cm = ["\n".join(f"# {line}" for line in head.split("\n")),
+          f"set(GM_COMPONENTS {' '.join(used)})",
+          f"set(GM_COMPONENT_SRCS {' '.join(f'${{GM_ROOT}}/{s}' for s in srcs)})",
+          f"set(GM_COMPONENT_INCS {' '.join(f'${{GM_ROOT}}/{d}' for d in incs)})", ""]
+    return {"gm_components.mk": "\n".join(mk), "gm_components.cmake": "\n".join(cm)}
+
+
+def component_header(dev, source):
+    """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
+    code is in components/ (HubType.c_header), and what they add to the hub base: GM_HUB_CONFIG_MEMBERS
+    (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS and GM_HUB_OPS
+    (core/src/vpin.c hub_ops[])."""
+    kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_header}.values(), key=lambda t: (t.num, t.key))
+    by_enum = {}
+    for t in kinds:
+        by_enum.setdefault(t.enum, t)       # types sharing an enum share their C parts
+    parts = list(by_enum.values())
+    headers = list(dict.fromkeys(t.c_header for t in parts))
+
+    def macro(name, items):
+        return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
+    lines = [f"/* gm_components.h: do not edit; generated from {_comment(source)}",
+             " * by tools/builder/gemifi_build.py. The C side of the components this device builds:",
+             " * their headers, and what they add to the hub base (components/hub/gm_hub.h). */",
+             "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
+             *[f'#include "{h}"' for h in headers], *([""] if headers else []),
+             macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts]),
+             macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
+             macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
+             macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),
+             "", "#endif", ""]
+    return {"gm_components.h": "\n".join(lines)}
+
+
 def write_generated(dev, out_dir, source):
     os.makedirs(out_dir, exist_ok=True)
-    files = generate(dev, source)
+    files = {**generate(dev, source), **component_lists(dev, source)}
     for name, text in files.items():
         p = os.path.join(out_dir, name)
         try:

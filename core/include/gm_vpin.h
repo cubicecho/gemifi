@@ -1,6 +1,6 @@
 /*
  * gm_vpin.h: virtual pins (gm_device.h): MCU pins through the HAL, expander
- * hubs in software, each hub type a driver (core/src/gm_hub.h).
+ * hubs in software, each hub type a driver (components/hub/gm_hub.h).
  *
  * Levels are *logical*: 1 = active (pressed, lit, row driven), with
  * GM_PIN_INVERT applied. Hub I/O is cached:

@@ -28,13 +28,14 @@ RUN apt-get update \
 RUN pip install --no-cache-dir platformio==6.2.0 pyyaml==6.0.3 pyserial==3.5
 
 WORKDIR /opt/gemifi
-# Only what the builds use: core + platform + firmware sources, the presets, the builder and
+# Only what the builds use: core + components + platform + firmware sources, the presets, the builder and
 # tools/host (mkimage.py for the .gfw header; gemifi.py for flashing from a shell).
 COPY core/ core/
 COPY platform/ platform/
 COPY firmware/ firmware/
 COPY devices/ devices/
 COPY protocol/ protocol/
+COPY components/ components/
 COPY tools/builder/ tools/builder/
 COPY tools/host/ tools/host/
 COPY README.md LICENSE ./

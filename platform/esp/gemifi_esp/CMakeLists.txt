@@ -3,7 +3,7 @@
 # config, so a firmware project's main only calls gm_esp_begin() and gm_poll().
 #
 # firmware/esp/gemifi_esp.py (PlatformIO's pre: script) sets, before CMake runs:
-#   GM_CORE        all: core/src/*.c and the device config; gsx (default): core/src/gsx.c
+#   GM_CORE        all: core/src/*.c, the device config and its components (gm_components.cmake); gsx (default): core/src/gsx.c
 #   GM_DEVICE_DIR  the generated gm_device_config.h/.c (GM_CORE=all)
 #
 # SPDX-License-Identifier: MIT
@@ -21,6 +21,11 @@ if("$ENV{GM_CORE}" STREQUAL "all")
     file(GLOB device_srcs $ENV{GM_DEVICE_DIR}/*.c)
     list(APPEND srcs ${device_srcs})
     list(APPEND incs $ENV{GM_DEVICE_DIR})
+    # The components the device builds (components/<name>/), written with the config.
+    set(GM_ROOT ${gm_root})
+    include($ENV{GM_DEVICE_DIR}/gm_components.cmake)
+    list(APPEND srcs ${GM_COMPONENT_SRCS})
+    list(APPEND incs ${GM_COMPONENT_INCS})
 else()
     list(APPEND srcs ${gm_root}/core/src/gsx.c)
 endif()
@@ -37,7 +42,7 @@ if(target STREQUAL "esp32" OR target STREQUAL "esp32s3")
     list(APPEND reqs bt)
 endif()
 
-# WHOLE_ARCHIVE: the core's weak hal_* defaults (vpin.c) would otherwise keep the strong ones in
+# WHOLE_ARCHIVE: the weak hal_* defaults (core/src/vpin.c, components/ws2812/ws2812.c) would otherwise keep the strong ones in
 # files nothing else pulls in (ledstrip_esp.c) out of the link.
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${incs}

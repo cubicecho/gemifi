@@ -39,6 +39,11 @@ FW_VERSION ?= $(or $(DEVICE_FW_VERSION),0.1.0)
 
 CFLAGS += -I$(DEVICE_DIR)
 
+# The components the device builds (components/<name>/): gm_components.mk, written with the config.
+GM_ROOT := $(CORE)/..
+include $(DEVICE_DIR)/gm_components.mk
+CFLAGS += $(addprefix -I,$(GM_COMPONENT_INCS))
+
 # Diagnostic: `make LED_WALK=500` lights one LED at a time for 500 ms each,
 # in leds: order, and logs "walk LED <n>" (core/src/controller.c).
 ifdef LED_WALK
@@ -66,7 +71,8 @@ APP_SRCS := main.c \
             $(CORE)/src/mcu.c \
             $(CORE)/src/presets.c \
             $(CORE)/src/safety.c \
-            $(DEVICE_DIR)/gm_device_config.c
+            $(DEVICE_DIR)/gm_device_config.c \
+            $(GM_COMPONENT_SRCS)
 
 include $(PLAT)/mk/app.mk
 

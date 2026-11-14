@@ -15,7 +15,7 @@ from components.hub import HubType  # noqa: E402
 
 HUB_KEYS = {
     "sn74hc595", "sn74hc165", "cd74hc4051", "cd74hc4067", "mcp23017", "pcf8574", "decoder", "switch_matrix",
-    "tm1628", "maudio_pad_leds", "xy_pad", "ws2812", "max7219", "tm1637", "ht16k33",
+    "tm1628", "maudio_pads", "xy_pad", "ws2812", "max7219", "tm1637", "ht16k33",
 }
 
 
@@ -36,9 +36,20 @@ class HubTypes(unittest.TestCase):
                 self.assertEqual(core[t.enum], t.num)
 
     def test_every_hub_type_is_a_top_level_key(self):
-        for key in gd.HUB_DEFS:
+        """A hub type's list is its key, or its domain's (led_strip: ...)."""
+        for key, t in gd.HUB_DEFS.items():
             with self.subTest(key):
-                self.assertIn(key, gd.TOP_KEYS)
+                self.assertIn(t.domain or key, gd.TOP_KEYS)
+
+    def test_a_domain_is_a_base_component(self):
+        """A domain's platforms depend on its base component, which has no hub types of its own."""
+        mods = components.modules()
+        for domain, plats in gd.HUB_DOMAINS.items():
+            with self.subTest(domain):
+                self.assertIn(domain, mods)
+                self.assertFalse(getattr(mods[domain], "HUB_TYPES", ()))
+                for key in plats:
+                    self.assertIn(domain, components.used([key]))
 
 
 class Discovery(unittest.TestCase):

@@ -1,7 +1,8 @@
 """hub: the base component of the chips that give a device pins (shift registers, I/O expanders,
 multiplexers, LED drivers ...). Each hub type is a component of its own (components/<chip>/) whose
 __init__.py lists its HubType instances in HUB_TYPES; this is the class they derive from, with what
-several types share (ShiftRegister, I2CExpander, the full-colour helpers).
+several types share (ShiftRegister, I2CExpander). Interchangeable chips for one job are platforms of a
+base component of their own (led_strip), whose class derives from this one.
 
 The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; core/README.md "Virtual pins and
 hubs".
@@ -15,7 +16,10 @@ REQUIRED = True
 class HubType:
     key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })
     pin_key = None              # ... unless the pin key differs (mcp23017: mcp23xxx)
-    aliases = ()                # older names, still taken as the list key and the pin key
+    # A platform of a domain: the base component whose YAML list it is in, ESPHome style (led_strip:
+    # [{ id, platform: <key>, ... }]); the domain is then the list key and the pin key.
+    domain = None
+    old_keys = ()               # older list and pin keys, refused with moved_text()
     enum = ""                   # gm_device.h GM_HUB_*
     num = 0                     # ... its value
     keys = ("id",)              # a hub's YAML keys
@@ -38,6 +42,10 @@ class HubType:
     def validate(self, v, dev, hub, h, p, line, ctl):
         """Check hub h (the YAML mapping at path p) and fill in hub. ctl(key, role, ...) resolves a
         control pin."""
+
+    def moved_text(self):
+        """What an old list or pin key (old_keys) says: the new form."""
+        raise NotImplementedError(self.key)
 
     def pin_name(self, s):
         """The pin number of a pin given by name (s upper-case, e.g. mcp23017 "GPA3"), or None."""
@@ -123,35 +131,6 @@ class I2CExpander(HubType):
             return (8 if m.group(1) == "B" else 0) + int(m.group(2)) if m else None
         m = re.fullmatch(r"P([0-7])", s)
         return int(m.group(1)) if m else None
-
-
-def validate_rgb_calibration(v, h, p, white_n=3):
-    """A full-colour hub's gamma: (1.0..3.0, default 1 = straight) and white: [r, g, b] (or [r, g, b, w] with
-    white_n 4; 1..255 each, default 255s)."""
-    gamma = 1.0
-    if h.get("gamma") is not None:
-        g = h["gamma"]
-        if isinstance(g, bool) or not isinstance(g, (int, float)) or not 1.0 <= float(g) <= 3.0:
-            v.err(f"{p}.gamma", h.line_of("gamma"), f"must be a number from 1.0 to 3.0 (1 = straight; LEDs "
-                                                    f"usually look right at about 2.2), not {g!r}")
-        else:
-            gamma = float(g)
-    white = [255] * white_n
-    if h.get("white") is not None:
-        w = h["white"]
-        if (not isinstance(w, list) or len(w) != white_n or
-                any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 255 for x in w)):
-            what = "[red, green, blue]" if white_n == 3 else "[red, green, blue, white]"
-            v.err(f"{p}.white", h.line_of("white"), f"must be {what}, each 1..255: what full white "
-                                                    "sends, e.g. [255, 200, 220] to take some green and blue out")
-        else:
-            white = list(w)
-    return gamma, white
-
-
-def rgb_curve(gamma):
-    """256 entries: value v (as seen) to the LED's PWM, 255 * (v / 255) ^ gamma; above 0 stays above 0."""
-    return [0] + [max(1, round(255 * (k / 255) ** gamma)) for k in range(1, 256)]
 
 
 def c_comment(s):

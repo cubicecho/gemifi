@@ -1130,22 +1130,6 @@ void vpin_fade_apply(void)
 }
 #endif
 
-/* ---- full-colour output (gm_hub.h) ------------------------------------ */
-
-/* What goes on the wire for colour c (0 red, 1 green, 2 blue, 3 white) at
- * value v: through the hub's curve (gamma:), then scaled to its white
- * (white:, 0 = 255). A value above 0 stays above 0. Full-colour hubs
- * (components/maudio_pad_leds, ws2812) share it (gm_hub.h). */
-uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v)
-{
-    if (curve)
-        v = curve[v];
-    uint32_t w = white[c] ? white[c] : 255u;
-    if (w == 255u || !v)
-        return (uint8_t)v;
-    v = (v * w + 127u) / 255u;
-    return (uint8_t)(v ? v : 1u);
-}
 /* ---- bit pins in the hub RAM (the LED drivers', gm_hub.h) ------------- */
 
 /* The pins of an LED driver with a bit per pin in the hub RAM (MAX7219,

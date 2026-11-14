@@ -1,8 +1,8 @@
 /*
- * maudio_pad_leds.c: the maudio_pad_leds hub type, the M-Audio Code pad LED
- * board: RGB LEDs behind a serial link with the board's own protocol
- * (components/maudio_pad_leds/README.md). A hub type on the hub base
- * (components/hub/gm_hub.h): its pins are bytes in the hub RAM, and the
+ * maudio_pads.c: the maudio_pads LED strip platform, the M-Audio Code pad
+ * LED board: RGB LEDs behind a serial link with the board's own protocol
+ * (components/maudio_pads/README.md). A hub type on the led_strip base
+ * (components/led_strip): its pins are bytes in the hub RAM, and the
  * platform sends the messages (gm_hal.h hal_serial_*).
  *
  * SPDX-License-Identifier: MIT
@@ -10,6 +10,7 @@
 #include "gm_device_config.h"
 #include "gm_hal.h"
 #include "gm_hub.h"
+#include "led_strip.h"
 #include "gm_vpin.h"
 
 /* The platform's serial port; these weak ones say there is none. */
@@ -105,7 +106,7 @@ static int rgb_differs(const uint8_t *a, const uint8_t *b, uint32_t led)
     return a[0] != b[0] || a[1] != b[1] || a[2] != b[2];
 }
 
-#define rgb_out(h, c, v) gm_hub_colour_out((h)->mpads.curve, (h)->mpads.white, (c), (v))
+#define rgb_out(h, c, v) gm_led_strip_colour_out((h)->mpads.curve, (h)->mpads.white, (c), (v))
 
 /* LED led no longer counts as sent: it goes out again. */
 static void rgb_unsend(const uint8_t *ram, uint8_t *sent, uint32_t led)
@@ -196,7 +197,7 @@ static void mpads_poll(const gm_hub_t *h, gm_hub_state_t *s, uint32_t now_ms)
     }
 }
 
-const gm_hub_ops_t gm_maudio_pad_leds_ops = {
+const gm_hub_ops_t gm_maudio_pads_ops = {
     .flags = GM_HUBF_NO_READ, .init = mpads_init, .write = mpads_write, .rgb = mpads_rgb,
     .poll = mpads_poll,
 };

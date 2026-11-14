@@ -1,20 +1,20 @@
 /*
- * maudio_pad_leds.h: the maudio_pad_leds hub type's config (gm_hub_t
+ * maudio_pads.h: the maudio_pads LED strip platform's config (gm_hub_t
  * .mpads) and state (gm_hub_state_t .u.mpads);
- * components/maudio_pad_leds/README.md. gm_device.h includes it through
- * the generated gm_components.h.
+ * components/maudio_pads/README.md. gm_device.h includes it through the
+ * generated gm_components.h.
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef GEMIFI_MAUDIO_PAD_LEDS_H
-#define GEMIFI_MAUDIO_PAD_LEDS_H
+#ifndef GEMIFI_MAUDIO_PADS_H
+#define GEMIFI_MAUDIO_PADS_H
 
 #include <stdint.h>
 #include "gm_pin.h"
 
-/* .mpads: the M-Audio Code pad LED board (YAML maudio_pad_leds:, formerly
- * rgb_serial:): RGB LEDs behind a serial link with the board's own protocol
- * (maudio_pad_leds.c), 115200 baud on tx. Outputs only, pin n = LED n / 3,
+/* .mpads: the M-Audio Code pad LED board (YAML led_strip: platform:
+ * maudio_pads): RGB LEDs behind a serial link with the board's own protocol
+ * (maudio_pads.c), 115200 baud on tx. Outputs only, pin n = LED n / 3,
  * colour n % 3 (0 red, 1 green, 2 blue); sent from the main loop, a byte
  * per colour in the hub RAM. */
 typedef struct {
@@ -36,6 +36,6 @@ typedef struct {
     uint8_t wait_led;     /* rx_pin: the answer awaited, LED + 1, 0 = none */
     uint8_t misses;       /* ... unanswered in a row          */
     uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
-} gm_maudio_pad_leds_state_t;
+} gm_maudio_pads_state_t;
 
 #endif

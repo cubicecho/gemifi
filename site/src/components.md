@@ -324,12 +324,12 @@ leds:
 {% endraw %}
 
 An LED can sit on an MCU pin, a 74HC595, an MCP23017 or PCF8574, a
-**TM1628**-family LED driver (and relatives with the same commands), a
-**`ws2812`** strip (WS2812B / SK6812, RGB or RGBW, on one pin: ESP32, S2, S3
-and STM32F1), or the **`maudio_pad_leds`** board (the Code 61's pad LED
-board, on the STM32F1; called `rgb_serial` before, which still works). LEDs
-on the last two show any colour: `idle: blue 20%`, `active: "#ff8000"`, in
-`led_defaults:` too, with the hub's `gamma:` and `white:`. Levels are worked
+**TM1628**-family LED driver (and relatives with the same commands), or an
+LED strip (`led_strip:`): a **`ws2812`** strip (WS2812B / SK6812, RGB or
+RGBW, on one pin: ESP32, S2, S3 and STM32F1) or the **`maudio_pads`** board
+(the Code 61's pad LED board, on the STM32F1). LEDs on a strip show any
+colour: `idle: blue 20%`, `active: "#ff8000"`, in `led_defaults:` too, with
+the strip's `gamma:` and `white:`. Levels are worked
 out every 10 ms and only changes are written:
 
 | Where | Cost |
@@ -339,7 +339,7 @@ out every 10 ms and only changes are written:
 | MCP23017 / PCF8574 | one I2C write when it changes, about 80 / 50 µs |
 | TM1628 | at most 9 bus bytes per main-loop pass, about 110 µs; one LED about 40 µs (STM32F1) |
 | `ws2812` | one frame when something changed, at most every 5 ms, sent in the background (RMT on ESP32, SPI + DMA on STM32F1): 30 µs an LED on the wire |
-| `maudio_pad_leds` | one LED every 5 ms: 16 pads all changing take 80 ms |
+| `maudio_pads` | one LED every 5 ms: 16 pads all changing take 80 ms |
 
 **Ownership.** When both the device and the DAW want an LED, `owner:`
 decides: `host_then_local` (the default) shows the DAW's state for 2 s after
@@ -401,7 +401,10 @@ displays:
 
 When the MCU runs out of pins, a hub adds more. Each chip type is its own
 list, named as in ESPHome, and a pin on it names the hub:
-`{ sn74hc595: leds, number: 3 }`. Hubs that share a control line (one clock
+`{ sn74hc595: leds, number: 3 }`. Chips that do one job the same way share
+one list and pick theirs with `platform:`, as ESPHome's `display:` does:
+`led_strip: [{ id: strip, platform: ws2812, ... }]`, pins
+`{ led_strip: strip, number: 0 }`. Hubs that share a control line (one clock
 for a 74HC595 and a 74HC165, say) mark it `allow_other_uses: true` on every
 use.
 
@@ -418,8 +421,7 @@ use.
 | `max7219` | 8 digits × 8 segments per chip, 1–8 chips: 7-segment displays, LEDs | changed digits only, from the main loop, a few per pass |
 | `tm1637` | up to 6 digits (2-wire): 7-segment displays | changed digits only, from the main loop: one a pass, ~180 µs |
 | `ht16k33` | 128 LED outputs over I2C (ESP only): 14- and 7-segment backpacks | changed bytes only, from the main loop |
-| `ws2812` | an addressable LED strip, any colour per LED | see LEDs |
-| `maudio_pad_leds` | the M-Audio Code pad LED board (was `rgb_serial`) | see LEDs |
+| `led_strip` | LED strips, any colour per LED: `platform: ws2812` (addressable strips) or `maudio_pads` (the M-Audio Code pad LED board) | see LEDs |
 | `xy_pad` | the two axes of an XY pad | see Faders |
 
 Inputs on the shift registers and I2C chips are read into a cache (74HC165s

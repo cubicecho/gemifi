@@ -24,8 +24,8 @@ tm1628:
     ram_bytes: 6
 
 # RGB LEDs behind a serial link (the Code 61 pad board): 4 LEDs = 2 RAM bytes.
-maudio_pad_leds:
-  - { id: pads, tx_pin: PA2, count: 4 }
+led_strip:
+  - { id: pads, platform: maudio_pads, tx_pin: PA2, count: 4 }
 
 buttons:
   - { id: btn, pin: { number: PB0, mode: INPUT_PULLUP, inverted: true }, action: cc_toggle, cc: 80, led: btn_led }
@@ -39,9 +39,9 @@ leds:
     pin2: { tm1628: leds_a, number: 105 }
     pin3: { tm1628: leds_a, number: 106 }
   - id: pad_led                # LED 2 of the serial board: any colour
-    pin: { maudio_pad_leds: pads, number: 6 }
-    pin2: { maudio_pad_leds: pads, number: 7 }
-    pin3: { maudio_pad_leds: pads, number: 8 }
+    pin: { led_strip: pads, number: 6 }
+    pin2: { led_strip: pads, number: 7 }
+    pin3: { led_strip: pads, number: 8 }
     idle: "#000010"            # dim blue when off
 
 # An analog input only because a device with host feedback and no analog

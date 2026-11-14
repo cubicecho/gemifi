@@ -126,10 +126,6 @@ struct gm_hub_state {
 extern uint8_t gm_hub_ram[];
 extern uint8_t gm_hub_ram_sent[];
 uint16_t gm_hub_ram_alloc(uint32_t n);
-/* What goes on the wire for colour c (0 red, 1 green, 2 blue, 3 white) at
- * value v of a full-colour hub: through its curve (gamma:), then scaled to
- * its white (white:, 0 = 255). A value above 0 stays above 0. */
-uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v);
 /* The LED drivers with a bit per pin in the hub RAM (u.seg): n bytes,
  * all off and written whole on the first send (init); pin num = RAM bit,
  * byte * 8 + bit, of `bytes` bytes, marking the chip dirty if it changed

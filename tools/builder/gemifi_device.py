@@ -21,7 +21,8 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, ShiftRegister, rgb_curve  # noqa: E402
+from components.hub import HubType, ShiftRegister  # noqa: E402
+from components.led_strip import rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
@@ -153,7 +154,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("preset.bank", 41, PRESET, lambda d: 1 if d.n_presets > 1 and "program" in getattr(d, "msg", ()) else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
-# them out: the YAML's DMA users (hardware scans, maudio_pad_leds, din_midi dma:) may not share one.
+# them out: the YAML's DMA users (hardware scans, maudio_pads, din_midi dma:) may not share one.
 # Timer requests are TIMn_UP (update) and TIMn_CHk (compare k); TIM3_CH2 and TIM4_CH4 have none.
 STM32F1_DMA = {"ADC1": 1, "USART1_TX": 4, "USART1_RX": 5, "USART2_TX": 7, "SPI1_TX": 3, "SPI2_TX": 5,
                "TIM1_UP": 5, "TIM1_CH1": 2, "TIM1_CH2": 3, "TIM1_CH3": 6, "TIM1_CH4": 4,
@@ -335,7 +336,9 @@ COMP_STR_MAX = 31               # sysex.md lstring
 
 # Hubs (I/O expanders), declared ESPHome style: one top-level list per chip, named like the
 # ESPHome component where there is one. A pin on a hub names the hub by its chip key:
-# { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
+# { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx. Interchangeable
+# chips for one job are platforms of a domain, a base component's list: led_strip: [{ id: strip,
+# platform: ws2812, ... }], pins { led_strip: strip, number: 0 }.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
@@ -346,10 +349,15 @@ HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.nu
 DISPLAY_PLATFORMS = {t.platform: t for t in sorted(components.display_platforms(), key=lambda t: t.num)}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
-# older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
-HUB_ALIAS = {a: k for k, t in HUB_DEFS.items() for a in t.aliases}
-HUB_PIN_KEY = {k: t.pin_key or k for k, t in HUB_DEFS.items()}
-PIN_KEY_HUB = {**{k: t for t, k in HUB_PIN_KEY.items()}, **HUB_ALIAS}
+# A domain's platforms, by domain: {"led_strip": {"ws2812": WS2812, ...}}.
+HUB_DOMAINS = {d: {k: t for k, t in HUB_DEFS.items() if t.domain == d}
+               for d in dict.fromkeys(t.domain for t in HUB_DEFS.values() if t.domain)}
+# The top-level hub lists (a chip's key, or a domain) and the pin keys ({ <pin key>: <hub id> }).
+HUB_LISTS = list(dict.fromkeys(t.domain or k for k, t in HUB_DEFS.items()))
+HUB_PIN_KEY = {k: t.domain or t.pin_key or k for k, t in HUB_DEFS.items()}
+PIN_HUB_KEYS = list(dict.fromkeys(HUB_PIN_KEY.values()))
+# older list and pin keys of a type, refused with the new form
+HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_keys}
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
 SHIFT_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, ShiftRegister)}
@@ -367,10 +375,10 @@ ROW_HUBS = {k for k, t in HUB_DEFS.items() if "row" in t.roles}
 
 TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
-            "status_led", "feedback", "mcu", *HUB_TYPES, *HUB_ALIAS,
+            "status_led", "feedback", "mcu", *HUB_LISTS,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
             "pad_settings", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
-PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
+PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
 MIDI_KEYS = ["transport"]
@@ -409,11 +417,12 @@ RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, u
 RENAMED_TOP = {
     "hubs": "replaced: declare each hub under its chip's key, ESPHome style, e.g. "
             "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` "
-            "(chips: " + ", ".join(HUB_TYPES) + ")",
+            "(keys: " + ", ".join(HUB_LISTS) + ")",
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
     "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
     "ssd1306": "moved: an OLED is a display now, ESPHome style: `display: [{ id: oled, platform: ssd1306, "
                "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)",
+    **HUB_MOVED,
 }
 RENAMED_PIN = {
     "pin": "renamed: use `number:` (e.g. `{ number: PA1, inverted: true }`)",
@@ -423,6 +432,7 @@ RENAMED_PIN = {
     "pullup": "replaced: use `mode: INPUT_PULLUP` (or `mode: { input: true, pullup: true }`)",
     "pulldown": "replaced: use `mode: INPUT_PULLDOWN` (or `mode: { input: true, pulldown: true }`)",
     "mcp23017": "the pin key for an MCP23017 hub is `mcp23xxx:` (as in ESPHome)",
+    **HUB_MOVED,
 }
 RENAMED_HUB = {
     "type": "replaced: the chip is the list this hub is in (e.g. `sn74hc595:`), not a `type:` key",
@@ -704,12 +714,12 @@ class Platform:
                            f"platform/{self.name}/boards/{self.board}.h)")]
 
     def serial_tx(self, num):
-        """-> None if num can be an maudio_pad_leds tx_pin, else why not."""
-        return f"maudio_pad_leds isn't supported on {self.name} yet"
+        """-> None if num can be a maudio_pads tx_pin, else why not."""
+        return f"maudio_pads isn't supported on {self.name} yet"
 
     def serial_rx(self, tx, rx):
-        """-> None if rx can be the maudio_pad_leds rx_pin that goes with tx_pin tx, else why not."""
-        return f"maudio_pad_leds rx_pin isn't supported on {self.name} yet"
+        """-> None if rx can be the maudio_pads rx_pin that goes with tx_pin tx, else why not."""
+        return f"maudio_pads rx_pin isn't supported on {self.name} yet"
 
     def din_uart(self, tx, rx):
         """-> None if tx / rx (None: no MIDI In) can be the DIN MIDI UART, else why not."""
@@ -799,11 +809,11 @@ class Stm32F1Platform(Platform):
         return num in self.ADC, None
 
     def serial_tx(self, num):
-        """-> None if num can be an maudio_pad_leds tx_pin, else why not."""
-        return None if num == 2 else "only PA2 (USART2 TX) is supported as an maudio_pad_leds tx_pin on stm32f1"
+        """-> None if num can be a maudio_pads tx_pin, else why not."""
+        return None if num == 2 else "only PA2 (USART2 TX) is supported as a maudio_pads tx_pin on stm32f1"
 
     def serial_rx(self, tx, rx):
-        return None if tx == 2 and rx == 3 else "the maudio_pad_leds rx_pin on stm32f1 is PA3 (USART2 RX, with tx_pin PA2)"
+        return None if tx == 2 and rx == 3 else "the maudio_pads rx_pin on stm32f1 is PA3 (USART2 RX, with tx_pin PA2)"
 
     def din_uart(self, tx, rx):
         if tx != 9 or rx not in (None, 10):
@@ -1273,7 +1283,7 @@ class _V:
                          "gemifi only shares hub control lines (e.g. one clock_pin for two shift-register "
                          "hubs): a component pin can't have another use")
                 return None
-            keys = [k for k in PIN_KEY_HUB if k in v]
+            keys = [k for k in PIN_HUB_KEYS if k in v]
             if len(keys) > 1:
                 self.err(path, line, f"names more than one hub ({', '.join(keys)})")
                 return None
@@ -1327,7 +1337,7 @@ class _V:
             hub = self.hub_by_id.get(hub_id)
             if hub is None:
                 return None
-        if PIN_KEY_HUB[hub_key] != hub.type:
+        if HUB_PIN_KEY[hub.type] != hub_key:
             self.err(path, line, f"hub '{hub.id}' is a {hub.type}: write `{HUB_PIN_KEY[hub.type]}: {hub.id}`, "
                                  f"not `{hub_key}: {hub.id}`")
             return None
@@ -1642,10 +1652,13 @@ def validate(data, file=None):
 
     # hubs (before anything that refers to them), in file order
     for key in data:
-        if key in HUB_ENUM or key in HUB_ALIAS:
+        if key in HUB_LISTS:
             lst = v.seq(data[key], key, data.line_of(key))
             for i, h in enumerate(lst):
-                validate_hub(v, dev, h, HUB_ALIAS.get(key, key), f"{key}[{i}]", lst.line_of(i))
+                p, line = f"{key}[{i}]", lst.line_of(i)
+                typ = hub_platform(v, key, h, p, line) if key in HUB_DOMAINS else key
+                if typ is not None:
+                    validate_hub(v, dev, h, typ, p, line)
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
     resolve_switch_matrices(v, dev)
@@ -1803,9 +1816,9 @@ def allocate_dma(v, dev, data):
         return
     serial = []                         # (user, path, line, requests, how to free it)
     for h in dev.hubs:
-        if h.type == "maudio_pad_leds" and h.dma:
+        if h.type == "maudio_pads" and h.dma:
             line = h.raw.line_of("dma") if "dma" in h.raw else h.line
-            serial.append((f"maudio_pad_leds '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
+            serial.append((f"maudio_pads '{h.id}'", f"{h.path}.dma", line, ["USART2_TX"],
                            "set dma: false on it (interrupt-driven)"))
         if h.type == "ws2812" and h.data.hub == 0 and h.data.num in Stm32F1Platform.LEDSTRIP_SPI:
             spi = Stm32F1Platform.LEDSTRIP_SPI[h.data.num]
@@ -2169,7 +2182,7 @@ def led_full_colour(dev, pin, pin2, pin3):
 
 
 COLOUR_LOOK_NEEDS = ("needs an LED that can show any colour: an RGB LED whose pin, pin2 and pin3 are one LED "
-                     f"of a full-colour hub ({', '.join(FULL_COLOUR_HUBS)}: numbers LED * 3, + 1, + 2; "
+                     f"of an LED strip (led_strip: {', '.join(FULL_COLOUR_HUBS)}; numbers LED * 3, + 1, + 2; "
                      "LED * 4 on an RGBW strip)")
 
 
@@ -2765,6 +2778,21 @@ def validate_screens(v, dev, data):
         v.err("display", data.line_of("display"), f"{len(dev.screens)} displays: at most 8")
 
 
+def hub_platform(v, domain, h, p, line):
+    """The hub type item h of a domain's list names with platform: (led_strip: ws2812 ...), or None
+    (reported)."""
+    plats = HUB_DOMAINS[domain]
+    if not isinstance(h, dict):
+        v.err(p, line, f"must be a mapping, e.g. {{ id: ..., platform: {next(iter(plats))} }} (got {type_name(h)})")
+        return None
+    plat = h.get("platform")
+    if isinstance(plat, str) and plat in plats:
+        return plat
+    what = f"unknown platform '{plat}'" if plat is not None else "platform: is required"
+    v.err(f"{p}.platform", h.line_of("platform") or line, f"{what} (use {', '.join(plats)})")
+    return None
+
+
 def validate_hub(v, dev, h, typ, p, line):
     index = len(dev.hubs)
     if not isinstance(h, dict):
@@ -2912,7 +2940,7 @@ def validate_matrix(v, dev, d, line):
                                                     "keeps a row's columns in 32 bits)")
     # MCU columns are a "column" line, so a switch_matrix can share them (allow_other_uses)
     pins["columns"] = [v.pin(x, f"{p}.columns[{i}]", lst.line_of(i), "in", hubs={"sn74hc165"}, why=why,
-                             line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_KEY_HUB)
+                             line_kind=None if isinstance(x, dict) and any(k in x for k in PIN_HUB_KEYS)
                              else "column", owner="key_matrix") or NO_PIN
                        for i, x in enumerate(lst)]
     nr, nc = len(pins["rows"]), len(pins["columns"])
@@ -4772,7 +4800,7 @@ def step_colour(v, dev, s, sp, led):
         return 0, None
     if col is not None and not (full and kind == "rgb") and not colour_exact(kind, col):
         v.warn(cp, cl, f"LED '{x.id}' ({kind}, on/off) can't show {w}: it shows the nearest it can (full colours "
-                       f"need an LED that can show any colour: one LED of a {' / '.join(FULL_COLOUR_HUBS)} hub)")
+                       f"need an LED that can show any colour: one LED of an LED strip, led_strip: {' / '.join(FULL_COLOUR_HUBS)})")
     elif col is None and w not in LED_LOOKS[kind]:
         v.warn(cp, cl, f"LED '{x.id}' ({kind}) can't show {w}: it shows the nearest it can (valid: "
                        f"{', '.join(LED_LOOKS[kind])})")

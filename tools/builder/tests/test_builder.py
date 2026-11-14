@@ -209,9 +209,10 @@ class TestGenerateCompiles(unittest.TestCase):
 
     def test_ws2812_compiles(self):
         for order in ("GRB", "GRBW"):
-            dev, diags = load(STM32_BASE + f"ws2812:\n  - {{ id: s, pin: PB15, count: 4, order: {order}, gamma: 2.2 }}\n"
-                              "leds:\n  - { id: l0, pin: { ws2812: s, number: 0 }, pin2: { ws2812: s, number: 1 }, "
-                              "pin3: { ws2812: s, number: 2 }, idle: blue 20% }\n")
+            dev, diags = load(STM32_BASE + "led_strip:\n  - { id: s, platform: ws2812, pin: PB15, count: 4, "
+                              f"order: {order}, gamma: 2.2 }}\n"
+                              "leds:\n  - { id: l0, pin: { led_strip: s, number: 0 }, pin2: { led_strip: s, number: 1 }, "
+                              "pin3: { led_strip: s, number: 2 }, idle: blue 20% }\n")
             self.assertIsNotNone(dev, [str(d) for d in diags])
             self.compile_with_core(gen_dir(dev, self.tmp, order))
 
@@ -327,29 +328,31 @@ class TestValidation(unittest.TestCase):
                          r"sn74hc595, which can't be an input")
         self.assertError(MINIMAL_NUC + hub.replace("sr_count: 2", "sr_count: 5"), r"5 is out of range \(1\.\.4\)")
 
-    def test_maudio_pad_leds(self):
+    def test_maudio_pads(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 
         def dev(hub="tx_pin: PA2, count: 4", leds=""):
-            return (stm + f"maudio_pad_leds:\n  - {{ id: p, {hub} }}\n"
-                    "leds:\n  - { id: l0, pin: { maudio_pad_leds: p, number: 0 }, pin2: { maudio_pad_leds: p, number: 1 }, "
-                    "pin3: { maudio_pad_leds: p, number: 2 } }\n" + leds)
+            return (stm + f"led_strip:\n  - {{ id: p, platform: maudio_pads, {hub} }}\n"
+                    "leds:\n  - { id: l0, pin: { led_strip: p, number: 0 }, pin2: { led_strip: p, number: 1 }, "
+                    "pin3: { led_strip: p, number: 2 } }\n" + leds)
 
         self.assertClean(dev())
         # pin = LED * 3 + colour, up to count * 3 - 1
-        self.assertClean(dev(leds="  - { id: l1, pin: { maudio_pad_leds: p, number: 11 } }\n"))
-        self.assertError(dev(leds="  - { id: l1, pin: { maudio_pad_leds: p, number: 12 } }\n"),
-                         r"pin 12 is out of range for hub 'p' \(maudio_pad_leds \(4 LEDs x 3; pin = LED \* 3 \+ colour")
+        self.assertClean(dev(leds="  - { id: l1, pin: { led_strip: p, number: 11 } }\n"))
+        self.assertError(dev(leds="  - { id: l1, pin: { led_strip: p, number: 12 } }\n"),
+                         r"pin 12 is out of range for hub 'p' \(maudio_pads \(4 LEDs x 3; pin = LED \* 3 \+ colour")
         self.assertError(dev(hub="tx_pin: PA2, count: 33"), r"33 is out of range \(1\.\.32\)")
         self.assertError(dev(hub="tx_pin: PA3"), r"only PA2 \(USART2 TX\) is supported")
-        self.assertError(dev(hub="count: 4"), r"is required", path="maudio_pad_leds[0].tx_pin")
-        self.assertError(dev().replace("pin: PA1", "pin: { maudio_pad_leds: p, number: 5 }"),
-                         r"maudio_pad_leds, which can't be an input")
-        self.assertError(MINIMAL_NUC + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2 }\n", r"isn't supported on nuvoton")
-        # one board: vpin_poll_maudio_pad_leds's state isn't per hub
-        self.assertError(stm + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
-                         "  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
-                         r"a second maudio_pad_leds hub", path="maudio_pad_leds[1]")
+        self.assertError(dev(hub="count: 4"), r"is required", path="led_strip[0].tx_pin")
+        self.assertError(dev().replace("pin: PA1", "pin: { led_strip: p, number: 5 }"),
+                         r"maudio_pads, which can't be an input")
+        self.assertError(MINIMAL_NUC + "led_strip:\n  - { id: p, platform: maudio_pads, tx_pin: PA2 }\n",
+                         r"isn't supported on nuvoton")
+        # one board: the driver's state isn't per hub
+        self.assertError(stm + "led_strip:\n  - { id: p, platform: maudio_pads, tx_pin: PA2, count: 4 }\n"
+                         "  - { id: q, platform: maudio_pads, tx_pin: { number: PA2, allow_other_uses: true }, "
+                         "count: 4 }\n",
+                         r"a second maudio_pads hub", path="led_strip[1]")
         # its RAM goes in with the TM1628s': a byte per colour, 16 LEDs default = 48 bytes
         dev_, diags = load(dev(hub="tx_pin: PA2"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
@@ -363,59 +366,78 @@ class TestValidation(unittest.TestCase):
         # rx_pin: the board's answers, on USART2 RX (PA3) only
         self.assertClean(dev(hub="tx_pin: PA2, rx_pin: PA3, count: 4"))
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA4, count: 4"), r"rx_pin on stm32f1 is PA3",
-                         path="maudio_pad_leds[0].rx_pin")
+                         path="led_strip[0].rx_pin")
         self.assertError(dev(hub="tx_pin: PA2, rx_pin: PA1, count: 4"), r"PA1")     # PA1 is the test's analog
         dev_, diags = load(dev(hub="tx_pin: PA2, rx_pin: PA3"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
         self.assertIn(".rx = { 0, 0, 3 },", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
-    def test_maudio_pad_leds_alias(self):
-        """rgb_serial, its old name, still works as the list key and the pin key; the generated C is the
-        same (only the hub's comment names the type)."""
-        stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
+    def test_led_strip_platforms(self):
+        """led_strip: one list for both strip platforms, ESPHome style: each item's platform: picks its
+        hub type, and its pins are { led_strip: <id>, number: n }. Hubs are numbered in list order."""
+        two = (STM32_BASE + "led_strip:\n  - { id: p, platform: maudio_pads, tx_pin: PA2, count: 4 }\n"
+               "  - { id: s, platform: ws2812, pin: PB15, count: 2 }\n"
+               "sn74hc595:\n  - { id: sr, data_pin: PB0, clock_pin: PB1, latch_pin: PB2 }\n"
+               "leds:\n  - { id: l0, pin: { led_strip: p, number: 0 } }\n"
+               "  - { id: l1, pin: { led_strip: s, number: 0 } }\n")
+        self.assertClean(two)
+        dev_, _ = load(two)
+        self.assertEqual([(h.id, h.type, h.path) for h in dev_.hubs],
+                         [("p", "maudio_pads", "led_strip[0]"), ("s", "ws2812", "led_strip[1]"),
+                          ("sr", "sn74hc595", "sn74hc595[0]")])
+        c = gd.generate(dev_, "t.yaml")["gm_device_config.c"]
+        self.assertLess(c.index(".type = GM_HUB_MAUDIO_PADS"), c.index(".type = GM_HUB_WS2812"))
+        # platform: unknown or missing
+        self.assertError(two.replace("platform: ws2812", "platform: apa102"),
+                         r"unknown platform 'apa102' \(use maudio_pads, ws2812\)", path="led_strip[1].platform")
+        self.assertError(two.replace("platform: ws2812, ", ""), r"platform: is required \(use maudio_pads, ws2812\)",
+                         path="led_strip[1].platform")
+        self.assertError(two.replace("platform: ws2812", "platform: sn74hc595"), r"unknown platform 'sn74hc595'")
+        self.assertError(STM32_BASE + "led_strip:\n  - ws2812\n", r"must be a mapping, e.g. \{ id: \.\.\., platform: ")
+        # the pin key is the hub's list key: a strip's is led_strip, a shift register's its chip
+        self.assertError(two.replace("{ led_strip: s, number: 0 }", "{ sn74hc595: s, number: 0 }"),
+                         r"hub 's' is a ws2812: write `led_strip: s`, not `sn74hc595: s`", path="leds[1].pin")
+        self.assertError(two.replace("{ led_strip: s, number: 0 }", "{ led_strip: sr, number: 0 }"),
+                         r"hub 'sr' is a sn74hc595: write `sn74hc595: sr`, not `led_strip: sr`", path="leds[1].pin")
 
-        def dev(key, pin_key):
-            return (stm + f"{key}:\n  - {{ id: p, tx_pin: PA2, count: 4, gamma: 2.2 }}\n"
-                    f"leds:\n  - {{ id: l0, pin: {{ {pin_key}: p, number: 0 }}, pin2: {{ {pin_key}: p, number: 1 }}, "
-                    f"pin3: {{ {pin_key}: p, number: 2 }}, idle: blue 20% }}\n")
-
-        out = []
-        for key, pin_key in (("maudio_pad_leds", "maudio_pad_leds"), ("rgb_serial", "rgb_serial"),
-                             ("rgb_serial", "maudio_pad_leds"), ("maudio_pad_leds", "rgb_serial")):
-            self.assertClean(dev(key, pin_key))
-            dev_, diags = load(dev(key, pin_key))
-            out.append(gd.generate(dev_, "t.yaml")["gm_device_config.c"])
-        self.assertTrue(all(c == out[0] for c in out))
-        # a wrong pin key still names the right one
-        self.assertError(dev("rgb_serial", "tm1628"), r"hub 'p' is a maudio_pad_leds: write `maudio_pad_leds: p`")
-        # one board, whichever name
-        self.assertError(stm + "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
-                         "rgb_serial:\n  - { id: q, tx_pin: { number: PA2, allow_other_uses: true }, count: 4 }\n",
-                         r"a second maudio_pad_leds hub", path="rgb_serial[0]")
+    def test_old_led_strip_keys(self):
+        """The strips' old per-chip keys (ws2812:, maudio_pad_leds:, rgb_serial:), as list keys and as pin
+        keys, are refused with the new form."""
+        new = (STM32_BASE + "led_strip:\n  - { id: p, platform: maudio_pads, tx_pin: PA2, count: 4 }\n"
+               "leds:\n  - { id: l0, pin: { led_strip: p, number: 0 } }\n")
+        moved = r"moved: an LED strip is `led_strip: \[\{{ id: strip, platform: {}, \.\.\. \}}\]` now, ESPHome style, " \
+                r"and its pins `\{{ led_strip: strip, number: n \}}`"
+        for old, plat in (("ws2812", "ws2812"), ("maudio_pad_leds", "maudio_pads"), ("rgb_serial", "maudio_pads")):
+            with self.subTest(old):
+                self.assertError(STM32_BASE + f"{old}:\n  - {{ id: p, tx_pin: PA2, count: 4 }}\n", moved.format(plat),
+                                 path=old)
+                self.assertError(new.replace("{ led_strip: p,", f"{{ {old}: p,"), moved.format(plat),
+                                 path=f"leds[0].pin.{old}")
 
     def test_ws2812(self):
         """ws2812: an addressable LED strip on one MCU pin; pin = LED * 3 (4 on RGBW) + colour."""
         def dev(hub="pin: PB15, count: 4", leds="", base=STM32_BASE):
-            return (base + f"ws2812:\n  - {{ id: s, {hub} }}\n"
-                    "leds:\n  - { id: l0, pin: { ws2812: s, number: 0 }, pin2: { ws2812: s, number: 1 }, "
-                    "pin3: { ws2812: s, number: 2 }, idle: blue 20% }\n" + leds)
+            return (base + f"led_strip:\n  - {{ id: s, platform: ws2812, {hub} }}\n"
+                    "leds:\n  - { id: l0, pin: { led_strip: s, number: 0 }, pin2: { led_strip: s, number: 1 }, "
+                    "pin3: { led_strip: s, number: 2 }, idle: blue 20% }\n" + leds)
 
         self.assertClean(dev())
         self.assertClean(dev("pin: PA7, count: 4, order: rgb"))
-        self.assertClean(dev(leds="  - { id: l1, pin: { ws2812: s, number: 11 } }\n"))
-        self.assertError(dev(leds="  - { id: l1, pin: { ws2812: s, number: 12 } }\n"),
+        self.assertClean(dev(leds="  - { id: l1, pin: { led_strip: s, number: 11 } }\n"))
+        self.assertError(dev(leds="  - { id: l1, pin: { led_strip: s, number: 12 } }\n"),
                          r"pin 12 is out of range for hub 's' \(ws2812 \(4 LEDs x 3; pin = LED \* 3 \+ colour, "
                          r"0 red 1 green 2 blue\)")
-        self.assertError(dev("pin: PB15"), r"is required", path="ws2812[0].count")
+        self.assertError(dev("pin: PB15"), r"is required", path="led_strip[0].count")
         self.assertError(dev("pin: PB15, count: 257"), r"257 is out of range \(1\.\.256\)")
-        self.assertError(dev("count: 4"), r"is required", path="ws2812[0].pin")
-        self.assertError(dev("pin: PB15, count: 4, order: GBX"), r"unknown order 'GBX'", path="ws2812[0].order")
-        self.assertError(dev().replace("pin: PA1", "pin: { ws2812: s, number: 5 }"), r"ws2812, which can't be an input")
+        self.assertError(dev("count: 4"), r"is required", path="led_strip[0].pin")
+        self.assertError(dev("pin: PB15, count: 4, order: GBX"), r"unknown order 'GBX'", path="led_strip[0].order")
+        self.assertError(dev().replace("pin: PA1", "pin: { led_strip: s, number: 5 }"), r"ws2812, which can't be an input")
         # stm32f1: an SPI's MOSI, one strip each; its DMA channel through the allocator
-        self.assertError(dev("pin: PB14, count: 4"), r"PA7 \(SPI1\) or PB15 \(SPI2\)", path="ws2812[0].pin")
-        self.assertError(STM32_BASE + "ws2812:\n  - { id: s, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n"
-                         "  - { id: t, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n",
-                         r"PB15 has a ws2812 strip already", path="ws2812[1].pin")
+        self.assertError(dev("pin: PB14, count: 4"), r"PA7 \(SPI1\) or PB15 \(SPI2\)", path="led_strip[0].pin")
+        self.assertError(STM32_BASE + "led_strip:\n"
+                         "  - { id: s, platform: ws2812, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n"
+                         "  - { id: t, platform: ws2812, pin: { number: PB15, allow_other_uses: true }, count: 4 }\n",
+                         r"PB15 has a ws2812 strip already", path="led_strip[1].pin")
         dev_, _ = load(dev())
         self.assertIn((5, "SPI2_TX", "ws2812 's'"), dev_.dma_map)
         self.assertError(dev() + "din_midi: { tx_pin: PA9, rx_pin: PA10, dma: true }\n",
@@ -424,19 +446,20 @@ class TestValidation(unittest.TestCase):
         # other platforms: ESP32 / S2 / S3 by RMT (a channel a strip); not NUC (yet)
         esp = MINIMAL_ESP.format(plat="esp32s3", tr="usb") + "buttons:\n  - { id: a, pin: GPIO1, action: cc_momentary, cc: 1 }\n"
         self.assertClean(dev("pin: GPIO48, count: 16", base=esp))
-        five = esp + "ws2812:\n" + "".join(f"  - {{ id: s{k}, pin: GPIO{38 + k}, count: 1 }}\n" for k in range(5))
-        self.assertError(five + "leds:\n" + "".join(f"  - {{ id: l{k}, pin: {{ ws2812: s{k}, number: 0 }} }}\n"
+        five = esp + "led_strip:\n" + "".join(f"  - {{ id: s{k}, platform: ws2812, pin: GPIO{38 + k}, count: 1 }}\n"
+                                               for k in range(5))
+        self.assertError(five + "leds:\n" + "".join(f"  - {{ id: l{k}, pin: {{ led_strip: s{k}, number: 0 }} }}\n"
                                                    for k in range(5)),
-                         r"5 ws2812 strips: esp32s3 has 4 RMT TX channels", path="ws2812[4].pin")
+                         r"5 ws2812 strips: esp32s3 has 4 RMT TX channels", path="led_strip[4].pin")
         self.assertError(dev("pin: PA2, count: 4", base=MINIMAL_NUC), r"ws2812 isn't supported on nuvoton-nuc1xx yet")
         # RGBW: 4 pins an LED, white: 4 entries; a full-colour LED starts at LED * 4
         self.assertClean(dev("pin: PB15, count: 2, order: GRBW, white: [255, 200, 220, 128]"))
         self.assertError(dev("pin: PB15, count: 2, order: GRBW, white: [255, 200, 220]"),
-                         r"must be \[red, green, blue, white\]", path="ws2812[0].white")
-        rgbw = dev("pin: PB15, count: 2, order: GRBW").replace("number: 0 }, pin2: { ws2812: s, number: 1 }, "
-                                                               "pin3: { ws2812: s, number: 2 }",
-                                                               "number: 3 }, pin2: { ws2812: s, number: 4 }, "
-                                                               "pin3: { ws2812: s, number: 5 }")
+                         r"must be \[red, green, blue, white\]", path="led_strip[0].white")
+        rgbw = dev("pin: PB15, count: 2, order: GRBW").replace("number: 0 }, pin2: { led_strip: s, number: 1 }, "
+                                                               "pin3: { led_strip: s, number: 2 }",
+                                                               "number: 3 }, pin2: { led_strip: s, number: 4 }, "
+                                                               "pin3: { led_strip: s, number: 5 }")
         self.assertError(rgbw, r"needs an LED that can show any colour", path="leds[0].idle")
         self.assertClean(rgbw.replace("number: 3 }", "number: 4 }").replace("number: 4 }, pin3", "number: 5 }, pin3")
                          .replace("number: 5 }, idle", "number: 6 }, idle"))
@@ -455,19 +478,19 @@ class TestValidation(unittest.TestCase):
         dev_, _ = load(dev("pin: PB15, count: 4, order: BRG"))
         self.assertIn(".order = 0x12 /* BRG */", gd.generate(dev_, "t.yaml")["gm_device_config.c"])
 
-    def test_maudio_pad_leds_colours(self):
+    def test_maudio_pads_colours(self):
         stm = MINIMAL_NUC.replace("nuvoton-nuc1xx", "stm32f1").replace("NUC120LC1BN", "STM32F103RB")
 
         def dev(hub="", look="", pins=(0, 1, 2)):
             a, b, c = pins
-            return (stm + f"maudio_pad_leds:\n  - {{ id: p, tx_pin: PA2, count: 4{hub} }}\n"
-                    f"leds:\n  - {{ id: l0, pin: {{ maudio_pad_leds: p, number: {a} }}, "
-                    f"pin2: {{ maudio_pad_leds: p, number: {b} }}, pin3: {{ maudio_pad_leds: p, number: {c} }}{look} }}\n")
+            return (stm + f"led_strip:\n  - {{ id: p, platform: maudio_pads, tx_pin: PA2, count: 4{hub} }}\n"
+                    f"leds:\n  - {{ id: l0, pin: {{ led_strip: p, number: {a} }}, "
+                    f"pin2: {{ led_strip: p, number: {b} }}, pin3: {{ led_strip: p, number: {c} }}{look} }}\n")
 
         # gamma: and white: (the calibration)
         self.assertClean(dev(", gamma: 2.2, white: [255, 200, 220]"))
-        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="maudio_pad_leds[0].gamma")
-        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="maudio_pad_leds[0].white")
+        self.assertError(dev(", gamma: 4"), r"must be a number from 1\.0 to 3\.0", path="led_strip[0].gamma")
+        self.assertError(dev(", white: [255, 200]"), r"must be \[red, green, blue\]", path="led_strip[0].white")
         self.assertError(dev(", white: [255, 0, 220]"), r"each 1\.\.255")
         dev_, diags = load(dev(", gamma: 2.2, white: [255, 200, 220]"))
         self.assertIsNotNone(dev_, [str(d) for d in diags])
@@ -477,7 +500,7 @@ class TestValidation(unittest.TestCase):
         curve = gd.rgb_curve(2.2)
         self.assertEqual((curve[0], curve[1], curve[255]), (0, 1, 255))     # above 0 stays above 0
         self.assertEqual(curve[128], 56)                                      # half as seen: about 22%
-        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one maudio_pad_leds LED
+        # full-colour looks: "#rrggbb" or "<colour> <n>%", on an LED that is one maudio_pads LED
         self.assertClean(dev(look=', idle: "#000030", active: white'))
         self.assertClean(dev(look=", idle: blue 20%", pins=(3, 4, 5)))
         dev_, diags = load(dev(look=', idle: "#102030", active: red 50%'))
@@ -547,7 +570,7 @@ class TestValidation(unittest.TestCase):
                                      (4, "TIM4_CH2", "hardware_scan.analog mux step"),
                                      (5, "TIM1_UP", "hardware_scan.matrix select"),
                                      (6, "TIM1_CH3", "hardware_scan.matrix precharge"),
-                                     (7, "USART2_TX", "maudio_pad_leds 'pad_leds'")])
+                                     (7, "USART2_TX", "maudio_pads 'pad_leds'")])
         self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 0, "in": 1, "rd": 2, "pre": 3}),
                                          "analog": (4, {"mux": 2}), "tick": 2})
         self.assertEqual(gd.dma_text(d).split("; ")[-1], "free: none")
@@ -603,7 +626,7 @@ class TestValidation(unittest.TestCase):
                                      (3, "TIM1_CH2", "hardware_scan.matrix read"),
                                      (4, "USART1_TX", "din_midi"), (5, "USART1_RX", "din_midi"),
                                      (6, "TIM3_CH1", "hardware_scan.analog mux step"),
-                                     (7, "USART2_TX", "maudio_pad_leds 'pad_leds'")])
+                                     (7, "USART2_TX", "maudio_pads 'pad_leds'")])
         self.assertEqual(d.scan_timers, {"matrix": (1, {"sel": 1, "rd": 2}), "analog": (3, {"mux": 1}),
                                          "tick": 2})
         h = gd.generate(d, "t.yaml")["gm_device_config.h"]
@@ -2831,9 +2854,9 @@ class TestModes(unittest.TestCase):
         base = (STM32_BASE.replace("  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n",
                                    "  - { id: a, pin: PA1, action: cc_momentary, cc: 1 }\n"
                                    "  - { id: sel, pin: PA4, action: cc_momentary, cc: 8 }\n") +
-                "maudio_pad_leds:\n  - { id: p, tx_pin: PA2, count: 4 }\n"
-                "leds:\n  - { id: l0, pin: { maudio_pad_leds: p, number: 3 }, pin2: { maudio_pad_leds: p, number: 4 }, "
-                "pin3: { maudio_pad_leds: p, number: 5 } }\n")
+                "led_strip:\n  - { id: p, platform: maudio_pads, tx_pin: PA2, count: 4 }\n"
+                "leds:\n  - { id: l0, pin: { led_strip: p, number: 3 }, pin2: { led_strip: p, number: 4 }, "
+                "pin3: { led_strip: p, number: 5 } }\n")
         text = modes("- id: c\n  cycle: { button: sel, with: a }\n  led: l0\n  steps:\n"
                      '    - { id: a, colour: "#ff8000" }\n    - { id: b, colour: blue 20% }\n    - { id: d, colour: red }\n'
                      "    - { id: e }\n", base)
@@ -3789,7 +3812,7 @@ class TestDashboard(unittest.TestCase):
         self.assertTrue(j["ok"], j["diags"])
         self.assertEqual([c["channel"] for c in j["dma"]["channels"]], [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(j["dma"]["free"], [])
-        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "maudio_pad_leds 'pad_leds'"}, j["dma"]["channels"])
+        self.assertIn({"channel": 7, "request": "USART2_TX", "user": "maudio_pads 'pad_leds'"}, j["dma"]["channels"])
         self.assertEqual(j["din_midi"], {"mode": "usb_merge", "midi_in": True, "thru": False,
                                          "controller_out": True, "usb_to_din": True, "dma": False})
         self.assertEqual(j["midi_ports"], [])                     # usb_merge: the main port only

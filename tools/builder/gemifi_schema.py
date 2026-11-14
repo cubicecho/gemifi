@@ -93,7 +93,38 @@ HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("int
              "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
 
 
-def hub(typ, alias=None):
+def hub(typ):
+    return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Virtual pins and hubs\")")
+
+
+def hub_domain(domain):
+    """A domain's list (led_strip: ...): an item takes platform: and the keys of its platforms."""
+    plats = gd.HUB_DOMAINS[domain]
+    keys = list(dict.fromkeys(k for typ in plats for k in gd.HUB_KEYS[typ]))
+    types = {}
+    for typ in plats:
+        for k, t in hub_key_types(typ).items():
+            types[k] = widest(types[k], t) if k in types else t
+    types["platform"] = enum(plats)
+    return lst(obj(keys, types), f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
+                                 f"(components/{domain}/README.md)")
+
+
+def widest(a, b):
+    """One key's type on two platforms: the wider of two integer ranges; untyped where they differ."""
+    if a == b:
+        return a
+    ia, ib = a.get("anyOf", [{}])[0], b.get("anyOf", [{}])[0]
+    if ia.get("type") == ib.get("type") == "integer":
+        lo = [x["minimum"] for x in (ia, ib) if "minimum" in x]
+        hi = [x["maximum"] for x in (ia, ib) if "maximum" in x]
+        return T("integer", **({"minimum": min(lo)} if len(lo) == 2 else {}),
+                 **({"maximum": max(hi)} if len(hi) == 2 else {}))
+    return {}
+
+
+def hub_key_types(typ):
+    """The JSON schema types of a hub type's keys, by key."""
     keys = gd.HUB_KEYS[typ]
     types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
     types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
@@ -106,8 +137,7 @@ def hub(typ, alias=None):
     types["id"] = ref("id")
     if "i2c_id" in keys:
         types["i2c_id"] = ref("id")
-    what = f"{alias}: the old name of {typ}" if alias else f"{typ} hubs"
-    return lst(obj(keys, types), f"{what} (core/README.md \"Virtual pins and hubs\")")
+    return types
 
 
 def screen():
@@ -205,7 +235,7 @@ def pin():
         obj(gd.PIN_KEYS, {"number": one_of(STR, {"type": "integer"}), "inverted": BOOL,
                           "allow_other_uses": BOOL, "mode": one_of(enum(gd.MODE_STRINGS), obj(gd.MODE_FLAGS, {
                               k: BOOL for k in gd.MODE_FLAGS})),
-                          **{k: ID_REF for k in gd.PIN_KEY_HUB}}))
+                          **{k: ID_REF for k in gd.PIN_HUB_KEYS}}))
 
 
 def device_schema():
@@ -248,8 +278,8 @@ def device_schema():
                                                         "led_owner": enum(gd.LED_OWNERS),
                                                         "led_timeout": one_of(PERIOD, {"const": "never"})})),
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
-        **{t: hub(t) for t in gd.HUB_TYPES},
-        **{a: hub(t, alias=a) for a, t in gd.HUB_ALIAS.items()},
+        **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
+        **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
         "buttons": lst(obj(gd.BUTTON_KEYS, CTL_TYPES)),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
         "leds": lst(obj(gd.LED_KEYS, {

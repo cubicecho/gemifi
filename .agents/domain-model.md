@@ -108,16 +108,18 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 
 - **Component:** one kind of part a device can have, in a folder of its own: its C code, its YAML
   (validation and generated C), its docs and its tests. A device builds only the components it uses.
-  A base component defines what the components on it implement (`hub`, `display`). Owner: `components/<name>/`
+  A base component defines what the components on it implement (`hub`, `display`, `led_strip`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. Every hub
-  type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform and
-  the `i2c` base.
+  type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform, the
+  `led_strip` base and the `i2c` base. A base component is built only with a component on it
+  (`DEPENDENCIES`).
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named
-  after the chip (`sn74hc595:`, `mcp23017:`, `ws2812:` ...), that gives the device pins (shift
-  registers, I/O expanders, multiplexers, decoders, switch matrices, XY pads, LED drivers, LED strips).
+  after the chip (`sn74hc595:`, `mcp23017:` ...) or as a platform of a domain (`led_strip:`), that gives
+  the device pins (shift registers, I/O expanders, multiplexers, decoders, switch matrices, XY pads, LED
+  drivers, LED strips). A pin names its hub by the list's key: `{ led_strip: strip, number: 0 }`.
   Owner: the `hub` base component (`components/hub/`:
   `HubType`, `gm_hub.h`); `gm_hub_t` (config union, `gm_device.h`, extended by `GM_HUB_CONFIG_MEMBERS`),
   `gm_hub_state_t` (extended by `GM_HUB_STATE_MEMBERS`); each type in its component
@@ -129,10 +131,17 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Hub driver:** the code for one hub type behind the hub ops interface (`init`, `read`, `write`,
   `analog`, `rgb`, `refresh`, `flush`, `send`, `poll`). Owner: `gm_hub_ops_t` (`components/hub/gm_hub.h`),
   `hub_ops[]` in `vpin.c` (component types through `GM_HUB_OPS`). What the base gives its types: the
-  hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`), the LED drivers' bit pins in it (`gm_hub_ledram_*`), the
-  full-colour output (`gm_hub_colour_out`), control-pin output (`gm_hub_mcu_out`), the I2C expanders'
-  pins (`gm_hub_i2c_*`), the shift registers' clock pulse (`gm_hub_pulse`) and the mux channel switch
-  (`gm_hub_mux_select`); in the builder, `ShiftRegister` and `I2CExpander`.
+  hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`), the LED drivers' bit pins in it (`gm_hub_ledram_*`),
+  control-pin output (`gm_hub_mcu_out`), the I2C expanders' pins (`gm_hub_i2c_*`), the shift registers'
+  clock pulse (`gm_hub_pulse`) and the mux channel switch (`gm_hub_mux_select`); in the builder,
+  `ShiftRegister` and `I2CExpander`.
+- **Domain:** one YAML list for chips that are interchangeable for one job, ESPHome style: a base
+  component's key, each item naming its chip with `platform:`; the key is also its hubs' pin key.
+  Owner: `HubType.domain` (`components/hub`), `HUB_DOMAINS` and `hub_platform` in `gemifi_device.py`.
+- **LED strip (YAML `led_strip:`):** a hub whose LEDs show any colour, a byte per colour in the hub RAM,
+  calibrated by `gamma:` and `white:`: `led_strip: [{ id: strip, platform: ws2812, ... }]`, platforms
+  `ws2812` and `maudio_pads` (the M-Audio Code pad LED board). Owner: the `led_strip` base component
+  (`components/led_strip/`: `LedStrip`, `gm_led_strip_colour_out`), each platform's component.
 - **Screen (YAML `display:`):** a panel text displays draw on, declared ESPHome style as a `display:` item
   on a platform: `display: [{ id: oled, platform: ssd1306, address: 0x3C }]`. Owner: the `display` base
   component (`components/display/`: `ScreenType`, `gm_screen.h`, `screen.c`: the framebuffers, drawing,

@@ -27,8 +27,8 @@ boot_combo: [pad_1, pad_4]
 # gamma: 2.2 so "blue 20%" looks a fifth as bright; white: takes some blue
 # out where full white looks bluish (tune by eye, core/README.md
 # "Full-colour LEDs").
-ws2812:
-  - { id: strip, pin: GPIO48, count: 16, order: GRB, gamma: 2.2, white: [255, 235, 210] }
+led_strip:
+  - { id: strip, platform: ws2812, pin: GPIO48, count: 16, order: GRB, gamma: 2.2, white: [255, 235, 210] }
 
 # 4 rows driven, 4 columns read (pull-ups: a pad closes column to its row).
 switch_matrix:
@@ -66,22 +66,22 @@ buttons:
 # The strip runs in a snake under the pads, bottom row left to right first.
 # The top-right pad is orange when idle, as an example of a look of its own.
 leds:
-  - { id: led_1, pin: { ws2812: strip, number: 0 }, pin2: { ws2812: strip, number: 1 }, pin3: { ws2812: strip, number: 2 } }
-  - { id: led_2, pin: { ws2812: strip, number: 3 }, pin2: { ws2812: strip, number: 4 }, pin3: { ws2812: strip, number: 5 } }
-  - { id: led_3, pin: { ws2812: strip, number: 6 }, pin2: { ws2812: strip, number: 7 }, pin3: { ws2812: strip, number: 8 } }
-  - { id: led_4, pin: { ws2812: strip, number: 9 }, pin2: { ws2812: strip, number: 10 }, pin3: { ws2812: strip, number: 11 } }
-  - { id: led_5, pin: { ws2812: strip, number: 21 }, pin2: { ws2812: strip, number: 22 }, pin3: { ws2812: strip, number: 23 } }
-  - { id: led_6, pin: { ws2812: strip, number: 18 }, pin2: { ws2812: strip, number: 19 }, pin3: { ws2812: strip, number: 20 } }
-  - { id: led_7, pin: { ws2812: strip, number: 15 }, pin2: { ws2812: strip, number: 16 }, pin3: { ws2812: strip, number: 17 } }
-  - { id: led_8, pin: { ws2812: strip, number: 12 }, pin2: { ws2812: strip, number: 13 }, pin3: { ws2812: strip, number: 14 } }
-  - { id: led_9, pin: { ws2812: strip, number: 24 }, pin2: { ws2812: strip, number: 25 }, pin3: { ws2812: strip, number: 26 } }
-  - { id: led_10, pin: { ws2812: strip, number: 27 }, pin2: { ws2812: strip, number: 28 }, pin3: { ws2812: strip, number: 29 } }
-  - { id: led_11, pin: { ws2812: strip, number: 30 }, pin2: { ws2812: strip, number: 31 }, pin3: { ws2812: strip, number: 32 } }
-  - { id: led_12, pin: { ws2812: strip, number: 33 }, pin2: { ws2812: strip, number: 34 }, pin3: { ws2812: strip, number: 35 } }
-  - { id: led_13, pin: { ws2812: strip, number: 45 }, pin2: { ws2812: strip, number: 46 }, pin3: { ws2812: strip, number: 47 } }
-  - { id: led_14, pin: { ws2812: strip, number: 42 }, pin2: { ws2812: strip, number: 43 }, pin3: { ws2812: strip, number: 44 } }
-  - { id: led_15, pin: { ws2812: strip, number: 39 }, pin2: { ws2812: strip, number: 40 }, pin3: { ws2812: strip, number: 41 } }
-  - { id: led_16, pin: { ws2812: strip, number: 36 }, pin2: { ws2812: strip, number: 37 }, pin3: { ws2812: strip, number: 38 }, idle: "#ff6000" }
+  - { id: led_1, pin: { led_strip: strip, number: 0 }, pin2: { led_strip: strip, number: 1 }, pin3: { led_strip: strip, number: 2 } }
+  - { id: led_2, pin: { led_strip: strip, number: 3 }, pin2: { led_strip: strip, number: 4 }, pin3: { led_strip: strip, number: 5 } }
+  - { id: led_3, pin: { led_strip: strip, number: 6 }, pin2: { led_strip: strip, number: 7 }, pin3: { led_strip: strip, number: 8 } }
+  - { id: led_4, pin: { led_strip: strip, number: 9 }, pin2: { led_strip: strip, number: 10 }, pin3: { led_strip: strip, number: 11 } }
+  - { id: led_5, pin: { led_strip: strip, number: 21 }, pin2: { led_strip: strip, number: 22 }, pin3: { led_strip: strip, number: 23 } }
+  - { id: led_6, pin: { led_strip: strip, number: 18 }, pin2: { led_strip: strip, number: 19 }, pin3: { led_strip: strip, number: 20 } }
+  - { id: led_7, pin: { led_strip: strip, number: 15 }, pin2: { led_strip: strip, number: 16 }, pin3: { led_strip: strip, number: 17 } }
+  - { id: led_8, pin: { led_strip: strip, number: 12 }, pin2: { led_strip: strip, number: 13 }, pin3: { led_strip: strip, number: 14 } }
+  - { id: led_9, pin: { led_strip: strip, number: 24 }, pin2: { led_strip: strip, number: 25 }, pin3: { led_strip: strip, number: 26 } }
+  - { id: led_10, pin: { led_strip: strip, number: 27 }, pin2: { led_strip: strip, number: 28 }, pin3: { led_strip: strip, number: 29 } }
+  - { id: led_11, pin: { led_strip: strip, number: 30 }, pin2: { led_strip: strip, number: 31 }, pin3: { led_strip: strip, number: 32 } }
+  - { id: led_12, pin: { led_strip: strip, number: 33 }, pin2: { led_strip: strip, number: 34 }, pin3: { led_strip: strip, number: 35 } }
+  - { id: led_13, pin: { led_strip: strip, number: 45 }, pin2: { led_strip: strip, number: 46 }, pin3: { led_strip: strip, number: 47 } }
+  - { id: led_14, pin: { led_strip: strip, number: 42 }, pin2: { led_strip: strip, number: 43 }, pin3: { led_strip: strip, number: 44 } }
+  - { id: led_15, pin: { led_strip: strip, number: 39 }, pin2: { led_strip: strip, number: 40 }, pin3: { led_strip: strip, number: 41 } }
+  - { id: led_16, pin: { led_strip: strip, number: 36 }, pin2: { led_strip: strip, number: 37 }, pin3: { led_strip: strip, number: 38 }, idle: "#ff6000" }
 
 # Knobs on ADC1 pins.
 analog:

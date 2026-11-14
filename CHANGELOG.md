@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.45.1](https://github.com/cubicecho/gemifi/compare/v0.45.0...v0.45.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **docker:** ESP builds fail with "project-dir is not writable" ([cbce6a6](https://github.com/cubicecho/gemifi/commit/cbce6a6a0ae82b1920acfd9bbb461d98e1a96d6a))
+
 # [0.45.0](https://github.com/cubicecho/gemifi/compare/v0.44.0...v0.45.0) (2026-11-13)
 
 

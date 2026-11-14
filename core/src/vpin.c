@@ -516,62 +516,7 @@ static void hc165_refresh(const gm_hub_t *h, hub_state_t *s)
     s->in = v;
 }
 
-/* ---- XY pads (4-wire resistive) ----------------------------------------
- * One plate is driven at a time, + pin high and - pin low; the other plate
- * floats and takes the voltage where it's pressed, read on its sense pin
- * (gm_hub_xy_t sense[]). Untouched, the floating plate reads
- * outside touch_min..touch_max (stock Code 61: 592 - 22 .. 3408 + 22). The
- * other plate is let go before this one is driven, so a touch never joins
- * two driven pins. */
-static void xy_drive(const gm_hub_t *h, uint32_t axis)
-{
-    const gm_pin_t *drv = &h->xy.drive[axis ? 2 : 0], *oth = &h->xy.drive[axis ? 0 : 2];
-    gm_pin_t sense = h->xy.sense[axis];
-    for (uint32_t k = 0; k < 2; k++)
-        if (oth[k].hub == 0)
-            hal_pin_mode(oth[k].num, oth[k].num == sense.num ? HAL_ANALOG : HAL_IN);
-    gm_hub_mcu_out(drv[0], 1);
-    gm_hub_mcu_out(drv[1], 0);
-}
-
-static void xy_init(const gm_hub_t *h, hub_state_t *s)
-{
-    s->u.xy.raw[0] = s->u.xy.raw[1] = 0xFFFFu;
-    xy_drive(h, 0);
-    s->channel = 0;
-    s->u.xy.t = hal_millis();
-}
-
-/* A touch counts after XY_SETTLE readings in a row inside the window
- * (each axis twice, ~4 ms): the first as a finger lands can be anywhere. */
-#define XY_SETTLE 4u
-
-/* Once per ms: read the axis driven since the last switch (a whole ms to
- * settle), then drive the other. So each axis is new every 2 ms. -1 while
- * untouched (the input holds its last value). */
-static int32_t xy_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
-{
-    uint32_t now = hal_millis();
-    if (now != s->u.xy.t && s->channel >= 0) {
-        uint32_t a = (uint32_t)s->channel;
-        gm_pin_t sense = h->xy.sense[a];
-        int32_t v = sense.hub == 0 ? hal_adc_read(sense.num) : -1;
-        s->u.xy.raw[a] = v < 0 ? 0xFFFFu : (uint16_t)v;
-        int t = 1;
-        for (uint32_t k = 0; k < 2; k++)
-            t = t && s->u.xy.raw[k] >= h->xy.touch_min && s->u.xy.raw[k] <= h->xy.touch_max;
-        if (!t)
-            s->u.xy.touch = 0;
-        else if (s->u.xy.touch < XY_SETTLE && ++s->u.xy.touch == XY_SETTLE)
-            s->u.xy.fresh = 3u;
-        s->channel = (int8_t)(a ^ 1u);
-        xy_drive(h, a ^ 1u);
-        s->u.xy.t = now;
-    }
-    if (ch > 1u || s->u.xy.touch < XY_SETTLE)
-        return -1;
-    return s->u.xy.raw[ch];
-}
+/* ---- XY pads: a new touch (the driver: components/xy_pad) ------------- */
 
 int vpin_analog_jump(gm_pin_t p)
 {
@@ -1538,9 +1483,6 @@ static const gm_hub_ops_t ssd1306_ops = {
     .flags = GM_HUBF_NO_READ, .init = ssd1306_init, .send = ssd1306_send,   /* drawn: vpin_oled_draw */
 };
 #endif
-static const gm_hub_ops_t xy_ops = {
-    .flags = GM_HUBF_IN_REG, .init = xy_init, .analog = xy_analog,
-};
 static const gm_hub_ops_t no_ops = { 0 };
 
 #define HUB(t, ops) [t] = USES(t) ? &(ops) : 0
@@ -1555,7 +1497,6 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_SSD1306, ssd1306_ops),
 #endif
-    HUB(GM_HUB_XY, xy_ops),
     GM_HUB_OPS
 };
 

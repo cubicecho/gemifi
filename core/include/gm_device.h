@@ -119,16 +119,6 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
-/* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
- * software (vpin.c), one axis per ms in turn. A touch: both readings within
- * touch_min..touch_max. */
-typedef struct {
-    gm_pin_t drive[4];    /* X+, X-, Y+, Y- (MCU pins)                     */
-    gm_pin_t sense[2];    /* the pins X and Y are read on: a Y-plate and an
-                             X-plate pin (ADC pins)                        */
-    uint16_t touch_min, touch_max;
-} gm_hub_xy_t;
-
 /* .oled: an SSD1306 or SH1106 OLED on the I2C bus, a framebuffer in the hub
  * RAM (width x height / 8 bytes: byte = page * width + x, bit = y % 8),
  * written from the main loop a page run at a time. No pins: text displays
@@ -152,7 +142,6 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
-        gm_hub_xy_t xy;           /* GM_HUB_XY */
         gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */
         GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */
     };

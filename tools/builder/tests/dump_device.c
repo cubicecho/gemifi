@@ -71,11 +71,13 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.latch = h->mpads.rx;
         break;
 #endif
+#ifdef GEMIFI_XY_PAD_H              /* the config builds the component (gm_components.h) */
     case GM_HUB_XY:
         for (j = 0; j < 4; j++) f.sel[j] = h->xy.drive[j];
         f.data = h->xy.sense[0];
         f.clock = h->xy.sense[1];
         break;
+#endif
     default:
         break;
     }

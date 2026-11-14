@@ -57,7 +57,6 @@ Hubs are declared ESPHome style, one top-level list per chip, named like the ESP
 | `max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see "MAX7219, TM1637 and HT16K33") |
 | `tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see "MAX7219, TM1637 and HT16K33") |
 | `ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; the `i2c:` pins), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see "MAX7219, TM1637 and HT16K33") |
-| `ssd1306` | `GM_HUB_SSD1306` | I2C (`address`, default 0x3C; 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning; the `i2c:` pins); `model` (`ssd1306`, the default, or `sh1106`); `width` × `height` (128 × 64, the default; an SSD1306 also 128 × 32, 96 × 16, 64 × 48, 64 × 32); `contrast` (0–255, default 207); `rotate` (0 or 180). ESP only for now, as `mcp23017` | No pins: `text` displays draw on it (see "SSD1306 and SH1106 OLEDs") |
 
 A pin on a hub names the hub by its chip key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
 
@@ -164,24 +163,6 @@ displays:
       chars: [{ max7219: digits, number: 0 }, { max7219: digits, number: 8 }, { max7219: digits, number: 16 }] }
   - { id: text, type: segment7, shows: last_message,
       chars: [{ tm1637: clock, number: 0 }, { tm1637: clock, number: 8 }, { tm1637: clock, number: 16 }, { tm1637: clock, number: 24 }] }
-```
-
-### SSD1306 and SH1106 OLEDs
-
-The small I2C OLEDs (0.96" 128 × 64 and 0.91" 128 × 32 SSD1306 modules, 1.3" SH1106 ones) are `ssd1306` hubs, written from the main loop on the I2C bus (ESP only for now). The hub keeps a framebuffer in the hub RAM (width × height / 8 bytes: 1 KB for 128 × 64, and as much again for what the panel was sent), and `text` displays draw characters into it (see "Displays"). It has no pins.
-
-- **The first write** sets the panel up with the display off (clock, multiplex = height − 1, offset 0, start line 0; on an SSD1306 the charge pump on and page addressing, on an SH1106 its DC-DC on; segment remap and COM scan direction, reversed with `rotate: 180`; COM pins, `contrast`, pre-charge, VCOMH), writes every page (blank), then turns the display on, so nothing random shows.
-- **After that**, each pass sends one run of changed bytes: its page and column (three commands, each after a 0x80 control byte), then 0x40 and up to 16 data bytes, one write of at most 23 bytes (~0.55 ms at 400 kHz; the ESP Wire buffer is 128). A run is bigger than the shared 4-byte budget, so a pass sends one and nothing else on the bus, and not on the LED update's pass. A whole new line of 10 characters at scale 2 (240 bytes) takes 15 passes. Only changed bytes go out, so a CC value changing on a big display rewrites a few characters' columns.
-- **The SH1106** has 132 columns of RAM and shows 128 from column 2, and it only has page addressing: give `model: sh1106`. If the text is upside down, `rotate: 180`. If nothing shows, check the address: the module's 0x78 (as printed) is 0x3C, its 0x7A is 0x3D.
-- Untested on hardware. The writes aren't checked, as the other I2C hubs' aren't: a missing panel costs its bytes once per change.
-
-```yaml
-i2c: { sda: GPIO21, scl: GPIO22 }
-ssd1306:
-  - { id: oled, address: 0x3C }          # model: sh1106 for a 1.3" module
-displays:
-  - { id: oled_main, ssd1306: oled, line: 1, scale: 2, shows: last_message }   # 10 big characters
-  - { id: oled_channel, ssd1306: oled, line: 6, shows: channel }              # 21 small ones
 ```
 
 ### Full-colour LEDs
@@ -482,10 +463,10 @@ The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and 
 
 ## Displays
 
-A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...), or a row of text on an OLED. Up to 4 displays, of up to 16 characters each (a text display up to 21), one row each.
+A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...), or a row of text on a screen (`display:`, an OLED). Up to 4 displays, of up to 16 characters each (a text display up to 21), one row each.
 
-- **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. `text`: 5 × 7 characters on an `ssd1306` hub (below). Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
-- **Text displays** (`type: text`, the default when `ssd1306:` is given): `ssd1306:` the OLED's id, `line:` the text line its top is on (8 pixels a line from the top: 0–7 on a 64-pixel panel, 0–3 on a 32-pixel one), `x:` the pixel column it starts at (default 0), `scale:` 1–4 (default 1: each character 6 × 8 pixels with its gap, so 21 a row on 128 pixels; scale 2: 12 × 16 pixels, 2 lines tall, 10 a row), `length:` the characters (default as many as fit). Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share an OLED, one per line or side by side; the builder refuses ones that overlap. `chars:`, `segment_step:` and `segment_order:` are for segment displays only.
+- **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. `text`: 5 × 7 characters on a screen (below). Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
+- **Text displays** (`type: text`, the default when `display:` is given): `display:` the id of the screen it is on, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), `line:` the text line its top is on (8 pixels a line from the top: 0–7 on a 64-pixel panel, 0–3 on a 32-pixel one), `x:` the pixel column it starts at (default 0), `scale:` 1–4 (default 1: each character 6 × 8 pixels with its gap, so 21 a row on 128 pixels; scale 2: 12 × 16 pixels, 2 lines tall, 10 a row), `length:` the characters (default as many as fit). Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap. `chars:`, `segment_step:` and `segment_order:` are for segment displays only.
 - **Pins.** Each item of `chars:` is a character, left to right:
   - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
   - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
@@ -507,7 +488,7 @@ A display is a row of segment characters on output pins of hubs (a TM1628, MAX72
 - **From a host.** GET_COMPONENT lists each display (kind 6, by index in YAML order: its `id`, its role from `daw:`, the number of characters, one row, type characters), and FB_TEXT (`protocol/sysex.md` §4.6.2) writes to display n from a column, every character taking a place (a `.` too), clipped at the end of the row. The host's text covers the device's own, which carries on underneath. The device's own news (a message: a preset's name, `CH <n>`, a mode's name; or a program change it sent, `PC 23`) shows over it for 1.5 s (a long message until it has scrolled once), then the host's text is back; its plain MIDI (CCs, notes) doesn't. FB_RELEASE 0 or 3 hands every display back.
 - **Text.** `gm_display_text(d, "...")` sets display d's text; `gm_display_preset()` and `gm_display_channel()` give it the values (presets.c and the controller call them only when a display shows them).
 - **Timing.** MIDI messages are only recorded where they're sent (the main loop, keys too). The main loop formats them, steps scrolling text, and writes only the segments that changed, with the LED update (every 10 ms), and the hub's next send or flush puts them out.
-- **Generated code:** `GM_N_DISPLAYS`, `GM_DISPLAY_CHARS` (the widest display: the RAM is sized by it, 4 bytes a character a display), `GM_DISPLAY_SHOWS` and `GM_DISPLAY_TYPES` (bits of the `shows:` values and types used: only their code is built) and `GM_DISPLAY_MAP` in `gm_device_config.h`; `gm_displays[]` (`gm_display_t`: type, character count, first pins or the segment map, `shows`, and a text display's scale; its one "first pin" is the OLED hub and framebuffer byte it starts at, line × width + x) in `gm_device_config.c`.
+- **Generated code:** `GM_N_DISPLAYS`, `GM_DISPLAY_CHARS` (the widest display: the RAM is sized by it, 4 bytes a character a display), `GM_DISPLAY_SHOWS` and `GM_DISPLAY_TYPES` (bits of the `shows:` values and types used: only their code is built) and `GM_DISPLAY_MAP` in `gm_device_config.h`; `gm_displays[]` (`gm_display_t`: type, character count, first pins or the segment map, `shows`, and a text display's scale, its screen (`gm_screens[]`, [components/display](../components/display/README.md)) and the framebuffer byte it starts at, line × width + x) in `gm_device_config.c`.
 
 ```yaml
 displays:

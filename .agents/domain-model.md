@@ -80,7 +80,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 | Every pin used by the YAML exists on its MCU or hub, and two uses of one pin are allowed only with `allow_other_uses` on each | builder, `gemifi_device.py` pin resolution |
 | Only the drivers of hub types the device uses are linked | `GM_HUB_TYPES` bits + `USES()` in `core/src/vpin.c` `hub_ops[]` |
 | A bus (I2C) hub is never touched from the scan interrupt | `GM_HUBF_BUS`, `vpin_refresh_i2c` / `vpin_flush_i2c` called from the main loop only |
-| Text displays on one OLED never overlap | builder, displays validation |
+| Text displays on one screen never overlap | builder, `validate_text_display` |
 | No heap, no floating point, no libc beyond `<stdint.h>` in core | convention (`core/README.md`), the NUC120's 4 KB RAM / 32 KB flash |
 | A param id never changes meaning | convention, `core/src/settings.c` id list |
 
@@ -107,16 +107,17 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 
 - **Component:** one kind of part a device can have, in a folder of its own: its C code, its YAML
   (validation and generated C), its docs and its tests. A device builds only the components it uses.
-  A base component defines what the components on it implement (`hub`). Owner: `components/<name>/`
+  A base component defines what the components on it implement (`hub`, `display`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
-  device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`
-  and `ws2812`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
+  device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`,
+  `ws2812`, `display` and `ssd1306`; the other hub types are still in `core/src/vpin.c` and
+  `gemifi_device.py` (R5).
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named
-  after the chip (`sn74hc595:`, `mcp23017:`, `ws2812:`, `ssd1306:` ...). Most give pins (shift
-  registers, I/O expanders, multiplexers, decoders, switch matrices, XY pads, LED drivers, LED strips);
-  the `ssd1306` gives none and is drawn on. Owner: the `hub` base component (`components/hub/`:
+  after the chip (`sn74hc595:`, `mcp23017:`, `ws2812:` ...), that gives the device pins (shift
+  registers, I/O expanders, multiplexers, decoders, switch matrices, XY pads, LED drivers, LED strips).
+  Owner: the `hub` base component (`components/hub/`:
   `HubType`, `gm_hub.h`); `gm_hub_t` (config union, `gm_device.h`, extended by `GM_HUB_CONFIG_MEMBERS`),
   `gm_hub_state_t` (extended by `GM_HUB_STATE_MEMBERS`); each type in its component
   (`components/ws2812/`) or still in `core/src/vpin.c` and `gemifi_device.py` (`HUB_DEFS` holds both).
@@ -124,9 +125,15 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   `analog`, `rgb`, `refresh`, `flush`, `send`, `poll`). Owner: `gm_hub_ops_t` (`components/hub/gm_hub.h`),
   `hub_ops[]` in `vpin.c` (component types through `GM_HUB_OPS`). What the base gives its types: the
   hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`) and the full-colour output (`gm_hub_colour_out`).
+- **Screen (YAML `display:`):** a panel text displays draw on, declared ESPHome style as a `display:` item
+  on a platform: `display: [{ id: oled, platform: ssd1306, address: 0x3C }]`. Owner: the `display` base
+  component (`components/display/`: `ScreenType`, `gm_screen.h`, `screen.c`: the framebuffers, drawing,
+  sending within the bus budget) and each platform's component (`components/ssd1306/`: its config and
+  `gm_screen_ops_t`); `gm_screens[]` (generated), `GM_N_SCREENS`, `GM_SCREEN_RAM`, `dev.screens` in the
+  builder. In C it is a "screen" because `gm_display_t` is the line of text.
 - **Virtual pin (vpin):** the core's pin dispatch: a pin's read or write goes to the MCU or its hub's
   driver. Owner: `core/src/vpin.c`, `core/include/gm_vpin.h`.
-- **I2C bus:** the one I2C bus a device may have (`i2c: { sda, scl }`), shared by the I2C hubs.
+- **I2C bus:** the one I2C bus a device may have (`i2c: { sda, scl }`), shared by the I2C hubs and screens.
   Owner: `hal_i2c_write` / `hal_i2c_read` (`gm_hal.h`, no bus argument), `GM_I2C_SDA/SCL`.
 - **Scan:** reading inputs on a timer (`scan_interval`): the key matrix, switch matrices, encoders and
   scan hubs, in software or with timer + DMA (hardware scan). Owner: `gm_scan_tick`, `gm_scan_hw`
@@ -159,7 +166,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. Owner:
   `core/src/presets.c`.
 - **Display:** a line of characters the device shows text on: segment characters on hub output pins
-  (`segment14`, `segment7`) or text on an OLED (`text`). It shows its own content (`shows:`), the
+  (`segment14`, `segment7`) or text on a screen (`text`, `display: <id>`). It shows its own content (`shows:`), the
   device's messages, or a host's text. Owner: `gm_display_t`, `core/src/display.c`,
   `core/include/gm_display.h`.
 - **DAW role:** what a control or display is for to a DAW script (`daw: device_param_1`, `param`,
@@ -178,10 +185,13 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 
 ### Internals
 
-- **Hub RAM:** one byte array in `vpin.c` that RAM-backed hubs (LED drivers, the OLED framebuffer) take
+- **Hub RAM:** one byte array in `vpin.c` that RAM-backed hubs (LED drivers, LED strips) take
   their bytes from; its size is `GM_HUB_RAM`. Owner: `gm_hub_ram`, `gm_hub_ram_alloc` (`vpin.c`, declared in
   `components/hub/gm_hub.h`).
-- **Send budget:** the bus bytes the main loop lets hubs write per pass (4). Owner: `vpin_poll`.
+- **Send budget:** the bus bytes the main loop lets hubs, then screens, write per pass (4). Owner:
+  `vpin_poll` (returns what the hubs left), `gm_screen_send`.
+- **Screen RAM:** the screens' framebuffers and what each panel was sent, `GM_SCREEN_RAM` bytes each.
+  Owner: `components/display/screen.c`.
 - **Feature gates:** `GM_HUB_TYPES`, `GM_DISPLAY_TYPES`, `GM_DISPLAY_SHOWS` and other generated bits
   that compile unused code out. Owner: `gm_device_config.h`, `#if` in core.
 - **Main loop / scan tick:** the two contexts code runs in: `gm_poll` (main loop) and `gm_scan_tick`
@@ -194,4 +204,4 @@ device config, which the core runs on top of a platform. The scan reads pins, on
 hub's driver, and the controller turns the controls' changes into MIDI messages according to their
 params, the active preset and any mode or layer. A host talks to the device over the SysEx protocol to
 read and change params and presets or upload firmware, and sends feedback that lights LEDs and writes
-text on displays, which draw on hub output pins or on an OLED hub.
+text on displays, which draw on hub output pins or on a screen (`display:`).

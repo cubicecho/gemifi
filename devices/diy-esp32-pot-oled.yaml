@@ -27,8 +27,9 @@ scan_interval: 1ms
 
 i2c: { sda: GPIO25, scl: GPIO27 }
 
-ssd1306:
+display:
   - id: oled
+    platform: ssd1306
     address: 0x3C              # 0x78 on the board's silkscreen is the same address, 8-bit
     # model: sh1106            # for the 1.3" modules
     # rotate: 180              # if the text is upside down
@@ -41,6 +42,6 @@ analog:
 displays:
   # big: the last MIDI message ("7 127" as the pot turns) and the device's messages; with the
   # Zynthian driver, the parameter the pot moves ("Cut 64"), else the selected chain's name
-  - { id: oled_main, ssd1306: oled, line: 1, scale: 2, shows: last_message, daw: param }
+  - { id: oled_main, display: oled, line: 1, scale: 2, shows: last_message, daw: param }
   # small, along the bottom: the MIDI channel; with the Zynthian driver, the selected chain's name
-  - { id: oled_channel, ssd1306: oled, line: 6, shows: channel, daw: track_name }
+  - { id: oled_channel, display: oled, line: 6, shows: channel, daw: track_name }

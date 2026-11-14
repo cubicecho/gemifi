@@ -34,7 +34,8 @@
 # test_leds_many:  the same with 132 LEDs (leds-test.yaml + 74HC595 chains)
 # test_encoders:   encoder acceleration on fake time (encoders-test.yaml)
 # test_i2c:        MCP23017 / PCF8574 / HT16K33 hubs on a fake bus (i2c-test.yaml)
-# test_oled:       SSD1306 / SH1106 OLEDs with text displays on a fake bus (oled-test.yaml)
+# test_oled:       SSD1306 / SH1106 OLEDs with text displays on a fake bus
+#                  (components/ssd1306/test/)
 # test_msg:        the MIDI message kinds: 14-bit CC, (N)RPN, bank, panic,
 #                  MMC, SysEx, per-control channel / range (msg-test.yaml)
 # test_modes:      layers, cycles, hold modes and buttons: without a key
@@ -82,7 +83,7 @@ ENC_DEVICE := encoders-test.yaml
 ENC_DEV    := $(BUILD)/device-encoders
 I2C_DEVICE := i2c-test.yaml
 I2C_DEV    := $(BUILD)/device-i2c
-OLED_DEVICE := oled-test.yaml
+OLED_DEVICE := $(ROOT)/components/ssd1306/test/oled-test.yaml
 OLED_DEV    := $(BUILD)/device-oled
 MSG_DEVICE := msg-test.yaml
 MSG_DEV    := $(BUILD)/device-msg
@@ -228,7 +229,7 @@ LEDL_SRCS := test_leds.c $(CORE_SRCS) $(LEDL_DEV)/gm_device_config.c $(LEDL_DEV_
 LEDM_SRCS := test_leds.c $(CORE_SRCS) $(LEDM_DEV)/gm_device_config.c $(LEDM_DEV_COMP_SRCS)
 ENC_SRCS := test_encoders.c $(CORE_SRCS) $(ENC_DEV)/gm_device_config.c $(ENC_DEV_COMP_SRCS)
 I2C_SRCS := test_i2c.c $(CORE_SRCS) $(I2C_DEV)/gm_device_config.c $(I2C_DEV_COMP_SRCS)
-OLED_SRCS := test_oled.c $(CORE_SRCS) $(OLED_DEV)/gm_device_config.c $(OLED_DEV_COMP_SRCS)
+OLED_SRCS := $(ROOT)/components/ssd1306/test/test_oled.c $(CORE_SRCS) $(OLED_DEV)/gm_device_config.c $(OLED_DEV_COMP_SRCS)
 MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c $(MSG_DEV_COMP_SRCS)
 MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c $(MODES_DEV_COMP_SRCS)
 WS_SRCS := $(ROOT)/components/ws2812/test/test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c $(WS_DEV_COMP_SRCS)
@@ -346,7 +347,7 @@ $(BUILD)/test_i2c: $(I2C_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(I2C_DEV)/g
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(I2C_DEV) $(I2C_SRCS) -o $@
 
-$(BUILD)/test_oled: $(OLED_SRCS) $(wildcard $(ROOT)/core/include/*.h) $(OLED_DEV)/gm_device_config.h
+$(BUILD)/test_oled: $(OLED_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(OLED_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(OLED_DEV) $(OLED_SRCS) -o $@
 

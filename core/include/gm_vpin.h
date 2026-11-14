@@ -98,7 +98,7 @@ int32_t vpin_analog_peak(gm_pin_t p);
  * bit-banged ones (TM1628), a few bus bytes (about 50 us) per call; a big
  * change goes out over a few passes. busy: this pass already did a lot (an
  * LED update): only the polls, no bus bytes. */
-void vpin_poll(uint32_t now_ms, int busy);
+uint32_t vpin_poll(uint32_t now_ms, int busy);   /* returns the bus budget the hubs left (screens) */
 /* Everything that changed on the main-loop hubs, now (the lamp test). */
 void vpin_send_all(void);
 /* The same as vpin_send_all / vpin_poll's bus part, by their old names. */
@@ -108,13 +108,6 @@ void vpin_poll_tm1628(void);
  * is p, if p is the red pin of a full-colour LED (VPIN_RGB; on MAUDIO_PADS,
  * number LED * 3): 1, else 0 (the caller shows it with vpin_write). */
 int vpin_rgb(gm_pin_t p, uint32_t rgb);
-
-/* SSD1306 hubs (text displays, gm_display.h GM_DISPLAY_TEXT): draw n
- * columns of 8 pixels (bit 0 at the top) into the framebuffer of hub
- * at.hub from byte at.num (page * width + x), each pixel scale x scale
- * (1..4: scale pages tall). What falls off the screen is dropped; only
- * changed pages go out (vpin_poll). Main loop. */
-void vpin_oled_draw(gm_pin_t at, const uint8_t *cols, uint32_t n, uint32_t scale);
 
 /* TM1628 hubs with fade: (core/README.md "TM1628 LED drivers"): the chip
  * has one brightness (8 steps), so it shows the brightest of its LEDs.

@@ -37,7 +37,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | approved |
 | R6 | Refactor [pattern] | The controls move out of the controller into one component each, after a short design note on the state they share, keeping the scan's hot paths as fast. | M7 | R2 | deferred: after the display work is merged (2026-11-14) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | approved |
-| A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | approved |
+| A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | done |
 | D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | approved |
 
 ## Model changes

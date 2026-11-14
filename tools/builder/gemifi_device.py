@@ -692,70 +692,6 @@ class HT16K33(HubType):
         return [f"        .ht = {{ .addr = 0x{hub.addr:02X}, .brightness = {hub.intensity} }},"]
 
 
-# SSD1306 / SH1106 OLEDs on the I2C bus: a framebuffer (width x height / 8 bytes) in the hub RAM, no
-# pins; text displays (displays: type text) draw on it.
-OLED_MODELS = {"ssd1306": 0, "sh1106": 1}       # gm_device.h GM_OLED_SH1106
-OLED_SIZES = {"ssd1306": [(128, 64), (128, 32), (96, 16), (64, 48), (64, 32)], "sh1106": [(128, 64)]}
-OLED_8BIT = {0x78: 0x3C, 0x7A: 0x3D}           # the 8-bit write addresses printed on many modules
-
-
-class SSD1306(HubType):
-    """An SSD1306 or SH1106 OLED on the I2C bus, written from the main loop a run of changed bytes at a
-    time. No pins: text displays (displays: type text, ssd1306: <id>) draw on it. ESP only for now, as
-    the other I2C hubs."""
-    key, enum, num = "ssd1306", "GM_HUB_SSD1306", 15
-    keys = ("id", "address", "model", "width", "height", "contrast", "rotate")
-    roles = frozenset()
-    ram = True
-    i2c = True
-    schema = {"width": (64, 128), "height": (16, 64), "contrast": (0, 255)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        model = h.get("model", "ssd1306")
-        model = model.lower() if isinstance(model, str) else model
-        if model not in OLED_MODELS:
-            v.err(f"{p}.model", h.line_of("model"), f"unknown model '{h.raw_of('model')}' "
-                                                    f"(use {', '.join(OLED_MODELS)})")
-            model = "ssd1306"
-        hub.model = model
-        addr = v.integer(h, "address", p, 0x08, 0x7A, default=0x3C)
-        if addr in OLED_8BIT:
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is the 8-bit form (as printed on many "
-                                                         f"boards) of I2C address 0x{OLED_8BIT[addr]:02X}: using "
-                                                         f"0x{OLED_8BIT[addr]:02X} (write that to drop this warning)")
-            addr = OLED_8BIT[addr]
-        elif addr > 0x77:
-            v.err(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is reserved on I2C (an OLED is 0x3C or "
-                                                        "0x3D; 0x78 / 0x7A are those as 8-bit addresses)")
-        elif addr not in (0x3C, 0x3D):
-            v.warn(f"{p}.address", h.line_of("address"), f"0x{addr:02X} is unusual for an OLED (0x3C or 0x3D)")
-        hub.addr = addr
-        sizes = OLED_SIZES[model]
-        hub.width = v.integer(h, "width", p, 64, 128, default=sizes[0][0])
-        hub.height = v.integer(h, "height", p, 16, 64, default=sizes[0][1])
-        if (hub.width, hub.height) not in sizes:
-            v.err(p, h.line_of("height") or h.line_of("width") or line,
-                  f"{hub.width}x{hub.height}: a {model} is " + ", ".join(f"{w}x{ht}" for w, ht in sizes))
-            hub.width, hub.height = sizes[0]
-        hub.intensity = v.integer(h, "contrast", p, 0, 255, default=0xCF)
-        rot = h.get("rotate", 0)
-        if rot not in (0, 180):
-            v.err(f"{p}.rotate", h.line_of("rotate"), f"rotate: {h.raw_of('rotate')}: 0 or 180 (degrees)")
-            rot = 0
-        hub.rotate = rot
-        hub.ram_bytes = hub.width * hub.height // 8
-        hub.n_pins = 0
-
-    def range_text(self, hub):
-        return " (no pins: text displays draw on it, displays: type text)"
-
-    def c_fields(self, hub):
-        flags = " | ".join(f for f, on in (("GM_OLED_SH1106", hub.model == "sh1106"),
-                                          ("GM_OLED_ROTATE", hub.rotate == 180)) if on) or "0"
-        return [f"        .oled = {{ .addr = 0x{hub.addr:02X}, .width = {hub.width}, .height = {hub.height}, "
-                f".contrast = {hub.intensity}, .flags = {flags} }},"]
-
-
 # The hub types: the ones still defined here, and each component's HUB_TYPES, in GM_HUB_* order.
 _HUBS_HERE = (
     ShiftRegister("sn74hc595", "GM_HUB_HC595", 1, out=True),
@@ -764,8 +700,10 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
+# The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
+DISPLAY_PLATFORMS = {t.platform: t for t in sorted(components.display_platforms(), key=lambda t: t.num)}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # older names of a type (rgb_serial: maudio_pad_leds), as a list key and as a pin key
@@ -791,7 +729,7 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
             "status_led", "feedback", "mcu", *HUB_TYPES, *HUB_ALIAS,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "presets", "modes", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
+            "pad_settings", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_KEY_HUB]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
@@ -835,6 +773,8 @@ RENAMED_TOP = {
             "(chips: " + ", ".join(HUB_TYPES) + ")",
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
     "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
+    "ssd1306": "moved: an OLED is a display now, ESPHome style: `display: [{ id: oled, platform: ssd1306, "
+               "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)",
 }
 RENAMED_PIN = {
     "pin": "renamed: use `number:` (e.g. `{ number: PA1, inverted: true }`)",
@@ -1384,6 +1324,7 @@ class Device:
         self.null_rpn = False
         self.mmc_id = 0x7F
         self.hubs, self.buttons, self.leds, self.analogs, self.encoders = [], [], [], [], []
+        self.screens = []           # display: (components/display)
         self.matrix = None
         self.version = None
         self.boot_combo = []
@@ -1445,6 +1386,7 @@ class _V:
         self.board = None        # the board profile: its reserved pins join the platform check
         self.transport = None
         self.hub_by_id = {}
+        self.screen_by_id = {}
         self.presets = None      # the presets: mapping, once preset_slots has checked it
         self.mode_toggles = {}   # button index -> mode id, for the preset check
         self.mode_with_toggles = {}   # toggle: { button, with }: button index -> mode id (keeps its action)
@@ -2066,14 +2008,15 @@ def validate(data, file=None):
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
     resolve_switch_matrices(v, dev)
+    validate_screens(v, dev, data)
 
     # i2c
-    need_i2c = any(h.type in I2C_HUBS for h in dev.hubs)
+    on_i2c = [h for h in dev.hubs if h.type in I2C_HUBS] + [x for x in dev.screens if x.kind.i2c]
+    need_i2c = bool(on_i2c)
     if need_i2c and not plat.i2c:
-        for h in dev.hubs:
-            if h.type in I2C_HUBS:
-                v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
-                                      "the platform's hal_i2c_* are stubs)")
+        for h in on_i2c:
+            v.err(h.path, h.line, f"{h.type} isn't supported on {plat.name} yet (no I2C driver: "
+                                  "the platform's hal_i2c_* are stubs)")
         need_i2c = False        # don't also ask for the i2c: pins
     if "i2c" in data:
         i2c = v.mapping(data["i2c"], "i2c", data.line_of("i2c"), I2C_KEYS)
@@ -2083,18 +2026,18 @@ def validate(data, file=None):
             if sda and scl:
                 dev.i2c = (sda, scl)
             if not need_i2c:
-                v.warn("i2c", data.line_of("i2c"), "no I2C hub (mcp23017 / pcf8574 / ht16k33 / ssd1306) uses it")
+                v.warn("i2c", data.line_of("i2c"), "nothing uses it (no I2C hub: mcp23017 / pcf8574 / ht16k33, "
+                                                   "or display: ssd1306)")
     elif need_i2c:
-        first = next(h for h in dev.hubs if h.type in I2C_HUBS)
-        v.err("i2c", data.line, f"hub '{first.id}' ({first.type}) needs the I2C pins: "
+        first = on_i2c[0]
+        what = "display" if first in dev.screens else "hub"
+        v.err("i2c", data.line, f"{what} '{first.id}' ({first.type}) needs the I2C pins: "
                                 "add i2c: { sda: ..., scl: ... }")
     addrs = {}
-    for h in dev.hubs:
-        if h.type in I2C_HUBS:
-            if h.addr in addrs:
-                v.err(f"{h.path}.address", h.line, f"I2C address 0x{h.addr:02X} is already used by hub "
-                                                   f"'{addrs[h.addr]}'")
-            addrs[h.addr] = h.id
+    for h in on_i2c:
+        if h.addr in addrs:
+            v.err(f"{h.path}.address", h.line, f"I2C address 0x{h.addr:02X} is already used by {addrs[h.addr]}")
+        addrs[h.addr] = f"{'display' if h in dev.screens else 'hub'} '{h.id}'"
     stbs = {}
     for h in dev.hubs:
         if h.type in TM_HUBS and h.latch.hub == 0:
@@ -3168,6 +3111,38 @@ def button_number(v, dev, d, p, act, base=None):
     return v.integer(d, want, p, lo, hi, default=0)
 
 
+def validate_screens(v, dev, data):
+    """display: the screens (components/display), each on a platform (components/<platform>), that text
+    displays (displays:, `display: <id>`) draw on."""
+    if "display" not in data:
+        return
+    lst = v.seq(data["display"], "display", data.line_of("display"))
+    for i, d in enumerate(lst):
+        p = f"display[{i}]"
+        if not isinstance(d, dict):
+            v.err(p, lst.line_of(i), f"must be a mapping, e.g. {{ id: oled, platform: ssd1306 }} (got {type_name(d)})")
+            continue
+        plat = d.get("platform")
+        kind = DISPLAY_PLATFORMS.get(plat) if isinstance(plat, str) else None
+        if kind is None:
+            what = f"unknown platform '{plat}'" if plat is not None else "platform: is required"
+            v.err(f"{p}.platform", d.line_of("platform") or d.line, f"{what} (use {', '.join(DISPLAY_PLATFORMS)})")
+            continue
+        v.mapping(d, p, lst.line_of(i), kind.keys)
+        index = len(dev.screens)
+        sid = v.ident(d, p, "display", index, allow_name=False)
+        scr = Hub(id=sid or f"#{index}", type=plat, kind=kind, index=index, path=p, line=d.line, used=False,
+                  addr=0, width=0, height=0)
+        kind.validate(v, dev, scr, d, p)
+        if sid is not None:
+            if sid in v.hub_by_id:
+                v.err(f"{p}.id", d.line_of("id"), f"'{sid}' is already a hub's id")
+            v.screen_by_id[sid] = scr
+        dev.screens.append(scr)
+    if len(dev.screens) > 8:
+        v.err("display", data.line_of("display"), f"{len(dev.screens)} displays: at most 8")
+
+
 def validate_hub(v, dev, h, typ, p, line):
     index = len(dev.hubs)
     if not isinstance(h, dict):
@@ -3674,8 +3649,10 @@ def validate_pads(v, dev, data):
 
 
 DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
-                "ssd1306", "line", "x", "scale", "length"]
-TEXT_KEYS = {"ssd1306", "line", "x", "scale", "length"}         # type text only
+                "display", "line", "x", "scale", "length"]
+TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
+RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
+                              "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)"}
 SEGMENT_KEYS = {"chars", "segment_step", "segment_order"}      # segment types only
 # gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
 DISPLAY_TYPES = {"segment14": 1, "segment7": 2, "text": 3}
@@ -3703,11 +3680,13 @@ def validate_displays(v, dev, data):
     lst = v.seq(data.get("displays"), "displays", data.line_of("displays"))
     for i, d in enumerate(lst):
         p = f"displays[{i}]"
-        d = v.mapping(d, p, lst.line_of(i), DISPLAY_KEYS, renamed=RENAMED_ID)
+        d = v.mapping(d, p, lst.line_of(i), DISPLAY_KEYS, renamed={**RENAMED_ID, **RENAMED_DISPLAY})
         if d is None:
             continue
+        if "ssd1306" in d:
+            continue                # refused above (RENAMED_DISPLAY), with the new form
         ident = v.ident(d, p, "display", len(dev.displays))
-        typ = d.get("type", "text" if d.get("ssd1306") is not None else "segment14")
+        typ = d.get("type", "text" if d.get("display") is not None else "segment14")
         if typ not in DISPLAY_TYPES:
             v.err(f"{p}.type", d.line_of("type"), f"unknown display type '{typ}' (use {', '.join(DISPLAY_TYPES)})")
             continue
@@ -3724,7 +3703,7 @@ def validate_displays(v, dev, data):
         if wrong:
             v.err(f"{p}.{wrong[0]}", d.line_of(wrong[0]),
                   f"{', '.join(wrong)}: only for " + ("segment displays (a text display is placed with "
-                                                      "ssd1306:, line:, x: and scale:)" if t == DISPLAY_TEXT
+                                                      "display:, line:, x: and scale:)" if t == DISPLAY_TEXT
                                                       else "text displays (type: text)"))
             continue
         if t == DISPLAY_TEXT:
@@ -3796,48 +3775,48 @@ def validate_displays(v, dev, data):
 
 
 def validate_text_display(v, dev, d, p):
-    """A text display (type: text): one row of 5x7 characters on an ssd1306 hub, from pixel x of text
-    line `line` (8 pixels a line, from the top), each character 6 x scale pixels wide and `scale` lines
-    tall. Returns the display's fields, or None after an error."""
-    if d.get("ssd1306") is None:
-        v.err(p, d.line, "a text display needs ssd1306: the id of the OLED (an ssd1306: hub) it is on")
+    """A text display (type: text): one row of 5x7 characters on a screen (display: <id>), from pixel x of
+    text line `line` (8 pixels a line, from the top), each character 6 x scale pixels wide and `scale`
+    lines tall. Returns the display's fields, or None after an error."""
+    if d.get("display") is None:
+        v.err(p, d.line, "a text display needs display: the id of the screen it is on (a display: item, "
+                         "e.g. { id: oled, platform: ssd1306 })")
         return None
-    hid = d["ssd1306"]
-    hub = v.hub_by_id.get(hid) if isinstance(hid, str) else None
-    if hub is None or hub.type != "ssd1306":
-        known = [x.id for x in dev.hubs if x.type == "ssd1306"]
-        what = f"'{hid}' is a {hub.type} hub" if hub is not None else f"no ssd1306 hub with id '{hid}'"
-        v.err(f"{p}.ssd1306", d.line_of("ssd1306"), f"{what} (ssd1306: {', '.join(known) or 'none'})")
+    sid = d["display"]
+    scr = v.screen_by_id.get(sid) if isinstance(sid, str) else None
+    if scr is None:
+        known = [x.id for x in dev.screens]
+        v.err(f"{p}.display", d.line_of("display"), f"no display with id '{sid}' (display: {', '.join(known) or 'none'})")
         return None
-    hub.used = True
-    lines = hub.height // TEXT_H
+    scr.used = True
+    lines = scr.height // TEXT_H
     scale = v.integer(d, "scale", p, 1, 4, default=1)
     line = v.integer(d, "line", p, 0, lines - 1, default=0)
-    x = v.integer(d, "x", p, 0, hub.width - 1, default=0)
+    x = v.integer(d, "x", p, 0, scr.width - 1, default=0)
     if line + scale > lines:
         v.err(f"{p}.line", d.line_of("line") or d.line,
               f"line {line} at scale {scale} is {scale} line{'s' if scale > 1 else ''} tall: "
-              f"'{hub.id}' has lines 0..{lines - 1} ({hub.height} pixels, 8 a line)")
+              f"'{scr.id}' has lines 0..{lines - 1} ({scr.height} pixels, 8 a line)")
         return None
-    room = (hub.width - x) // (TEXT_W * scale)
+    room = (scr.width - x) // (TEXT_W * scale)
     if room < 1:
         v.err(f"{p}.x", d.line_of("x"), f"no room for a character from x {x} at scale {scale} "
-                                        f"({TEXT_W * scale} pixels; '{hub.id}' is {hub.width} wide)")
+                                        f"({TEXT_W * scale} pixels; '{scr.id}' is {scr.width} wide)")
         return None
     n = v.integer(d, "length", p, 1, MAX_TEXT_CHARS, default=min(room, MAX_TEXT_CHARS))
     if n > room:
         v.err(f"{p}.length", d.line_of("length"), f"{n} characters at scale {scale} from x {x} are "
-                                                  f"{n * TEXT_W * scale} pixels: '{hub.id}' has room for {room}")
+                                                  f"{n * TEXT_W * scale} pixels: '{scr.id}' has room for {room}")
         return None
     rect = (x, line, x + n * TEXT_W * scale, line + scale)
     for o in dev.displays:
-        if o.type == DISPLAY_TEXT and o.hub_index == hub.index and \
+        if o.type == DISPLAY_TEXT and o.screen == scr.index and \
                 rect[0] < o.rect[2] and o.rect[0] < rect[2] and rect[1] < o.rect[3] and o.rect[1] < rect[3]:
-            v.err(p, d.line, f"overlaps display '{o.id}' on '{hub.id}' (lines {o.rect[1]}..{o.rect[3] - 1}, "
+            v.err(p, d.line, f"overlaps display '{o.id}' on '{scr.id}' (lines {o.rect[1]}..{o.rect[3] - 1}, "
                              f"pixels {o.rect[0]}..{o.rect[2] - 1})")
             return None
-    at = Pin(hub.index + 1, 0, line * hub.width + x, f"{hub.id} line {line} x {x}")
-    return dict(chars=[at], segs=None, n=n, scale=scale, hub_index=hub.index, rect=rect)
+    return dict(chars=None, segs=None, n=n, scale=scale, screen=scr.index, at=line * scr.width + x,
+                at_desc=f"{scr.id} line {line} x {x}", rect=rect)
 
 
 def segment_order(v, d, p, t):
@@ -3905,6 +3884,29 @@ def display_defines(dev):
     return h
 
 
+def screen_defines(dev):
+    """gm_device_config.h: the screens (display:) and their framebuffers' bytes (components/display)."""
+    if not dev.screens:
+        return []
+    ram = sum(x.width * x.height // 8 for x in dev.screens)
+    return [f"#define GM_N_SCREENS {len(dev.screens)} /* display: (components/display) */",
+            f"#define GM_SCREEN_RAM {ram} /* their framebuffers' bytes (screen.c, twice: drawn and sent) */"]
+
+
+def screen_tables(dev):
+    """gm_screens[] (components/display/gm_screen.h gm_screen_t); nothing without screens."""
+    if not dev.screens:
+        return []
+    c = ['#include "gm_screen.h"', "const gm_screen_t gm_screens[GM_N_SCREENS] = {"]
+    for x in dev.screens:
+        c.append(f"    {{ /* {_comment(x.id)} */")
+        c.append(f"        .type = {x.kind.enum}, .width = {x.width}, .height = {x.height},")
+        c += x.kind.c_fields(x)
+        c.append("    },")
+    c += ["};", ""]
+    return c
+
+
 def display_tables(dev):
     """gm_displays[] (gm_display.h gm_display_t); nothing without displays."""
     if not dev.displays:
@@ -3918,14 +3920,18 @@ def display_tables(dev):
                 c.append(f"    /* character {k} */")
                 c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in run]
             c.append("};")
-        else:
+        elif x.chars is not None:
             c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
             c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
             c.append("};")
     c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
     for i, x in enumerate(dev.displays):
+        if x.type == DISPLAY_TEXT:
+            c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, 0, 0, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, {x.screen}, "
+                     f"{x.at} }}, /* {_comment(x.id)}: {_comment(x.at_desc)} */")
+            continue
         where = f"0, display_{i}_map" if x.segs is not None else f"display_{i}_chars, 0"
-        c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, {where}, {DISPLAY_SHOWS_C[x.shows]}, {x.scale} }}, "
+        c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, {where}, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, 0, 0 }}, "
                  f"/* {_comment(x.id)} */")
     c += ["};", ""]
     return c
@@ -5873,6 +5879,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_VEL_FAST_DEFAULT {m.vel_fast} /* {m.vel_fast / 10:g} ms */")
     if m and getattr(m, "vel_slow", None) is not None:
         h.append(f"#define GM_VEL_SLOW_DEFAULT {m.vel_slow} /* {m.vel_slow / 10:g} ms */")
+    h += screen_defines(dev)
     if dev.i2c:
         h += [f"#define GM_I2C_SDA {dev.i2c[0].num} /* {dev.i2c[0].desc} */",
               f"#define GM_I2C_SCL {dev.i2c[1].num} /* {dev.i2c[1].desc} */"]
@@ -6015,6 +6022,7 @@ def generate(dev, source="device.yaml"):
     c += preset_tables(dev)
     c += mode_tables(dev)
     c += pad_tables(dev)
+    c += screen_tables(dev)
     c += display_tables(dev)
     c += layout_tables(dev)
     c += label_tables(dev)
@@ -6389,7 +6397,7 @@ def preset_tables(dev):
 def component_lists(dev, source):
     """gm_components.mk / gm_components.cmake: the components the device builds, their C sources and include
     dirs, under the repo root (GM_ROOT, set by the Makefile or CMakeLists that includes them)."""
-    used = components.used(sorted({h.kind.key for h in dev.hubs}))
+    used = components.used(sorted({h.kind.key for h in dev.hubs}), sorted({x.type for x in dev.screens}))
     srcs = [s for name in used for s in components.sources(name)]
     incs = [f"components/{name}" for name in used if components.has_headers(name)]
     head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"
@@ -6410,25 +6418,31 @@ def component_header(dev, source):
     """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
     code is in components/ (HubType.c_header), and what they add to the hub base: GM_HUB_CONFIG_MEMBERS
     (gm_hub_t's union), GM_HUB_STATE_MEMBERS (gm_hub_state_t's), GM_HUB_OPS_EXTERNS and GM_HUB_OPS
-    (core/src/vpin.c hub_ops[])."""
+    (core/src/vpin.c hub_ops[]); and what its screens' platforms add to the display base
+    (components/display/gm_screen.h): GM_SCREEN_CONFIG_MEMBERS, GM_SCREEN_OPS_EXTERNS and GM_SCREEN_OPS."""
     kinds = sorted({h.kind.key: h.kind for h in dev.hubs if h.kind.c_header}.values(), key=lambda t: (t.num, t.key))
     by_enum = {}
     for t in kinds:
         by_enum.setdefault(t.enum, t)       # types sharing an enum share their C parts
     parts = list(by_enum.values())
-    headers = list(dict.fromkeys(t.c_header for t in parts))
+    screens = sorted({x.kind.platform: x.kind for x in dev.screens}.values(), key=lambda t: t.num)
+    headers = list(dict.fromkeys([t.c_header for t in parts] + [t.c_header for t in screens]))
 
     def macro(name, items):
         return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
     lines = [f"/* gm_components.h: do not edit; generated from {_comment(source)}",
              " * by tools/builder/gemifi_build.py. The C side of the components this device builds:",
-             " * their headers, and what they add to the hub base (components/hub/gm_hub.h). */",
+             " * their headers, and what they add to the hub base (components/hub/gm_hub.h) and the",
+             " * display base (components/display/gm_screen.h). */",
              "#ifndef GM_COMPONENTS_H", "#define GM_COMPONENTS_H", "",
              *[f'#include "{h}"' for h in headers], *([""] if headers else []),
              macro("GM_HUB_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in parts]),
              macro("GM_HUB_STATE_MEMBERS", [f"{t.c_state[0]} {t.c_state[1]};" for t in parts if t.c_state]),
              macro("GM_HUB_OPS_EXTERNS", [f"extern const gm_hub_ops_t {t.c_ops};" for t in parts]),
              macro("GM_HUB_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in parts]),
+             macro("GM_SCREEN_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in screens]),
+             macro("GM_SCREEN_OPS_EXTERNS", [f"extern const gm_screen_ops_t {t.c_ops};" for t in screens]),
+             macro("GM_SCREEN_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in screens]),
              "", "#endif", ""]
     return {"gm_components.h": "\n".join(lines)}
 

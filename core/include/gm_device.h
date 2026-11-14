@@ -29,8 +29,10 @@ extern "C" {
 #endif
 
 /* ---- hubs (pin expanders) ---------------------------------------------
- * A hub is its type (which driver runs it: core/src/vpin.c, gm_hub.h) and
- * that type's config, the gm_hub_t union member named with each below. */
+ * A hub is its type (which driver runs it: gm_hub.h; its component,
+ * components/<key>/, or core/src/vpin.c) and that type's config, the
+ * gm_hub_t union member named with each below (a component's own comes in
+ * through GM_HUB_CONFIG_MEMBERS). */
 enum {
     GM_HUB_HC595 = 1,     /* serial-in shift register: outputs (.sr)      */
     GM_HUB_HC165 = 2,     /* parallel-in shift register: inputs (.sr)     */
@@ -144,19 +146,6 @@ typedef struct {
     uint16_t touch_min, touch_max;
 } gm_hub_xy_t;
 
-/* .mx: a chain of MAX7219 LED drivers (MAX7221 too), bit-banged from the
- * main loop: outputs, pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
- * 7 = DP; digit 0 = DIG0). Chip 0 is the one whose DIN is the MCU's. The
- * chips' own decode is off: the core sends segments. */
-typedef struct {
-    gm_pin_t clk;
-    gm_pin_t din;
-    gm_pin_t cs;          /* LOAD / CS: the words are taken on its rising edge */
-    uint8_t chips;        /* in the chain, 1..8                            */
-    uint8_t intensity;    /* 0..15 (register 0x0A)                         */
-    uint8_t scan_limit;   /* digits scanned, 1..8 (register 0x0B: it - 1)  */
-} gm_hub_max7219_t;
-
 /* .tm37: a TM1637 (2-wire: CLK, DIO, no chip select; one chip per pair),
  * bit-banged from the main loop: outputs, pin = grid * 8 + segment (bit 0
  * = SEG1 = a ... bit 7 = SEG8, the point or colon). */
@@ -200,7 +189,6 @@ typedef struct {
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
         gm_hub_maudio_pads_t mpads; /* GM_HUB_MAUDIO_PADS */
         gm_hub_xy_t xy;           /* GM_HUB_XY */
-        gm_hub_max7219_t mx;      /* GM_HUB_MAX7219 */
         gm_hub_tm1637_t tm37;     /* GM_HUB_TM1637 */
         gm_hub_ht16k33_t ht;      /* GM_HUB_HT16K33 */
         gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */

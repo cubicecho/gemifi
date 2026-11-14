@@ -140,5 +140,14 @@ uint16_t gm_hub_ram_alloc(uint32_t n);
  * value v of a full-colour hub: through its curve (gamma:), then scaled to
  * its white (white:, 0 = 255). A value above 0 stays above 0. */
 uint8_t gm_hub_colour_out(const uint8_t *curve, const uint8_t *white, uint32_t c, uint32_t v);
+/* The LED drivers with a bit per pin in the hub RAM (u.seg): n bytes,
+ * all off and written whole on the first send (init); pin num = RAM bit,
+ * byte * 8 + bit, of `bytes` bytes, marking the chip dirty if it changed
+ * (write). */
+void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n);
+void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level);
+/* An MCU pin (hub 0) as a hub's control line: driven to level, open-drain
+ * with GM_PIN_OPEN_DRAIN. A hub pin is left alone. */
+void gm_hub_mcu_out(gm_pin_t p, int level);
 
 #endif

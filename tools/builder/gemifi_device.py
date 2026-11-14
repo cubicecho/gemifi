@@ -334,9 +334,9 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # { sn74hc595: leds, number: 3 }. ESPHome's pin key for the MCP23017 is mcp23xxx.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
-# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. To add
-# a type: a subclass here, an instance in HUB_DEFS, and its driver in core/src/vpin.c (core/README.md
-# "Adding a hub type").
+# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
+# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type"); the ones
+# below are still here and in core/src/vpin.c.
 class ShiftRegister(HubType):
     """74HC595 (outputs) / 74HC165 (inputs): sr_count chips in a chain, 8 pins each."""
     lines = {"clock_pin": "clock", "latch_pin": "latch", "load_pin": "latch", "data_pin": "data", "oe_pin": "enable"}
@@ -601,41 +601,6 @@ class XYPad(HubType):
                 f".touch_min = {hub.touch_min}, .touch_max = {hub.touch_max} }},"]
 
 
-# MAX7219 / MAX7221 LED drivers in a chain: pin = chip * 64 + digit * 8 + segment (0..6 = A..G,
-# 7 = DP), so a 7-segment character is its digit's 8 pins (displays: type segment7).
-MAX7219_CHIPS = 8
-
-
-class MAX7219(HubType):
-    """A chain of MAX7219 LED drivers (ESPHome max7219 keys), bit-banged from the main loop."""
-    key, enum, num = "max7219", "GM_HUB_MAX7219", 12
-    keys = ("id", "clk_pin", "din_pin", "cs_pin", "num_chips", "intensity", "scan_limit")
-    # chains may share CLK and DIN, each with its own CS
-    lines = {"clk_pin": "mx_clk", "din_pin": "mx_din", "cs_pin": "mx_cs"}
-    roles = frozenset({"out"})
-    ram = True
-    schema = {"num_chips": (1, MAX7219_CHIPS), "intensity": (0, 15), "scan_limit": (1, 8)}
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "num_chips", p, 1, MAX7219_CHIPS, default=1)
-        hub.n_pins = 64 * hub.chain
-        hub.ram_bytes = 8 * hub.chain                    # a digit register per byte
-        hub.intensity = v.integer(h, "intensity", p, 0, 15, default=15)
-        hub.grids = v.integer(h, "scan_limit", p, 1, 8, default=8)
-        hub.clock = ctl("clk_pin", "out")
-        hub.data = ctl("din_pin", "out")
-        hub.latch = ctl("cs_pin", "out")
-
-    def range_text(self, hub):
-        return (f" ({hub.chain} chip{'s' if hub.chain > 1 else ''} x 8 digits x 8; pin = chip * 64 + "
-                "digit * 8 + segment, 0..6 = A..G, 7 = DP)")
-
-    def c_fields(self, hub):
-        return [f"        .mx = {{ .clk = {hub.clock.c()}, .din = {hub.data.c()}, .cs = {hub.latch.c()},",
-                f"                .chips = {hub.chain}, .intensity = {hub.intensity}, "
-                f".scan_limit = {hub.grids} }},"]
-
-
 class TM1637(HubType):
     """A TM1637 LED driver (2-wire, ESPHome tm1637 keys), bit-banged from the main loop: pin = grid * 8
     + segment (bit 0 = SEG1 = a ... bit 7 = SEG8)."""
@@ -764,7 +729,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), MAX7219(), TM1637(), HT16K33(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), TM1637(), HT16K33(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)

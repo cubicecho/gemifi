@@ -109,8 +109,8 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   (validation and generated C), its docs and its tests. A device builds only the components it uses.
   A base component defines what the components on it implement (`hub`). Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
-  device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`
-  and `ws2812`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
+  device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. So far `hub`,
+  `ws2812` and `max7219`; the other hub types are still in `core/src/vpin.c` and `gemifi_device.py` (R5).
 - **Pin:** one input or output line: an MCU pin, or a pin of a hub. Owner: `gm_pin_t`
   (`core/include/gm_pin.h`: `hub`, `flags`, `num`).
 - **Hub (expander, chip):** a chip on the board, beyond the MCU, declared as a top-level YAML list named
@@ -119,11 +119,12 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   the `ssd1306` gives none and is drawn on. Owner: the `hub` base component (`components/hub/`:
   `HubType`, `gm_hub.h`); `gm_hub_t` (config union, `gm_device.h`, extended by `GM_HUB_CONFIG_MEMBERS`),
   `gm_hub_state_t` (extended by `GM_HUB_STATE_MEMBERS`); each type in its component
-  (`components/ws2812/`) or still in `core/src/vpin.c` and `gemifi_device.py` (`HUB_DEFS` holds both).
+  (`components/<key>/`) or still in `core/src/vpin.c` and `gemifi_device.py` (`HUB_DEFS` holds both).
 - **Hub driver:** the code for one hub type behind the hub ops interface (`init`, `read`, `write`,
   `analog`, `rgb`, `refresh`, `flush`, `send`, `poll`). Owner: `gm_hub_ops_t` (`components/hub/gm_hub.h`),
   `hub_ops[]` in `vpin.c` (component types through `GM_HUB_OPS`). What the base gives its types: the
-  hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`) and the full-colour output (`gm_hub_colour_out`).
+  hub RAM (`gm_hub_ram`, `gm_hub_ram_alloc`), the LED drivers' bit pins in it (`gm_hub_ledram_*`), the
+  full-colour output (`gm_hub_colour_out`) and control-pin output (`gm_hub_mcu_out`).
 - **Virtual pin (vpin):** the core's pin dispatch: a pin's read or write goes to the MCU or its hub's
   driver. Owner: `core/src/vpin.c`, `core/include/gm_vpin.h`.
 - **I2C bus:** the one I2C bus a device may have (`i2c: { sda, scl }`), shared by the I2C hubs.

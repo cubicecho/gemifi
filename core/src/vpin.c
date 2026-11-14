@@ -209,7 +209,7 @@ uint32_t vpin_pin_caps(gm_pin_t p)
     return h ? type_caps(h->type) : 0;
 }
 
-static void mcu_out(gm_pin_t p, int level)
+void gm_hub_mcu_out(gm_pin_t p, int level)
 {
     if (p.hub == 0) {
         hal_pin_write(p.num, level);    /* first too: no glitch where it can */
@@ -484,10 +484,10 @@ static void pulse(uint16_t pin)
 static void hc595_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
-    mcu_out(h->sr.data, 0);
-    mcu_out(h->sr.clock, 0);
-    mcu_out(h->sr.latch, 0);
-    mcu_out(h->sr.oe, 0);
+    gm_hub_mcu_out(h->sr.data, 0);
+    gm_hub_mcu_out(h->sr.clock, 0);
+    gm_hub_mcu_out(h->sr.latch, 0);
+    gm_hub_mcu_out(h->sr.oe, 0);
 }
 
 static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
@@ -512,8 +512,8 @@ static void hc595_flush(const gm_hub_t *h, hub_state_t *s)
 static void hc165_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
-    mcu_out(h->sr.clock, 0);
-    mcu_out(h->sr.latch, 1);
+    gm_hub_mcu_out(h->sr.clock, 0);
+    gm_hub_mcu_out(h->sr.latch, 1);
     if (h->sr.data.hub == 0)
         hal_pin_mode(h->sr.data.num, HAL_IN);
 }
@@ -552,8 +552,8 @@ static void xy_drive(const gm_hub_t *h, uint32_t axis)
     for (uint32_t k = 0; k < 2; k++)
         if (oth[k].hub == 0)
             hal_pin_mode(oth[k].num, oth[k].num == sense.num ? HAL_ANALOG : HAL_IN);
-    mcu_out(drv[0], 1);
-    mcu_out(drv[1], 0);
+    gm_hub_mcu_out(drv[0], 1);
+    gm_hub_mcu_out(drv[1], 0);
 }
 
 static void xy_init(const gm_hub_t *h, hub_state_t *s)
@@ -639,8 +639,8 @@ static void mux_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)s;
     for (uint32_t k = 0; k < h->mux.n_sel && k < 4; k++)
-        mcu_out(h->mux.sel[k], 0);
-    mcu_out(h->mux.enable, 0);
+        gm_hub_mcu_out(h->mux.sel[k], 0);
+    gm_hub_mcu_out(h->mux.enable, 0);
     mcu_in(h->mux.common);
     uint32_t i = (uint32_t)(s - hs);
     mux_same[i] = mux_some[i] = 0;
@@ -703,9 +703,9 @@ static int32_t mux_analog(const gm_hub_t *h, hub_state_t *s, uint32_t ch)
 static void decoder_init(const gm_hub_t *h, hub_state_t *s)
 {
     for (uint32_t k = 0; k < h->dec.n_addr && k < 4; k++)
-        mcu_out(h->dec.addr[k], 0);
+        gm_hub_mcu_out(h->dec.addr[k], 0);
     for (uint32_t k = 0; k < h->dec.n_en && k < 3; k++)
-        mcu_out(h->dec.en[k], 0);
+        gm_hub_mcu_out(h->dec.en[k], 0);
     dec_fast_init((uint32_t)(s - hs), h);
 }
 
@@ -1406,9 +1406,9 @@ static void tm1628_init(const gm_hub_t *h, hub_state_t *s)
 {
     /* Idle: STB, CLK and DIO high. RAM all off, written on the first send
      * (s->never: the whole RAM). */
-    mcu_out(h->tm.stb, 1);
-    mcu_out(h->tm.clk, 1);
-    mcu_out(h->tm.dio, 1);
+    gm_hub_mcu_out(h->tm.stb, 1);
+    gm_hub_mcu_out(h->tm.clk, 1);
+    gm_hub_mcu_out(h->tm.dio, 1);
     s->ram = gm_hub_ram_alloc(h->tm.ram_bytes);
     s->u.tm.dirty = 1;
     for (uint32_t k = 0; k < h->tm.ram_bytes && s->ram + k < GM_HUB_RAM; k++)
@@ -1683,11 +1683,12 @@ static void mpads_poll(const gm_hub_t *h, hub_state_t *s, uint32_t now_ms)
     }
 }
 
-/* ---- RAM-backed LED drivers: MAX7219, TM1637, HT16K33 (main loop) ----- */
+/* ---- RAM-backed LED drivers: TM1637, HT16K33 (main loop) -------------- */
 
-/* Pin num = RAM bit, byte * 8 + bit, of `bytes` bytes; marks the chip
- * dirty if it changed. */
-static void ledram_write(hub_state_t *s, uint32_t bytes, uint32_t num, int level)
+/* The pins of an LED driver with a bit per pin in the hub RAM (MAX7219:
+ * components/max7219, TM1637, HT16K33; gm_hub.h). Pin num = RAM bit,
+ * byte * 8 + bit, of `bytes` bytes; marks the chip dirty if it changed. */
+void gm_hub_ledram_write(gm_hub_state_t *s, uint32_t bytes, uint32_t num, int level)
 {
     uint32_t k = num >> 3u;
     if (k >= bytes || s->ram + k >= GM_HUB_RAM)
@@ -1701,133 +1702,12 @@ static void ledram_write(hub_state_t *s, uint32_t bytes, uint32_t num, int level
 }
 
 /* n bytes of the hub RAM, all off, written whole on the first send. */
-static void ledram_init(hub_state_t *s, uint32_t n)
+void gm_hub_ledram_init(gm_hub_state_t *s, uint32_t n)
 {
     s->ram = gm_hub_ram_alloc(n);
     s->u.seg.dirty = 1;
     for (uint32_t k = 0; k < n && s->ram + k < GM_HUB_RAM; k++)
         gm_hub_ram[s->ram + k] = 0;
-}
-
-/* A bus phase: n hal_cycles() (hal_ns_to_cycles), or 1 us without a
- * cycle counter (n = 0). */
-static void bus_wait(uint32_t n)
-{
-    if (!n) {
-        hal_delay_us(1);
-        return;
-    }
-    uint32_t t = hal_cycles();
-    while (hal_cycles() - t < n) {
-    }
-}
-
-/* MAX7219: a 16-bit word per chip, MSB first, DIN taken on the CLK rising
- * edge; the chain's words are taken on CS rising, the last chip's sent
- * first. Datasheet: CLK <= 10 MHz, CLK high / low >= 50 ns, DIN setup 25 ns,
- * CS high >= 50 ns. Each phase waits MX_PHASE_NS on hal_cycles() where
- * there is a counter (a word ~8 us at 72 MHz; a frame, one register in
- * every chip, counts 2 a chip against the budget); without one, 1 us (a
- * word ~35 us: the ESP and NUC builds). */
-#ifndef MX_PHASE_NS
-#define MX_PHASE_NS 100u
-#endif
-#define MX_DECODE 0x09u
-#define MX_INTENSITY 0x0Au
-#define MX_SCAN_LIMIT 0x0Bu
-#define MX_SHUTDOWN 0x0Cu
-#define MX_TEST 0x0Fu
-
-/* RAM byte (segments A..G = bits 0..6, DP bit 7) -> digit register (DP D7,
- * A D6 ... G D0). */
-static uint32_t mx_bits(uint32_t v)
-{
-    uint32_t r = v & 0x80u;
-    for (uint32_t s = 0; s < 7u; s++)
-        if ((v >> s) & 1u)
-            r |= 0x40u >> s;
-    return r;
-}
-
-static void mx_word(const gm_hub_t *h, uint32_t w, uint32_t ph)
-{
-    for (uint32_t b = 16; b-- > 0;) {
-        hal_pin_write(h->mx.din.num, (int)((w >> b) & 1u));
-        bus_wait(ph);
-        hal_pin_write(h->mx.clk.num, 1);
-        bus_wait(ph);
-        hal_pin_write(h->mx.clk.num, 0);
-    }
-}
-
-/* Register reg of every chip: digit register reg's RAM byte per chip
- * (ram), or v in each (ram 0). */
-static void mx_frame(const gm_hub_t *h, uint32_t reg, const uint8_t *ram, uint32_t v, uint32_t ph)
-{
-    hal_pin_write(h->mx.cs.num, 0);
-    for (uint32_t c = h->mx.chips; c-- > 0;)
-        mx_word(h, reg << 8 | (ram ? mx_bits(ram[c * 8u + reg - 1u]) : v), ph);
-    bus_wait(ph);
-    hal_pin_write(h->mx.cs.num, 1);
-    bus_wait(ph);
-}
-
-/* The first write sets the chips up (test off, no decode, scan limit,
- * intensity), writes every digit, then turns them on; after that, each
- * digit that changed in any chip is one frame. At least one frame a call,
- * then as many as the budget has room for. */
-static uint32_t max7219_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
-{
-    uint32_t n = h->mx.chips * 8u, cost = 2u * h->mx.chips;
-    if (!s->u.seg.dirty || s->ram + n > GM_HUB_RAM)
-        return budget;
-    uint8_t *ram = &gm_hub_ram[s->ram], *sent = &gm_hub_ram_sent[s->ram];
-    uint32_t ph = hal_ns_to_cycles(MX_PHASE_NS);
-    if (s->never) {
-        mx_frame(h, MX_TEST, 0, 0, ph);
-        mx_frame(h, MX_DECODE, 0, 0, ph);
-        mx_frame(h, MX_SCAN_LIMIT, 0, (h->mx.scan_limit - 1u) & 7u, ph);
-        mx_frame(h, MX_INTENSITY, 0, h->mx.intensity & 15u, ph);
-        for (uint32_t d = 1; d <= 8u; d++)
-            mx_frame(h, d, ram, 0, ph);
-        mx_frame(h, MX_SHUTDOWN, 0, 1, ph);
-        for (uint32_t k = 0; k < n; k++)
-            sent[k] = ram[k];
-        s->never = 0;
-        s->u.seg.dirty = 0;
-        return budget > 13u * cost ? budget - 13u * cost : 0u;
-    }
-    uint32_t d = 0, left = 0;
-    for (; d < 8u; d++) {
-        uint32_t c = 0;
-        while (c < h->mx.chips && ram[c * 8u + d] == sent[c * 8u + d])
-            c++;
-        if (c == h->mx.chips)
-            continue;
-        if (!budget) {
-            left = 1;
-            break;
-        }
-        mx_frame(h, d + 1u, ram, 0, ph);
-        for (c = 0; c < h->mx.chips; c++)
-            sent[c * 8u + d] = ram[c * 8u + d];
-        budget = budget > cost ? budget - cost : 0u;
-    }
-    s->u.seg.dirty = (uint8_t)left;
-    return budget;
-}
-
-static void max7219_init(const gm_hub_t *h, hub_state_t *s)
-{
-    mcu_out(h->mx.cs, 1);               /* idle: CS high, CLK low */
-    mcu_out(h->mx.clk, 0);
-    mcu_out(h->mx.din, 0);
-    ledram_init(s, h->mx.chips * 8u);
-}
-
-static void max7219_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
-{
-    ledram_write(s, h->mx.chips * 8u, num, level);
 }
 
 /* TM1637: 2-wire, start (DIO falls while CLK is high), bytes LSB first
@@ -1919,14 +1799,14 @@ static uint32_t tm1637_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
 
 static void tm1637_init(const gm_hub_t *h, hub_state_t *s)
 {
-    mcu_out(h->tm37.clk, 1);            /* idle: both high */
-    mcu_out(h->tm37.dio, 1);
-    ledram_init(s, h->tm37.grids);
+    gm_hub_mcu_out(h->tm37.clk, 1);     /* idle: both high */
+    gm_hub_mcu_out(h->tm37.dio, 1);
+    gm_hub_ledram_init(s, h->tm37.grids);
 }
 
 static void tm1637_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
-    ledram_write(s, h->tm37.grids, num, level);
+    gm_hub_ledram_write(s, h->tm37.grids, num, level);
 }
 
 /* HT16K33 (I2C): 16 bytes of display RAM, COM c = bytes 2c (ROW0-7) and
@@ -1981,13 +1861,13 @@ static uint32_t ht16k33_send(const gm_hub_t *h, hub_state_t *s, uint32_t budget)
 static void ht16k33_init(const gm_hub_t *h, hub_state_t *s)
 {
     (void)h;
-    ledram_init(s, HT_RAM);
+    gm_hub_ledram_init(s, HT_RAM);
 }
 
 static void ht16k33_write(const gm_hub_t *h, hub_state_t *s, uint32_t num, int level)
 {
     (void)h;
-    ledram_write(s, HT_RAM, num, level);
+    gm_hub_ledram_write(s, HT_RAM, num, level);
 }
 
 /* SSD1306 / SH1106 (I2C OLED): a framebuffer in the hub RAM, byte = page *
@@ -2278,9 +2158,6 @@ static const gm_hub_ops_t mpads_ops = {
     .flags = GM_HUBF_NO_READ, .init = mpads_init, .write = mpads_write, .rgb = mpads_rgb,
     .poll = mpads_poll,
 };
-static const gm_hub_ops_t max7219_ops = {
-    .flags = GM_HUBF_NO_READ, .init = max7219_init, .write = max7219_write, .send = max7219_send,
-};
 static const gm_hub_ops_t tm1637_ops = {
     .flags = GM_HUBF_NO_READ, .init = tm1637_init, .write = tm1637_write, .send = tm1637_send,
 };
@@ -2310,7 +2187,6 @@ static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
 #if GM_HUB_RAM > 0
     HUB(GM_HUB_TM1628, tm1628_ops),
     HUB(GM_HUB_MAUDIO_PADS, mpads_ops),
-    HUB(GM_HUB_MAX7219, max7219_ops),
     HUB(GM_HUB_TM1637, tm1637_ops),
     HUB(GM_HUB_HT16K33, ht16k33_ops),
     HUB(GM_HUB_SSD1306, ssd1306_ops),

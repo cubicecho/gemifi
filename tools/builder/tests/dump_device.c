@@ -63,12 +63,14 @@ static void hub(unsigned i, const gm_hub_t *h)
         f.clock = h->tm.clk;
         f.latch = h->tm.stb;
         break;
+#ifdef GEMIFI_MAUDIO_PAD_LEDS_H     /* the config builds the component (gm_components.h) */
     case GM_HUB_MAUDIO_PADS:
         f.chain = h->mpads.count;
         f.ram = 3u * h->mpads.count;
         f.data = h->mpads.tx;
         f.latch = h->mpads.rx;
         break;
+#endif
     case GM_HUB_XY:
         for (j = 0; j < 4; j++) f.sel[j] = h->xy.drive[j];
         f.data = h->xy.sense[0];

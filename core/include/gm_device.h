@@ -119,23 +119,6 @@ typedef struct {
                              of the RGB LEDs on it (tm1628 fade:)          */
 } gm_hub_tm1628_t;
 
-/* .mpads: the M-Audio Code pad LED board (YAML maudio_pad_leds:, formerly
- * rgb_serial:): RGB LEDs behind a serial link with the board's own protocol
- * (vpin.c), 115200 baud on tx. Outputs only, pin n = LED n / 3, colour n % 3
- * (0 red, 1 green, 2 blue); sent from the main loop, a byte per colour in
- * the hub RAM. */
-typedef struct {
-    gm_pin_t tx;
-    gm_pin_t rx;          /* the board's answers (acks), optional          */
-    /* the brightness curve applied first (gamma:; 256 entries,
-     * 0 = straight) */
-    const uint8_t *curve;
-    uint8_t count;        /* LEDs                                          */
-    uint8_t dma;          /* send by DMA (dma:), else interrupt            */
-    uint8_t white[3];     /* what full red, green and blue send (white:,
-                             the white balance; 0 = 255)                   */
-} gm_hub_maudio_pads_t;
-
 /* .xy: a 4-wire resistive XY pad: analog only, channel 0 = X, 1 = Y. Read in
  * software (vpin.c), one axis per ms in turn. A touch: both readings within
  * touch_min..touch_max. */
@@ -169,7 +152,6 @@ typedef struct {
         gm_hub_decoder_t dec;     /* GM_HUB_DECODER */
         gm_hub_swmatrix_t sm;     /* GM_HUB_SWMATRIX */
         gm_hub_tm1628_t tm;       /* GM_HUB_TM1628 */
-        gm_hub_maudio_pads_t mpads; /* GM_HUB_MAUDIO_PADS */
         gm_hub_xy_t xy;           /* GM_HUB_XY */
         gm_hub_ssd1306_t oled;    /* GM_HUB_SSD1306 */
         GM_HUB_CONFIG_MEMBERS     /* the hub types in components/ (gm_components.h) */

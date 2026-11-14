@@ -110,14 +110,6 @@ struct gm_hub_state {
             uint32_t span_hi;     /* seen_hi / seen_lo as of that take */
             uint32_t span_lo;
         } sm;
-        struct {          /* MAUDIO_PADS (the M-Audio Code pad LED board) */
-            uint32_t t_ka, t_any; /* last A5 keepalive, last write   */
-            uint32_t t_led;       /* when the awaited LED went out   */
-            uint8_t repainted;    /* every LED sent again once        */
-            uint8_t wait_led;     /* rx_pin: the answer awaited, LED + 1, 0 = none */
-            uint8_t misses;       /* ... unanswered in a row          */
-            uint8_t acks;         /* 0 none yet, 1 answering, 2 gave up */
-        } mpads;
         struct {          /* XY */
             uint16_t raw[2];      /* last X / Y reading, 0xFFFF = none */
             uint8_t touch;        /* readings in a row with both in the window */

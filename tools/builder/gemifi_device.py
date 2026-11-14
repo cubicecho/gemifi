@@ -21,7 +21,7 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, rgb_curve, validate_rgb_calibration  # noqa: E402
+from components.hub import HubType, rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 
 try:
@@ -524,60 +524,6 @@ class TM1628(HubType):
                 f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
 
 
-# The M-Audio Code pad LED board (maudio_pad_leds, formerly rgb_serial): RGB LEDs behind a serial
-# link, its own protocol (vpin.c). pin = LED * 3 + colour (0 red, 1 green, 2 blue). Kept in the hub
-# RAM, sent from the main loop.
-MAUDIO_PADS_MAX = 32
-
-
-class MaudioPadLeds(HubType):
-    """The M-Audio Code pad LED board: RGB LEDs behind a serial link, pin = LED * 3 + colour."""
-    key, enum, num = "maudio_pad_leds", "GM_HUB_MAUDIO_PADS", 9
-    aliases = ("rgb_serial",)
-    keys = ("id", "tx_pin", "rx_pin", "count", "dma", "gamma", "white")
-    lines = {"tx_pin": "uart_tx", "rx_pin": "uart_rx"}
-    roles = frozenset({"out"})
-    ram = True
-    full_colour = True
-
-    def validate(self, v, dev, hub, h, p, line, ctl):
-        if any(x.type == self.key for x in dev.hubs if x is not hub):
-            # one LED board: its UART is fixed (USART2 on stm32f1)
-            v.err(p, line, f"a second {self.key} hub: the firmware drives one (one LED board)")
-        hub.chain = v.integer(h, "count", p, 1, MAUDIO_PADS_MAX, default=16)
-        hub.n_pins = 3 * hub.chain
-        hub.ram_bytes = hub.n_pins                       # a byte per colour
-        hub.gamma, hub.white = validate_rgb_calibration(v, h, p)
-        hub.data = ctl("tx_pin", "out")
-        hub.latch = ctl("rx_pin", "in", required=False)     # optional: the board's answers (acks)
-        hub.dma = v.boolean(h, "dma", p, default=True)
-        if hub.data.hub == 0 and h.get("tx_pin") is not None:
-            why = v.plat.serial_tx(hub.data.num)
-            if why:
-                v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
-            elif h.get("rx_pin") is not None and hub.latch is not NO_PIN:
-                why = v.plat.serial_rx(hub.data.num, hub.latch.num)
-                if why:
-                    v.err(f"{p}.rx_pin", h.line_of("rx_pin"), why)
-
-    def range_text(self, hub):
-        return f" ({hub.chain} LEDs x 3; pin = LED * 3 + colour, 0 red 1 green 2 blue)"
-
-    def c_tables(self, hub):
-        if hub.gamma == 1:
-            return []
-        t = rgb_curve(hub.gamma)
-        return [f"/* {_comment(hub.id)}: gamma {hub.gamma:g} ({self.key} gamma:) */",
-                f"static const uint8_t rgb_curve_{hub.index + 1}[256] = {{",
-                *[f"    {', '.join(str(x) for x in t[k:k + 16])}," for k in range(0, 256, 16)], "};"]
-
-    def c_fields(self, hub):
-        return [f"        .mpads = {{ .tx = {hub.data.c()}, .rx = {hub.latch.c()}, .count = {hub.chain}, "
-                f".dma = {1 if hub.dma else 0},",
-                f"                 .white = {{ {', '.join(str(x) for x in hub.white)} }}, "
-                f".curve = {f'rgb_curve_{hub.index + 1}' if hub.gamma != 1 else '0'} }},"]
-
-
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (vpin.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
@@ -673,7 +619,7 @@ _HUBS_HERE = (
     I2CExpander("mcp23017", "GM_HUB_MCP23017", 4, 16, range(0x20, 0x28), "0x20-0x27", pin_key="mcp23xxx"),
     I2CExpander("pcf8574", "GM_HUB_PCF8574", 5, 8, list(range(0x20, 0x28)) + list(range(0x38, 0x40)),
                 "0x20-0x27, PCF8574A 0x38-0x3F"),
-    Decoder(), SwitchMatrix(), TM1628(), MaudioPadLeds(), XYPad(), SSD1306())
+    Decoder(), SwitchMatrix(), TM1628(), XYPad(), SSD1306())
 HUB_DEFS = {t.key: t for t in sorted((*_HUBS_HERE, *components.hub_types()), key=lambda t: (t.num, t.key))}
 HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)

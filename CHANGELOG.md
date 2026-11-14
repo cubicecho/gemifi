@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.49.0](https://github.com/cubicecho/gemifi/compare/v0.48.0...v0.49.0) (2026-11-14)
+
+
+### Features
+
+* **led_driver:** led_driver: with platform: tm1628 | max7219 | tm1637 | ht16k33 (A3) ([c06dcdc](https://github.com/cubicecho/gemifi/commit/c06dcdc639d4249d04e260b11a208b9d3105959b)), closes [#if](https://github.com/cubicecho/gemifi/issues/if)
+* **led_strip:** led_strip: with platform: ws2812 | maudio_pads, ESPHome style (A2) ([bd3f0cb](https://github.com/cubicecho/gemifi/commit/bd3f0cb25f28c0f28f3d0129eb48dafe1ebad0b6))
+
 # [0.48.0](https://github.com/cubicecho/gemifi/compare/v0.47.0...v0.48.0) (2026-11-14)
 
 

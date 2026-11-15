@@ -2300,7 +2300,7 @@ def validate_version(v, data):
 
 
 # ---------------------------------------------------------------------------------------------
-# pads (components/pads/README.md "Pads")
+# displays (core/README.md "Displays")
 
 DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
                 "display", "line", "x", "scale", "length"]

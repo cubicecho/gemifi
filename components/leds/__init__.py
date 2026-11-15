@@ -33,7 +33,7 @@ LED_LOOKS = {
 }
 LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
 LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
-# Full-colour looks, for LEDs that can show any colour (one LED of a full-colour hub, FULL_COLOUR_HUBS):
+# Full-colour looks, for LEDs that can show any colour (one LED of a full-colour hub, full_colour_hubs()):
 # "#rrggbb", or an RGB look name with a brightness, "blue 25%". Elsewhere (led_defaults, a cycle step's
 # colour) they show as the nearest on/off look.
 RGB_LOOK_COLOURS = {"red": 0xFF0000, "green": 0x00FF00, "yellow": 0xFFFF00, "blue": 0x0000FF,

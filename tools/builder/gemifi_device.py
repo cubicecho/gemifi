@@ -62,7 +62,6 @@ FORMAT_VERSION = 2
 VERSION = "0.50.0"
 
 
-
 # ---- MIDI messages (core/README.md "MIDI messages") ----
 # The message kinds a firmware may compile in (gm_settings.h GM_MSG_*): each is on when the YAML uses it
 # or lists it in midi_messages.enable. sysex is on when midi_messages.sysex has strings.
@@ -347,7 +346,6 @@ MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
 XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
 TM_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, TM1628)}
 RAM_HUBS = {k for k, t in HUB_DEFS.items() if t.ram}
-FULL_COLOUR_HUBS = [k for k, t in HUB_DEFS.items() if t.full_colour]
 OUT_HUBS = {k for k, t in HUB_DEFS.items() if "out" in t.roles}
 IN_HUBS = {k for k, t in HUB_DEFS.items() if "in" in t.roles}
 ANALOG_HUBS = {k for k, t in HUB_DEFS.items() if "analog" in t.roles}
@@ -462,8 +460,6 @@ class Diag:
         if self.src:
             d["file"] = self.src
         return d
-
-
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1523,8 +1519,6 @@ def fmt_us(us):
     return f"{us:g}us"
 
 
-
-
 # ---------------------------------------------------------------------------------------------
 # ids and display names
 
@@ -1577,8 +1571,6 @@ def suggest_id(text, kind="item"):
 def example_id(kind):
     return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
             "hub": "faders", "pad": "pad_1", "i2c bus": "bus_a"}.get(kind, "item")
-
-
 
 
 def humanize(ident):
@@ -1933,8 +1925,6 @@ def timers_text(dev):
     return "timers: " + ", ".join(f"TIM{t} " + names[s].format(trig=HW_ADC_TRIGGER.get(t)) for t, s in ts)
 
 
-
-
 def validate_feedback(v, dev, data):
     """feedback: { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback on the main
     port, and (script) the DAW-script messages of sysex.md 4.6."""
@@ -2118,9 +2108,6 @@ def suggest_node_name(text):
     return s or "my-controller"
 
 
-
-
-
 def mcu_needed(v, dev, path, line):
     if dev.mcu is None:
         v.err(path, line, "Mackie Control needs an `mcu:` section at the top level")
@@ -2141,8 +2128,6 @@ def mcu_name(v, dev, d, p, table, example):
         v.err(f"{p}.mcu", line, f"unknown MCU control '{raw}' ({hint}valid: {', '.join(table)})")
         return None
     return table[d["mcu"]]
-
-
 
 
 def daw_role(v, dev, d, p):
@@ -2196,8 +2181,6 @@ def f1_off_why(dev):
         return "feedback is off (feedback: { enabled: false })"
     return ("with mcu: on a single port (no USB DAW port), everything the host sends is read as "
             "Mackie Control")
-
-
 
 
 def validate_screens(v, dev, data):
@@ -3310,8 +3293,6 @@ def control_out(v, d, p, top):
     return lo, CTL_TOP if hi is None else hi, ch
 
 
-
-
 def bank_value(v, d, p):
     """bank: 0..16383, or { msb: 0..127, lsb: 0..127 } -> the 14-bit bank (CC 0 = bank >> 7, CC 32 = bank & 127)."""
     x = d["bank"]
@@ -3840,9 +3821,6 @@ def generate(dev, source="device.yaml"):
 
     c = [head, '#include "gm_device.h"', '#include "gm_device_config.h"', ""]
 
-    def pin_c(pn):
-        return pn.c()
-
     if dev.hubs:
         for hb in dev.hubs:
             c += hb.kind.c_tables(hb)
@@ -3899,7 +3877,6 @@ def generate(dev, source="device.yaml"):
     c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c),
             **component_header(dev, source)}
-
 
 
 def safety_defines(dev):

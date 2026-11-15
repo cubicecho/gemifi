@@ -46,6 +46,7 @@
 /* Encoders with pins of their own; their layer twins (GM_ENC_TWINS) come
  * after them and aren't scanned. */
 #define NE_HW (GM_N_ENCODERS - GM_ENC_TWINS)
+#define NOTE_NONE 0xFFu                 /* a key or button with no note sounding */
 
 /* ---- MIDI out (controller.c) ---------------------------------------------- */
 
@@ -74,6 +75,69 @@ int kind_wide(uint32_t kind, uint32_t num);     /* a kind (K_*) whose values are
 /* Value v (7- or 14-bit, as kind wants) as kind on channel ch: num is the
  * CC, the (N)RPN number or the SysEx index. */
 void send_value(uint32_t kind, uint8_t ch, uint32_t num, uint32_t v);
+#endif
+#if GM_N_SYSEX || GM_MSG_MMC
+void sysex_out(const uint8_t *m, uint32_t n);
+#endif
+#if GM_N_SYSEX
+void sysex_send(uint32_t k, uint32_t v, uint8_t ch);   /* SysEx string k with value v and channel ch filled in */
+#endif
+
+/* ---- buttons (components/buttons) ----------------------------------------- */
+
+#if GM_N_BUTTONS > 0
+#define BTN_SAMPLE_MS 1u                /* gm_poll samples the buttons every BTN_SAMPLE_MS */
+/* A press counts at the first sample that read it closed throughout (every
+ * scan since the sample before: 1 ms), so a quick tap is never lost; a
+ * release counts once no scan has read it closed for BTN_STABLE samples in a
+ * row (16 ms), which rides out contact bounce and a light press losing
+ * contact for a moment (on the Code 61, 4 ms and sometimes 10 ms counted a
+ * press twice). */
+#define BTN_STABLE 16u
+/* A reading of every button, one bit each, in the narrowest type that holds
+ * GM_N_BUTTONS (64-bit shifts are library calls on a Cortex-M0). */
+#if GM_N_BUTTONS <= 8
+typedef uint8_t btn_bits_t;
+#elif GM_N_BUTTONS <= 16
+typedef uint16_t btn_bits_t;
+#elif GM_N_BUTTONS <= 32
+typedef uint32_t btn_bits_t;
+#else
+typedef uint64_t btn_bits_t;
+#endif
+/* A button's channel (channel:). */
+#if GM_BTN_CTL
+#define BTN_CH(i) ctl_chan(&gm_button_ctl[i])
+#else
+#define BTN_CH(i) midi_chan()
+#endif
+extern uint64_t btn_stable;             /* buttons: pressed, debounced (bit = button, at most 64) */
+extern uint64_t btn_toggled;            /* buttons, and host feedback: a cc_toggle button's state */
+/* Held, and the press went to this button: a layer twin and its base read
+ * the same pin, but only the live one takes the press (and its release). */
+extern uint64_t btn_held;               /* buttons */
+#if GM_LAYERS
+extern uint64_t btn_live;               /* modes (layers_update): the buttons that take a press */
+#endif
+extern btn_bits_t btn_hist[BTN_STABLE - 1u];    /* buttons: the samples before the latest; the raw readings */
+extern int16_t ramp_q8[NB];             /* buttons: CC ramp position, 0..127 << 8; the LEDs show it */
+/* *v + step, within -lim..lim (0 with reset), and its name and value on the
+ * display: the octave, transpose and pad octave buttons and keys. */
+void shift(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset);
+void buttons_init(void);
+void buttons_sample(void);              /* every BTN_SAMPLE_MS: presses and releases */
+void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch bend glide */
+void buttons_off(void);                 /* a preset switch: let go of every note and CC */
+#endif
+
+/* ---- modes (controller.c, core/README.md "Modes") --------------------------- */
+
+#if GM_N_MODES > 0
+int mode_button(uint32_t i, int down);  /* button i as a mode's toggle, hold or cycle button: 1 if it was */
+int mode_btn(uint32_t i, int down);     /* button i as a function button of the active mode: 1 if it was */
+/* Button i released after a preset switch (its release is silent): a hold
+ * mode still ends with its button. */
+void mode_late_release(uint32_t i);
 #endif
 
 /* ---- analog inputs (components/analog) ------------------------------------ */

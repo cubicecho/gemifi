@@ -169,7 +169,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 ### Controls
 
 - **Button:** a switch with an action (CC momentary/toggle/ramp, note, octave, transpose, program,
-  preset, MMC, SysEx ...). Owner: `gm_button_t`; `controller.c` "buttons".
+  preset, MMC, SysEx ...). Owner: `gm_button_t`; the `buttons` component (`components/buttons`).
 - **LED:** a light on one, two or three pins (single, bicolour, RGB), showing its button, a level or
   what a host sends; looks for idle and active. Owner: `gm_led_t`; `controller.c` "LEDs".
 - **Analog input (pot, fader, wheel):** a reading sent as CC, 14-bit, NRPN/RPN, pitch bend or pressure.

@@ -60,6 +60,7 @@ A **base component** defines what the components on it implement, and holds the 
 | [ht16k33](../components/ht16k33/README.md) | `led_driver:`, `platform: ht16k33` | HT16K33 14- and 7-segment backpacks and LED matrices, on I2C (ESP only for now) |
 | [ssd1306](../components/ssd1306/README.md) | `display:`, `platform: ssd1306` | SSD1306 / SH1106 OLED panels, on I2C (ESP only for now) |
 | [analog](../components/analog/README.md) | `analog:` | analog inputs: pots, faders, wheels, pressure strips, a control ("Controls" below) |
+| [buttons](../components/buttons/README.md) | `buttons:` | buttons and switches, a control ("Controls" below) |
 | [encoders](../components/encoders/README.md) | `encoders:` | rotary encoders, a control ("Controls" below) |
 | [pads](../components/pads/README.md) | `pads:` | velocity pads, a control ("Controls" below) |
 
@@ -127,7 +128,7 @@ To find which output drives which LED on new hardware, list every candidate outp
 
 ## Controls
 
-The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix) are what the player plays. Each is becoming a component of its own, built when the device has that control; [analog](../components/analog/README.md), [encoders](../components/encoders/README.md) and [pads](../components/pads/README.md) are so far, and the rest are still in the core (`src/controller.c`). The controller and the controls share state through `include/gm_controls.h`.
+The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix) are what the player plays. Each is becoming a component of its own, built when the device has that control; [analog](../components/analog/README.md), [buttons](../components/buttons/README.md), [encoders](../components/encoders/README.md) and [pads](../components/pads/README.md) are so far, and the rest are still in the core (`src/controller.c`). The controller and the controls share state through `include/gm_controls.h`.
 
 Every control has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.
 

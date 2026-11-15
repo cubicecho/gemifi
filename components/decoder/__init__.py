@@ -1,7 +1,7 @@
 """decoder: 74HC138-style one-of-N decoders driving matrix rows, a hub type on the hub base
 (components/hub). The YAML and the C: README.md here.
 """
-import gemifi_device as gd  # the builder, which loads the components: used at call time only
+from components.api import NO_PIN
 from components.hub import HubType
 
 
@@ -33,9 +33,9 @@ def validate_decoder(v, hub, h, p, index):
     if not isinstance(addr, list) or not 1 <= len(addr) <= 4:
         v.err(f"{p}.address", h.line_of("address") if "address" in h else h.line,
               "needs a list of 1-4 address pins, A0 first")
-        addr = gd.LList()
+        addr = []
     hub.sel = [v.pin(x, f"{p}.address[{i}]", addr.line_of(i), "out", allow_hub=False, line_kind="address",
-                     owner=index) or gd.NO_PIN for i, x in enumerate(addr)]
+                     owner=index) or NO_PIN for i, x in enumerate(addr)]
     hub.n_sel = len(hub.sel)
     groups = h.get("groups")
     if groups is None:
@@ -63,7 +63,7 @@ def validate_decoder(v, hub, h, p, index):
                     v.err(gp, groups.line_of(g), f"{len(nums)} enable pins: at most 3")
                 names = list(nums)[:3]
                 hub.en = [v.pin(nums[n], f"{gp}.{nums[n]}", grp.line_of(nums[n]), "out", allow_hub=False,
-                                line_kind="enable", owner=index) or gd.NO_PIN for n in names]
+                                line_kind="enable", owner=index) or NO_PIN for n in names]
             elif set(nums) != set(names):
                 v.err(gp, groups.line_of(g), "every group must give a level for the same enable pins "
                                              f"({', '.join(v.plat.pin_name(n) for n in names)})")

@@ -20,8 +20,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
+from components.api import INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Pin  # noqa: E402,F401
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, ShiftRegister  # noqa: E402
+from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
@@ -342,7 +343,7 @@ COMP_STR_MAX = 31               # sysex.md lstring
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
-# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type").
+# type is a component of its own, components/<key>/ (components/hub/README.md "Adding a hub type").
 # The hub types, from the components, in GM_HUB_* order.
 HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key))}
 # The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
@@ -360,7 +361,6 @@ PIN_HUB_KEYS = list(dict.fromkeys(HUB_PIN_KEY.values()))
 HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_keys}
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
-SHIFT_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, ShiftRegister)}
 MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
 MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
 XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
@@ -421,7 +421,8 @@ RENAMED_TOP = {
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
     "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
     "ssd1306": "moved: an OLED is a display now, ESPHome style: `display: [{ id: oled, platform: ssd1306, "
-               "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)",
+               "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)"
+               + MIGRATE_HINT,
     **HUB_MOVED,
 }
 RENAMED_PIN = {
@@ -470,7 +471,6 @@ typename union unsigned using virtual void volatile wchar_t while xor xor_eq""".
 # read y/n as booleans. An id must read the same everywhere, so these are refused even when quoted.
 YAML_WORDS = {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
 
-INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
 MIDI_TRANSPORT_MACRO = {"usb": "GM_MIDI_USB", "serial": "GM_MIDI_SERIAL", "ble": "GM_MIDI_BLE"}
 DEFAULT_USB = (0x1209, 0x0002)   # pid.codes test PID (protocol/sysex.md section 7)
 
@@ -734,6 +734,10 @@ class Platform:
         """-> (ok, warning or None)"""
         return False, None
 
+    def adc_text(self):
+        """Its ADC pins, for messages."""
+        return "no ADC pins"
+
 
 class NucPlatform(Platform):
     name = "nuvoton-nuc1xx"
@@ -757,6 +761,9 @@ class NucPlatform(Platform):
             out.append(("error", "NUC1xx GPIOs have no internal pull-down: fit an external one and use "
                                  "mode: INPUT (INPUT_PULLUP uses the quasi-bidirectional mode's weak pull-up)"))
         return out
+
+    def adc_text(self):
+        return "ADC pins: PA0-PA7"
 
     def adc(self, num):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
@@ -804,6 +811,9 @@ class Stm32F1Platform(Platform):
             out.append(("warning", f"{nm} is in the backup domain: it can only sink about 3 mA and "
                                    "switch slowly (2 MHz); don't drive LEDs from it directly"))
         return out
+
+    def adc_text(self):
+        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
 
     def adc(self, num):
         return num in self.ADC, None
@@ -913,6 +923,9 @@ class EspPlatform(Platform):
             return f"{len(others) + 1} ws2812 strips: {self.name} has {self.rmt_tx} RMT TX channels, one a strip"
         return None
 
+    def adc_text(self):
+        return f"ADC pins: {_ranges(self.adc1 | self.adc2, lambda n: f'GPIO{n}')}"
+
     def adc(self, num):
         if num in self.adc1:
             return True, None
@@ -942,21 +955,7 @@ PLATFORMS = {p.name: p for p in [
 # ---------------------------------------------------------------------------------------------
 # the model
 
-class Pin:
-    """A resolved gm_pin_t: hub 0 = MCU, n = hubs[n-1]; GM_HUB_NONE (0xFF) = no pin."""
-
-    def __init__(self, hub, flags, num, desc):
-        self.hub, self.flags, self.num, self.desc = hub, flags, num, desc
-
-    def c(self):
-        if self.hub == 0xFF:
-            return "GM_NO_PIN"
-        fl = [n for b, n in ((INVERT, "GM_PIN_INVERT"), (PULLUP, "GM_PIN_PULLUP"),
-                             (PULLDOWN, "GM_PIN_PULLDOWN"), (OPEN_DRAIN, "GM_PIN_OPEN_DRAIN")) if self.flags & b]
-        return f"{{ {self.hub}, {' | '.join(fl) or '0'}, {self.num} }}"
-
-
-NO_PIN = Pin(0xFF, 0, 0, "-")
+# Pin, NO_PIN: components/api.py (imported above).
 
 
 class Hub:
@@ -1309,7 +1308,7 @@ class _V:
                 ok, w = self.plat.adc(num)
                 if not ok:
                     self.err(path, line, f"{name} has no ADC on {self.plat.name} "
-                                         f"({adc_text(self.plat)}; or use a mux hub channel)")
+                                         f"({self.plat.adc_text()}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
             r = "in" if role == "common" else role
@@ -1352,7 +1351,7 @@ class _V:
             return None
         if role == "analog" and hub.common is not None and not hub.common_adc:
             self.err(path, line, f"hub '{hub.id}' common_pin {hub.common.desc} has no ADC, so its "
-                                 f"channels can't be analog ({adc_text(self.plat)})")
+                                 f"channels can't be analog ({self.plat.adc_text()})")
         if flags & PULLDOWN:
             self.err(path, line, f"a {hub.type} pin has no pull-down")
         if flags & PULLUP and not hub.kind.pullup:
@@ -1383,6 +1382,14 @@ class _V:
 
     def use(self, key, name, u):
         self.uses.setdefault(key, []).append((name, u))
+
+    def matrix_rows(self, d, path, why, hubs=None):
+        """A matrix's rows (matrix_rows), for a component: on the hubs that give rows by default."""
+        return matrix_rows(self, d, path, ROW_HUBS if hubs is None else hubs, why)
+
+    def matrix_columns(self, d, path, owner):
+        """A matrix's columns (matrix_columns), for a component."""
+        return matrix_columns(self, d, path, owner)
 
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
@@ -1496,14 +1503,6 @@ def fmt_us(us):
 def type_name(v):
     return {dict: "mapping", LDict: "mapping", list: "list", LList: "list", str: "string", int: "integer",
             bool: "boolean", float: "number", type(None): "nothing"}.get(type(v), type(v).__name__)
-
-
-def adc_text(plat):
-    if plat.name == "nuvoton-nuc1xx":
-        return "ADC pins: PA0-PA7"
-    if plat.name == "stm32f1":
-        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
-    return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1661,7 +1660,10 @@ def validate(data, file=None):
                     validate_hub(v, dev, h, typ, p, line)
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
-    resolve_switch_matrices(v, dev)
+    for t in HUB_DEFS.values():
+        hubs = [h for h in dev.hubs if h.type == t.key]
+        if hubs:
+            t.final_validate(v, dev, hubs)
     validate_screens(v, dev, data)
 
     # i2c
@@ -1673,21 +1675,6 @@ def validate(data, file=None):
                                   "the platform's hal_i2c_* are stubs)")
         need_i2c = False        # don't also ask for the i2c: pins
     i2c_buses.validate_buses(v, dev, data, on_i2c if need_i2c else [], plat.i2c_buses)
-    stbs = {}
-    for h in dev.hubs:
-        if h.type in TM_HUBS and h.latch.hub == 0:
-            if h.latch.num in stbs:
-                v.err(f"{h.path}.stb_pin", h.line, f"{h.latch.desc} is already the stb_pin of hub "
-                                                   f"'{stbs[h.latch.num]}': chips can share clk_pin and "
-                                                   "dio_pin, but each needs its own stb_pin")
-            stbs.setdefault(h.latch.num, h.id)
-    css = {}
-    for h in dev.hubs:
-        if h.type == "max7219" and h.latch.hub == 0:
-            if h.latch.num in css:
-                v.err(f"{h.path}.cs_pin", h.line, f"{h.latch.desc} is already the cs_pin of hub '{css[h.latch.num]}': "
-                                                  "chains can share clk_pin and din_pin, but each needs its own cs_pin")
-            css.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
@@ -2877,15 +2864,6 @@ def matrix_columns(v, d, path, owner):
             or NO_PIN for i, x in enumerate(cols)]
 
 
-def resolve_switch_matrices(v, dev):
-    for hub in dev.hubs:
-        if hub.type != "switch_matrix" or not isinstance(hub.raw, dict):
-            continue
-        why = "switch_matrix rows are MCU pins or decoder outputs"
-        hub.rows = matrix_rows(v, hub.raw, hub.path, ROW_HUBS, why)
-        hub.cols = matrix_columns(v, hub.raw, hub.path, owner=f"hub{hub.index}")
-
-
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -3217,7 +3195,7 @@ DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows",
                 "display", "line", "x", "scale", "length"]
 TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
 RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
-                              "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)"}
+                              "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)" + MIGRATE_HINT}
 SEGMENT_KEYS = {"chars", "segment_step", "segment_order"}      # segment types only
 # gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
 DISPLAY_TYPES = {"segment14": 1, "segment7": 2, "text": 3}
@@ -5404,7 +5382,7 @@ def generate(dev, source="device.yaml"):
          f"#define GM_USB_PID 0x{dev.usb[1]:04X}",
          f"#define GM_N_HUBS {len(dev.hubs)}",
          f"#define GM_HUB_TYPES 0x{hub_types_mask(dev):04X}u /* hub types used, bit = GM_HUB_*: "
-         "vpin.c links only their drivers */",
+         "hub_ops[] holds only their drivers (gm_components.h) */",
          f"#define GM_N_BUTTONS {len(dev.buttons)}",
          f"#define GM_N_LEDS {len(dev.leds)}",
          f"#define GM_N_ANALOGS {len(dev.analogs)}",
@@ -5428,7 +5406,7 @@ def generate(dev, source="device.yaml"):
     h += matrix_defines(dev)
     hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if hub_ram:
-        h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (vpin.c hub_ram): its tm1628 and LED hubs' */")
+        h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (gm_hub_ram, components/hub): its LED strips' and drivers' */")
     strips = sum(1 for x in dev.hubs if x.type == "ws2812")
     if strips:
         h.append(f"#define GM_LEDSTRIPS {strips} /* ws2812 hubs (the platform's hal_ledstrip_*) */")

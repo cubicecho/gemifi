@@ -1,6 +1,6 @@
 /*
- * test_ws2812.c: host test of the ws2812 hub (vpin.c) with
- * core/test/ws2812-test.yaml: an RGB strip (GRB) and an RGBW one (GRBW,
+ * test_ws2812.c: host test of the ws2812 strip platform (components/ws2812) with
+ * test/ws2812-test.yaml: an RGB strip (GRB) and an RGBW one (GRBW,
  * gamma 2.2, white). The simulated HAL (hal_ledstrip_*) keeps each strip's
  * frames; the test checks the bytes and their order, gamma and white, the
  * RGBW white part, that a frame only goes out when something changed, at

@@ -7,6 +7,7 @@
   gemifi_build.py presets
   gemifi_build.py new <name> --preset <preset> [--dir ~/gemifi-devices] [--copy]
   gemifi_build.py schema [-o <file>] [--check <file>]   (JSON schema of the device YAML)
+  gemifi_build.py migrate <device.yaml> [...] [--write]   (old component keys to the current form)
   gemifi_build.py dashboard [--host H] [--port 6055] [--web DIR] [--config-dir DIR] [--build-dir DIR]
                             [--allowed-host H ...] [--tls-cert F --tls-key F]
                             (each also a GEMIFI_* env var; GEMIFI_PASSWORD turns on Basic auth)
@@ -14,6 +15,7 @@
 The YAML format is core/README.md "Device YAML". Presets are the YAML files in devices/.
 """
 import argparse
+import difflib
 import glob
 import hashlib
 import os
@@ -26,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gemifi_device as gd  # noqa: E402
+import gemifi_migrate as gm  # noqa: E402
 import gemifi_schema as gs  # noqa: E402
 import gemifi_yaml as gy  # noqa: E402
 
@@ -369,6 +372,33 @@ def new_device(name, preset, directory, force=False, copy=False):
     return dst
 
 
+def do_migrate(paths, write):
+    """Rewrite each file's old component keys (gemifi_migrate.py): print a diff, or with write rewrite it
+    and check the result. 1 if a rewritten file still has errors."""
+    status = 0
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            text = f.read()
+        new, notes = gm.migrate(text)
+        if new == text:
+            print(f"{p}: nothing to migrate")
+            continue
+        for n in notes:
+            print(f"{p}: {n}")
+        if not write:
+            sys.stdout.writelines(difflib.unified_diff(text.splitlines(True), new.splitlines(True), p, p + " (migrated)"))
+            continue
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(new)
+        print(f"{p}: rewritten")
+        if check(p) is None:
+            status = 1
+    if not write:
+        print("(a diff only: --write rewrites the files; files they !include or use as packages are migrated "
+              "on their own)")
+    return status
+
+
 # ---------------------------------------------------------------------------------------------
 
 def main(argv=None):
@@ -396,6 +426,10 @@ def main(argv=None):
     s.add_argument("--dir", default=USER_DIR, help=f"where to put it (default {USER_DIR})")
     s.add_argument("--force", action="store_true", help="overwrite an existing file")
     s.add_argument("--copy", action="store_true", help="copy the preset instead of using it as a package")
+    s = sub.add_parser("migrate", help="rewrite old component keys (ws2812:, tm1628:, ssd1306: ...) to the "
+                       "current form (led_strip:, led_driver:, display: with platform:)")
+    s.add_argument("device", nargs="+")
+    s.add_argument("--write", action="store_true", help="rewrite the files and check them (default: print a diff)")
     s = sub.add_parser("schema", help="print the JSON schema of the device YAML (for editors)")
     s.add_argument("-o", "--out", help="write it to this file instead")
     s.add_argument("--check", metavar="FILE", help="exit 1 if FILE isn't the current schema")
@@ -435,6 +469,8 @@ def main(argv=None):
         return 0
     if a.cmd == "build":
         return do_build(a.device, a.out, subs=subs)
+    if a.cmd == "migrate":
+        return do_migrate(a.device, a.write)
     if a.cmd == "schema":
         text = gs.schema_text()
         if a.check:

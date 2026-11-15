@@ -2,7 +2,7 @@
 led_strip base (components/led_strip): `led_strip: [{ id: pad_leds, platform: maudio_pads, tx_pin: PA2 }]`.
 The YAML and the C: README.md here.
 """
-import gemifi_device as gd  # the builder, which loads the components: used at call time only
+from components.api import NO_PIN
 from components.led_strip import LedStrip, validate_rgb_calibration
 
 DEPENDENCIES = ("led_strip",)
@@ -36,7 +36,7 @@ class MaudioPads(LedStrip):
             why = v.plat.serial_tx(hub.data.num)
             if why:
                 v.err(f"{p}.tx_pin", h.line_of("tx_pin"), why)
-            elif h.get("rx_pin") is not None and hub.latch is not gd.NO_PIN:
+            elif h.get("rx_pin") is not None and hub.latch is not NO_PIN:
                 why = v.plat.serial_rx(hub.data.num, hub.latch.num)
                 if why:
                     v.err(f"{p}.rx_pin", h.line_of("rx_pin"), why)

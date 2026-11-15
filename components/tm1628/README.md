@@ -1,6 +1,6 @@
 # tm1628
 
-An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/gm_hub.h) base): `tm1628.c` (the driver), `__init__.py` (the YAML: validation and generated C). Its config (`gm_hub_tm1628_t`, `include/gm_device.h`) and state (`gm_hub.h` `u.tm`) stay in the core, with `fade:` (`gm_vpin.h` `vpin_fade*`, `core/src/vpin.c`), which sets the chip's brightness from them. Its host test is `core/test/test_tm1628.c`, with the M-Audio pad board's.
+An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/README.md) base): `tm1628.c` (the driver), `__init__.py` (the YAML: validation and generated C). Its config (`gm_hub_tm1628_t`, `include/gm_device.h`) and state (`gm_hub.h` `u.tm`) stay in the core, with `fade:` (`gm_vpin.h` `vpin_fade*`, `core/src/vpin.c`), which sets the chip's brightness from them. Its host test is `core/test/test_tm1628.c`, with the M-Audio pad board's.
 
 `tm1628` covers the TM1628 and its relatives that take the same commands (TM1638, TM1620, …: set `ram_bytes` to what the chip has or what the board uses). They're output-only here: the key-scan inputs aren't read.
 

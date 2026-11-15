@@ -5,6 +5,7 @@ bit per output, ESPHome style: `led_driver: [{ id: digits, platform: max7219, ..
 main loop within the send budget. The C side is led_driver.h (the bit pins most of them share);
 README.md.
 """
+from components.api import MIGRATE_HINT
 from components.hub import HubType
 
 
@@ -16,4 +17,4 @@ class LedDriver(HubType):
 
     def moved_text(self):
         return (f"moved: an LED driver is `led_driver: [{{ id: digits, platform: {self.key}, ... }}]` now, "
-                "ESPHome style, and its pins `{ led_driver: digits, number: n }`")
+                "ESPHome style, and its pins `{ led_driver: digits, number: n }`" + MIGRATE_HINT)

@@ -1,7 +1,7 @@
 """xy_pad: a 4-wire resistive XY pad read in software, a hub type on the hub base (components/hub). The
 YAML and the C: README.md here.
 """
-import gemifi_device as gd  # the builder, which loads the components: used at call time only
+from components.api import NO_PIN
 from components.hub import HubType
 
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (xy_pad.c reads it in software).
@@ -45,8 +45,8 @@ def validate_xy_pad(v, hub, h, p, ctl):
                 return pn
         if all(pn.hub == 0 for pn in (minus, plus)) and all(h.get(k) is not None for k in keys):
             v.err(p, h.line, f"{axis} is read on {keys[0]} or {keys[1]}: neither has an ADC "
-                             f"({gd.adc_text(v.plat)})")
-        return gd.NO_PIN
+                             f"({v.plat.adc_text()})")
+        return NO_PIN
 
     xp, xm, yp, ym = hub.sel
     hub.data = sense(ym, yp, "X", ("y_minus_pin", "y_plus_pin"))

@@ -38,16 +38,16 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R6 | Refactor [pattern] | The controls move out of the controller into one component each, after a short design note on the state they share, keeping the scan's hot paths as fast. | M7 | R2 | deferred: after the display work is merged (2026-11-14) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | done |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | done |
-| D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | approved |
+| D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | done |
 | M8 | Model change | LED strips and LED/segment drivers become base components with platforms, ESPHome style: `led_strip:` (ws2812, maudio_pads) and `led_driver:` (tm1628, max7219, tm1637, ht16k33); I/O expanders, muxes and matrices stay top-level by chip. | Interchangeable chips for one job share a base and its code | — | done |
 | A2 | API change | `led_strip: [{ id, platform: ws2812 \| maudio_pads, ... }]`, pins `{ led_strip: id, number: n }`, the full-colour LED code in the base; the old `ws2812:` / `maudio_pad_leds:` keys refused with the new form. | M8 | R5, A1 | done |
 | A3 | API change | `led_driver: [{ id, platform: tm1628 \| max7219 \| tm1637 \| ht16k33, ... }]`, pins `{ led_driver: id, number: n }`, the LED-byte RAM and send code in the base; the old keys refused with the new form. | M8 | R5, A1 | done |
-| R7 | Refactor [pattern] | A builder hook for checks across hubs and late resolution, so `resolve_switch_matrices` and the one-`stb_pin` / one-`cs_pin` checks move into their components. | M1: the last hub-specific code in `gemifi_device.py` | R5 | open |
-| R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | open |
-| D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | open |
-| D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | open |
-| R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | open |
-| F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | open |
+| R7 | Refactor [pattern] | A builder hook for checks across hubs and late resolution, so `resolve_switch_matrices` and the one-`stb_pin` / one-`cs_pin` checks move into their components. | M1: the last hub-specific code in `gemifi_device.py` | R5 | done |
+| R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | done |
+| D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | done |
+| D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | done |
+| R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | done |
+| F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | done |
 
 ## Model changes
 
@@ -194,6 +194,10 @@ mapping form is one bus, stm32f1 / NUC still refuse I2C components, schema and d
 
 **File:** `core/README.md:33-110` and the Files table. Rewritten for the component folders once R5 and
 R6 have moved the type-specific sections out.
+Done 2026-11-14: `core/README.md` "Components" (what a component and a base are, a table of every
+component linking its README, what a device builds), "Pins", "Matrices behind decoders" and "Adding a
+component"; the hub base's interface and "Adding a hub type" moved to `components/hub/README.md`. The
+controls' section, which was also called "Components", is "Controls" (R6 adds to it).
 
 ---
 

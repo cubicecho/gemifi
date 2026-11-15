@@ -1,6 +1,6 @@
 /*
  * gm_hub.h: the hub driver interface, the base component of every hub type
- * (components/hub/; core/README.md "Adding a hub type").
+ * (components/hub/README.md "Adding a hub type").
  *
  * Each hub type (gm_device.h GM_HUB_*) has one gm_hub_ops_t: what vpin.c
  * calls for a hub of that type. An op left NULL has the default given with

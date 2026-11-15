@@ -1,0 +1,27 @@
+"""What the builder gives components: the pin model. A leaf module (it imports nothing of the builder's),
+so a component's __init__.py can import it at load time; the builder (tools/builder/gemifi_device.py)
+imports components, and passes the rest (the validator, the platform) to their calls.
+"""
+
+# gm_pin_t.flags (core/include/gm_pin.h)
+INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
+
+
+class Pin:
+    """A resolved gm_pin_t: hub 0 = MCU, n = hubs[n-1]; GM_HUB_NONE (0xFF) = no pin."""
+
+    def __init__(self, hub, flags, num, desc):
+        self.hub, self.flags, self.num, self.desc = hub, flags, num, desc
+
+    def c(self):
+        if self.hub == 0xFF:
+            return "GM_NO_PIN"
+        fl = [n for b, n in ((INVERT, "GM_PIN_INVERT"), (PULLUP, "GM_PIN_PULLUP"),
+                             (PULLDOWN, "GM_PIN_PULLDOWN"), (OPEN_DRAIN, "GM_PIN_OPEN_DRAIN")) if self.flags & b]
+        return f"{{ {self.hub}, {' | '.join(fl) or '0'}, {self.num} }}"
+
+
+NO_PIN = Pin(0xFF, 0, 0, "-")
+
+# Said after the message for a key that moved onto a base component (old_keys).
+MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"

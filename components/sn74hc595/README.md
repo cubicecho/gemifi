@@ -1,5 +1,5 @@
 # sn74hc595
 
-A hub type ([hub](../hub/gm_hub.h), [core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)): `sn74hc595.c` (the driver), `__init__.py` (the YAML: a `ShiftRegister` of the hub base). Its config (`.sr`, `include/gm_device.h`) is shared with the `sn74hc165`, and its pins are the cached `out` word. Its host test is `core/test/test_leds.c` (`test_leds_many`: LEDs on four chains).
+A hub type ([hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components)): `sn74hc595.c` (the driver), `__init__.py` (the YAML: a `ShiftRegister` of the hub base). Its config (`.sr`, `include/gm_device.h`) is shared with the `sn74hc165`, and its pins are the cached `out` word. Its host test is `core/test/test_leds.c` (`test_leds_many`: LEDs on four chains).
 
 `sn74hc595` is a chain of 74HC595s: `data_pin` (SER), `clock_pin` (SRCLK), `latch_pin` (RCLK), optional `oe_pin` (/OE, driven low); `sr_count` chips (1–4), 8 outputs each (8–15 on the second chip). LEDs and key-matrix rows. The outputs are written once per scan, from the scan tick, and only when one changed: the highest pin first, so the first bit shifted ends up in the last chip, then a latch pulse. So a whole key matrix can live on shift registers.

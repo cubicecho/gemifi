@@ -503,7 +503,7 @@
             },
             "additionalProperties": false
           },
-          "description": "sn74hc595 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "sn74hc595 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -545,7 +545,7 @@
             },
             "additionalProperties": false
           },
-          "description": "sn74hc165 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "sn74hc165 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -584,7 +584,7 @@
             },
             "additionalProperties": false
           },
-          "description": "cd74hc4051 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "cd74hc4051 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -626,7 +626,7 @@
             },
             "additionalProperties": false
           },
-          "description": "cd74hc4067 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "cd74hc4067 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -662,7 +662,7 @@
             },
             "additionalProperties": false
           },
-          "description": "mcp23017 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "mcp23017 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -698,7 +698,7 @@
             },
             "additionalProperties": false
           },
-          "description": "pcf8574 hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "pcf8574 hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -727,7 +727,7 @@
             },
             "additionalProperties": false
           },
-          "description": "decoder hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "decoder hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -958,7 +958,7 @@
             },
             "additionalProperties": false
           },
-          "description": "switch_matrix hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "switch_matrix hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",
@@ -1082,7 +1082,7 @@
             },
             "additionalProperties": false
           },
-          "description": "xy_pad hubs (core/README.md \"Virtual pins and hubs\")"
+          "description": "xy_pad hubs (core/README.md \"Components\")"
         },
         {
           "type": "string",

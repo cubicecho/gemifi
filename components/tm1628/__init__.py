@@ -2,6 +2,7 @@
 on the led_driver base (components/led_driver): `led_driver: [{ id: leds, platform: tm1628, ... }]`. The
 YAML and the C: README.md here.
 """
+from components.hub import check_own_latch
 from components.led_driver import LedDriver
 
 DEPENDENCIES = ("led_driver",)
@@ -37,6 +38,9 @@ class TM1628(LedDriver):
         return [f"        .tm = {{ .clk = {hub.clock.c()}, .dio = {hub.data.c()}, .stb = {hub.latch.c()},",
                 f"                .ram_bytes = {hub.ram_bytes}, .brightness = {hub.intensity}, "
                 f".grids = {hub.grids}, .fade = {1 if hub.fade else 0} }},"]
+
+    def final_validate(self, v, dev, hubs):
+        check_own_latch(v, hubs, "stb_pin", "chips", "clk_pin and dio_pin")
 
 
 HUB_TYPES = (TM1628(),)

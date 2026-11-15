@@ -65,7 +65,7 @@ An LED whose level and blink phase haven't changed isn't written again (`led_sho
 
 Through `core/include/gm_controls.h`:
 - the LED levels (`LV_*`), which `mode_led` returns;
-- `led_shown` and `led_dead`, which the modes' `layers_update` writes when an LED changes hands between a base and its layer twin;
+- `led_dead`, which the modes' `layers_update` writes when an LED changes hands between a base and its layer twin, and `led_redraw`, which it calls to draw such an LED again;
 - the functions above, for `gm_poll` and `gm_init`.
 
 It reads the buttons' `btn_held`, `btn_toggled` and `ramp_q8`, and the pads' `pad_state`, `pad_lit` and `pad_owner` (which of a pad and its twins took the hit, so lights its LED).

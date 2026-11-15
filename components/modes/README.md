@@ -160,21 +160,21 @@ modes:
 ## How it runs
 
 The modes have no loop of their own. The other controls hand them their input:
-- **Buttons** (`buttons_sample`): a mode's toggle, hold or cycle button goes to `mode_button`, and a button the active mode binds goes to `mode_btn`. A hold mode whose button was held through a preset switch still ends with it (`mode_late_release`).
+- **Buttons** (`buttons_sample`): a mode's toggle, hold or cycle button goes to `mode_toggle_button`, and a button the active mode binds goes to `mode_function_button`. A hold mode whose button was held through a preset switch still ends with it (`mode_late_release`).
 - **Keys** (the key matrix's `keys_poll`): while a mode with `keys:` is on (`keys_mode`), a key runs its binding (`mode_key`) instead of playing.
 - **LEDs** (`leds_update`): `mode_led` says what a mode's LEDs show: lit or blinking while it's on, a cycle step's colour, and the preset number's blink after a preset switch from a mode.
 
 The key and button modes share one current mode (`mode_cur`), and a held hold mode is `hold_cur`. With layers or cycles (`GM_LAYER_PARAMS`), each layer-only toggle and each cycle step can be on at the same time as others. Whenever a mode goes on or off, `layers_update` works out the live one of each control and its layer twins (the strongest layer wins, `layer_rank`), and sends EVENT 8 for the modes that changed.
 
-`gm_init` calls `modes_init`, and `cycles_init` and `cycles_start` around loading the settings. `gm_layers_report` (from the protocol) asks for an EVENT 8 replay, which `gm_poll` sends (`layers_report_poll`). On a device without modes, `controller.c` has a `gm_layers_report` that does nothing.
+`gm_init` calls `modes_init` before the first `layers_update`, and `cycles_start` once the settings are loaded. `gm_layers_report` (from the protocol) asks for an EVENT 8 replay, which `gm_poll` sends (`layers_report_poll`). On a device without modes, `controller.c` has a `gm_layers_report` that does nothing.
 
 ## What it shares
 
 Through `core/include/gm_controls.h`:
 - the functions above, for the buttons, the key matrix and the LEDs;
-- `layers_update` writes each control's live twin: `btn_live` (buttons), `enc_live` (encoders), `pad_live` (pads), and `led_dead` and `led_shown` (LEDs).
+- `layers_update` writes each control's live twin: `btn_live` (buttons), `enc_live` (encoders), `pad_live` (pads), and `led_dead` (LEDs), asking the LEDs to draw an LED that changed hands again (`led_redraw`).
 
-It reads the buttons' `btn_held`, and uses their `shift` for its octave and transpose bindings.
+It reads the buttons' `btn_held`, and uses their `step_and_show` for its octave and transpose bindings.
 
 ## Tests
 

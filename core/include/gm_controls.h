@@ -1,9 +1,10 @@
 /*
  * gm_controls.h: what the controller (core/src/controller.c) and the control
- * components (components/pads, ...) share: the helpers every control sends
- * with, the state one control keeps and another reads, and what the main
- * loop calls. Each shared variable is written by one component, named with
- * it. Not for the platforms (gm_controller.h is theirs).
+ * components (components/buttons, leds, pads ...) share: the helpers every
+ * control sends with, the state one control keeps and another reads, and
+ * what the main loop calls. Each shared variable is written by one
+ * component, named with it. Not for the platforms (gm_controller.h is
+ * theirs).
  *
  * SPDX-License-Identifier: MIT
  */

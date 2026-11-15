@@ -19,7 +19,7 @@
 /* The scan tables' sizes, from the builder (core/README.md "Generated
  * code"); a config generated before them gets the most. */
 #ifndef GM_MATRIX_COL_RUNS
-#define GM_MATRIX_COL_RUNS 16       /* col_run entries gm_init makes */
+#define GM_MATRIX_COL_RUNS 16       /* col_run entries matrix_init makes */
 #endif
 #ifndef GM_MATRIX_DECODER
 #define GM_MATRIX_DECODER 1         /* a row on a decoder: one-store selects */
@@ -266,8 +266,8 @@ static void matrix_scan_fast(const gm_matrix_t *m)
     }
 }
 
-/* gm_init, once the rows and columns are set up. (Not inlined: smaller
- * that way, as gm_init is large.) */
+/* matrix_init, once the rows and columns are set up. (Not inlined: smaller
+ * that way.) */
 __attribute__((noinline)) static void scan_fast_init(const gm_matrix_t *m)
 {
     scan_fast = rows_fast && cols_fast && !m_hubs && n_runs &&

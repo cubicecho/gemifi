@@ -303,7 +303,7 @@ static void leds_walk(uint32_t now)
  * the round's bytes (tm_flush sends the brightness first), not a round
  * later: a dim host colour never shows at the old, full brightness. */
 #define LEDS_FADE 1
-/* LEDs on a fade chip (bit = LED), gm_init: the others aren't looked at. */
+/* LEDs on a fade chip (bit = LED), leds_init: the others aren't looked at. */
 static uint32_t fade_leds[(GM_ARR(GM_N_LEDS) + 31u) / 32u];
 
 static void leds_fade(void)

@@ -22,7 +22,7 @@ if REPO_ROOT not in sys.path:
 import components  # noqa: E402
 from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
                             PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, a_, c_str, errors,
-                            f1_on, twin_c, type_name)
+                            f1_on, type_name)
 import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment as _comment  # noqa: E402
@@ -32,21 +32,17 @@ from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
 from components import analog, buttons, encoders, key_matrix, leds, modes, pads  # noqa: E402
 from components.buttons import MMC_COMMANDS  # noqa: E402,F401
-from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MAX_MODES, MODE_KEYS,  # noqa: E402,F401
+from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MODE_KEYS,  # noqa: E402,F401
                               STEP_KEYS)
-from components.leds import (LED_DEFAULT_LOOK, LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES,  # noqa: E402,F401
-                             LED_LOOKS, LED_OWNERS, LED_SOURCE_VALUES, LED_SOURCES, TIMEOUT_NEVER,
-                             colour_exact, colour_look, colour_look_needs, colour_mask, led_full_colour,
-                             led_kind, look_word, resolve_led_default, validate_timeout)
-from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, CC_ACTIONS, MSG_ACTIONS,  # noqa: E402,F401
-                                NUMBER_KEYS, PAD_ACTIONS, PRESET_ACTIONS, PROGRAM_ACTIONS, RENAMED_BUTTON,
-                                button_action, number_key)
-from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, RENAMED_ANALOG, TAKEOVER, TOUCH  # noqa: E402,F401
+from components.leds import (LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES, LED_OWNERS,  # noqa: E402,F401
+                             LED_SOURCES, TIMEOUT_NEVER, validate_timeout)
+from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, NUMBER_KEYS,  # noqa: E402,F401
+                                button_action)
+from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, TAKEOVER, TOUCH  # noqa: E402,F401
 from components.encoders import (ACCEL_CURVES, ACCEL_KEYS, ACCEL_PRESETS, ENC_MODES, ENCODER_KEYS,  # noqa: E402,F401
-                                 ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS, RENAMED_ENCODER)
-from components.key_matrix import (MATRIX_FAST_COLS, MATRIX_KEYS, MATRIX_MAX, MATRIX_MAX_ROWS,  # noqa: E402,F401
-                                   RENAMED_MATRIX, RENAMED_VELOCITY, VEL_FAST_RANGE, VEL_SLOW_RANGE, VELOCITY_KEYS)
-from components.pads import MAX_PADS, PAD_DEFAULTS, PAD_KEYS, PAD_SETTINGS_KEYS  # noqa: E402,F401
+                                 ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS)
+from components.key_matrix import MATRIX_KEYS, VELOCITY_KEYS  # noqa: E402,F401
+from components.pads import PAD_DEFAULTS, PAD_KEYS, PAD_SETTINGS_KEYS  # noqa: E402,F401
 
 try:
     import yaml

@@ -15,7 +15,7 @@ Contents:
 6. [Roles](#6-roles)
 7. [Writing the script: structure and checklist](#7-writing-the-script-structure-and-checklist)
 8. [Compatibility and versioning](#8-compatibility-and-versioning)
-9. [A complete session, byte by byte](#9-a-complete-session-byte-by-byte)
+9. [A complete session, step by step](#9-a-complete-session-step-by-step)
 
 ---
 

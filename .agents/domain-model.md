@@ -177,7 +177,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Encoder:** a rotary encoder sending absolute or relative values, with acceleration and an LED ring.
   Owner: `gm_encoder_t`; the `encoders` component (`components/encoders`); its ring, the `leds` component.
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
-  `gm_matrix_t`; `controller.c` "key matrix", "velocity".
+  `gm_matrix_t`; the `key_matrix` component (`components/key_matrix`).
 - **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).
 - **Control twin:** a second copy of a control on a layer. Owner: `gm_pad_twin_t` and the layer tables.
 

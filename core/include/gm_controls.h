@@ -15,9 +15,13 @@
 #include "app_proto.h"                  /* GM_MONITOR, EV_* */
 #include "gm_device.h"
 #include "gm_settings.h"                /* GM_MSG_WIDE, GM_N_SYSEX, K_* */
+#include "gm_controller.h"              /* gm_scan_plan_t */
 
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
+#endif
+#ifndef GM_HW_SCAN
+#define GM_HW_SCAN 0                    /* a config generated before hardware_scan: */
 #endif
 #ifndef GM_TM_FADE
 #define GM_TM_FADE 0                    /* no tm1628 hub with fade: (gm_device_config.h) */
@@ -198,9 +202,39 @@ void leds_update(uint32_t now);         /* every LED_MS: what each LED shows */
 int leds_apply(void);                   /* the passes between: show a few of them; 1 if it did any */
 int leds_round_open(void);              /* a fade round is being shown: the main-loop hubs wait */
 
-/* ---- key matrix (controller.c) -------------------------------------------- */
+/* ---- the scan (controller.c) --------------------------------------------- */
+
+/* Scan ticks: +1 per gm_scan_tick, or per frame with the hardware scan
+ * (which counts the time then). Written by the scan interrupt only. */
+extern volatile uint32_t scan_ticks;
+extern uint8_t hw_on;                   /* the scan: the platform scans; frames come to gm_scan_frames */
+#if GM_HW_SCAN
+extern uint32_t hw_frame_q4;            /* the scan: the hardware scan's frame period, 1/16 us */
+#endif
+
+/* ---- key matrix (components/key_matrix) ----------------------------------- */
 
 #if GM_HAS_MATRIX
+#ifndef GM_MATRIX_ROWS
+#define GM_MATRIX_ROWS 32               /* rows scanned: n_rows, at most 32 (a config generated before it) */
+#endif
+#define FAST_ROWS GM_ARR(GM_MATRIX_ROWS)    /* rows scanned (at most 32) */
+extern uint32_t mprev[FAST_ROWS];       /* key matrix: each row's last reading; the raw readings */
+#if GM_WRITE_LAST_PRESET
+extern uint8_t keys_down;               /* key matrix: keys held (gm_idle_ms) */
+#endif
+void matrix_init(void);                 /* gm_init: its pins, and the scan's fast paths */
+void matrix_scan(void);                 /* the scan tick, without the hardware scan: every row */
+void kt0_age(void);                     /* the scan tick: one timing key's age */
+#if GM_HW_SCAN
+/* The key rows' part of the hardware scan's plan: 1 done (or no key
+ * matrix), 0 the matrix can't be scanned so (logged), -1 its rows or
+ * columns are on other registers than the plan's. */
+int matrix_plan(gm_scan_plan_t *plan, uint32_t max_rows);
+uint32_t matrix_retry(uint32_t key_rows);   /* a key change didn't fit: every key row of the frame again */
+void matrix_frame(const uint16_t *raw, uint32_t chg, uint32_t key_rows);    /* a frame's changed key rows */
+#endif
+void keys_poll(void);                   /* the main loop: the queued key changes, as notes */
 void keys_off(void);                    /* Note Off for every held key; their releases send nothing */
 #endif
 

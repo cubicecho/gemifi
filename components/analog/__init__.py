@@ -40,7 +40,7 @@ def validate(v, dev, data):
         if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
                                                   f"drop mode: {ANALOG_MODES[mode]} or mcu:")
-        if mode == 1 and pin is not None and pin.hub and isinstance(dev.hubs[pin.hub - 1].kind, XYPad):
+        if ANALOG_MODES[mode] == "pitch_bend" and pin is not None and pin.hub and isinstance(dev.hubs[pin.hub - 1].kind, XYPad):
             v.err(f"{p}.mode", d.line_of("mode"), "pitch_bend centres on the power-up reading, and an XY "
                                                   "pad reads nothing until touched: use cc or channel_pressure")
         cc = v.mode_number(dev, d, p, ANALOG_MODES[mode], fader is None and mode == 0, ANALOG_NUMBER_KEYS)

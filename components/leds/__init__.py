@@ -28,6 +28,7 @@ LED_LOOKS = {
 }
 LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
 LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
+LED_KIND_PINS = {"single": 1, "bicolour": 3, "rgb": 7}    # the pins each kind of LED has, as look bits
 # Full-colour looks, for LEDs that can show any colour (one LED of a full-colour hub, full_colour_hubs()):
 # "#rrggbb", or an RGB look name with a brightness, "blue 25%". Elsewhere (led_defaults, a cycle step's
 # colour) they show as the nearest on/off look.
@@ -120,8 +121,7 @@ def colour_nearest(kind, c):
     want = colour_mask(c)
     if not want:
         return 0
-    has = {"single": 1, "bicolour": 3, "rgb": 7}[kind]
-    return (want & has) or 1
+    return (want & LED_KIND_PINS[kind]) or 1
 
 
 def colour_exact(kind, c):
@@ -177,8 +177,7 @@ def resolve_led_default(kind, word, full=False):
     if word in LED_LOOKS[kind]:
         return LED_LOOKS[kind][word], None
     want = LED_LOOK_NAMES[word]
-    has = {"single": 1, "bicolour": 3, "rgb": 7}[kind]
-    return (want & has) or 1, None
+    return (want & LED_KIND_PINS[kind]) or 1, None
 
 
 def validate_led_looks(v, d, p, kind, defaults, full=False):

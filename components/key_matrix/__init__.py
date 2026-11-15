@@ -23,7 +23,6 @@ VEL_FAST_RANGE = (1, 500)
 VEL_SLOW_RANGE = (20, 2000)
 
 MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
-MATRIX_MAX_ROWS = 32    # controller.c: rows scanned
 
 
 def in_device(dev):
@@ -188,7 +187,7 @@ def c_defines(dev):
     if not m:
         return []
     dec = any(0 < pn.hub <= len(dev.hubs) and dev.hubs[pn.hub - 1].type == "decoder" for pn in m.rows)
-    return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX_ROWS)} /* key-matrix rows scanned (at most 32) */",
+    return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX)} /* key-matrix rows scanned (at most 32) */",
             f"#define GM_MATRIX_COL_RUNS {matrix_col_runs(dev, m)} /* runs of adjacent column bits on one port */",
             f"#define GM_MATRIX_DECODER {1 if dec else 0} /* rows on a decoder: one-store row selects */"]
 

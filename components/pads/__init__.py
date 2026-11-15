@@ -21,8 +21,8 @@ def in_device(dev):
 
 
 def validate(v, dev, data):
-    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note.
-    pad_settings: what all pads share: the sensing (global) and channel / curve / aftertouch (per preset)."""
+    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note; then
+    pad_settings: (pad_settings)."""
     names = {}
     pads = v.seq(data.get("pads"), "pads", data.line_of("pads"))
     for i, d in enumerate(pads):
@@ -54,7 +54,12 @@ def validate(v, dev, data):
             v.warn(f"{x.path}.note", x.line, f"note {x.note} is also the note of {seen[x.note]}: both pads "
                                               "play the same note")
         seen.setdefault(x.note, x.path)
+    pad_settings(v, dev, data)
 
+
+def pad_settings(v, dev, data):
+    """pad_settings: what all pads share -> dev.pad_set: the sensing (global) and channel / curve /
+    aftertouch (per preset)."""
     if data.get("pad_settings") is None:
         return
     p, line = "pad_settings", data.line_of("pad_settings")

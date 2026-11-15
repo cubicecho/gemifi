@@ -19,6 +19,9 @@
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
 #endif
+#ifndef GM_ENC_ACCEL
+#define GM_ENC_ACCEL 0                  /* a config generated before acceleration: */
+#endif
 #ifndef GM_BTN_CTL
 #define GM_BTN_CTL 0                    /* gm_button_ctl[]: channel:, min:, max: */
 #endif
@@ -40,6 +43,9 @@
 #define NA GM_ARR(GM_N_ANALOGS)
 #define NE GM_ARR(GM_N_ENCODERS)
 #define NK GM_ARR(GM_MATRIX_KEYS)
+/* Encoders with pins of their own; their layer twins (GM_ENC_TWINS) come
+ * after them and aren't scanned. */
+#define NE_HW (GM_N_ENCODERS - GM_ENC_TWINS)
 
 /* ---- MIDI out (controller.c) ---------------------------------------------- */
 
@@ -91,6 +97,35 @@ uint32_t an_kind(int32_t mode);         /* what analog.mode sends: K_CC for cc, 
 void analog_init(void);
 void analog_poll(void);
 void analog_pickup_off(void);           /* every input back in control of its value (pick-up) */
+#endif
+
+/* ---- encoders (components/encoders) --------------------------------------- */
+
+#if GM_N_ENCODERS > 0
+/* An encoder's channel (channel:). */
+#if GM_ENC_CTL
+#define ENC_CH(i) ctl_chan(&gm_encoder_ctl[i])
+#else
+#define ENC_CH(i) midi_chan()
+#endif
+/* Detents, free running: only encoder_step writes it (the scan interrupt,
+ * or the main loop for I2C hubs). */
+extern volatile uint16_t enc_count[GM_ARR(NE_HW)];   /* encoders; the raw readings read it */
+extern uint8_t enc_i2c[GM_ARR(NE_HW)];  /* encoders (encoders_init): on an I2C hub, stepped from the main loop */
+extern int16_t enc_value[NE];           /* encoders, and host feedback (enc_at): an absolute position */
+#if GM_ENC_TWINS
+extern uint8_t enc_live[NE];            /* modes (layers_update): per scanned encoder, the index its turns go to */
+#define ENC_LIVE(i) enc_live[i]
+#else
+#define ENC_LIVE(i) (i)
+#endif
+int32_t enc_top(uint32_t i);            /* the top of encoder i's values: 127, or 16383 in a 14-bit mode */
+int32_t enc_span(uint32_t i, int32_t top);      /* an absolute mode's positions, 0..span; 0: relative */
+uint32_t enc_out(uint32_t i, int32_t p, int32_t top);   /* the value position p sends */
+void enc_at(uint32_t i, int32_t v, int32_t top, int32_t span);  /* go to the position of value v */
+void encoder_step(uint32_t i);          /* the scan: read A and B, count a detent */
+void encoders_init(void);
+void encoders_poll(uint32_t now);
 #endif
 
 /* ---- pads (components/pads) ----------------------------------------------- */

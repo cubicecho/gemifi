@@ -175,7 +175,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Analog input (pot, fader, wheel):** a reading sent as CC, 14-bit, NRPN/RPN, pitch bend or pressure.
   Owner: `gm_analog_t`; the `analog` component (`components/analog`).
 - **Encoder:** a rotary encoder sending absolute or relative values, with acceleration and an LED ring.
-  Owner: `gm_encoder_t`; `controller.c` "encoders" (scan side and main side), "encoder rings".
+  Owner: `gm_encoder_t`; the `encoders` component (`components/encoders`); its ring, `controller.c` "encoder rings".
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
   `gm_matrix_t`; `controller.c` "key matrix", "velocity".
 - **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).

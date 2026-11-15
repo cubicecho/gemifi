@@ -3,7 +3,7 @@ validates its YAML and writes its C (README.md here). The builder (gemifi_device
 the other controls, and c_defines(), c_param_defaults() and c_tables() where gm_device_config.h / .c have
 them.
 """
-from components.api import NO_PIN, Hub
+from components.api import NO_PIN, Hub, LList
 from components.hub import c_comment
 
 MATRIX_KEYS = ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle", "velocity", "daw"]
@@ -45,7 +45,7 @@ def validate(v, dev, data):
     if not isinstance(lst, list) or not lst:
         if "cols" not in d:
             v.err(f"{p}.columns", d.line_of("columns") if "columns" in d else d.line, "needs a list of pins")
-        lst = []
+        lst = LList()
     if len(lst) > MATRIX_MAX:
         v.err(f"{p}.columns", d.line_of("columns"), f"{len(lst)} columns: at most {MATRIX_MAX} (the core "
                                                     "keeps a row's columns in 32 bits)")
@@ -108,11 +108,11 @@ def validate_key_map(v, d, p, lrows, lcols, keys, by_rows, kind):
         v.err(p, d.line_of("key_map"), f"needs one list per {what_r}: {lrows}, got {len(km)}")
     flat, where = [], {}
     for r in range(lrows):
-        row = km[r] if r < len(km) else []
+        row = km[r] if r < len(km) else LList()
         rp = f"{p}[{r}]"
         if not isinstance(row, list):
             v.err(rp, km.line_of(r), f"must be a list of {lcols} key numbers (null = no key)")
-            row = []
+            row = LList()
         elif len(row) != lcols:
             v.err(rp, km.line_of(r), f"needs {lcols} entries, one per {what_c} (null = no key), got {len(row)}")
         for c in range(lcols):
@@ -121,7 +121,7 @@ def validate_key_map(v, d, p, lrows, lcols, keys, by_rows, kind):
                 flat.append(255)
                 continue
             if isinstance(x, bool) or not isinstance(x, int) or not 0 <= x < keys:
-                v.err(f"{rp}[{c}]", row.line_of(c) if hasattr(row, "line_of") else km.line_of(r),
+                v.err(f"{rp}[{c}]", row.line_of(c) if isinstance(row, LList) else km.line_of(r),
                       f"must be a key number 0..{keys - 1} or null (got {x!r})")
                 flat.append(255)
                 continue

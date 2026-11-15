@@ -21,7 +21,8 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 from components.api import (CURVES, INVERT, MIGRATE_HINT, MMC_COMMANDS, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
-                            PULLDOWN, PULLUP, RENAMED_ID, Hub, Pin, c_str, twin_c)
+                            PULLDOWN, PULLUP, RENAMED_ID, Hub, LDict, LList, Pin, a_, c_str, errors, twin_c,
+                            type_name)
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -461,45 +462,10 @@ class Diag:
         return d
 
 
-def errors(diags):
-    return [d for d in diags if d.level == "error"]
 
 
 # ---------------------------------------------------------------------------------------------
 # YAML with line numbers
-
-class LDict(dict):
-    """dict that remembers the line of itself and of each key (1-based)."""
-    line = 0
-
-    def __init__(self, *a, **kw):
-        super().__init__(*a, **kw)
-        self.key_lines = {}
-        self.raw = {}           # key -> the value's source text, for scalars
-
-    def line_of(self, key):
-        return self.key_lines.get(key, self.line)
-
-    def raw_of(self, key):
-        """The value as written in the file (so a `no` read as False can be shown as `no`)."""
-        return self.raw.get(key, str(self.get(key)))
-
-
-class LList(list):
-    line = 0
-
-    def __init__(self, *a):
-        super().__init__(*a)
-        self.item_lines = []
-        self.item_raw = []
-
-    def line_of(self, i):
-        return self.item_lines[i] if i < len(self.item_lines) else self.line
-
-    def raw_of(self, i):
-        r = self.item_raw[i] if i < len(self.item_raw) else None
-        return str(self[i]) if r is None else r
-
 
 class YamlLoadError(Exception):
     def __init__(self, line, msg):
@@ -1441,11 +1407,6 @@ class _V:
         """Why plain feedback is off, for a message (f1_off_why)."""
         return f1_off_why(dev)
 
-    @staticmethod
-    def type_name(x):
-        """The YAML type of a value, for a message (type_name)."""
-        return type_name(x)
-
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
         (clock with clock, ...) on different hubs, and each sets allow_other_uses: true."""
@@ -1555,9 +1516,6 @@ def fmt_us(us):
     return f"{us:g}us"
 
 
-def type_name(v):
-    return {dict: "mapping", LDict: "mapping", list: "list", LList: "list", str: "string", int: "integer",
-            bool: "boolean", float: "number", type(None): "nothing"}.get(type(v), type(v).__name__)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1614,9 +1572,6 @@ def example_id(kind):
             "hub": "faders", "pad": "pad_1", "i2c bus": "bus_a"}.get(kind, "item")
 
 
-def a_(kind):
-    """'an LED', 'an analog input', 'a button'."""
-    return f"{'an' if kind[:1] in 'aeiouAEIOUL' else 'a'} {kind}"
 
 
 def humanize(ident):

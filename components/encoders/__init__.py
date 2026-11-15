@@ -5,7 +5,7 @@ gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, twin_c
+from components.api import NO_PIN, RENAMED_ID, Hub, c_str, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
 
@@ -152,7 +152,7 @@ def validate_acceleration(v, d, path, base):
         return True, base
     if not isinstance(x, dict):
         v.err(p, line, f"must be {', '.join(names)} or a mapping {{ slow, fast, max, curve }} (got "
-                       f"{v.type_name(x)} {d.raw_of('acceleration')!r})")
+                       f"{type_name(x)} {d.raw_of('acceleration')!r})")
         return True, base
     m = v.mapping(x, p, line, ACCEL_KEYS)
     slow, fast, mx, curve = base or ACCEL_PRESETS["medium"]

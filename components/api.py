@@ -31,6 +31,10 @@ CURVES = ["normal", "soft", "hard", "fixed"]
 RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, used for references) "
                        "and/or `name:` (display text)"}
 
+# MMC commands (MIDI 1.0 MMC, `F0 7F dev 06 cmd F7`): the YAML's mmc: names -> button.number
+MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
+                "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
+
 # Said after the message for a key that moved onto a base component (old_keys).
 MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"
 

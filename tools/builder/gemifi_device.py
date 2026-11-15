@@ -20,8 +20,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, RENAMED_ID,  # noqa: E402,F401
-                            Hub, Pin, c_str, twin_c)
+from components.api import (CURVES, INVERT, MIGRATE_HINT, MMC_COMMANDS, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
+                            PULLDOWN, PULLUP, RENAMED_ID, Hub, Pin, c_str, twin_c)
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -30,7 +30,10 @@ import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
-from components import analog, encoders, key_matrix, pads  # noqa: E402
+from components import analog, buttons, encoders, key_matrix, pads  # noqa: E402
+from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, CC_ACTIONS, MSG_ACTIONS,  # noqa: E402,F401
+                                NUMBER_KEYS, PAD_ACTIONS, PRESET_ACTIONS, PROGRAM_ACTIONS, RENAMED_BUTTON,
+                                button_action, number_key)
 from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, RENAMED_ANALOG, TAKEOVER, TOUCH  # noqa: E402,F401
 from components.encoders import (ACCEL_CURVES, ACCEL_KEYS, ACCEL_PRESETS, ENC_MODES, ENCODER_KEYS,  # noqa: E402,F401
                                  ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS, RENAMED_ENCODER)
@@ -51,28 +54,6 @@ FORMAT_VERSION = 2
 # tools/release/set-version.mjs sets it at each release.
 VERSION = "0.50.0"
 
-# core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
-# actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
-# MIDI message actions (17-20) are compiled in only on devices that use them (MSG_ACTIONS).
-ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note": 4, "octave_down": 5,
-              "octave_up": 6, "transpose_down": 7, "transpose_up": 8, "bend_down": 9, "bend_up": 10,
-              "program_next": 11, "program_prev": 12, "preset_next": 13, "preset_prev": 14,
-              "preset_select": 15, "mcu": 16, "program": 17, "panic": 18, "mmc": 19, "sysex": 20,
-              "pad_octave_down": 21, "pad_octave_up": 22}
-ACTIONS = list(ACTION_IDS)
-CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
-PRESET_ACTIONS = {"preset_next", "preset_prev", "preset_select"}
-PROGRAM_ACTIONS = {"program_next", "program_prev", "program"}     # these take bank:
-PAD_ACTIONS = {"pad_octave_down", "pad_octave_up"}                  # only on devices with pads
-# the YAML keys that give button.number (mcu: aside)
-NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
-
-
-def number_key(act):
-    """The key that gives button.number for an action (None: the action takes no number)."""
-    if act in ("program", "mmc", "sysex"):
-        return act
-    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
 
 
 # ---- MIDI messages (core/README.md "MIDI messages") ----
@@ -80,10 +61,6 @@ def number_key(act):
 # or lists it in midi_messages.enable. sysex is on when midi_messages.sysex has strings.
 MSG_FEATURES = ["cc14", "nrpn", "program", "panic", "mmc"]
 MSG_ALIASES = {"rpn": "nrpn", "bank_select": "program"}
-MSG_ACTIONS = {"program": "program", "panic": "panic", "mmc": "mmc", "sysex": "sysex"}   # action -> feature
-# MMC commands (MIDI 1.0 MMC, `F0 7F dev 06 cmd F7`): the YAML's mmc: names -> button.number
-MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
-                "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 SYSEX_MAX = 64              # bytes of one sent SysEx string (the stack buffer in controller.c)
 SYSEX_TOKENS = {"v": 0x80, "msb": 0x81, "lsb": 0x82, "ch": 0x83}   # gm_device.h GM_SX_*
 SX_SUM_START, SX_SUM = 0x84, 0x85
@@ -395,8 +372,6 @@ HW_SCAN_ANALOG_KEYS = ["timer"]
 COMBO_KEYS = ["combo", "hold"]        # factory_reset_combo: / unlock: as a mapping
 LED_DEFAULTS_KEYS = ["idle", "active"]
 LED_KEYS = ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback", "owner", "timeout", "daw"]
-BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
-               "bank", "channel", "min", "max"]
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -439,8 +414,6 @@ RENAMED_HUB = {
     "chain": "renamed: use `sr_count:`", "select": "replaced: use `pin_s0:`, `pin_s1:`, ...",
     "common": "renamed: use `common_pin:`", "settle_us": "renamed: use `delay:` with a unit, e.g. `delay: 5us`",
 }
-RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
-                                         "`note:` (action note)")
 
 # Ids (ESPHome rules): C identifiers, not C/C++ keywords, unique across the device. gemifi also
 # wants them lower_snake_case.
@@ -1416,8 +1389,33 @@ class _V:
 
     def mcu_name(self, dev, d, p, kind):
         """d's mcu: control of a kind, 'fader' or 'vpot' (mcu_name) -> its number, or None."""
-        table, example = {"fader": (MCU_FADERS, "fader_1"), "vpot": (MCU_VPOTS, "vpot_1")}[kind]
-        return mcu_name(self, dev, d, p, table, example)
+        return mcu_name(self, dev, d, p, self.mcu_table(kind), f"{kind}_1")
+
+    @staticmethod
+    def mcu_table(kind):
+        """The Mackie Control names of a kind -> their numbers: 'fader', 'vpot', or 'button' (the notes)."""
+        return {"fader": MCU_FADERS, "vpot": MCU_VPOTS, "button": MCU_NOTES}[kind]
+
+    def mcu_needed(self, dev, path, line):
+        """The device has mcu: (else an error at path) (mcu_needed)."""
+        return mcu_needed(self, dev, path, line)
+
+    def sysex_ref(self, dev, d, key, path):
+        """d[key], the id of a midi_messages.sysex string -> its index (sysex_ref)."""
+        return sysex_ref(self, dev, d, key, path)
+
+    @staticmethod
+    def sysex_wide(dev, k):
+        """SysEx string k sends 14-bit values (sysex_wide)."""
+        return sysex_wide(dev, k)
+
+    def mmc_command(self, d, path):
+        """d's mmc: -> the MMC command number (mmc_command)."""
+        return mmc_command(self, d, path)
+
+    def bank_value(self, d, p):
+        """d's bank: -> the Bank Select value (bank_value)."""
+        return bank_value(self, d, p)
 
     def mode_use(self, dev, mname, path, line):
         """An analog / encoder mode that needs a message kind: compiled in (mode_use)."""
@@ -1739,6 +1737,7 @@ def validate(data, file=None):
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
     validate_components(v, dev, data)
+    buttons.validate(v, dev, data)
     analog.validate(v, dev, data)
     encoders.validate(v, dev, data)
     check_mcu_unique(v, dev, data)
@@ -2352,7 +2351,6 @@ def validate_led_looks(v, d, p, kind, defaults, full=False):
 
 
 def validate_components(v, dev, data):
-    names = {}       # (kind, display name) -> path, for the duplicate-name warning
     # LEDs first (buttons refer to them)
     led_defaults = validate_led_defaults(v, data)
     leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
@@ -2381,32 +2379,6 @@ def validate_components(v, dev, data):
                             owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
                             daw=daw_role(v, dev, d, p), local_line=led_owner_line))
 
-    buttons = v.seq(data.get("buttons"), "buttons", data.line_of("buttons"))
-    for i, d in enumerate(buttons):
-        p = f"buttons[{i}]"
-        d = v.mapping(d, p, buttons.line_of(i), BUTTON_KEYS, renamed=RENAMED_BUTTON)
-        if d is None:
-            continue
-        ident = v.ident(d, p, "button", len(dev.buttons))
-        name = v.display_name(d, p, ident)
-        v.unique_name(names, "button", name, p, d)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
-        act, num = button_action(v, dev, d, p)
-        led = -1
-        if d.get("led") is not None:
-            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
-            if idx is not None:
-                led = idx
-                if led > 127:
-                    v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-                    led = -1
-        if led >= 0:
-            dev.leds[led].used_by.append(("button", act))
-        top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
-        dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
-                               action_name=act, number=num, led=led, daw=daw_role(v, dev, d, p),
-                               ctl=control_out(v, d, p, top), bank=button_bank(v, dev, d, p, act)))
-
 
 
 def mcu_needed(v, dev, path, line):
@@ -2431,27 +2403,6 @@ def mcu_name(v, dev, d, p, table, example):
     return table[d["mcu"]]
 
 
-def button_mcu(v, dev, d, p, act):
-    """action: mcu + mcu: <button> -> the default button.number (the MCU note)."""
-    line = d.line_of("mcu") if "mcu" in d else d.line
-    if act != "mcu":
-        v.err(f"{p}.mcu", line, f"mcu: is for action: mcu (this button's action is {act}; leave action: out "
-                                "or set it to mcu)")
-        return 0
-    if not mcu_needed(v, dev, f"{p}.action", d.line_of("action") if "action" in d else line):
-        return 0
-    for k in NUMBER_KEYS:
-        if k in d:
-            v.err(f"{p}.{k}", d.line_of(k), f"action mcu takes mcu: (e.g. `mcu: play`), not {k}:")
-    if d.get("mcu") is None:
-        v.err(p, d.line, "action mcu needs mcu: (the MCU button, e.g. `mcu: play`, `rec_1`, `f1`)")
-        return 0
-    if d["mcu"] not in MCU_NOTES:
-        close = difflib.get_close_matches(d.raw_of("mcu"), list(MCU_NOTES), 1)
-        hint = f"; did you mean '{close[0]}'?" if close else " (core/README.md \"Mackie Control\" has the list)"
-        v.err(f"{p}.mcu", line, f"unknown MCU button '{d.raw_of('mcu')}'{hint}")
-        return 0
-    return MCU_NOTES[d["mcu"]]
 
 
 def daw_role(v, dev, d, p):
@@ -2551,83 +2502,6 @@ def validate_led_source(v, dev, d, p):
     return (LED_SOURCES[k], num, ch)
 
 
-def button_action(v, dev, d, p, base=None):
-    """A button's action and default button.number, from action: and cc: / note: / preset: / mcu:.
-    base: (action, number) of the component, for a preset's override of it: what the override leaves
-    out stays as the component has it. Returns (action name, number)."""
-    if "action" in d:
-        act = d["action"]
-        if act not in ACTIONS:
-            close = difflib.get_close_matches(str(act), ACTIONS, 1)
-            hint = f"did you mean '{close[0]}'? " if close else ""
-            v.err(f"{p}.action", d.line_of("action"), f"unknown action '{d.raw_of('action')}' ({hint}valid: "
-                                                       f"{', '.join(ACTIONS)})")
-            return base or ("none", 0)
-    else:
-        act = base[0] if base else "mcu" if "mcu" in d else "none"
-    if act in MSG_ACTIONS:
-        if act == "sysex" and not dev.sysex:
-            v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
-                  "action sysex sends one of the midi_messages.sysex strings, and there are none")
-        dev.msg_used.add(MSG_ACTIONS[act])
-    if act in PAD_ACTIONS:
-        dev.pad_action_uses.append((f"{p}.action", d.line_of("action") if "action" in d else d.line, act))
-    if act in PRESET_ACTIONS and dev.n_presets < 2:
-        v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
-              f"action {act} switches presets, but this device has {dev.n_presets} preset slot: add "
-              "presets: (with 2 or more slots)")
-        return act, (base[1] if base else 0)
-    if act == "mcu" or "mcu" in d:
-        if base and act == base[0] == "mcu" and "mcu" not in d:
-            return act, base[1]
-        num = button_mcu(v, dev, d, p, act)
-        return (act if act == "mcu" else base[0] if base else "none"), num
-    return act, button_number(v, dev, d, p, act, base)
-
-
-def button_number(v, dev, d, p, act, base=None):
-    """The default button.number: cc: for the CC actions, note: for action note, preset: (the slot) for
-    preset_select. With base (a preset override), a number left out keeps the component's, and a
-    number on an action that takes none is an error (in a component it only warns)."""
-    want = number_key(act)
-    keep = base[1] if base else 0
-    given = [k for k in NUMBER_KEYS if k in d]
-    if "cc" in d and "note" in d:
-        v.err(p, d.line, "give cc: or note:, not both")
-    elif len(given) > 1:
-        v.err(p, d.line, f"give one of {', '.join(k + ':' for k in given)}, not {len(given)}")
-    if want is None:
-        if given:
-            k = given[0]
-            if base or k in ("preset", "mmc", "sysex", "program"):
-                what = "a preset number" if k == "preset" else "a CC or note"
-                v.err(f"{p}.{k}", d.line_of(k), f"action {act} takes no {what}: drop {k}:")
-                return keep
-            v.warn(f"{p}.{k}", d.line_of(k), f"action {act} sends no CC or note; {k}: only "
-                                             "sets the default button.number for when the action is "
-                                             "changed in the config")
-            return v.integer(d, k, p, 0, 127, default=0)
-        return keep
-    other = [k for k in given if k != want]
-    if other:
-        v.err(f"{p}.{other[0]}", d.line_of(other[0]), f"action {act} takes {want}:, not {other[0]}:")
-        return v.integer(d, other[0], p, 0, 127, default=0) if other[0] in ("cc", "note") else keep
-    if "number" in d:          # format 1; reported as renamed
-        return 0
-    lo, hi = (1, dev.n_presets) if want == "preset" else (0, 127)
-    if want not in d:
-        if base and act == base[0]:
-            return keep
-        what = {"mmc": f"an MMC command: {', '.join(MMC_COMMANDS)}, or 1..127",
-                "sysex": "the id of a midi_messages.sysex string"}.get(want)
-        v.err(p, d.line, f"action {act} needs {want}: (" + (what or f"{lo}..{hi}" +
-              (", the preset slot" if want == "preset" else "")) + ")")
-        return 0
-    if want == "mmc":
-        return mmc_command(v, d, p)
-    if want == "sysex":
-        return sysex_ref(v, dev, d, "sysex", p)
-    return v.integer(d, want, p, lo, hi, default=0)
 
 
 def validate_screens(v, dev, data):
@@ -3740,18 +3614,6 @@ def control_out(v, d, p, top):
     return lo, CTL_TOP if hi is None else hi, ch
 
 
-def button_bank(v, dev, d, p, act):
-    """bank: 0..16383 (or { msb, lsb }) on a program action -> its Bank Select, or None."""
-    if "bank" not in d:
-        return None
-    if act not in PROGRAM_ACTIONS:
-        v.err(f"{p}.bank", d.line_of("bank"), f"bank: goes with the actions {', '.join(sorted(PROGRAM_ACTIONS))}, "
-                                             f"not {act}")
-        return None
-    bank = bank_value(v, d, p)
-    if bank is not None:
-        dev.msg_used.add("program")
-    return bank
 
 
 def bank_value(v, d, p):
@@ -5049,11 +4911,7 @@ def generate(dev, source="device.yaml"):
             c += [f"    {{ /* {hb.index + 1}: {_comment(hb.id)} ({hb.type}) */",
                   f"        .type = {hb.kind.enum}, {fields[0].lstrip()}", *fields[1:], "    },"]
         c += ["};", ""]
-    if dev.buttons:
-        c.append("static const gm_button_t buttons[GM_N_BUTTONS] = {")
-        c += [f"    {{ {pin_c(b.pin)}, {c_str(b.name)}, {b.led}{twin_c(b)} }}, "
-              f"/* {_comment(b.id)}: {_comment(b.pin.desc)} */" for b in dev.buttons]
-        c += ["};", ""]
+    c += buttons.c_tables(dev)
     if dev.leds:
         c.append("static const gm_led_t leds[GM_N_LEDS] = {")
         c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)}{twin_c(x)}{led_rgb_c(x)} }}, "

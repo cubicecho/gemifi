@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): buttons and switches on any input pin (an MCU pin, a hub's, a switch matrix's), each with an action. Its YAML (`buttons:`) and the actions: [core/README.md "Controls"](../../core/README.md#controls) ("Button actions"), "MIDI messages", "Modes" and "Button layers".
 
 - `buttons.c`: sampling and debouncing the buttons, their actions, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py`.
+- `__init__.py`: the builder part: the actions (`ACTION_IDS`), `validate` (its YAML), `button_action` (a button's action and number, also for a preset's override and a layer twin) and `c_tables` (`gm_button_t buttons[]`), and when it's built.
 
 ## How it runs
 

@@ -13,16 +13,85 @@
 #include <stdint.h>
 #include "gm_device_config.h"
 #include "app_proto.h"                  /* GM_MONITOR, EV_* */
+#include "gm_device.h"
+#include "gm_settings.h"                /* GM_MSG_WIDE, GM_N_SYSEX, K_* */
 
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
 #endif
+#ifndef GM_BTN_CTL
+#define GM_BTN_CTL 0                    /* gm_button_ctl[]: channel:, min:, max: */
+#endif
+#ifndef GM_ANALOG_CTL
+#define GM_ANALOG_CTL 0                 /* gm_analog_ctl[] */
+#endif
+#ifndef GM_ENC_CTL
+#define GM_ENC_CTL 0                    /* gm_encoder_ctl[] */
+#endif
+#ifndef GM_BTN_BANK
+#define GM_BTN_BANK 0                   /* gm_button_bank[] */
+#endif
+#define GM_CTL (GM_BTN_CTL || GM_ANALOG_CTL || GM_ENC_CTL)
+/* Analog inputs and encoders that can send more than a 7-bit CC. */
+#define GM_MSG_KINDS (GM_MSG_WIDE || GM_N_SYSEX)
+
+/* Array sizes per control (at least 1, GM_ARR). */
+#define NB GM_ARR(GM_N_BUTTONS)
+#define NA GM_ARR(GM_N_ANALOGS)
+#define NE GM_ARR(GM_N_ENCODERS)
+#define NK GM_ARR(GM_MATRIX_KEYS)
 
 /* ---- MIDI out (controller.c) ---------------------------------------------- */
 
 uint8_t midi_chan(void);                /* the device's MIDI channel, 0-15 (midi.channel - 1) */
 void midi3(uint8_t status, uint32_t a, uint32_t b);
 void send_event(uint8_t type, uint32_t index, uint32_t value);   /* an EVENT, with debug.events on */
+#if GM_N_BUTTONS > 0 || GM_N_ANALOGS > 0
+void midi2(uint8_t status, uint32_t a);
+#endif
+
+/* A CC on midi.channel (a control without channel:). */
+static inline void cc(uint32_t num, uint32_t value)
+{
+    midi3(0xB0 | midi_chan(), num, value);
+}
+
+/* ---- MIDI messages (controller.c, core/README.md "MIDI messages") --------- */
+
+#if GM_CTL
+uint8_t ctl_chan(const gm_ctl_t *t);    /* a control's channel: its channel:, else midi.channel */
+int32_t ctl_hi(const gm_ctl_t *t, int32_t top);
+uint32_t ctl_out(const gm_ctl_t *t, int32_t v, int32_t top);   /* v of 0..top as the control's min..max */
+#endif
+#if GM_MSG_KINDS
+int kind_wide(uint32_t kind, uint32_t num);     /* a kind (K_*) whose values are 14-bit */
+/* Value v (7- or 14-bit, as kind wants) as kind on channel ch: num is the
+ * CC, the (N)RPN number or the SysEx index. */
+void send_value(uint32_t kind, uint8_t ch, uint32_t num, uint32_t v);
+#endif
+
+/* ---- analog inputs (components/analog) ------------------------------------ */
+
+#if GM_N_ANALOGS > 0
+#define ANALOG_MS 2u                    /* one analog input per period (without the hardware analog scan) */
+/* An input's channel and output range (channel:, min:, max:). */
+#if GM_ANALOG_CTL
+#define AN_CH(i) ctl_chan(&gm_analog_ctl[i])
+#define AN_OUT(i, v, top) ctl_out(&gm_analog_ctl[i], (int32_t)(v), (top))
+#else
+#define AN_CH(i) midi_chan()
+#define AN_OUT(i, v, top) ((uint32_t)(v))
+#endif
+#if GM_MONITOR
+extern int16_t a_raw[NA];               /* analog: the last reading, -1 = none, RAW (sysex.md 4.8) */
+#endif
+#if GM_MSG_KINDS
+uint32_t an_kind(int32_t mode);         /* what analog.mode sends: K_CC for cc, 0xFF for pitch bend and pressure */
+#endif
+void analog_init(void);
+void analog_poll(void);
+void analog_pickup_off(void);           /* every input back in control of its value (pick-up) */
+#endif
 
 /* ---- pads (components/pads) ----------------------------------------------- */
 

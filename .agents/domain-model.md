@@ -173,7 +173,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **LED:** a light on one, two or three pins (single, bicolour, RGB), showing its button, a level or
   what a host sends; looks for idle and active. Owner: `gm_led_t`; `controller.c` "LEDs".
 - **Analog input (pot, fader, wheel):** a reading sent as CC, 14-bit, NRPN/RPN, pitch bend or pressure.
-  Owner: `gm_analog_t`; `controller.c` "analog inputs".
+  Owner: `gm_analog_t`; the `analog` component (`components/analog`).
 - **Encoder:** a rotary encoder sending absolute or relative values, with acceleration and an LED ring.
   Owner: `gm_encoder_t`; `controller.c` "encoders" (scan side and main side), "encoder rings".
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:

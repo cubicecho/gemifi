@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.50.0](https://github.com/cubicecho/gemifi/compare/v0.49.0...v0.50.0) (2026-11-15)
+
+
+### Features
+
+* **builder:** gemifi_build.py migrate, old component keys to the current form (F2) ([7836202](https://github.com/cubicecho/gemifi/commit/7836202b50eb7130207c43dc06531d31b6c682cd))
+
 # [0.49.0](https://github.com/cubicecho/gemifi/compare/v0.48.0...v0.49.0) (2026-11-14)
 
 

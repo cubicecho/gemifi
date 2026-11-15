@@ -54,3 +54,9 @@ def c_str(s):
         else:
             out.append(f"\\{b:03o}")
     return '"' + "".join(out) + '"'
+
+
+def twin_c(x):
+    """gm_button_t / gm_led_t / gm_encoder_t .layer, .base for a layer twin (mode index + 1, the component
+    it is a twin of); 0, 0 for the others."""
+    return f", {x.layer}, {x.base}" if getattr(x, "layer", 0) else ", 0, 0"

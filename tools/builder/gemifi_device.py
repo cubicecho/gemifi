@@ -21,7 +21,7 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, RENAMED_ID,  # noqa: E402,F401
-                            Hub, Pin, c_str)
+                            Hub, Pin, c_str, twin_c)
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -30,7 +30,9 @@ import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
-from components import key_matrix, pads  # noqa: E402
+from components import encoders, key_matrix, pads  # noqa: E402
+from components.encoders import (ACCEL_CURVES, ACCEL_KEYS, ACCEL_PRESETS, ENC_MODES, ENCODER_KEYS,  # noqa: E402,F401
+                                 ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS, RENAMED_ENCODER)
 from components.key_matrix import (MATRIX_FAST_COLS, MATRIX_KEYS, MATRIX_MAX, MATRIX_MAX_ROWS,  # noqa: E402,F401
                                    RENAMED_MATRIX, RENAMED_VELOCITY, VEL_FAST_RANGE, VEL_SLOW_RANGE, VELOCITY_KEYS)
 from components.pads import MAX_PADS, PAD_DEFAULTS, PAD_KEYS, PAD_SETTINGS_KEYS  # noqa: E402,F401
@@ -208,8 +210,6 @@ def stored_counts(dev):
 # enum's YAML names in value order.
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
-ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
-             "rpn", "rpn14"]
 ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure", "cc14", "nrpn", "nrpn14", "rpn", "rpn14", "sysex"]
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
@@ -401,8 +401,6 @@ BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mc
                "bank", "channel", "min", "max"]
 ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw", "nrpn",
                "rpn", "sysex", "channel", "min", "max"]
-ENCODER_KEYS = ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
-                "acceleration", "mode", "nrpn", "rpn", "channel", "min", "max"]
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -448,8 +446,6 @@ RENAMED_HUB = {
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
 RENAMED_ANALOG = dict(RENAMED_ID, raw_min="renamed: use `adc_min:`", raw_max="renamed: use `adc_max:`")
-RENAMED_ENCODER = dict(RENAMED_ID, a="renamed: use `pin_a:` (as ESPHome's rotary_encoder)",
-                       b="renamed: use `pin_b:` (as ESPHome's rotary_encoder)")
 
 # Ids (ESPHome rules): C identifiers, not C/C++ keywords, unique across the device. gemifi also
 # wants them lower_snake_case.
@@ -1417,9 +1413,38 @@ class _V:
         """A matrix's columns (matrix_columns), for a component."""
         return matrix_columns(self, d, path, owner)
 
+    # What a control's YAML shares with the rest of the device (the DAW roles, Mackie Control, the
+    # MIDI messages), for the control components (components/<control>): the builder's functions.
     def daw_role(self, dev, d, p):
-        """A component's daw: role (daw_role), for a control."""
+        """d's daw: role (daw_role)."""
         return daw_role(self, dev, d, p)
+
+    def mcu_name(self, dev, d, p, kind):
+        """d's mcu: control of a kind, 'fader' or 'vpot' (mcu_name) -> its number, or None."""
+        table, example = {"fader": (MCU_FADERS, "fader_1"), "vpot": (MCU_VPOTS, "vpot_1")}[kind]
+        return mcu_name(self, dev, d, p, table, example)
+
+    def mode_use(self, dev, mname, path, line):
+        """An analog / encoder mode that needs a message kind: compiled in (mode_use)."""
+        mode_use(self, dev, mname, path, line)
+
+    def mode_number(self, dev, d, p, mname, required, keys):
+        """analog.cc / encoder.cc from the key the mode takes (mode_number)."""
+        return mode_number(self, dev, d, p, mname, required, keys)
+
+    @staticmethod
+    def mode_wide(dev, mname, num):
+        """The mode sends 14-bit values (mode_wide)."""
+        return mode_wide(dev, mname, num)
+
+    def control_out(self, d, p, top):
+        """channel:, min:, max: -> (min, max, channel) or None (control_out)."""
+        return control_out(self, d, p, top)
+
+    @staticmethod
+    def type_name(x):
+        """The YAML type of a value, for a message (type_name)."""
+        return type_name(x)
 
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
@@ -1709,6 +1734,8 @@ def validate(data, file=None):
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
     validate_components(v, dev, data)
+    encoders.validate(v, dev, data)
+    check_mcu_unique(v, dev, data)
     pads.validate(v, dev, data)
     validate_displays(v, dev, data)
 
@@ -2412,53 +2439,6 @@ def validate_components(v, dev, data):
                                raw_max=hi, pickup=pickup, touch=validate_touch(v, d, p), mcu=fader,
                                daw=daw_role(v, dev, d, p), ctl=ctl))
 
-    encs = v.seq(data.get("encoders"), "encoders", data.line_of("encoders"))
-    accel_default = encoder_settings(v, dev, data)
-    for i, d in enumerate(encs):
-        p = f"encoders[{i}]"
-        d = v.mapping(d, p, encs.line_of(i), ENCODER_KEYS, renamed=RENAMED_ENCODER)
-        if d is None:
-            continue
-        ident = v.ident(d, p, "encoder", len(dev.encoders))
-        name = v.display_name(d, p, ident)
-        v.unique_name(names, "encoder", name, p, d)
-        enc_hubs = IN_HUBS - MUX_HUBS
-        why = "encoders can't be on a mux"
-        pins = {}
-        for key in ("pin_a", "pin_b"):
-            if key not in d and key[-1] in d:
-                pins[key] = None        # format 1 a:/b:, reported as renamed
-                continue
-            pins[key] = v.pin(d.get(key), f"{p}.{key}", d.line_of(key), "in", hubs=enc_hubs, why=why)
-            pn = pins[key]
-            if pn and pn.hub and dev.hubs[pn.hub - 1].type in I2C_HUBS:
-                v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
-                                                     "loop: fast spinning may miss steps")
-        vpot = mcu_name(v, dev, d, p, MCU_VPOTS, "vpot_1")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ENC_MODES)
-            mode = 0 if mode is None else mode
-            mode_use(v, dev, ENC_MODES[mode], f"{p}.mode", d.line_of("mode"))
-        for k in ("mode", "channel", "min", "max"):
-            if k in d and vpot is not None:
-                v.err(f"{p}.{k}", d.line_of(k), f"a Mackie Control V-Pot (mcu:) sends its own messages: drop {k}: "
-                                                "or mcu:")
-        cc = mode_number(v, dev, d, p, ENC_MODES[mode], vpot is None, ENCODER_NUMBER_KEYS)
-        ctl = control_out(v, d, p, 16383 if mode_wide(dev, ENC_MODES[mode], cc) else 127)
-        spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
-        ring = encoder_ring(v, dev, d, p, vpot)
-        center = ring_center(v, dev, d, p, vpot)
-        accel = validate_acceleration(v, d, p, accel_default)[1]
-        dev.encoders.append(Hub(id=ident or "", name=name, a=pins["pin_a"] or NO_PIN, b=pins["pin_b"] or NO_PIN,
-                                cc=cc, steps=spd, mcu=vpot, ring=ring, ring_center=center,
-                                daw=daw_role(v, dev, d, p), accel=accel, mode=mode, ctl=ctl))
-    check_mcu_unique(v, dev, data)
-
-
-def enc_accel(dev):
-    """Any encoder with acceleration: GM_ENC_ACCEL 1 and gm_enc_accel[]; none: the feature compiles out."""
-    return any(getattr(e, "accel", None) for e in dev.encoders)
 
 
 def mcu_needed(v, dev, path, line):
@@ -2534,44 +2514,6 @@ def validate_touch(v, d, p):
         v.err(f"{p}.touch", line, f"unknown touch '{d.raw_of('touch')}' (valid: {', '.join(TOUCH)})")
         return 0
     return TOUCH[t]
-
-
-def encoder_ring(v, dev, d, p, vpot):
-    """ring: [LED ids] around an MCU V-Pot (leftmost first)."""
-    if d.get("ring") is None:
-        return []
-    line = d.line_of("ring")
-    if vpot is None and not dev.host_fb:
-        if dev.mcu is not None or "mcu" not in d:
-            v.err(f"{p}.ring", line, "ring: is driven by Mackie Control or a DAW script: give the encoder "
-                                     "`mcu: vpot_N`, or leave feedback.script on")
-        return []
-    lst = v.seq(d["ring"], f"{p}.ring", line)
-    if not 1 <= len(lst) <= 16:
-        v.err(f"{p}.ring", line, f"{len(lst)} LEDs: a ring has 1..16")
-    out = []
-    for k in range(len(lst)):
-        idx = v.ref(lst, k, f"{p}.ring[{k}]", lst.line_of(k), "LED", "LEDs")
-        if idx is not None:
-            out.append(idx)
-            dev.leds[idx].used_by.append(("ring", None))
-    return out
-
-
-def ring_center(v, dev, d, p, vpot):
-    """ring_center: the LED under an MCU V-Pot (lit by bit 6 of its ring value). -> LED index or None."""
-    if d.get("ring_center") is None:
-        return None
-    line = d.line_of("ring_center")
-    if vpot is None and not dev.host_fb:
-        if dev.mcu is not None or "mcu" not in d:
-            v.err(f"{p}.ring_center", line, "ring_center: is driven by Mackie Control or a DAW script: give the "
-                                            "encoder `mcu: vpot_N`, or leave feedback.script on")
-        return None
-    idx = v.ref(d, "ring_center", f"{p}.ring_center", line, "LED", "LEDs")
-    if idx is not None:
-        dev.leds[idx].used_by.append(("ring", None))
-    return idx
 
 
 def daw_role(v, dev, d, p):
@@ -2904,87 +2846,6 @@ def validate_version(v, data):
         v.err(p, line, f"{x} is out of range (major and minor 0..255, patch 0..65535)")
         return None
     return ver
-
-
-# ---------------------------------------------------------------------------------------------
-# encoder acceleration (core/README.md "Encoder acceleration")
-
-# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
-# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
-# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
-ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
-ACCEL_PRESETS = {"off": None,
-                 "low": (60, 15, 4, 0),
-                 "medium": (80, 10, 8, 1),
-                 "high": (100, 8, 16, 1)}
-ACCEL_KEYS = ["slow", "fast", "max", "curve"]
-ACCEL_SLOW_MS = (2, 1000)
-ACCEL_FAST_MS = (1, 999)
-ACCEL_MAX = (1, 32)
-ENCODER_SETTINGS_KEYS = ["acceleration"]
-
-
-def accel_text(a):
-    """(slow, fast, max, curve) -> the preset's name, or 'slow 80ms, fast 10ms, max 8, quadratic'."""
-    for name, p in ACCEL_PRESETS.items():
-        if p == a:
-            return name
-    return f"slow {a[0]}ms, fast {a[1]}ms, max {a[2]}, {ACCEL_CURVES[a[3]]}"
-
-
-def validate_acceleration(v, d, path, base):
-    """`acceleration:` in d (an encoder, or encoder_settings:): off / low / medium / high, or a mapping
-    { slow, fast, max, curve } whose missing keys come from base (a preset tuple; medium when base is off).
-    Returns (given, value): value is a tuple or None (off); given False when d has no acceleration:."""
-    if d.get("acceleration") is None:
-        return False, base
-    x, p, line = d["acceleration"], f"{path}.acceleration" if path else "acceleration", d.line_of("acceleration")
-    names = list(ACCEL_PRESETS)
-    if x is False:                  # bare `off`: YAML 1.1 reads it as false
-        return True, None
-    if isinstance(x, str):
-        if x in ACCEL_PRESETS:
-            return True, ACCEL_PRESETS[x]
-        close = difflib.get_close_matches(x, names, 1)
-        hint = f"did you mean '{close[0]}'? " if close else ""
-        v.err(p, line, f"unknown acceleration '{x}' ({hint}valid: {', '.join(names)}, or a mapping "
-                       "{ slow, fast, max, curve })")
-        return True, base
-    if not isinstance(x, dict):
-        v.err(p, line, f"must be {', '.join(names)} or a mapping {{ slow, fast, max, curve }} (got "
-                       f"{type_name(x)} {d.raw_of('acceleration')!r})")
-        return True, base
-    m = v.mapping(x, p, line, ACCEL_KEYS)
-    slow, fast, mx, curve = base or ACCEL_PRESETS["medium"]
-    slow = v.period(m, "slow", p, ACCEL_SLOW_MS[0] * 1000, ACCEL_SLOW_MS[1] * 1000, default=slow,
-                    step_us=1000, example="80ms")
-    fast = v.period(m, "fast", p, ACCEL_FAST_MS[0] * 1000, ACCEL_FAST_MS[1] * 1000, default=fast,
-                    step_us=1000, example="10ms")
-    mx = v.integer(m, "max", p, *ACCEL_MAX, default=mx)
-    if m.get("curve") is not None:
-        c = v.enum_value(m, "curve", f"{p}.curve", ACCEL_CURVES)
-        curve = curve if c is None else c
-    if fast >= slow:
-        v.err(p, line, f"fast ({fast}ms) must be shorter than slow ({slow}ms): detents fast apart get max "
-                       "steps, slow apart 1")
-        return True, base
-    if mx == 1:
-        v.warn(p, m.line_of("max"), "max 1: one step per detent at any speed (the same as off)")
-        return True, None
-    return True, (slow, fast, mx, curve)
-
-
-def encoder_settings(v, dev, data):
-    """encoder_settings: what all encoders share unless they set their own: acceleration (off by default)."""
-    if data.get("encoder_settings") is None:
-        return None
-    p, line = "encoder_settings", data.line_of("encoder_settings")
-    s = v.mapping(data["encoder_settings"], p, line, ENCODER_SETTINGS_KEYS)
-    if s is None:
-        return None
-    if not data.get("encoders"):
-        v.warn(p, line, "there are no encoders: ignored")
-    return validate_acceleration(v, s, p, None)[1]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -3725,7 +3586,6 @@ def preset_values(v, dev, d, p):
 # MIDI messages (core/README.md "MIDI messages")
 
 ANALOG_NUMBER_KEYS = ("cc", "nrpn", "rpn", "sysex")     # the keys that give analog.cc, by mode
-ENCODER_NUMBER_KEYS = ("cc", "nrpn", "rpn")
 MIDI_MESSAGES_KEYS = ["enable", "null_rpn", "mmc_device_id", "sysex"]
 SYSEX_KEYS = ["id", "data"]
 BANK_KEYS = ["msb", "lsb"]
@@ -5216,7 +5076,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
     if enc_twins:
         h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
-    h.append(f"#define GM_ENC_ACCEL {1 if enc_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */")
+    h += encoders.c_defines(dev)
     h += msg_defines(dev)
     btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     if btn_twins:
@@ -5268,21 +5128,7 @@ def generate(dev, source="device.yaml"):
               f"/* {_comment(a.id)}: {_comment(a.pin.desc)} */"
               for a in dev.analogs]
         c += ["};", ""]
-    if dev.encoders:
-        c.append("static const gm_encoder_t encoders[GM_N_ENCODERS] = {")
-        c += [f"    {{ {pin_c(e.a)}, {pin_c(e.b)}, {c_str(e.name)}, {e.steps}{twin_c(e)} }}, "
-              f"/* {_comment(e.id)}: {_comment(e.a.desc)}, {_comment(e.b.desc)} */" for e in dev.encoders]
-        c += ["};", ""]
-    if enc_accel(dev):
-        own = [e for e in dev.encoders if not getattr(e, "layer", 0)]
-        c.append("/* acceleration: per scanned encoder (twins share theirs): slow ms, fast ms, max, curve */")
-        c.append(f"const gm_enc_accel_t gm_enc_accel[{len(own)}] = {{")
-        for e in own:
-            a = getattr(e, "accel", None)
-            body = (f"{a[0]}, {a[1]}, {a[2]}, GM_ACCEL_{ACCEL_CURVES[a[3]].upper()}" if a
-                    else "0, 0, 1, GM_ACCEL_LINEAR")
-            c.append(f"    {{ {body} }}, /* {_comment(e.id)}: {accel_text(a) if a else 'off'} */")
-        c += ["};", ""]
+    c += encoders.c_tables(dev)
     c += key_matrix.c_tables(dev)
     combo = " | ".join(f"(1u << {i})" for i in sorted(dev.boot_combo)) or "0"
     c += ["const gm_device_t gm_device = {",
@@ -5415,12 +5261,6 @@ def fmt_timeout(t):
     if t == TIMEOUT_NEVER:
         return "never"
     return f"{t / 100:g}s" if t % 10 == 0 and t >= 100 else fmt_us(t * 10_000)
-
-
-def twin_c(x):
-    """gm_button_t / gm_led_t / gm_encoder_t .layer, .base for a layer twin (mode index + 1, the component
-    it is a twin of); 0, 0 for the others."""
-    return f", {x.layer}, {x.base}" if getattr(x, "layer", 0) else ", 0, 0"
 
 
 def led_rgb_c(x):

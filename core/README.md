@@ -59,6 +59,7 @@ A **base component** defines what the components on it implement, and holds the 
 | [tm1637](../components/tm1637/README.md) | `led_driver:`, `platform: tm1637` | TM1637 7-segment digits |
 | [ht16k33](../components/ht16k33/README.md) | `led_driver:`, `platform: ht16k33` | HT16K33 14- and 7-segment backpacks and LED matrices, on I2C (ESP only for now) |
 | [ssd1306](../components/ssd1306/README.md) | `display:`, `platform: ssd1306` | SSD1306 / SH1106 OLED panels, on I2C (ESP only for now) |
+| [pads](../components/pads/README.md) | `pads:` | velocity pads, a control ("Controls" below) |
 
 Each component's README has its YAML keys, its pins and how it runs. A device builds only the components it uses, those they depend on (`DEPENDENCIES`) and the required ones (`REQUIRED`): the builder writes their sources and include dirs into `gm_components.mk` (make) and `gm_components.cmake` (ESP-IDF), and their headers and what they add to the hub and screen structs into `gm_components.h`, next to `gm_device_config.h`.
 
@@ -124,7 +125,7 @@ To find which output drives which LED on new hardware, list every candidate outp
 
 ## Controls
 
-The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix) are what the player plays; they are built into the core (`src/controller.c`), not components yet.
+The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix) are what the player plays. Each is becoming a component of its own, built when the device has that control; [pads](../components/pads/README.md) is one so far, and the rest are still in the core (`src/controller.c`). The controller and the controls share state through `include/gm_controls.h`.
 
 Every control has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.
 
@@ -260,7 +261,9 @@ analog:
 - **Noise.** Changes under 6 raw counts are dropped, except to the centre or an end. Both are raw counts, so a wheel that only moves the reading over part of 0..4095 (set `adc_min` / `adc_max` to its ends) is no twitchier.
 - **Rate.** Pitch-bend and pressure inputs are read every 2 ms; the other analog inputs take turns, one every 2 ms.
 
-Pressure pads (FSR style, like drum pads) play a note with a velocity from how hard they are hit. Each pad is one analog source, an ADC pin or a mux channel, and the list order is the pad order (index labels, `pad.note[i]`, EVENT index). What all pads share is in `pad_settings:`.
+### Pads
+
+Pads ([components/pads](../components/pads/README.md)): pressure pads (FSR style, like drum pads) play a note with a velocity from how hard they are hit. Each pad is one analog source, an ADC pin or a mux channel, and the list order is the pad order (index labels, `pad.note[i]`, EVENT index). What all pads share is in `pad_settings:`.
 
 ```yaml
 cd74hc4051:

@@ -178,7 +178,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   Owner: `gm_encoder_t`; `controller.c` "encoders" (scan side and main side), "encoder rings".
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
   `gm_matrix_t`; `controller.c` "key matrix", "velocity".
-- **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; `controller.c` "pads".
+- **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).
 - **Control twin:** a second copy of a control on a layer. Owner: `gm_pad_twin_t` and the layer tables.
 
 ### Behaviour

@@ -74,6 +74,14 @@ class SourceLists(unittest.TestCase):
     def test_the_hub_base_is_always_built(self):
         self.assertIn("hub", components.used([]))
 
+    def test_a_control_is_built_when_the_device_has_it(self):
+        pads, _ = gd.load_device(os.path.join(REPO, "core", "test", "pads-test.yaml"))
+        keystation, _ = gd.load_device(KEYSTATION)
+        self.assertIn("pads", components.controls(pads))
+        self.assertNotIn("pads", components.controls(keystation))
+        self.assertRegex(gd.component_lists(pads, "pads-test.yaml")["gm_components.mk"],
+                         r"(?m)^GM_COMPONENT_SRCS := .*\$\(GM_ROOT\)/components/pads/pads\.c")
+
     def test_written_with_the_config(self):
         dev, _ = gd.load_device(KEYSTATION)
         lists = gd.component_lists(dev, "devices/keystation-mini32-mk3.yaml")

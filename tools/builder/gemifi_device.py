@@ -5938,7 +5938,8 @@ def preset_tables(dev):
 def component_lists(dev, source):
     """gm_components.mk / gm_components.cmake: the components the device builds, their C sources and include
     dirs, under the repo root (GM_ROOT, set by the Makefile or CMakeLists that includes them)."""
-    used = components.used(sorted({h.kind.key for h in dev.hubs}), sorted({x.type for x in dev.screens}))
+    used = components.used(sorted({h.kind.key for h in dev.hubs}), sorted({x.type for x in dev.screens}),
+                           components.controls(dev))
     srcs = [s for name in used for s in components.sources(name)]
     incs = [f"components/{name}" for name in used if components.has_headers(name)]
     head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"

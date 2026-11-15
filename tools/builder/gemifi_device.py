@@ -30,7 +30,8 @@ import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
-from components import encoders, key_matrix, pads  # noqa: E402
+from components import analog, encoders, key_matrix, pads  # noqa: E402
+from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, RENAMED_ANALOG, TAKEOVER, TOUCH  # noqa: E402,F401
 from components.encoders import (ACCEL_CURVES, ACCEL_KEYS, ACCEL_PRESETS, ENC_MODES, ENCODER_KEYS,  # noqa: E402,F401
                                  ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS, RENAMED_ENCODER)
 from components.key_matrix import (MATRIX_FAST_COLS, MATRIX_KEYS, MATRIX_MAX, MATRIX_MAX_ROWS,  # noqa: E402,F401
@@ -210,7 +211,6 @@ def stored_counts(dev):
 # enum's YAML names in value order.
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
-ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure", "cc14", "nrpn", "nrpn14", "rpn", "rpn14", "sysex"]
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
 WIDE_MODES = {"cc14", "nrpn14", "rpn14"}       # 14-bit values (a SysEx string with msb / lsb too)
@@ -278,8 +278,6 @@ BUDGET_WARN = 0.85             # warn above this share of the budget (more erase
 LED_OWNERS = {"host_then_local": 0, "host": 1, "local": 2}
 LED_SOURCES = {"note": 1, "cc": 2, "clock": 3, "transport": 4, "mcu": 5}   # gm_device.h GM_FB_*
 LED_SOURCE_VALUES = {"clock": ["beat"], "transport": ["playing"]}
-TAKEOVER = ["none", "pickup"]
-TOUCH = {"none": 0, "movement": 2}  # analog touch: -> gm_device.h GM_TOUCH_* (1 = a sensor, reserved)
 DEFAULT_LED_TIMEOUT_MS = 2000
 TIMEOUT_NEVER = 0xFFFF            # gm_device.h GM_TIMEOUT_NEVER (10 ms units otherwise)
 
@@ -399,8 +397,6 @@ LED_DEFAULTS_KEYS = ["idle", "active"]
 LED_KEYS = ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback", "owner", "timeout", "daw"]
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
                "bank", "channel", "min", "max"]
-ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw", "nrpn",
-               "rpn", "sysex", "channel", "min", "max"]
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -445,7 +441,6 @@ RENAMED_HUB = {
 }
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
-RENAMED_ANALOG = dict(RENAMED_ID, raw_min="renamed: use `adc_min:`", raw_max="renamed: use `adc_max:`")
 
 # Ids (ESPHome rules): C identifiers, not C/C++ keywords, unique across the device. gemifi also
 # wants them lower_snake_case.
@@ -1442,6 +1437,16 @@ class _V:
         return control_out(self, d, p, top)
 
     @staticmethod
+    def f1_on(dev):
+        """Plain feedback reaches the main port (f1_on)."""
+        return f1_on(dev)
+
+    @staticmethod
+    def f1_off_why(dev):
+        """Why plain feedback is off, for a message (f1_off_why)."""
+        return f1_off_why(dev)
+
+    @staticmethod
     def type_name(x):
         """The YAML type of a value, for a message (type_name)."""
         return type_name(x)
@@ -1734,6 +1739,7 @@ def validate(data, file=None):
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
     validate_components(v, dev, data)
+    analog.validate(v, dev, data)
     encoders.validate(v, dev, data)
     check_mcu_unique(v, dev, data)
     pads.validate(v, dev, data)
@@ -2401,44 +2407,6 @@ def validate_components(v, dev, data):
                                action_name=act, number=num, led=led, daw=daw_role(v, dev, d, p),
                                ctl=control_out(v, d, p, top), bank=button_bank(v, dev, d, p, act)))
 
-    analogs = v.seq(data.get("analog"), "analog", data.line_of("analog"))
-    for i, d in enumerate(analogs):
-        p = f"analog[{i}]"
-        d = v.mapping(d, p, analogs.line_of(i), ANALOG_KEYS, renamed=RENAMED_ANALOG)
-        if d is None:
-            continue
-        ident = v.ident(d, p, "analog input", len(dev.analogs))
-        name = v.display_name(d, p, ident)
-        v.unique_name(names, "analog input", name, p, d)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
-        fader = mcu_name(v, dev, d, p, MCU_FADERS, "fader_1")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ANALOG_MODES)
-            mode = 0 if mode is None else mode
-            mode_use(v, dev, ANALOG_MODES[mode], f"{p}.mode", d.line_of("mode"))
-        if mode != 0 and fader is not None:
-            v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
-                                                  f"drop mode: {ANALOG_MODES[mode]} or mcu:")
-        if mode == 1 and pin is not None and pin.hub and dev.hubs[pin.hub - 1].type in XY_HUBS:
-            v.err(f"{p}.mode", d.line_of("mode"), "pitch_bend centres on the power-up reading, and an XY "
-                                                  "pad reads nothing until touched: use cc or channel_pressure")
-        cc = mode_number(v, dev, d, p, ANALOG_MODES[mode], fader is None and mode == 0, ANALOG_NUMBER_KEYS)
-        if fader is not None:
-            for k in ("channel", "min", "max"):
-                if k in d:
-                    v.err(f"{p}.{k}", d.line_of(k), "a Mackie Control fader (mcu:) sends its own messages: "
-                                                    f"drop {k}: or mcu:")
-        ctl = control_out(v, d, p, 16383 if mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
-        lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
-        hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
-        if lo == hi:
-            v.err(p, d.line, f"adc_min and adc_max are both {lo}")
-        pickup = validate_takeover(v, dev, d, p, fader)
-        dev.analogs.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, cc=cc, mode=mode, raw_min=lo,
-                               raw_max=hi, pickup=pickup, touch=validate_touch(v, d, p), mcu=fader,
-                               daw=daw_role(v, dev, d, p), ctl=ctl))
-
 
 
 def mcu_needed(v, dev, path, line):
@@ -2484,36 +2452,6 @@ def button_mcu(v, dev, d, p, act):
         v.err(f"{p}.mcu", line, f"unknown MCU button '{d.raw_of('mcu')}'{hint}")
         return 0
     return MCU_NOTES[d["mcu"]]
-
-
-def validate_takeover(v, dev, d, p, fader):
-    """analog takeover: none | pickup. MCU faders default to pickup (no motors to follow the host)."""
-    if d.get("takeover") is None:
-        return fader is not None
-    t = d["takeover"]
-    if t not in TAKEOVER:
-        v.err(f"{p}.takeover", d.line_of("takeover"), f"unknown takeover '{d.raw_of('takeover')}' "
-                                                      f"(valid: {', '.join(TAKEOVER)})")
-        return False
-    if t == "pickup" and fader is None and not f1_on(dev):
-        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + f1_off_why(dev))
-        return False
-    return t == "pickup"
-
-
-def validate_touch(v, d, p):
-    """analog touch: none | movement (EVENT touch while it moves) -> GET_COMPONENT's touch byte. A touch
-    sensor, touch: { pin: ... }, is reserved."""
-    if d.get("touch") is None:
-        return 0
-    t, line = d["touch"], d.line_of("touch")
-    if isinstance(t, dict):
-        v.err(f"{p}.touch", line, "a touch sensor isn't supported yet (use touch: movement)")
-        return 0
-    if t not in TOUCH:
-        v.err(f"{p}.touch", line, f"unknown touch '{d.raw_of('touch')}' (valid: {', '.join(TOUCH)})")
-        return 0
-    return TOUCH[t]
 
 
 def daw_role(v, dev, d, p):
@@ -3585,7 +3523,6 @@ def preset_values(v, dev, d, p):
 # ---------------------------------------------------------------------------------------------
 # MIDI messages (core/README.md "MIDI messages")
 
-ANALOG_NUMBER_KEYS = ("cc", "nrpn", "rpn", "sysex")     # the keys that give analog.cc, by mode
 MIDI_MESSAGES_KEYS = ["enable", "null_rpn", "mmc_device_id", "sysex"]
 SYSEX_KEYS = ["id", "data"]
 BANK_KEYS = ["msb", "lsb"]
@@ -5122,12 +5059,7 @@ def generate(dev, source="device.yaml"):
         c += [f"    {{ {pin_c(x.pin)}, {pin_c(x.pin2)}, {pin_c(x.pin3)}{led_looks_c(x)}{twin_c(x)}{led_rgb_c(x)} }}, "
               f"/* {_comment(x.id)}: {_comment(x.pin.desc)} */" for x in dev.leds]
         c += ["};", ""]
-    if dev.analogs:
-        c.append("static const gm_analog_t analogs[GM_N_ANALOGS] = {")
-        c += [f"    {{ {pin_c(a.pin)}, {c_str(a.name)}, {a.raw_min}, {a.raw_max} }}, "
-              f"/* {_comment(a.id)}: {_comment(a.pin.desc)} */"
-              for a in dev.analogs]
-        c += ["};", ""]
+    c += analog.c_tables(dev)
     c += encoders.c_tables(dev)
     c += key_matrix.c_tables(dev)
     combo = " | ".join(f"(1u << {i})" for i in sorted(dev.boot_combo)) or "0"

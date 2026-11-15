@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): analog inputs, such as pots, faders, wheels and pressure strips, read from an ADC pin, a mux channel or an XY pad axis. Its YAML (`analog:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls), "MIDI messages", "Pitch wheels and aftertouch" and "DAW feedback" (pick-up, `touch:`).
 
 - `analog.c`: reading the inputs and sending what they're set to. Built when the device has analog inputs.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py`.
+- `__init__.py`: the builder part: `validate` (its YAML: pin, mode, `mcu:`, calibration, takeover, touch) and `c_tables` (`gm_analog_t analogs[]`), and when it's built.
 
 ## How it runs
 

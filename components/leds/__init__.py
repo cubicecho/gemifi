@@ -238,6 +238,21 @@ def validate_timeout(v, d, key, path, default):
     return default if t is None else t
 
 
+def led_ref(v, dev, d, p, user):
+    """A button's or pad's led: (an LED id) -> the LED's index, or -1 without one (or for one past index
+    127, which a control can't name: reported). The LED notes user, a (kind, action) pair, in used_by."""
+    if d.get("led") is None:
+        return -1
+    idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
+    if idx is None:
+        return -1
+    if idx > 127:
+        v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
+        return -1
+    dev.leds[idx].used_by.append(user)
+    return idx
+
+
 def validate_owner(v, d, path):
     if d.get("owner") is None:
         return None

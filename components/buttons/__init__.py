@@ -6,6 +6,7 @@ import difflib
 
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
+from components.leds import led_ref
 
 # components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
@@ -52,16 +53,7 @@ def validate(v, dev, data):
         v.unique_name(names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
         act, num = button_action(v, dev, d, p)
-        led = -1
-        if d.get("led") is not None:
-            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
-            if idx is not None:
-                led = idx
-                if led > 127:
-                    v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-                    led = -1
-        if led >= 0:
-            dev.leds[led].used_by.append(("button", act))
+        led = led_ref(v, dev, d, p, ("button", act))
         top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
                                action_name=act, number=num, led=led, daw=v.daw_role(dev, d, p),

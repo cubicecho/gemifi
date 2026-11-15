@@ -5,6 +5,7 @@ validate() with the other controls, and c_defines() / c_tables() where gm_device
 from components.api import CURVES, NO_PIN, RENAMED_ID, Hub, c_str
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
+from components.leds import led_ref
 
 # pad_settings: the pad.* param defaults (core/src/settings.c GM_PAD_*_DEFAULT). Readings are 0..4095,
 # after inverted:; window and retrigger in ms.
@@ -36,14 +37,7 @@ def validate(v, dev, data):
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", hubs=v.hub_keys(Mux),
                     why="a pad is read with the ADC")
         note = v.integer(d, "note", p, 0, 127, default=0, required=True)
-        led = -1
-        if d.get("led") is not None:           # lit while the pad is held
-            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
-            if idx is not None and idx > 127:
-                v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-            elif idx is not None:
-                led = idx
-                dev.leds[led].used_by.append(("pad", None))
+        led = led_ref(v, dev, d, p, ("pad", None))     # lit while the pad is held
         dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, led=led, path=p,
                             line=d.line_of("note") if "note" in d else d.line))
     if len(dev.pads) > MAX_PADS:

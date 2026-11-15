@@ -13,15 +13,22 @@ RENAMED_MATRIX = {"kind": "renamed: use `type:` (switch | velocity)", "cols": "r
 RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.6ms`",
                     "slow_ms": "renamed: use `slow:` with a unit, e.g. `slow: 120ms`"}
 
+# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
+# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
+MATRIX_MAX = 32
+
+# Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
+# velocity.slow params; their ranges are in core/src/settings.c).
+VEL_FAST_RANGE = (1, 500)
+VEL_SLOW_RANGE = (20, 2000)
+
+MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
+MATRIX_MAX_ROWS = 32    # controller.c: rows scanned
+
 
 def in_device(dev):
     """Built when the device has a key matrix (GM_HAS_MATRIX 1)."""
     return dev.matrix is not None
-
-
-# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
-# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
-MATRIX_MAX = 32
 
 
 def validate(v, dev, data):
@@ -136,12 +143,6 @@ def validate_key_map(v, d, p, lrows, lcols, keys, by_rows, kind):
     return flat
 
 
-# Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
-# velocity.slow params; their ranges are in core/src/settings.c).
-VEL_FAST_RANGE = (1, 500)
-VEL_SLOW_RANGE = (20, 2000)
-
-
 def validate_velocity(v, d, path, kind):
     """key_matrix.velocity: { fast, slow } (time periods) -> (fast, slow) in 0.1 ms, None where not given."""
     p = f"{path}.velocity"
@@ -161,10 +162,6 @@ def validate_velocity(v, d, path, kind):
                                         f"({(slow or 1200) / 10:g}ms)")
         return None, None
     return fast, slow
-
-
-MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
-MATRIX_MAX_ROWS = 32    # controller.c: rows scanned
 
 
 def matrix_col_runs(dev, m):

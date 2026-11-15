@@ -18,6 +18,21 @@ ENCODER_NUMBER_KEYS = ("cc", "nrpn", "rpn")     # the keys that give encoder.cc,
 RENAMED_ENCODER = dict(RENAMED_ID, a="renamed: use `pin_a:` (as ESPHome's rotary_encoder)",
                        b="renamed: use `pin_b:` (as ESPHome's rotary_encoder)")
 
+# Acceleration (components/encoders/README.md "Encoder acceleration").
+# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
+# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
+# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
+ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
+ACCEL_PRESETS = {"off": None,
+                 "low": (60, 15, 4, 0),
+                 "medium": (80, 10, 8, 1),
+                 "high": (100, 8, 16, 1)}
+ACCEL_KEYS = ["slow", "fast", "max", "curve"]
+ACCEL_SLOW_MS = (2, 1000)
+ACCEL_FAST_MS = (1, 999)
+ACCEL_MAX = (1, 32)
+ENCODER_SETTINGS_KEYS = ["acceleration"]
+
 
 def in_device(dev):
     """Built when the device has encoders (GM_N_ENCODERS > 0, twins included)."""
@@ -102,22 +117,6 @@ def ring_center(v, dev, d, p, vpot):
     if idx is not None:
         dev.leds[idx].used_by.append(("ring", None))
     return idx
-
-
-# Acceleration (components/encoders/README.md "Encoder acceleration").
-# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
-# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
-# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
-ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
-ACCEL_PRESETS = {"off": None,
-                 "low": (60, 15, 4, 0),
-                 "medium": (80, 10, 8, 1),
-                 "high": (100, 8, 16, 1)}
-ACCEL_KEYS = ["slow", "fast", "max", "curve"]
-ACCEL_SLOW_MS = (2, 1000)
-ACCEL_FAST_MS = (1, 999)
-ACCEL_MAX = (1, 32)
-ENCODER_SETTINGS_KEYS = ["acceleration"]
 
 
 def accel_text(a):

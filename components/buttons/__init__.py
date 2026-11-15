@@ -27,12 +27,6 @@ NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
 MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
-
-def number_key(act):
-    """The key that gives button.number for an action (None: the action takes no number)."""
-    if act in ("program", "mmc", "sysex"):
-        return act
-    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
                "bank", "channel", "min", "max"]
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
@@ -106,6 +100,13 @@ def button_action(v, dev, d, p, base=None):
         num = button_mcu(v, dev, d, p, act)
         return (act if act == "mcu" else base[0] if base else "none"), num
     return act, button_number(v, dev, d, p, act, base)
+
+
+def number_key(act):
+    """The key that gives button.number for an action (None: the action takes no number)."""
+    if act in ("program", "mmc", "sysex"):
+        return act
+    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
 
 
 def button_number(v, dev, d, p, act, base=None):

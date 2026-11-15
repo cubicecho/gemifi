@@ -6,12 +6,6 @@ from components.api import CURVES, NO_PIN, RENAMED_ID, Hub, c_str
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
 
-
-def in_device(dev):
-    """Built when the device has pads (GM_N_PADS > 0)."""
-    return bool(dev.pads)
-
-
 # pad_settings: the pad.* param defaults (core/src/settings.c GM_PAD_*_DEFAULT). Readings are 0..4095,
 # after inverted:; window and retrigger in ms.
 PAD_DEFAULTS = {"channel": 0, "curve": 0, "aftertouch": 0, "threshold": 200, "release": 100, "full": 3000,
@@ -19,6 +13,11 @@ PAD_DEFAULTS = {"channel": 0, "curve": 0, "aftertouch": 0, "threshold": 200, "re
 PAD_KEYS = ["id", "name", "pin", "note", "led"]
 PAD_SETTINGS_KEYS = list(PAD_DEFAULTS)
 MAX_PADS = 128
+
+
+def in_device(dev):
+    """Built when the device has pads (GM_N_PADS > 0)."""
+    return bool(dev.pads)
 
 
 def validate(v, dev, data):

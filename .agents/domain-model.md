@@ -204,7 +204,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **SysEx protocol (GSX):** the request/response protocol over MIDI SysEx: HELLO, params, presets,
   components, firmware upload. Owner: `protocol/sysex.md`; `gsx.c`, `app_proto.c`.
 - **Feedback:** a host lighting LEDs, writing display text, moving rings (F1 plain, F3 DAW scripts).
-  Owner: `controller.c` "host feedback", `gm_feedback.h`.
+  Owner: `core/src/feedback.c`, `gm_feedback.h`.
 - **Mackie Control (MCU):** the DAW protocol on a second port. Owner: `core/src/mcu.c`.
 - **DIN MIDI:** 5-pin MIDI in/out and thru. Owner: `core/src/din.c`.
 - **Safety:** unlock before risky requests, status LED, boot and factory-reset combos. Owner:

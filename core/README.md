@@ -18,12 +18,14 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `include/app_proto.h`, `src/app_proto.c` | app-side request handling: HELLO, REBOOT, identity, config, FW_* (via `hal_fw_ops`), LOG/EVENT/PARAM_CHANGED. Where the bootloader takes uploads (nuvoton-nuc1xx, stm32f1: `-DHAL_APP_FW_UPLOAD=0` in their `mk/app.mk`), FW_* and its buffers are left out and every FW_* is answered BAD_STATE; the receive buffer then holds the longest other request (SET_PARAMS with 16 values, 86 bytes of payload) |
 | `include/gm_device.h` | the hardware model: virtual pins, hubs, buttons, LEDs, analog inputs, encoders, key matrix, pads |
 | `include/gm_hal.h` | what a platform provides |
-| `include/gm_controller.h`, `src/controller.c` | the runtime: scanning, actions, velocity, LEDs, MIDI out, host feedback (F1) |
+| `include/gm_controller.h`, `src/controller.c` | the runtime: the scan tick and the hardware scan, MIDI out and the MIDI messages, the preset release, `gm_init` and `gm_poll`; the controls are components |
+| `include/gm_controls.h` | what the controller and the control components share: the MIDI helpers, the state one control keeps and another reads (each with its writer), what `gm_poll` and `gm_init` call. Not for the platforms |
+| `src/feedback.c` | host feedback (F1): what the host sends lights LEDs, sets toggles, gives analog inputs and encoders its value |
 | `src/midi_in.c` | incoming MIDI: USB-MIDI packets or a byte stream, sorted by port into SysEx (the protocol), feedback and MCU |
 | `include/gm_feedback.h` | the feedback switches (`GM_FEEDBACK`, `GM_MCU`, ...) and the calls between the files above |
 | `include/gm_mcu.h`, `src/mcu.c` | Mackie Control on the DAW port; empty unless the YAML has `mcu:` |
 | `src/vpin.c` | virtual pins: MCU pins via the HAL, hubs through their drivers (`../components/<key>/`), the scan's written-out paths (mux channels, decoder rows, switch matrices, the hardware analog scan), and what the hub base gives its types |
-| `../components/<name>/` | the components: hubs, screens, buses, each in a folder with its README ("Components" below); `hub/gm_hub.h` is the hub driver interface |
+| `../components/<name>/` | the components: hubs, screens, buses and controls, each in a folder with its README ("Components" below); `hub/gm_hub.h` is the hub driver interface |
 | `include/gm_pin.h` | a pin (`gm_pin_t`), on the MCU or a hub |
 | `src/settings.c` | the param table, sized from the device's component counts |
 

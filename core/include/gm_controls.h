@@ -16,6 +16,11 @@
 #include "gm_device.h"
 #include "gm_settings.h"                /* GM_MSG_WIDE, GM_N_SYSEX, K_* */
 #include "gm_controller.h"              /* gm_scan_plan_t */
+#include "gm_feedback.h"                /* GM_FEEDBACK, GM_LED_FB, GM_HOST_LEDS ... */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
@@ -202,6 +207,12 @@ void leds_update(uint32_t now);         /* every LED_MS: what each LED shows */
 int leds_apply(void);                   /* the passes between: show a few of them; 1 if it did any */
 int leds_round_open(void);              /* a fade round is being shown: the main-loop hubs wait */
 
+/* ---- host feedback (feedback.c) ------------------------------------------ */
+
+#if GM_FEEDBACK
+void feedback_init(void);               /* gm_init: which LED sources the device has */
+#endif
+
 /* ---- the scan (controller.c) --------------------------------------------- */
 
 /* Scan ticks: +1 per gm_scan_tick, or per frame with the hardware scan
@@ -316,6 +327,10 @@ void pads_init(void);
 void pads_scan(uint32_t now);
 void pads_off(void);                    /* Note Off for every sounding pad (preset switch) */
 void pads_report(void);                 /* at boot-log time: pads that read above pad.release */
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

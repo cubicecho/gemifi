@@ -48,7 +48,8 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | done |
 | R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | done |
 | F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | done |
-| R10 | Refactor [move] | Each control's builder part (its schema, validation and generated C, ~3,000 lines of `gemifi_device.py`) moves into its component's `__init__.py`, as the hubs' did. | M7: a control is one folder, as a hub is | R6 | deferred: after R6 (decided 2026-11-15) |
+| R10 | Refactor [move] | Each control's builder part (its validation and generated C, ~1,750 lines of `gemifi_device.py`) moves into its component's `__init__.py`, as the hubs' did; what the controls share with the rest of the device comes through the validator, the pin model and YAML values through `components/api.py`. | M7: a control is one folder, as a hub is | R6 | done (2026-11-15) |
+| D4 | Docs | Each control's YAML docs move from `core/README.md` ("Controls", "Encoder acceleration", "LED looks", "Pitch wheels and aftertouch", "Pads", "Modes", "Button layers", "Cycles" ...) into its README, as the hubs' are, and the ~100 references to them follow. | M7: a control's docs are in its folder | R10 | next: its own PR |
 
 ## Model changes
 
@@ -114,8 +115,13 @@ Design (approved 2026-11-15):
   `gm_scan_frames` sizes against `main`.
 - Modes and buttons stay two components: once the sampling moves to buttons, modes only read
   button state.
-- The builder parts move later (R10), and each control's YAML docs with them: a component README now
-  says how its C runs and what it shares, and links `core/README.md` for its YAML.
+- The builder parts move in R10 (done 2026-11-15): a control's `__init__.py` has `validate(v, dev, data)`
+  and its generated C (`c_defines`, `c_tables` ...), which the builder calls in place, so the generated
+  files don't change; what a control shares with the rest of the device (DAW roles, Mackie Control, the
+  MIDI messages, ids) comes through the validator's methods, the record type, the YAML values and C
+  strings through `components/api.py`. The modes import the actions from `buttons` and the looks from
+  `leds`. Each control's YAML docs move after (D4): a component README says how its C runs and what it
+  shares, and links `core/README.md` for its YAML.
 - Done (R6, 2026-11-15): the scan interrupts keep their instruction counts (the Keystation's tick one
   load fewer, the Code 61's DMA frames two more); all 10 devices build, images -352..+176 bytes.
 

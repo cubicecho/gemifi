@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): rotary encoders on two pins each (MCU pins, a hub's, or a switch matrix's), sending absolute or relative values, with acceleration. Its YAML (`encoders:`, `encoder_settings:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls), "Encoder acceleration" and "MIDI messages". An encoder's LED ring is the LEDs' ([leds](../leds/README.md)).
 
 - `encoders.c`: counting the detents and sending them. Built when the device has encoders.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py`.
+- `__init__.py`: the builder part: `validate` (its YAML: pins, mode, `mcu:`, rings, acceleration and `encoder_settings:`), `c_defines` (`GM_ENC_ACCEL`) and `c_tables` (`gm_encoder_t encoders[]`, `gm_enc_accel[]`), and when it's built.
 
 ## How it runs
 

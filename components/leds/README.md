@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): single-colour, bicolour and RGB LEDs on any output pin (an MCU pin, a shift register, an LED driver's, an LED strip's). Its YAML (`leds:`, `led_defaults:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls), "LED looks", "Full-colour LEDs", "LED walk" and "DAW feedback" ("LED ownership").
 
 - `leds.c`: what each LED shows, its looks, who owns it, the TM1628 fade, the LED walk and the encoder rings. Always built (`REQUIRED`): the status LED and the lamp test use it on any device.
-- `__init__.py`: that it's always built. The YAML is still validated in `tools/builder/gemifi_device.py`.
+- `__init__.py`: the builder part: the looks and the owners, `validate` (its YAML: pins, looks, `led_defaults:`, owner, timeout, feedback source) and `c_tables` (`gm_led_t leds[]`), and that it's always built (`REQUIRED`). Host feedback's per-LED table (`gm_led_fb[]`) stays with the builder's feedback code.
 
 ## How it runs
 

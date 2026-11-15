@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): modes that change what keys and buttons do while they're on, entered with a toggle, hold or cycle button. Its YAML (`modes:`) and what each kind does: [core/README.md "Modes"](../../core/README.md#modes), "Button layers" and "Cycles".
 
 - `modes.c`: which modes are on, their key and button bindings, the layers and cycles, and the LEDs that show them. Built when the device has modes.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py` (`validate_modes`).
+- `__init__.py`: the builder part: `validate` (its YAML: toggle, hold and cycle buttons, keys, buttons, layers and their twins, steps) and `c_tables` (`gm_modes[]`, the key and button tables, `gm_mode_rgb[]`), and when it's built.
 
 ## How it runs
 

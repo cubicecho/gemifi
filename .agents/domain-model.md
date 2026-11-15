@@ -110,8 +110,9 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   (validation and generated C), its docs and its tests. A device builds only the components it uses.
   A base component defines what the components on it implement (`hub`, `display`, `led_strip`,
   `led_driver`). A control (buttons, LEDs, analog inputs, encoders, pads, modes, the key matrix) is a
-  component too, built when the device has it; it shares state with the controller through
-  `gm_controls.h`. Owner: `components/<name>/`
+  component too, built when the device has it; its C shares state with the controller through
+  `gm_controls.h`, and its `__init__.py` validates its YAML and writes its generated C. Owner:
+  `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. Every hub
   type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform, the

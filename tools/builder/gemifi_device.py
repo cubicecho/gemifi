@@ -24,8 +24,7 @@ from components.api import (CURVES, INVERT, MIGRATE_HINT, MMC_COMMANDS, NO_PIN, 
                             PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, a_, c_str, errors,
                             twin_c, type_name)
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType  # noqa: E402
-from components.led_strip import rgb_curve  # noqa: E402
+from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment as _comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
@@ -70,7 +69,6 @@ MSG_ALIASES = {"rpn": "nrpn", "bank_select": "program"}
 SYSEX_MAX = 64              # bytes of one sent SysEx string (the stack buffer in controller.c)
 SYSEX_TOKENS = {"v": 0x80, "msb": 0x81, "lsb": 0x82, "ch": 0x83}   # gm_device.h GM_SX_*
 SX_SUM_START, SX_SUM = 0x84, 0x85
-BANK_NONE = 0xFFFF          # gm_device.h GM_BANK_NONE
 CTL_TOP = 0xFFFF            # gm_device.h GM_CTL_TOP
 
 
@@ -178,7 +176,6 @@ WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
-PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
 
 
 def stored_counts(dev):
@@ -322,13 +319,12 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # platform: ws2812, ... }], pins { led_strip: strip, number: 0 }.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
-# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
+# gm_hub_t entry. The tables below (HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
 # type is a component of its own, components/<key>/ (components/hub/README.md "Adding a hub type").
 # The hub types, from the components, in GM_HUB_* order.
 HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key))}
 # The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
 DISPLAY_PLATFORMS = {t.platform: t for t in sorted(components.display_platforms(), key=lambda t: t.num)}
-HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # A domain's platforms, by domain: {"led_strip": {"ws2812": WS2812, ...}}.
 HUB_DOMAINS = {d: {k: t for k, t in HUB_DEFS.items() if t.domain == d}
@@ -342,7 +338,6 @@ HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_key
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
 MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
-MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
 XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
 TM_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, TM1628)}
 RAM_HUBS = {k for k, t in HUB_DEFS.items() if t.ram}
@@ -2354,7 +2349,6 @@ DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7", 3: "GM_DISPLAY_TEXT"}
 DISPLAY_TEXT = 3
 TEXT_W, TEXT_H = 6, 8                # a text display's character cell, in pixels (x scale)
 DISPLAY_SEGS = {1: (15, "segments a..m and the dot"), 2: (8, "segments a..g and the point")}
-SEG14_PINS = 15                      # segments a..m, then the dot
 # each type's segments in gm_display.h order (segment_order: names them in pin order)
 SEG_NAMES = {1: ["a", "b", "c", "d", "e", "f", "g1", "g2", "h", "i", "j", "k", "l", "m", "dot"],
              2: ["a", "b", "c", "d", "e", "f", "g", "dp"]}

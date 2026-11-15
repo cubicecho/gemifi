@@ -36,9 +36,9 @@ What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the 
 
 ## Components
 
-The hardware a device's YAML describes, apart from its controls, is made of **components**, ESPHome style: one folder each in [`components/`](../components/) at the repo root, holding its builder part (`__init__.py`: its YAML keys, validation and generated C), its C (`<name>.c`, `<name>.h`), its `README.md` and, for some, its tests (`test/`). The builder finds them by folder (`components/__init__.py`); a new chip is a new folder, without edits to the core.
+The hardware a device's YAML describes is made of **components**, ESPHome style: one folder each in [`components/`](../components/) at the repo root, holding its builder part (`__init__.py`: its YAML keys, validation and generated C), its C (`<name>.c`, `<name>.h`), its `README.md` and, for some, its tests (`test/`). The builder finds them by folder (`components/__init__.py`); a new chip is a new folder, without edits to the core.
 
-A **base component** defines what the components on it implement, and holds the code they share. A chip that is one of several for one job is a **platform** of a base: one YAML list for all of them, with `platform:` on each item, as ESPHome's `display:` is. Other chips have a list of their own, named like the ESPHome component.
+A **base component** defines what the components on it implement, and holds the code they share. A chip that is one of several for one job is a **platform** of a base: one YAML list for all of them, with `platform:` on each item, as ESPHome's `display:` is. Other chips have a list of their own, named like the ESPHome component. A **control** (buttons, LEDs, the key matrix ...) is a component too: what the player plays, built when the device has it ("Controls" below).
 
 | Component | YAML | What it is |
 |---|---|---|
@@ -81,7 +81,7 @@ Every pin in a device is a `gm_pin_t { hub, flags, num }` (`include/gm_pin.h`):
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
 - `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` or `tm1637` `dio_pin`, platform mode `HAL_OUT_OD`).
 
-A **hub** is a component that gives pins: every one above from `sn74hc595` down, except `ssd1306` (a screen). A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`, `{ led_driver: digits, number: 8 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`. How hub drivers run (scan tick or main loop), and their interface: [hub](../components/hub/README.md).
+A **hub** is a component that gives pins: every one above from `sn74hc595` to `ht16k33`. A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`, `{ led_driver: digits, number: 8 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`. How hub drivers run (scan tick or main loop), and their interface: [hub](../components/hub/README.md).
 
 Inputs on HC165 are read once per scan into a cache, and outputs on HC595 are written once per scan, so a whole key matrix can live on shift registers. MCP23017 and PCF8574 are read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt.
 
@@ -108,7 +108,7 @@ buttons:
 
 A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them.
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device, and a control's `in_device(dev)` says whether a device has it. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them.
 2. **`<name>.c`, `<name>.h`**: its C, compiled only into devices that use it. Its folder is an include dir when it has headers.
 3. **`README.md`**: its YAML keys and pins, how it runs, its files and tests, as the others do.
 4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).

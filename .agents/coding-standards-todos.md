@@ -35,7 +35,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R3 | Refactor [pattern] | The hub interface moves into the `hub` component, and each hub type's own state moves out of the shared union into its component. | M2: a new hub type stops editing shared core files | R2 | done |
 | R4 | Refactor [move] | The WS2812 driver, builder class and docs move into `components/ws2812/`, as the template for the rest (changed from the SSD1306, which A1 moves once, as a display). | M1; the shape every other hub follows | R3 | done |
 | R5 | Refactor [sweep] | Every other hub type except the SSD1306 (A1) moves into its own component folder the same way, one commit each (types that share a driver share a folder). | M1, M2; `vpin.c` keeps only pin dispatch | R4 | done |
-| R6 | Refactor [pattern] | The controls move out of the controller into one component each (`components/buttons`, `modes`, `leds`, `analog`, `encoders`, `pads`, `matrix`), host feedback and the raw readings into `core/src/feedback.c` and `monitor.c`, sharing state through `core/include/gm_controls.h`; the C and docs only (builder parts: R10). One commit per move. | M7 | R2 | in progress (2026-11-15) |
+| R6 | Refactor [pattern] | The controls move out of the controller into one component each (`components/buttons`, `modes`, `leds`, `analog`, `encoders`, `pads`, `key_matrix`), host feedback and the raw readings into `core/src/feedback.c` and `monitor.c`, sharing state through `core/include/gm_controls.h`; the C and docs only (builder parts: R10). One commit per move. | M7 | R2 | done (2026-11-15) |
 | F1 | Feature | Several I2C buses with ids, `i2c_id` on I2C components, the HAL taking a bus; the current `i2c: { sda, scl }` still means one bus. | M3 | R5 (the I2C hubs) | done |
 | A1 | API change | The `display` base and `platform: ssd1306` under it; text displays name their screen with `display:`; the old `ssd1306:` forms are refused with the new form in the message. Breaking for YAMLs with an OLED. | M4, M5 | R4, F1 | done |
 | D1 | Docs | `core/README.md`'s general hub sections become "Components" and "Adding a component", pointing at each component's README. | The docs match M1 | R5 (R6's sections later) | done |
@@ -98,22 +98,26 @@ they share. Implemented by: R6, R10. Status: approved.
 Design (approved 2026-11-15):
 - **Where:** `components/<YAML key>/`: `buttons` (sampling, debounce, ramps, Shift), `modes` (layers,
   cycles, mode LEDs), `leds` (ownership, fade, host levels, encoder rings), `analog`, `encoders` (the
-  scan side and the main side), `pads`, `matrix` (the key matrix: the scan side, its tables, the key
-  queue). Host feedback and the raw readings stay core, as `core/src/feedback.c` and `monitor.c`.
-  `controller.c` keeps MIDI out and messages, the velocity curve, the scan tick and the hardware scan,
-  the preset release, `gm_init` and `gm_poll`.
+  scan side and the main side), `pads`, `key_matrix` (the scan side, its tables, the key queue, the
+  velocity curve, playing the keys). Host feedback and the raw readings stay core, as
+  `core/src/feedback.c` and `monitor.c`. `controller.c` keeps MIDI out and messages, the scan tick and
+  the hardware scan (it scans switch matrices without a key matrix too; the key rows' part is the key
+  matrix's `matrix_plan` / `matrix_frame`), the preset release, `gm_init` and `gm_poll`.
 - **Shared state:** `core/include/gm_controls.h`, for the controller and the controls only: the
   shared helpers, and each shared variable as `extern` with the one component that writes it. The
   preset release calls each control's `*_off()`. Names too generic for a global symbol get a prefix.
-- **Built when used:** a control component is built when the device has that control (a component's
-  `CONTROL`); `leds` is always built (the status LED). The C keeps its `#if GM_N_*` guards, so the
+- **Built when used:** a control component is built when the device has that control (its
+  `in_device(dev)`); `leds` is `REQUIRED` (the status LED and the lamp test). The C keeps its `#if GM_N_*` guards, so the
   generated configs don't change apart from the component source lists.
 - **Hot paths:** the scan calls into `matrix` and `encoders` across files; NUC and STM32 build with
   `-flto`, so it can still inline. Each move is checked by image size and by `gm_scan_tick` /
   `gm_scan_frames` sizes against `main`.
 - Modes and buttons stay two components: once the sampling moves to buttons, modes only read
   button state.
-- The builder parts move later (R10).
+- The builder parts move later (R10), and each control's YAML docs with them: a component README now
+  says how its C runs and what it shares, and links `core/README.md` for its YAML.
+- Done (R6, 2026-11-15): the scan interrupts keep their instruction counts (the Keystation's tick one
+  load fewer, the Code 61's DMA frames two more); all 10 devices build, images -352..+176 bytes.
 
 ### M8 — LED strips and LED drivers as base components
 

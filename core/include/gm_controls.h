@@ -2,8 +2,8 @@
  * gm_controls.h: what the controller (core/src/controller.c) and the control
  * components (components/buttons, leds, pads ...) share: the helpers every
  * control sends with, the state one control keeps and another reads, and
- * what the main loop calls. Each shared variable is written by one
- * component, named with it. Not for the platforms (gm_controller.h is
+ * what the main loop calls. Each shared variable's comment names the
+ * components that write it. Not for the platforms (gm_controller.h is
  * theirs).
  *
  * SPDX-License-Identifier: MIT
@@ -210,9 +210,9 @@ void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers
 #define LV_COLOUR 0x20u
 #define LV_STEP_SHIFT 8u                /* mode index + 1, 7 bits (the builder's MODE_RGB_MAX) */
 #define LV_STEP(m) (((m) + 1u) << LV_STEP_SHIFT)
-extern uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* LEDs: what each shows; 0xFFFF draws it again */
 #if GM_LAYERS
 extern uint8_t led_dead[GM_ARR(GM_N_LEDS)];     /* modes (layers_update): a layer twin (or its base) not shown now */
+void led_redraw(uint32_t i);            /* LED i is drawn again at the next leds_update */
 #endif
 #define LED_MS 10u                      /* gm_poll: leds_update every LED_MS */
 void leds_init(void);

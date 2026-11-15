@@ -472,7 +472,7 @@ void layers_update(void)
         uint8_t dead = ll[l->layer ? l->base : i] != i;
         if (led_dead[i] != dead) {
             led_dead[i] = dead;
-            led_shown[i] = 0xFFFFu;     /* drawn again once it is live */
+            led_redraw(i);              /* drawn again once it is live */
         }
     }
 #undef RANK

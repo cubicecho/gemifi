@@ -201,7 +201,7 @@ def modes():
         "layer": {"type": "object", "description": "component id: what it does on the layer",
                   "additionalProperties": layer_entry},
         "steps": lst(step)})
-    return lst(item, "modes, layers and cycles (core/README.md \"Modes\")")
+    return lst(item, "modes, layers and cycles (components/modes/README.md \"Modes\")")
 
 
 def layout():

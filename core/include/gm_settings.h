@@ -51,7 +51,7 @@ enum {
     P_DIN_OUT = 31,
     P_DIN_USB = 32,                  /* din_midi.mode usb_merge only */
     P_PRESET_COUNT = 33,             /* presets in use (GM_N_PRESETS > 1) */
-    /* layers (GM_LAYER_PARAMS): global, stored once (core/README.md
+    /* layers (GM_LAYER_PARAMS): global, stored once (components/modes/README.md
      * "Button layers", "Cycles") */
     P_LAYER_ENABLED = 34,            /* per mode (index = mode index) */
     P_LAYER_BTN_ACTION = 35,         /* per button twin (GM_BTN_TWINS) */
@@ -146,7 +146,7 @@ enum {
 enum { K_CC, K_CC14, K_NRPN, K_NRPN14, K_RPN, K_RPN14, K_SYSEX };
 #define GM_N_AN_MODES (GM_N_SYSEX ? 9 : GM_MSG_NRPN ? 8 : GM_MSG_CC14 ? 4 : 3)
 
-/* button.action values (core/README.md "Button actions") */
+/* button.action values (components/buttons/README.md "Button actions") */
 enum {
     ACT_NONE,
     ACT_CC_MOMENTARY,

@@ -7,7 +7,7 @@ import difflib
 from components.api import MMC_COMMANDS, NO_PIN, RENAMED_ID, Hub, c_str, twin_c
 from components.hub import c_comment
 
-# core/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
+# components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
 # MIDI message actions (17-20) are compiled in only on devices that use them (MSG_ACTIONS).
 ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note": 4, "octave_down": 5,

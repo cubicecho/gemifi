@@ -27,12 +27,12 @@ extern "C" {
 #define GM_N_MODES 0                    /* a config generated before modes */
 #endif
 /* Modes need a button to enter them; only a mode's keys: (function keys)
- * need the key matrix, and the builder checks that (core/README.md "Modes"). */
+ * need the key matrix, and the builder checks that (components/modes/README.md "Modes"). */
 #if GM_N_MODES > 0 && GM_N_BUTTONS == 0
 #error "modes need a toggle, hold or cycle button (the builder checks this)"
 #endif
 #ifndef GM_LAYERS
-#define GM_LAYERS 0                     /* layer twins (modes: layer:), core/README.md "Button layers" */
+#define GM_LAYERS 0                     /* layer twins (modes: layer:), components/modes/README.md "Button layers" */
 #endif
 #if GM_LAYERS && GM_N_MODES == 0
 #error "button layers belong to modes (the builder checks this)"
@@ -163,7 +163,7 @@ void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch ben
 void buttons_off(void);                 /* a preset switch: let go of every note and CC */
 #endif
 
-/* ---- modes (components/modes, core/README.md "Modes") ------------------ */
+/* ---- modes (components/modes, components/modes/README.md "Modes") ------------------ */
 
 #if GM_N_MODES > 0
 #if GM_HAS_MATRIX
@@ -189,7 +189,7 @@ void cycles_start(void);                /* each cycle on its first enabled step 
 #else
 #define MODE_LED(li, level, now) (level)
 #endif
-/* Which of each base and its twins is live (core/README.md "Button layers"),
+/* Which of each base and its twins is live (components/modes/README.md "Button layers"),
  * then EVENT 8 for each mode that went off or on. */
 #if GM_LAYER_PARAMS
 void layers_update(void);

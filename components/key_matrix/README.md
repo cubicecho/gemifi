@@ -1,9 +1,31 @@
 # key_matrix
 
-A control ([core/README.md "Controls"](../../core/README.md#controls)): the keyboard, a matrix of switch keys or velocity keys with two contacts each. At most one per device. Its YAML (`key_matrix:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls) ("Key matrix"), "Device YAML" ("Key matrix options"), "Software scan", "Hardware scan" and "Matrices behind decoders".
+A control ([core/README.md "Controls"](../../core/README.md#controls)): the keyboard, a matrix of switch keys or velocity keys with two contacts each. At most one per device. Its YAML (`key_matrix:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Key matrix" and "Key matrix options" below, and in core/README.md the scans ([Software scan](../../core/README.md#software-scan), [Hardware scan](../../core/README.md#hardware-scan)) and [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
 
 - `key_matrix.c`: scanning the matrix, timing a velocity key's contacts, the key queue, and playing the keys. Built when the device has a key matrix.
 - `__init__.py`: the builder part: `validate` (its YAML: rows, columns, contacts, the key map, velocity), `c_defines` (the scan tables' sizes), `c_param_defaults` (the key times) and `c_tables` (`gm_matrix_t`), and when it's built.
+
+## Key matrix
+
+One row is driven at a time (to the active level: high, or low with `inverted`), the columns are read, then the row is released. `type: switch`: key = row + rows × column. `type: velocity`: two contacts per key; key k is on row k % rows and columns 2p, 2p+1 with p = k / rows. Whichever contact closes first starts the timer, the second sends Note On with a velocity from the time between them, and the key is released when both are open. Put diodes on the matrix if more than one key can be held.
+
+## Key matrix options
+
+`type: velocity` keys have two contacts. By default they are columns 2p and 2p+1 of one row (`contacts: columns`, the Keystation). `contacts: rows` puts them on rows 2p and 2p+1 of one column instead (the Code 61). `key_map` says which key sits where when the wiring doesn't follow the default numbering: one list per row (per row pair with `contacts: rows`), one key number per column (per column pair with `contacts: columns`), `null` where there is no key. Without it, key k is row k % rows, column (pair) k / rows. Rows can be MCU pins, sn74hc595 pins or decoder outputs; columns MCU pins or sn74hc165 pins.
+
+```yaml
+key_matrix:
+  type: velocity
+  contacts: rows
+  rows: { decoder: rows, first: 0, count: 16 }
+  columns: [ ... PB8-PB15 ... ]
+  keys: 61
+  first_note: 36
+  key_map:
+    - [55, 54, 53, 52, 51, 50, 49, 48]      # rows 0/1
+    # ...
+    - [null, null, null, 60, 59, 58, 57, 56]  # rows 14/15
+```
 
 ## How it runs
 

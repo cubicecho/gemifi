@@ -108,7 +108,7 @@ def ring_center(v, dev, d, p, vpot):
     return idx
 
 
-# Acceleration (core/README.md "Encoder acceleration").
+# Acceleration (components/encoders/README.md "Encoder acceleration").
 # A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
 # at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
 # None is off (1 step per detent, the C table's { 0, 0, 1, linear }).

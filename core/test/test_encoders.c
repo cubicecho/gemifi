@@ -1,5 +1,5 @@
 /*
- * test_encoders.c: host test of encoder acceleration (core/README.md
+ * test_encoders.c: host test of encoder acceleration (components/encoders/README.md
  * "Encoder acceleration") with core/test/encoders-test.yaml, on fake time:
  * each detent is scanned at once, then the main loop runs once per ms, so
  * the time between two detents is exactly the gap a test asks for.

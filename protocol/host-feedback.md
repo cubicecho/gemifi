@@ -97,7 +97,7 @@ Note velocity and CC value map to a level, as in Mackie Control:
 | 1 | blinking (about 1 Hz: 500 ms on, 500 ms off) |
 | 2..127 | on |
 
-On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level (or its YAML `active:` look; 0 shows its `idle:` look, core/README.md "LED looks"); only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
+On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level (or its YAML `active:` look; 0 shows its `idle:` look, components/leds/README.md "LED looks"); only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
 
 ### 2.5 Pick-up (`takeover: pickup`)
 
@@ -160,7 +160,7 @@ The `fader_touch_*` names can be given to a button; nothing sends them automatic
 |---|---|
 | button `mcu: <name>` | Note On ch 1, note per §3.1, `7F` press / `00` release |
 | analog `mcu: fader_1`–`fader_8` / `master` | pitch bend ch 1–8 / ch 9, 14 bit (the 12-bit reading shifted left by 2). Sent when the 7-bit value changes, so 128 steps over the travel |
-| encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17 ch 1, relative: `01`–`0F` = +1..+15 steps (clockwise), `41`–`4F` = −1..−15; a step is a detent, or more on a quick turn with acceleration (`core/README.md` "Encoder acceleration") |
+| encoder `mcu: vpot_1`–`vpot_8` | CC 0x10–0x17 ch 1, relative: `01`–`0F` = +1..+15 steps (clockwise), `41`–`4F` = −1..−15; a step is a detent, or more on a quick turn with acceleration (`components/encoders/README.md` "Encoder acceleration") |
 | (replies) | SysEx, §3.5 |
 
 ### 3.3 Faders, host → device

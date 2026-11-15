@@ -25,7 +25,7 @@ boot_combo: [pad_1, pad_4]
 
 # 16 LEDs, 3 pins each (red, green, blue): LED n is pins 3n, 3n + 1, 3n + 2.
 # gamma: 2.2 so "blue 20%" looks a fifth as bright; white: takes some blue
-# out where full white looks bluish (tune by eye, core/README.md
+# out where full white looks bluish (tune by eye, components/leds/README.md
 # "Full-colour LEDs").
 led_strip:
   - { id: strip, platform: ws2812, pin: GPIO48, count: 16, order: GRB, gamma: 2.2, white: [255, 235, 210] }

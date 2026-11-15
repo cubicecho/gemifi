@@ -18,7 +18,7 @@
 #include "params.h"
 
 #if GM_N_MODES > 0
-/* Which modes are on (core/README.md "Modes", "Cycles"): the key modes
+/* Which modes are on (components/modes/README.md "Modes", "Cycles"): the key modes
  * (keys:, buttons:, sub-modes) share mode_cur, one at a time; a held hold
  * mode is hold_cur. With layers or cycles (GM_LAYER_PARAMS), each
  * layer-only toggle mode has its own on/off (solo_on) and each cycle its
@@ -92,7 +92,7 @@ static int binds_channel(const gm_mode_key_t *b, uint32_t n)
 /* How strongly root mode m's layer holds, 0 = off. When layers on at once
  * have twins of the same component, the strongest wins: the held hold
  * mode, then the toggled key mode, then cycle steps, then layer-only
- * toggles, each in mode order (core/README.md "Cycles"). */
+ * toggles, each in mode order (components/modes/README.md "Cycles"). */
 uint32_t layer_rank(uint32_t m)
 {
     if (hold_cur == m)
@@ -403,7 +403,7 @@ void mode_late_release(uint32_t i)
 }
 
 #if GM_LAYER_PARAMS
-/* Which of each base and its twins is live (core/README.md "Button layers"):
+/* Which of each base and its twins is live (components/modes/README.md "Button layers"):
  * the twin of the strongest layer that is on (layer_rank), else the base.
  * An LED that changes hands is drawn again. Then EVENT 8 for each mode
  * that went off (0), then each that came on (1). */

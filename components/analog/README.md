@@ -1,9 +1,24 @@
 # analog
 
-A control ([core/README.md "Controls"](../../core/README.md#controls)): analog inputs, such as pots, faders, wheels and pressure strips, read from an ADC pin, a mux channel or an XY pad axis. Its YAML (`analog:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls), "MIDI messages", "Pitch wheels and aftertouch" and "DAW feedback" (pick-up, `touch:`).
+A control ([core/README.md "Controls"](../../core/README.md#controls)): analog inputs, such as pots, faders, wheels and pressure strips, read from an ADC pin, a mux channel or an XY pad axis. Its YAML (`analog:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Pitch wheels and aftertouch" below, and in core/README.md [MIDI messages](../../core/README.md#midi-messages) (the message kinds) and [DAW feedback](../../core/README.md#daw-feedback) (pick-up, `touch:`).
 
 - `analog.c`: reading the inputs and sending what they're set to. Built when the device has analog inputs.
 - `__init__.py`: the builder part: `validate` (its YAML: pin, mode, `mcu:`, calibration, takeover, touch) and `c_tables` (`gm_analog_t analogs[]`), and when it's built.
+
+## Pitch wheels and aftertouch
+
+An analog input with `analog.mode` = pitch bend (YAML `mode: pitch_bend`, or set from the web app) sends 14-bit pitch bend on `midi.channel` instead of a CC; with `analog.mode` = channel pressure (`mode: channel_pressure`) it sends channel pressure (aftertouch) 0..127, `adc_min` = released, `adc_max` = pressed hard, with the CC's hysteresis.
+
+```yaml
+analog:
+  - { id: pitch_wheel, name: Pitch, pin: PA4, mode: pitch_bend }
+  - { id: mod_wheel, name: Mod, pin: PA5, cc: 1 }     # a mod wheel is a plain CC 1
+```
+
+- **Centre.** The input's first reading after power-up is the centre, because a sprung wheel rests there; keep it untouched while the device starts. 16 raw ADC counts either side of it send no bend, so the wheel always returns to exactly 8192.
+- **Range.** From the centre to each end (`adc_min` / `adc_max`, less 8 counts) is one half of 0..16383, so the bend is symmetric even when the centre isn't in the middle of the travel.
+- **Noise.** Changes under 6 raw counts are dropped, except to the centre or an end. Both are raw counts, so a wheel that only moves the reading over part of 0..4095 (set `adc_min` / `adc_max` to its ends) is no twitchier.
+- **Rate.** Pitch-bend and pressure inputs are read every 2 ms; the other analog inputs take turns, one every 2 ms.
 
 ## How it runs
 

@@ -19,7 +19,7 @@ Every item takes `id` and `platform`, the strip's `gamma` and `white`, and its p
 
 ## Pins
 
-Pin n is colour n % c of LED n / c, with c colours an LED: 3 (0 red, 1 green, 2 blue), 4 on an RGBW strip (3 white). An LED whose `pin`, `pin2` and `pin3` are one LED's red, green and blue in a row shows any colour: full-colour looks (`idle: blue 20%`, `active: "#ff8000"`), cycle steps' colours and a DAW's colours ([Full-colour LEDs](../../core/README.md#full-colour-leds)). Any other pin is an on/off LED (0 or 255).
+Pin n is colour n % c of LED n / c, with c colours an LED: 3 (0 red, 1 green, 2 blue), 4 on an RGBW strip (3 white). An LED whose `pin`, `pin2` and `pin3` are one LED's red, green and blue in a row shows any colour: full-colour looks (`idle: blue 20%`, `active: "#ff8000"`), cycle steps' colours and a DAW's colours ([Full-colour LEDs](../leds/README.md#full-colour-leds)). Any other pin is an on/off LED (0 or 255).
 
 ## Calibration
 

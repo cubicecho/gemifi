@@ -1,5 +1,5 @@
 # Test device for core/test/test_encoders.c: encoder acceleration
-# (core/README.md "Encoder acceleration"). The default comes from
+# (components/encoders/README.md "Encoder acceleration"). The default comes from
 # encoder_settings: (medium); one encoder has its own mapping, one is off,
 # one is a Mackie Control V-Pot and one starts in a relative mode in the
 # test. The first encoder has twins in a cycle (Shift + emode): one sends

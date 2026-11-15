@@ -529,16 +529,14 @@ void modes_init(void)
         if (md->led >= 0 && (uint32_t)md->led < gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
             solo_leds[(uint32_t)md->led >> 5] |= 1u << ((uint32_t)md->led & 31u);
     }
+#if GM_N_CYCLES
+    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
+        cyc_cur[g] = GM_MODE_NONE;
+#endif
 #endif
 }
 
 #if GM_N_CYCLES
-void cycles_init(void)
-{
-    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
-        cyc_cur[g] = GM_MODE_NONE;
-}
-
 void cycles_start(void)
 {
     for (uint32_t g = 0; g < GM_N_CYCLES; g++)

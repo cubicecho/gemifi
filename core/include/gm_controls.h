@@ -181,9 +181,8 @@ int mode_btn(uint32_t i, int down);     /* button i as a function button of the 
 /* Button i released after a preset switch (its release is silent): a hold
  * mode still ends with its button. */
 void mode_late_release(uint32_t i);
-void modes_init(void);
+void modes_init(void);                  /* no mode on, no cycle on a step (before the settings are loaded) */
 #if GM_N_CYCLES
-void cycles_init(void);                 /* no cycle on a step (before the settings are loaded) */
 void cycles_start(void);                /* each cycle on its first enabled step */
 #endif
 #else

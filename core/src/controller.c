@@ -511,8 +511,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
-#if GM_N_CYCLES
-    cycles_init();                  /* no step yet: set once the settings are loaded (below) */
+#if GM_N_MODES > 0
+    modes_init();                   /* no mode on, no cycle on a step: those wait for the settings (below) */
 #endif
     layers_update();                /* no mode yet: every base live, every twin hidden */
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
@@ -528,9 +528,6 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_HAS_MATRIX
     if (gm_device.matrix)
         matrix_init();
-#endif
-#if GM_N_MODES > 0
-    modes_init();
 #endif
 #if GM_N_BUTTONS > 0
     buttons_init();

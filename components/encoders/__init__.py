@@ -5,7 +5,7 @@ gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, mode_wide, twin_c, type_name
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
 
@@ -189,8 +189,16 @@ def has_accel(dev):
 
 
 def c_defines(dev):
-    """GM_ENC_ACCEL: 1 with acceleration (gm_enc_accel[])."""
-    return [f"#define GM_ENC_ACCEL {1 if has_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */"]
+    """GM_ENC_TWINS (the layer twins at the end of encoders[], when there are any) and GM_ENC_ACCEL: 1 with
+    acceleration (gm_enc_accel[])."""
+    twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
+    return ([f"#define GM_ENC_TWINS {twins} /* the last encoders: layer twins, not scanned */"] if twins else []) + [
+        f"#define GM_ENC_ACCEL {1 if has_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */"]
+
+
+def c_param_defaults(dev):
+    """gm_encoder_cc_defaults[] (core/src/settings.c), even without encoders."""
+    return [c_param_array("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders])]
 
 
 def c_tables(dev):

@@ -729,6 +729,32 @@ def mode_rgb(dev):
     return rgb if any(c is not None for c in rgb) else None
 
 
+def c_rgb_defines(dev):
+    """GM_MODE_RGB 1 when a cycle step has a full colour (gm_mode_rgb[])."""
+    return ["#define GM_MODE_RGB 1 /* a cycle step has a full colour: gm_mode_rgb[] */"] if mode_rgb(dev) else []
+
+
+def c_layer_defines(dev):
+    """GM_LAYERS: the layer twins of the buttons, pads and encoders together, when there are any."""
+    twins = (sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) +
+             sum(1 for e in dev.encoders if getattr(e, "layer", 0)))
+    if not twins:
+        return []
+    return [f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, components/modes/README.md \"Button layers\") */"]
+
+
+def c_defines(dev):
+    """GM_MODES_ENABLED (each mode's layer.enabled default) and GM_N_CYCLES (the cycle: groups), when there
+    are any."""
+    h = []
+    if dev.modes:
+        h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
+                 "/* layer.enabled defaults, per mode */")
+    if getattr(dev, "n_cycles", 0):
+        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
+    return h
+
+
 def c_tables(dev):
     """gm_modes[] (gm_device.h gm_mode_t), with each mode's key bindings sorted by key; gm_mode_rgb[] when a
     step has a full colour."""

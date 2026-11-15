@@ -4,7 +4,7 @@ builder (gemifi_device.py) calls validate() after the LEDs, and c_tables() where
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, sysex_wide, twin_c
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
 
 # components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
@@ -206,6 +206,21 @@ def button_bank(v, dev, d, p, act):
     if bank is not None:
         dev.msg_used.add("program")
     return bank
+
+
+def c_defines(dev):
+    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any."""
+    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
+    return [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
+
+
+def c_param_defaults(dev):
+    """gm_button_action_defaults[] and gm_button_number_defaults[] (core/src/settings.c), even without
+    buttons."""
+    acts = ", ".join(b.action_name for b in dev.buttons)
+    return [c_param_array("gm_button_action_defaults", "GM_N_BUTTONS", [b.action for b in dev.buttons],
+                          f" /* {acts} */" if acts else ""),
+            c_param_array("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons])]
 
 
 def c_tables(dev):

@@ -88,8 +88,10 @@ def validate(v, dev, data):
 
 
 def c_defines(dev):
-    """GM_N_PADS, and with pads the pad.* param defaults from pad_settings: (core/src/settings.c)."""
-    h = ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (components/pads/README.md \"Pads\") */"]
+    """GM_PAD_TWINS (the pad layer twins, gm_pad_twins[], when there are any), GM_N_PADS, and with pads the
+    pad.* param defaults from pad_settings: (core/src/settings.c)."""
+    h = [f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */"] if dev.pad_twins else []
+    h += ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (components/pads/README.md \"Pads\") */"]
     if dev.pads:
         ps = dev.pad_set
         h += [f"#define GM_PAD_CHANNEL_DEFAULT {ps['channel']} /* 0 = midi.channel */",

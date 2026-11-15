@@ -63,6 +63,14 @@ def c_str(s):
     return '"' + "".join(out) + '"'
 
 
+def c_param_array(name, count, vals, comment=""):
+    """A param's per-control defaults, const int32_t name[count] = { vals }; (count: the controls' GM_N_*
+    macro), then comment. Without controls the array still exists, as name[1] = { 0 }."""
+    size = count if vals else "1"
+    body = ", ".join(str(x) for x in vals) if vals else "0"
+    return f"const int32_t {name}[{size}] = {{ {body} }};{comment}"
+
+
 def twin_c(x):
     """gm_button_t / gm_led_t / gm_encoder_t .layer, .base for a layer twin (mode index + 1, the component
     it is a twin of); 0, 0 for the others."""

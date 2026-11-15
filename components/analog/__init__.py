@@ -3,7 +3,7 @@ and sends what they're set to, this file validates their YAML and writes their C
 builder (gemifi_device.py) calls validate() with the other controls, and c_tables() where
 gm_device_config.c has it.
 """
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, f1_off_why, f1_on, mode_wide
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, f1_off_why, f1_on, mode_wide
 from components.hub import c_comment
 from components.xy_pad import XYPad
 
@@ -88,6 +88,14 @@ def validate_touch(v, d, p):
         v.err(f"{p}.touch", line, f"unknown touch '{d.raw_of('touch')}' (valid: {', '.join(TOUCH)})")
         return 0
     return TOUCH[t]
+
+
+def c_param_defaults(dev):
+    """gm_analog_cc_defaults[] and gm_analog_mode_defaults[] (core/src/settings.c), even without analog
+    inputs."""
+    modes = " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""
+    return [c_param_array("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
+            c_param_array("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs], modes)]
 
 
 def c_tables(dev):

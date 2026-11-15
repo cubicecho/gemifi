@@ -3728,27 +3728,13 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (components/modes/README.md \"Modes\") */"]
-    if modes.mode_rgb(dev):
-        h.append("#define GM_MODE_RGB 1 /* a cycle step has a full colour: gm_mode_rgb[] */")
+    h += modes.c_rgb_defines(dev)
     h += write_to_flash_defines(dev)
-    enc_twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
-    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) + enc_twins
-    if twins:
-        h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, components/modes/README.md \"Button layers\") */")
-    if enc_twins:
-        h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
+    h += modes.c_layer_defines(dev)
     h += encoders.c_defines(dev)
     h += msg_defines(dev)
-    btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
-    if btn_twins:
-        h.append(f"#define GM_BTN_TWINS {btn_twins} /* the last buttons: layer twins (layer.button.*) */")
-    if dev.modes:
-        h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
-                 "/* layer.enabled defaults, per mode */")
-    if getattr(dev, "n_cycles", 0):
-        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
-    if dev.pad_twins:
-        h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
+    h += buttons.c_defines(dev)
+    h += modes.c_defines(dev)
     h += pads.c_defines(dev)
     h += display_defines(dev)
     h += safety_defines(dev)
@@ -3792,20 +3778,10 @@ def generate(dev, source="device.yaml"):
           f"    .scan_us = {dev.scan_us},",
           "};", "",
           "/* param defaults; button.action values: components/buttons/README.md \"Button actions\" */"]
-
-    def arr(name, count_macro, vals, comment=""):
-        size = count_macro if vals else "1"
-        body = ", ".join(str(x) for x in vals) if vals else "0"
-        return f"const int32_t {name}[{size}] = {{ {body} }};{comment}"
-
-    acts = ", ".join(b.action_name for b in dev.buttons)
-    c += [arr("gm_button_action_defaults", "GM_N_BUTTONS", [b.action for b in dev.buttons],
-              f" /* {acts} */" if acts else ""),
-          arr("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons]),
-          arr("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
-          arr("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs],
-              " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""),
-          arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
+    c += buttons.c_param_defaults(dev)
+    c += analog.c_param_defaults(dev)
+    c += encoders.c_param_defaults(dev)
+    c += [""]
     c += msg_tables(dev)
     c += feedback_tables(dev)
     c += preset_tables(dev)

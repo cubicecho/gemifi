@@ -19,6 +19,15 @@
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
 #endif
+#ifndef GM_TM_FADE
+#define GM_TM_FADE 0                    /* no tm1628 hub with fade: (gm_device_config.h) */
+#endif
+#ifndef GM_STATUS_LED
+#define GM_STATUS_LED (-1)              /* status_led: (gm_safety.h) */
+#endif
+#ifndef GM_MODE_RGB
+#define GM_MODE_RGB 0                   /* a cycle step with a full colour: gm_mode_rgb[] */
+#endif
 #ifndef GM_ENC_ACCEL
 #define GM_ENC_ACCEL 0                  /* a config generated before acceleration: */
 #endif
@@ -165,7 +174,7 @@ void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers
 #define layers_update() ((void)0)
 #endif
 
-/* ---- LEDs (controller.c) -------------------------------------------------- */
+/* ---- LEDs (components/leds) ----------------------------------------------- */
 
 /* LED levels (see led_show): LV_BLINK | level blinks it; LV_RGB | m lights
  * the pins in mask m (an RGB colour, or a cycle step's colour); LV_RGB |
@@ -179,7 +188,15 @@ void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers
 #define LV_STEP_SHIFT 8u                /* mode index + 1, 7 bits (the builder's MODE_RGB_MAX) */
 #define LV_STEP(m) (((m) + 1u) << LV_STEP_SHIFT)
 extern uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* LEDs: what each shows; 0xFFFF draws it again */
+#if GM_LAYERS
 extern uint8_t led_dead[GM_ARR(GM_N_LEDS)];     /* modes (layers_update): a layer twin (or its base) not shown now */
+#endif
+#define LED_MS 10u                      /* gm_poll: leds_update every LED_MS */
+void leds_init(void);
+void leds_lamp(int on);                 /* the lamp test: every LED on (1), then off (0) and drawn again */
+void leds_update(uint32_t now);         /* every LED_MS: what each LED shows */
+int leds_apply(void);                   /* the passes between: show a few of them; 1 if it did any */
+int leds_round_open(void);              /* a fade round is being shown: the main-loop hubs wait */
 
 /* ---- key matrix (controller.c) -------------------------------------------- */
 

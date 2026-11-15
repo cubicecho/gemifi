@@ -1179,7 +1179,7 @@ class TestValidation(unittest.TestCase):
         ch = files["gm_components.h"]
         self.assertIn('#include "ssd1306.h"', ch)
         self.assertIn("[GM_SCREEN_SSD1306] = &gm_ssd1306_ops,", ch)
-        self.assertEqual(gd.components.used([], ["ssd1306"]), ["display", "hub", "ssd1306"])
+        self.assertEqual(gd.components.used([], ["ssd1306"]), ["display", "hub", "leds", "ssd1306"])
         d, _ = load(dev(", model: sh1106"))
         self.assertIn(".flags = GM_OLED_SH1106 }", gd.generate(d, "t.yaml")["gm_device_config.c"])
 

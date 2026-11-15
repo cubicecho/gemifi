@@ -171,11 +171,11 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Button:** a switch with an action (CC momentary/toggle/ramp, note, octave, transpose, program,
   preset, MMC, SysEx ...). Owner: `gm_button_t`; the `buttons` component (`components/buttons`).
 - **LED:** a light on one, two or three pins (single, bicolour, RGB), showing its button, a level or
-  what a host sends; looks for idle and active. Owner: `gm_led_t`; `controller.c` "LEDs".
+  what a host sends; looks for idle and active. Owner: `gm_led_t`; the `leds` component (`components/leds`).
 - **Analog input (pot, fader, wheel):** a reading sent as CC, 14-bit, NRPN/RPN, pitch bend or pressure.
   Owner: `gm_analog_t`; the `analog` component (`components/analog`).
 - **Encoder:** a rotary encoder sending absolute or relative values, with acceleration and an LED ring.
-  Owner: `gm_encoder_t`; the `encoders` component (`components/encoders`); its ring, `controller.c` "encoder rings".
+  Owner: `gm_encoder_t`; the `encoders` component (`components/encoders`); its ring, the `leds` component.
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
   `gm_matrix_t`; `controller.c` "key matrix", "velocity".
 - **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).

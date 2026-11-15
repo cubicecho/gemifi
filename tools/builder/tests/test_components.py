@@ -74,6 +74,10 @@ class SourceLists(unittest.TestCase):
     def test_the_hub_base_is_always_built(self):
         self.assertIn("hub", components.used([]))
 
+    def test_the_leds_are_always_built(self):
+        """The status LED and the lamp test use them on any device."""
+        self.assertIn("leds", components.used([]))
+
     def test_a_control_is_built_when_the_device_has_it(self):
         pads, _ = gd.load_device(os.path.join(REPO, "core", "test", "pads-test.yaml"))
         keystation, _ = gd.load_device(KEYSTATION)

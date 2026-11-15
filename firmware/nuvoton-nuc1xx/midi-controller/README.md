@@ -70,7 +70,7 @@ Devices with encoders also get `encoder.cc` (15) and `encoder.mode` (16), both p
 ## How it runs
 
 - **Timer0** interrupt every `scan_interval` (`gm_device.scan_us`; 125 µs for the Keystation, the same as the stock firmware; if a scan ever runs past its period, the timer interrupt lengthens the period by a quarter, up to 4 ms, and the app logs a warning): scans the key matrix and encoders (`gm_scan_tick`). It drives one row high at a time and never two.
-- **Main loop:** USB polling, received SysEx, buttons (5 ms debounce), analog inputs (one every 2 ms, 4-sample average, hysteresis), ramps and glides (1 ms), LEDs (10 ms), MIDI out without blocking.
+- **Main loop:** USB polling, received SysEx, buttons ([buttons "How it runs"](../../../components/buttons/README.md#how-it-runs)), analog inputs ([analog "How it runs"](../../../components/analog/README.md#how-it-runs)), ramps and glides (1 ms), LEDs (10 ms), MIDI out without blocking.
 - Pins use the NUC's per-pin data registers (`GPIOx_PDIOn`), so the interrupt and the main loop never overwrite each other's pins.
 
 ## Test on hardware (with the stock LDROM, like M1)

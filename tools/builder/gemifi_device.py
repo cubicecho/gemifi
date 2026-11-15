@@ -21,7 +21,7 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType, ShiftRegister  # noqa: E402
+from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
 from components.hub import c_comment as _comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
@@ -360,7 +360,6 @@ PIN_HUB_KEYS = list(dict.fromkeys(HUB_PIN_KEY.values()))
 HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_keys}
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
-SHIFT_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, ShiftRegister)}
 MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
 MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
 XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}

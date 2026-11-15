@@ -110,6 +110,12 @@ test("every device YAML says what has been tested on it", () => {
   }
 });
 
+test("the tested-devices page counts the checked YAMLs", () => {
+  const html = fs.readFileSync(path.join(OUT, "docs/devices/index.html"), "utf8");
+  const works = tested().filter((t) => t.status === "works").length;
+  assert.match(html, new RegExp(`<strong>${works} of ${tested().length}</strong>`));
+});
+
 test("every link inside the site lands on a page and an id", () => {
   const bad = [];
   for (const file of htmlFiles()) {

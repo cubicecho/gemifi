@@ -10,7 +10,6 @@ eleventyComputed:
   title: "{{ doc.title }}"
   description: "{{ doc.summary or (doc.platform.summary if doc.platform) or (doc.title + ' — gemifi docs') }}"
   crumb: "{{ doc.group or ('Platform' if doc.platform else ('Core' if doc.section == 'core' else 'Docs')) }}"
-  lede: "{{ doc.summary }}"
   source: "{{ doc.source }}"
   sourceFile: "{{ doc.file }}"
 ---

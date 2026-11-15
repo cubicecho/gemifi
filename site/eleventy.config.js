@@ -6,8 +6,14 @@
 // which is the worst way for it to break.
 
 import site from "./src/_data/site.js";
+import { buildDocs, resetDocs } from "./lib/docs-tree.js";
 
 export default function (eleventyConfig) {
+  eleventyConfig.on("eleventy.before", resetDocs);
+  // A repo path (with an optional #anchor) as a link: its /docs/ page if it has one, else GitHub.
+  // `{{ "core/README.md#presets" | repoLink }}`, already with the path prefix.
+  eleventyConfig.addFilter("repoLink", (repoPath) => buildDocs().link(repoPath));
+
   // The docs (src/_data/docs.js) are the repo's own READMEs: rebuild when they change.
   for (const dir of ["../components/", "../core/", "../platform/", "../bootloader/", "../firmware/", "../tools/", "../devices/"]) {
     eleventyConfig.addWatchTarget(dir);

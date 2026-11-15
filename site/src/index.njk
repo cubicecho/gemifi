@@ -6,6 +6,7 @@ layout: base.njk
   <p>{{ site.tagline }}</p>
   <p class="cta">
     <a class="button" href="{{ '/get-started/' | url }}">Get started</a>
+    <a class="button secondary" href="{{ '/docs/' | url }}">Read the docs</a>
     <a class="button secondary" href="{{ '/devices/' | url }}">See devices</a>
     <a class="button secondary" href="{{ site.repo }}" rel="noopener">GitHub ↗</a>
   </p>
@@ -24,7 +25,7 @@ layout: base.njk
     <li>
       <article class="card">
         <h3>Describe it in YAML</h3>
-        <p>Keys, buttons, pads, faders, knobs, encoders, LEDs, displays and expander chips, each with a pin and a default MIDI message. <a href="{{ '/components/' | url }}">What it can describe</a>.</p>
+        <p>Keys, buttons, pads, faders, knobs, encoders, LEDs, displays and expander chips, each with a pin and a default MIDI message. <a href="{{ '/components/' | url }}">What it can describe</a>, and <a href="{{ '/docs/' | url }}">a page per component</a>.</p>
       </article>
     </li>
     <li>
@@ -97,12 +98,12 @@ layout: base.njk
       <article class="card">
         <h3><a class="card-link" href="{{ '/platforms/' | url }}">Platforms</a></h3>
         <p>The chip-specific layer for STM32F1, Nuvoton NUC1xx, and ESP32 / S2 / S3: start-up, USB or serial MIDI, flash and updates.</p>
-        <div class="card-foot"><span><code>platform/</code></span><span>ESP not yet on hardware</span></div>
+        <div class="card-foot"><span><code>platform/</code></span><span>ESP32 checked on hardware</span></div>
       </article>
     </li>
     <li>
       <article class="card">
-        <h3><a class="card-link" href="{{ site.blob }}bootloader/README.md" rel="noopener">Bootloaders</a></h3>
+        <h3><a class="card-link" href="{{ "bootloader/README.md" | repoLink }}" rel="noopener">Bootloaders</a></h3>
         <p>Small USB-MIDI bootloaders for the NUC1xx (in its 4 KB boot flash) and the STM32F1 (the first 9 KB). They take new apps from the browser and never write themselves.</p>
         <div class="card-foot"><span><code>bootloader/</code></span><span>Both run on hardware</span></div>
       </article>
@@ -171,7 +172,7 @@ key_matrix:
   <p class="more">
     <a href="{{ site.blob }}devices/keystation-mini32-mk3.yaml" rel="noopener">The full file</a> ·
     <a href="{{ '/components/' | url }}">What a YAML can describe</a> ·
-    <a href="{{ site.blob }}core/README.md#device-yaml" rel="noopener">The YAML format</a>
+    <a href="{{ "core/README.md#device-yaml" | repoLink }}" rel="noopener">The YAML format</a>
   </p>
 </section>
 
@@ -194,10 +195,10 @@ key_matrix:
   <h2>Links</h2>
   <ul class="link-list">
     <li><a href="{{ site.repo }}" rel="noopener">Source on GitHub</a> — MIT license</li>
-    <li><a href="{{ site.blob }}core/README.md" rel="noopener">The device YAML reference</a> and <a href="{{ site.blob }}core/performance.md" rel="noopener">what each part costs</a></li>
+    <li><a href="{{ "core/README.md" | repoLink }}" rel="noopener">The device YAML reference</a> and <a href="{{ "core/performance.md" | repoLink }}" rel="noopener">what each part costs</a></li>
     <li><a href="{{ site.blob }}tools/builder/README.md" rel="noopener">Builder and dashboard docs</a>, including Docker</li>
     <li><a href="{{ site.blob }}web/updater/README.md" rel="noopener">Web updater docs</a>, including browser support</li>
-    <li><a href="{{ site.blob }}tools/README.md" rel="noopener">SWD and host tools</a>: backups, bootloader installs, <code>gemifi.py</code></li>
+    <li><a href="{{ "tools/README.md" | repoLink }}" rel="noopener">SWD and host tools</a>: backups, bootloader installs, <code>gemifi.py</code></li>
     <li><a href="{{ site.blob }}protocol/sysex.md" rel="noopener">The SysEx protocol</a>, <a href="{{ site.blob }}protocol/host-feedback.md" rel="noopener">host feedback</a> and <a href="{{ site.blob }}protocol/daw-scripts.md" rel="noopener">writing a DAW script</a></li>
     <li><a href="{{ site.blob }}hosts/README.md" rel="noopener">DAW scripts</a> and their roles</li>
     <li><a href="{{ site.docker }}" rel="noopener">Docker image</a> <code>{{ site.image }}</code></li>

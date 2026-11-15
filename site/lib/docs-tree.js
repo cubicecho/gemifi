@@ -46,6 +46,11 @@ const CORE = [
 
 let cache;
 
+/** Forget the tree, so the next build reads the READMEs again (eleventy.config.js, before each build). */
+export function resetDocs() {
+  cache = undefined;
+}
+
 /** The whole docs tree and every page in it, built once per build. */
 export function buildDocs() {
   if (cache) return cache;

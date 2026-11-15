@@ -325,6 +325,7 @@ main:has(> .docs) {
 }
 .docs-body {
   margin-top: 1.5rem;
+  overflow-wrap: break-word;
 }
 .docs-body h2,
 .docs-body h3,
@@ -359,6 +360,9 @@ table.tested td {
 }
 table.tested small {
   color: var(--muted-fg);
+}
+table.tested .nowrap {
+  white-space: nowrap;
 }
 
 @media (max-width: 75rem) {

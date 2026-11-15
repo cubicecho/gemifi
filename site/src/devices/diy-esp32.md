@@ -8,7 +8,7 @@ order: 3
 summary: Wire buttons, faders, knobs, encoders or a key matrix to an ESP dev board, describe them in YAML, and gemifi turns it into a MIDI controller.
 facts:
   - [MCU, "ESP32, ESP32-S2 or ESP32-S3, on any board PlatformIO knows"]
-  - [MIDI, "USB MIDI on the S2 and S3 (native USB); serial MIDI through the board's USB-serial chip on all of them; BLE MIDI on the ESP32 and S3 (untested)"]
+  - [MIDI, "USB MIDI on the S2 and S3 (native USB); serial MIDI through the board's USB-serial chip on all of them; BLE MIDI on the ESP32 and S3 (checked on a classic ESP32)"]
   - [Controls, "Whatever you wire: buttons, LEDs, pots and faders, encoders, pressure pads, one key matrix (see <a href=\"../../components/\">Components</a>)"]
   - [Expanders, "74HC595, 74HC165, 74HC4051, 74HC4067, MCP23017, PCF8574"]
   - ["USB (gemifi)", "<code>1209:0002</code> “gemifi (&lt;name&gt;)” on the S2 and S3; on the others, the board's own USB-serial chip"]
@@ -17,15 +17,22 @@ yaml:
   - devices/esp32-example.yaml
   - devices/diy-esp32s3-faders.yaml
   - devices/diy-esp32s3-pads-ws2812.yaml
+  - devices/diy-esp32-pot-oled.yaml
+  - devices/diy-esp32s3-pot-oled.yaml
 photos: No photos of a finished build yet.
 ---
 
 ## Status
 
-The firmware has been built for the ESP32-S2 and ESP32-S3 from the example
-YAML files (the classic ESP32 has no example yet, so it needs your own
-YAML). None of these builds has been checked on real hardware yet, and BLE MIDI
-is untested. The checks to do are in [#25]({{ site.repo }}/issues/25); if you try
+The firmware builds for the ESP32, ESP32-S2 and ESP32-S3 from the example
+YAML files. One has been checked on real hardware: a classic ESP32 DevKitC
+with a pot and an SSD1306 OLED
+([`diy-esp32-pot-oled.yaml`]({{ site.blob }}devices/diy-esp32-pot-oled.yaml)),
+on 2026-11-12. Its OLED, its pot, BLE MIDI to a Zynthian, updates over
+serial from the web updater and the rollback after a failed boot all work.
+USB MIDI on the S2 and S3 and settings kept over a restart are not checked
+yet. [Tested devices]({{ '/docs/devices/' | url }}) has the list per YAML,
+and the checks still to do are in [#25]({{ site.repo }}/issues/25). If you try
 one, tell us how it went there.
 
 ## Example devices
@@ -37,12 +44,14 @@ Start from one of these and change the pins to match your wiring:
 | [`diy-esp32s3-faders.yaml`]({{ site.blob }}devices/diy-esp32s3-faders.yaml) | ESP32-S3-DevKitC-1 | 8 faders on a 74HC4051, 4 buttons with LEDs, 1 encoder, USB MIDI |
 | [`diy-esp32s3-pads-ws2812.yaml`]({{ site.blob }}devices/diy-esp32s3-pads-ws2812.yaml) | ESP32-S3-DevKitC-1 | 4x4 pad switches on a switch matrix, 16 WS2812B LEDs under them (one pin, any colour), 4 knobs, USB MIDI |
 | [`esp32-example.yaml`]({{ site.blob }}devices/esp32-example.yaml) | ESP32-S3-DevKitC-1 | 4 buttons, 1 LED, 2 pots, 8 faders on a 74HC4051, 1 encoder, USB MIDI |
+| [`diy-esp32-pot-oled.yaml`]({{ site.blob }}devices/diy-esp32-pot-oled.yaml) | ESP32 DevKitC (WROOM-32) | 1 pot, a 128 × 64 SSD1306 OLED, serial or BLE MIDI. Checked on hardware |
+| [`diy-esp32s3-pot-oled.yaml`]({{ site.blob }}devices/diy-esp32s3-pot-oled.yaml) | ESP32-S3-DevKitC-1 | The same pot and OLED, with USB MIDI |
 
 Every button can send a CC (momentary, toggle or ramp), a note, octave or
 transpose shifts, pitch bend or program changes, and all of that can be changed
 later from the web page without rebuilding. [Components]({{ '/components/' | url }})
 gives an overview of what a YAML can hold; the full format is in
-[`core/README.md`]({{ site.blob }}core/README.md).
+[`core/README.md`]({{ "core/README.md" | repoLink }}).
 
 ## How gemifi gets on it
 

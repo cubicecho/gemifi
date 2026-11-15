@@ -42,9 +42,9 @@ a unit (`125us`, `3ms`); ids are `lower_snake_case`. The builder checks the
 file and reports every mistake with its line number.
 
 This page is an overview. The full reference is
-[`core/README.md`]({{ site.blob }}core/README.md), with each component's YAML in
-its README under [`components/`]({{ site.blob }}components/), and the costs below come
-from [`core/performance.md`]({{ site.blob }}core/performance.md), where each
+[`core/README.md`]({{ "core/README.md" | repoLink }}), with each component's YAML in
+its own page in the [docs]({{ '/docs/' | url }}#controls), and the costs below come
+from [`core/performance.md`]({{ "core/performance.md" | repoLink }}), where each
 figure says whether it was measured on hardware or worked out from the code.
 The web page's **YAML examples** panel (in the dashboard) has copyable
 examples of the newer parts.
@@ -525,9 +525,9 @@ for script writers,
 </div>
 
 <p class="readme-link">
-  The full YAML reference is <a href="{{ site.blob }}core/README.md" rel="noopener"><code>core/README.md</code></a>
+  The full YAML reference is <a href="{{ "core/README.md" | repoLink }}" rel="noopener"><code>core/README.md</code></a>
   and each component's README under <a href="{{ site.blob }}components/" rel="noopener"><code>components/</code></a>,
-  the costs are in <a href="{{ site.blob }}core/performance.md" rel="noopener"><code>core/performance.md</code></a>,
+  the costs are in <a href="{{ "core/performance.md" | repoLink }}" rel="noopener"><code>core/performance.md</code></a>,
   and the builder's checks are in <a href="{{ site.blob }}tools/builder/README.md" rel="noopener"><code>tools/builder/README.md</code></a>.
   Every device in <a href="{{ site.tree }}devices" rel="noopener"><code>devices/</code></a> is a worked example.
 </p>

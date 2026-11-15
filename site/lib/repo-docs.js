@@ -83,7 +83,9 @@ export function componentSummary(name) {
  * path, the repo paths that have a page (path -> site path), and where the rest goes.
  */
 export function markdown() {
-  const md = new MarkdownIt({ html: true, linkify: false });
+  // Bare URLs become links, as on GitHub; only with a scheme, or `gemifi_build.py` would be a link to Paraguay.
+  const md = new MarkdownIt({ html: true, linkify: true });
+  md.linkify.set({ fuzzyLink: false, fuzzyEmail: false });
 
   // GitHub's heading ids (with -1, -2 for repeats), and each h2/h3 for the page's contents list.
   md.core.ruler.push("heading_ids", (state) => {

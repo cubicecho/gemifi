@@ -119,7 +119,7 @@ bit from the web page, one at a time, which is how the LEDs were mapped.
 
 A step-by-step guide for the Code 61, like the Keystation's, isn't written
 yet. The bootloader's rules are in
-[`bootloader/README.md`]({{ site.blob }}bootloader/README.md).
+[`bootloader/README.md`]({{ "bootloader/README.md" | repoLink }}).
 
 ## Back to stock
 

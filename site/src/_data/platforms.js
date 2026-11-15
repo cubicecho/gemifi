@@ -107,7 +107,7 @@ export default [
       ],
       [
         "MIDI",
-        "USB-MIDI on the S2 and S3 (native USB, the default there); serial MIDI through the board's USB-serial chip on all of them (115200 baud, used with Web Serial); BLE MIDI on the ESP32 and S3 (adds about 800 KB of flash on the ESP32; untested)",
+        "USB-MIDI on the S2 and S3 (native USB, the default there); serial MIDI through the board's USB-serial chip on all of them (115200 baud, used with Web Serial); BLE MIDI on the ESP32 and S3 (adds about 800 KB of flash on the ESP32; checked on a classic ESP32, at a 7.5 ms connection interval to a Zynthian)",
       ],
       [
         "Install and updates",
@@ -118,7 +118,10 @@ export default [
         "Software. ESP32: a timer task at a priority above the main loop, at most every 100 µs. Pins go through one call each (no fast paths yet, #71).",
       ],
       ["Settings store", "NVS, written atomically, 12 KB for all presets."],
-      ["On hardware", "Nothing yet. The builds compile and pass the host tests."],
+      [
+        "On hardware",
+        "Checked on a classic ESP32 DevKitC (<code>diy-esp32-pot-oled.yaml</code>) on 2026-11-12: a pot, an SSD1306 OLED, BLE MIDI to a Zynthian, updates over serial and the rollback after a failed boot. Not yet: USB MIDI on the S2 and S3, settings kept over a restart.",
+      ],
     ],
     devices: ["diy-esp32", "behringer-fcb1010"],
     docs: [

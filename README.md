@@ -4,6 +4,8 @@ An "ESPHome for MIDI controllers": open firmware for existing MIDI controllers (
 
 First target: **M-Audio Keystation Mini 32 MK3** (Nuvoton NUC120). Also: custom builds on **ESP32 / ESP32-S2 / S3**, described ESPHome-style in a device YAML (pins, buttons, LEDs, pots, encoders, key matrix, and expanders like 74HC595/165/4051/4067, MCP23017, PCF8574). Later: M-Audio Code 61 (STM32F103) and the Behringer FCB1010.
 
+**Docs:** <https://cubicecho.github.io/gemifi/docs/>, a page per component, platform and tested device, built from the READMEs in this repo.
+
 ## How it fits together
 
 ```
@@ -29,6 +31,7 @@ platform/<chip family>/ (HAL: pins, ADC, MIDI, storage)    ┘
 | Folder | What's in it |
 |---|---|
 | [`core/`](core/) | Chip-independent C: protocol codec, config/schema, the MIDI controller runtime, virtual pins and expanders. **Device YAML format: [`core/README.md`](core/README.md)** |
+| [`components/`](components/) | One folder per component, ESPHome style (controls, hubs, LED strips and drivers, displays, buses): its C, its builder part and its README |
 | [`devices/`](devices/) | Device descriptions (presets): Keystation, ESP examples |
 | [`protocol/`](protocol/) | The SysEx protocol and `.gfw` image format: the contract between all the parts |
 | [`bootloader/`](bootloader/) | Bootloaders, one folder per chip family (`nuvoton-nuc1xx/`) |
@@ -36,6 +39,7 @@ platform/<chip family>/ (HAL: pins, ADC, MIDI, storage)    ┘
 | [`platform/`](platform/) | Per chip family: startup, clocks, USB, flash, the HAL for the core (`nuvoton-nuc1xx/`, `esp/`) |
 | [`web/updater/`](web/updater/) | Browser flasher, log viewer and config editor (Web MIDI) |
 | [`tools/`](tools/) | SWD scripts (dump, flash, restore), host tools (`gemifi.py`, `mkimage.py`), the device builder and dashboard (`builder/`), USB probes. **Start with [`tools/README.md`](tools/README.md).** |
+| [`site/`](site/) | The website and docs (Eleventy): `/docs/` collects the READMEs above, `npm test` checks every link |
 | [`research/`](research/) | Notes and analysis: `core/` (design, framework), `chips/` (per chip family), `devices/` (per device) |
 
 ## Quick start: the dashboard

@@ -1,6 +1,6 @@
 # led_driver
 
-The base component of **LED drivers**: chips that light LEDs and segment digits from a RAM of a bit per output, declared ESPHome style under `led_driver:`, each on a platform. A driver still gives pins, as every hub does ([core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)), named `{ led_driver: <id>, number: n }`; a segment display's `chars:` name them the same way.
+The base component of **LED drivers**: chips that light LEDs and segment digits from a RAM of a bit per output, declared ESPHome style under `led_driver:`, each on a platform. A driver still gives pins, as every hub does ([core/README.md "Components"](../../core/README.md#components)), named `{ led_driver: <id>, number: n }`; a segment display's `chars:` name them the same way.
 
 ```yaml
 led_driver:

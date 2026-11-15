@@ -1,6 +1,6 @@
 # ws2812
 
-An LED strip platform ([led_strip](../led_strip/README.md), a hub type on the [hub](../hub/gm_hub.h) base): `ws2812.c` (the driver), `ws2812.h` (its config and state), `__init__.py` (the YAML: validation and generated C), `test/` (a host test, run by `core/test`).
+An LED strip platform ([led_strip](../led_strip/README.md), a hub type on the [hub](../hub/README.md) base): `ws2812.c` (the driver), `ws2812.h` (its config and state), `__init__.py` (the YAML: validation and generated C), `test/` (a host test, run by `core/test`).
 
 `ws2812` drives a chain of addressable LEDs, WS2812B or SK6812 (RGB or RGBW), on one MCU pin. Each LED is 3 hub pins (4 on RGBW) as on every strip, so LEDs take `pin`, `pin2`, `pin3` and show any colour, with the strip's `gamma:` and `white:` ([led_strip](../led_strip/README.md)):
 

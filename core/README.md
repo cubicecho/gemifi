@@ -23,7 +23,7 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `include/gm_feedback.h` | the feedback switches (`GM_FEEDBACK`, `GM_MCU`, ...) and the calls between the files above |
 | `include/gm_mcu.h`, `src/mcu.c` | Mackie Control on the DAW port; empty unless the YAML has `mcu:` |
 | `src/vpin.c` | virtual pins: MCU pins via the HAL, hubs through their drivers (`../components/<key>/`), the scan's written-out paths (mux channels, decoder rows, switch matrices, the hardware analog scan), and what the hub base gives its types |
-| `../components/hub/gm_hub.h` | the hub driver interface (`gm_hub_ops_t`) and the per-hub state: the base of every hub type |
+| `../components/<name>/` | the components: hubs, screens, buses, each in a folder with its README ("Components" below); `hub/gm_hub.h` is the hub driver interface |
 | `include/gm_pin.h` | a pin (`gm_pin_t`), on the MCU or a hub |
 | `src/settings.c` | the param table, sized from the device's component counts |
 
@@ -31,38 +31,53 @@ Rules: C11, no heap, no floating point, no libc beyond `<stdint.h>` (the NUC120 
 
 What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the YAML knobs that trade them: [performance.md](performance.md).
 
-## Virtual pins and hubs
+## Components
 
-Every pin in a device is a `gm_pin_t { hub, flags, num }`:
+The hardware a device's YAML describes, apart from its controls, is made of **components**, ESPHome style: one folder each in [`components/`](../components/) at the repo root, holding its builder part (`__init__.py`: its YAML keys, validation and generated C), its C (`<name>.c`, `<name>.h`), its `README.md` and, for some, its tests (`test/`). The builder finds them by folder (`components/__init__.py`); a new chip is a new folder, without edits to the core.
+
+A **base component** defines what the components on it implement, and holds the code they share. A chip that is one of several for one job is a **platform** of a base: one YAML list for all of them, with `platform:` on each item, as ESPHome's `display:` is. Other chips have a list of their own, named like the ESPHome component.
+
+| Component | YAML | What it is |
+|---|---|---|
+| [hub](../components/hub/README.md) | – | the base of every hub: the driver interface (`gm_hub_ops_t`), the hub state, the hub RAM. Every device builds it |
+| [i2c](../components/i2c/README.md) | `i2c:` | the I2C buses (one, or a list with ids); I2C components pick one with `i2c_id:` |
+| [display](../components/display/README.md) | `display:` | the base of screens (`gm_screen_t`): panels the text displays (`displays:`, "Displays" below) are shown on |
+| [led_strip](../components/led_strip/README.md) | `led_strip:` | the base of LED strips: LEDs that show any colour, a byte per colour ("Full-colour LEDs" below) |
+| [led_driver](../components/led_driver/README.md) | `led_driver:` | the base of LED drivers: a RAM of a bit per LED or segment |
+| [sn74hc595](../components/sn74hc595/README.md) | `sn74hc595:` | shift-register outputs, written from the scan tick |
+| [sn74hc165](../components/sn74hc165/README.md) | `sn74hc165:` | shift-register inputs, read from the scan tick |
+| [cd74hc4067](../components/cd74hc4067/README.md) | `cd74hc4051:`, `cd74hc4067:` | 8- and 16-channel multiplexers, analog or digital |
+| [mcp23017](../components/mcp23017/README.md) | `mcp23017:` | 16 GPIO on I2C (ESP only for now) |
+| [pcf8574](../components/pcf8574/README.md) | `pcf8574:` | 8 GPIO on I2C (ESP only for now) |
+| [decoder](../components/decoder/README.md) | `decoder:` | 74HC138-style one-of-N row selects, for matrix rows |
+| [switch_matrix](../components/switch_matrix/README.md) | `switch_matrix:` | up to 32 switches, scanned from the scan interrupt |
+| [xy_pad](../components/xy_pad/README.md) | `xy_pad:` | a resistive touch pad: two analog channels |
+| [ws2812](../components/ws2812/README.md) | `led_strip:`, `platform: ws2812` | WS2812B / SK6812 strips (RGB or RGBW) |
+| [maudio_pads](../components/maudio_pads/README.md) | `led_strip:`, `platform: maudio_pads` | the M-Audio Code pad LED board, on a serial line in its own protocol |
+| [tm1628](../components/tm1628/README.md) | `led_driver:`, `platform: tm1628` | TM1628 and its relatives (TM1638, TM1620, ...): LEDs, with an optional fade |
+| [max7219](../components/max7219/README.md) | `led_driver:`, `platform: max7219` | MAX7219 7-segment digits and LEDs (chained) |
+| [tm1637](../components/tm1637/README.md) | `led_driver:`, `platform: tm1637` | TM1637 7-segment digits |
+| [ht16k33](../components/ht16k33/README.md) | `led_driver:`, `platform: ht16k33` | HT16K33 14- and 7-segment backpacks and LED matrices, on I2C (ESP only for now) |
+| [ssd1306](../components/ssd1306/README.md) | `display:`, `platform: ssd1306` | SSD1306 / SH1106 OLED panels, on I2C (ESP only for now) |
+
+Each component's README has its YAML keys, its pins and how it runs. A device builds only the components it uses, those they depend on (`DEPENDENCIES`) and the required ones (`REQUIRED`): the builder writes their sources and include dirs into `gm_components.mk` (make) and `gm_components.cmake` (ESP-IDF), and their headers and what they add to the hub and screen structs into `gm_components.h`, next to `gm_device_config.h`.
+
+The YAML keys a component had before are refused, with the new form in the message (`ssd1306:` is `display:` with `platform: ssd1306`; `ws2812:` and `maudio_pad_leds:` are `led_strip:`; `tm1628:`, `max7219:`, `tm1637:` and `ht16k33:` are `led_driver:`).
+
+### Pins
+
+Every pin in a device is a `gm_pin_t { hub, flags, num }` (`include/gm_pin.h`):
 - `hub = 0`: a pin of the MCU. `num` is the platform's pin number: NUC1xx `port * 16 + bit` (`PA0` = 0, `PB12` = 28, `PC7` = 39); ESP32 the GPIO number.
 - `hub = n ≥ 1`: pin `num` of hub `n - 1` (chained shift registers continue: pins 8–15 are on the second chip). Hubs are numbered in the order they appear in the YAML.
 - `flags`: `GM_PIN_INVERT` (YAML `inverted: true`: active-low, pressed / lit = electrical 0), `GM_PIN_PULLUP`, `GM_PIN_PULLDOWN` (YAML `mode: INPUT_PULLUP` / `INPUT_PULLDOWN`; MCU pins, and pull-ups on MCP23017 pins), `GM_PIN_OPEN_DRAIN` (YAML `mode: OUTPUT_OPEN_DRAIN`; only a `tm1628` or `tm1637` `dio_pin`, platform mode `HAL_OUT_OD`).
 
-Hubs are declared ESPHome style, one top-level list per chip, named like the ESPHome component. Chips that are interchangeable for one job are platforms of a base component instead, one list for all of them with `platform:` on each item, as ESPHome's `display:` is: `led_strip:` ([components/led_strip](../components/led_strip/README.md)) and `led_driver:` ([components/led_driver](../components/led_driver/README.md)).
-
-| Chip key (YAML) | `gm_device.h` | Pins it uses | Gives |
-|---|---|---|---|
-| `sn74hc595` | `GM_HUB_HC595` | `data_pin` (SER), `clock_pin` (SRCLK), `latch_pin` (RCLK), optional `oe_pin` (/OE); `sr_count` chips (1–4) | 8 × sr_count outputs. LEDs, matrix rows |
-| `sn74hc165` | `GM_HUB_HC165` | `data_pin` (QH), `clock_pin` (CLK), `load_pin` (SH/LD); `sr_count` chips (1–4) | 8 × sr_count inputs, numbered as ESPHome does: 0–7 on the chip whose QH goes to the MCU (0 = its A), 8–15 on the next. Buttons, matrix columns |
-| `cd74hc4051` | `GM_HUB_MUX` | `pin_s0`–`pin_s2`, `common_pin`, optional `enable_pin` (/E), `delay` (settle time after switching channel, default 2us) | 8 input channels, analog (if `common_pin` is an ADC pin) or digital. Muxes may share select lines (`allow_other_uses`); give them the same `delay` |
-| `cd74hc4067` | `GM_HUB_MUX` | `pin_s0`–`pin_s3`, `common_pin`, optional `enable_pin`, `delay` | 16 input channels, as above |
-| `mcp23017` | `GM_HUB_MCP23017` | I2C (`address`, default 0x20; an [`i2c:`](../components/i2c/README.md) bus, `i2c_id:`). ESP only for now: stm32f1 and nuvoton-nuc1xx have no I2C driver, so the builder refuses it there | 16 GPIO (`0`–`15` or `GPA0`–`GPB7`) |
-| `pcf8574` | `GM_HUB_PCF8574` | I2C (`address`). ESP only for now, as `mcp23017` | 8 GPIO (`0`–`7` or `P0`–`P7`; quasi-bidirectional: inputs are written high) |
-| `decoder` | `GM_HUB_DECODER` | `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`) | One-of-N row selects (74HC138-style chips sharing address lines): output n = address n % 2^address-pins in group n / 2^address-pins. Only matrix rows (`key_matrix`, `switch_matrix`) |
-| `switch_matrix` | `GM_HUB_SWMATRIX` | `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us) | Up to 32 switches, scanned from the scan interrupt: pin n = row n / columns, column n % columns, 1 = closed. Buttons, encoders |
-| `led_strip`, `platform: maudio_pads` | `GM_HUB_MAUDIO_PADS` | `tx_pin` (stm32f1: PA2 only); `rx_pin` (optional, the board's answers; stm32f1: PA3 only); `gamma` (1.0–3.0, default 1); `white` (`[r, g, b]`, default 255s); `count` (1–32 LEDs, default 16); `dma` (default true, see "DMA channels") | 3 × count outputs: pin = LED × 3 + colour (0 red, 1 green, 2 blue). The M-Audio Code pad LED board; see [components/maudio_pads](../components/maudio_pads/README.md) |
-| `led_strip`, `platform: ws2812` | `GM_HUB_WS2812` | `pin` (an MCU pin; stm32f1: PA7 or PB15); `count` (1–256 LEDs); `order` (`GRB`, the default, `RGB`, `BRG`, ...; `GRBW`, `RGBW`, ... for RGBW LEDs); `gamma`, `white` (`[r, g, b]`, `[r, g, b, w]` on RGBW) | 3 × count outputs (4 × on RGBW): pin = LED × 3 + colour (0 red, 1 green, 2 blue, 3 white). WS2812B / SK6812 strips; see [components/ws2812](../components/ws2812/README.md) |
-| `xy_pad` | `GM_HUB_XY` | `x_plus_pin`, `x_minus_pin`, `y_plus_pin`, `y_minus_pin` (MCU pins); `touch_min`, `touch_max` (default 570, 3430) | 2 analog channels, `x` (0) and `y` (1), for `analog:` inputs. See "XY pads" |
-| `led_driver`, `platform: tm1628` | `GM_HUB_TM1628` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`), `stb_pin`; `ram_bytes` (1–16, default 14), `intensity` (0–7, default 7), optional `grids` (4–7), `fade` (default false) | 8 × ram_bytes outputs: display RAM bits. LEDs (see [components/tm1628](../components/tm1628/README.md)) |
-| `led_driver`, `platform: max7219` | `GM_HUB_MAX7219` | `clk_pin`, `din_pin`, `cs_pin` (LOAD); `num_chips` (1–8, default 1), `intensity` (0–15, default 15), `scan_limit` (digits scanned, 1–8, default 8) | 64 × num_chips outputs: pin = chip × 64 + digit × 8 + segment (0–6 = A–G, 7 = DP). 7-segment digits and LEDs (see [components/max7219](../components/max7219/README.md)) |
-| `led_driver`, `platform: tm1637` | `GM_HUB_TM1637` | `clk_pin`, `dio_pin` (may be `OUTPUT_OPEN_DRAIN`); `length` (grids, 1–6, default 6), `intensity` (0–7, default 7) | 8 × length outputs: pin = grid × 8 + segment (bit 0 = SEG1 = a). 7-segment digits (see [components/tm1637](../components/tm1637/README.md)) |
-| `led_driver`, `platform: ht16k33` | `GM_HUB_HT16K33` | I2C (`address`, default 0x70; an [`i2c:`](../components/i2c/README.md) bus, `i2c_id:`), `intensity` (0–15, default 15). ESP only for now, as `mcp23017` | 128 outputs: pin = COM × 16 + ROW (display RAM bit, byte × 8 + bit). 14- and 7-segment backpacks, LED matrices (see [components/ht16k33](../components/ht16k33/README.md)) |
-
-A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`, `{ led_driver: digits, number: 8 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`.
+A **hub** is a component that gives pins: every one above from `sn74hc595` down, except `ssd1306` (a screen). A pin on a hub names the hub by its list's key and its id: `{ sn74hc595: leds, number: 3 }`, `{ cd74hc4051: faders, number: 0 }`, `{ led_strip: strip, number: 0 }`, `{ led_driver: digits, number: 8 }`. The MCP23017's pin key is `mcp23xxx` (as in ESPHome): `{ mcp23xxx: io, number: GPB7 }`. How hub drivers run (scan tick or main loop), and their interface: [hub](../components/hub/README.md).
 
 Inputs on HC165 are read once per scan into a cache, and outputs on HC595 are written once per scan, so a whole key matrix can live on shift registers. MCP23017 and PCF8574 are read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt.
 
-**Matrices behind decoders** (the M-Audio Code 61, `devices/m-audio-code61.yaml`): rows come from 3-to-8 decoders that share address lines, and the keys, panel buttons and encoders all share the same columns. Declare the decoder once, then give each matrix a range of its outputs, `rows: { decoder: rows, first: 16, count: 4 }` (or a list of `{ decoder: rows, number: n }` pins). The key matrix and the switch matrices are scanned one after the other from the scan interrupt, so they can share column pins: set `allow_other_uses: true` on each use. A decoder output is selected when its row is driven and stays selected until the next row's select replaces it.
+### Matrices behind decoders
+
+The M-Audio Code 61 (`devices/m-audio-code61.yaml`): rows come from 3-to-8 decoders that share address lines, and the keys, panel buttons and encoders all share the same columns. Declare the decoder once, then give each matrix a range of its outputs, `rows: { decoder: rows, first: 16, count: 4 }` (or a list of `{ decoder: rows, number: n }` pins). The key matrix and the switch matrices are scanned one after the other from the scan interrupt, so they can share column pins: set `allow_other_uses: true` on each use. A decoder output is selected when its row is driven and stays selected until the next row's select replaces it.
 
 ```yaml
 decoder:
@@ -79,37 +94,17 @@ buttons:
   - { id: play, pin: { switch_matrix: panel, number: 13 }, action: cc_momentary, cc: 113 }
 ```
 
-### Hub drivers
+### Adding a component
 
-Each hub type is a driver behind one interface, `gm_hub_ops_t` (`components/hub/gm_hub.h`), listed in `hub_ops[]` (`src/vpin.c`) by type. The driver is in the type's component, `components/<key>/` (its ops come in through the generated `gm_components.h`). `gm_hub_t` is the hub's type and that type's own config, a union member generated by the builder (`.sr`, `.mux`, `.mx`, ...: `include/gm_device.h`, or the component's header); each hub's state (`gm_hub_state_t`) is a few common fields (`in`, `out`, `written`, `channel`, ...) and a union of each type's own. The ops, all optional:
+A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-| Op | Called by | Runs |
-|---|---|---|
-| `init` | `vpin_init` | start-up: control pins to their idle levels, state to power-up |
-| `input`, `output` | `vpin_input`, `vpin_output` | start-up: a pin is read / driven (I2C: direction and pull-up bits) |
-| `read`, `write` | `vpin_read`, `vpin_write` | anywhere. Without them: the cached `in` / `out` words |
-| `analog` | `vpin_analog` | the main loop: 0..4095 on a channel (mux, XY pad) |
-| `rgb` | `vpin_rgb` | a whole colour on an LED (LED strips); a hub with it is full-colour: its LEDs take full-colour looks ("Full-colour LEDs") |
-| `refresh`, `flush` | `vpin_refresh` / `vpin_flush` in the scan tick (HC165 / HC595), or with `GM_HUBF_BUS` `vpin_refresh_i2c` / `vpin_flush_i2c` from the main loop (I2C) | inputs into `in`; `out` to the chip if it changed |
-| `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628, MAX7219, TM1637), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
-| `poll` | `vpin_poll` every main-loop pass | protocol timing (maudio_pads: one LED per 5 ms, the keepalive, acks; ws2812: a frame when something changed) |
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device.
+2. **`<name>.c`, `<name>.h`**: its C, compiled only into devices that use it. Its folder is an include dir when it has headers.
+3. **`README.md`**: its YAML keys and pins, how it runs, its files and tests, as the others do.
+4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).
+5. **The schema**: `python3 tools/builder/gemifi_build.py schema -o site/src/schema/device.json`.
 
-`flags` say what else the core needs to know: `GM_HUBF_IN_REG` (`in` holds the pins' levels, so a key scan can read a column with one load), `GM_HUBF_NO_READ` (outputs only), `GM_HUBF_BUS`, `GM_HUBF_SELECT` (decoder outputs: "off" does nothing), `GM_HUBF_MATRIX`. The controller asks `vpin_caps()` / `vpin_pin_caps(pin)` (`VPIN_SCAN_IO`, `VPIN_BUS_IO`, `VPIN_MAIN`, `VPIN_MATRIX`, `VPIN_RGB`) which loops to run and what a pin can do, instead of looking at hub types.
-
-The scan's hot paths don't go through the table: `vpin_read` on a mux channel and on a cached input, `vpin_write` on a decoder row and on a cached output, and the switch-matrix scan (`vpin_scan_matrices`, the hardware scan's `vpin_scan_plan` / `vpin_scan_feed`) are written out in `vpin.c`, so a pin costs what it did before the table. Hub types with more than pins keep their own calls in `gm_vpin.h`: the TM1628's `fade:`, the mux's hardware analog scan, the XY pad's `vpin_analog_jump`.
-
-The builder writes `GM_HUB_TYPES` (a bit per hub type the device has) into `gm_device_config.h`; `hub_ops[]` holds only those drivers, so only they are linked (the Keystation, with no hubs, links none).
-
-### Adding a hub type
-
-1. **`components/<key>/`**, a folder named after the YAML key (types that share a driver share one, as `cd74hc4051` and `cd74hc4067` do), as [`components/ws2812`](../components/ws2812/): `<key>.c` (its ops and a `const gm_hub_ops_t gm_<key>_ops`), `<key>.h` (its config struct and, if it keeps any, its state struct, which the generated `gm_components.h` adds to `gm_hub_t`'s and `gm_hub_state_t`'s unions; `vpin_init` resets the state before `init`), `__init__.py`, `README.md` and `test/`. The end of `components/hub/gm_hub.h` lists what the hub base gives a driver: pins kept in the hub RAM (more than 32 of them, or bytes per pin) take `gm_hub_ram_alloc(n)` bytes there in `init` (count them into `GM_HUB_RAM` with `ram = True`); LED drivers with a bit per pin there share the `led_driver` base's `gm_led_driver_*`; control pins are set up with `gm_hub_mcu_out`. Only a device with the type compiles its `.c`.
-2. **`include/gm_device.h`**: a `GM_HUB_*` value (before `GM_HUB_N_TYPES`). A config bigger than the largest (the decoder's, 36 bytes) makes every hub bigger: point at a `const` table instead (as the switch matrix's rows and the LED hubs' `curve` do).
-3. **`__init__.py`**: a `HubType` subclass (its YAML key, `enum` and `num`, its `keys`, the control pins' `lines`, `roles`, `validate`, `c_fields` for its union member, `c_tables` for anything the entry points at, and `c_header`, `c_config`, `c_state`, `c_ops` for its C), listed in `HUB_TYPES`. A hub with an `rgb` op sets `full_colour = True` (and `colour_pins` if an LED isn't 3 pins): its LEDs then take full-colour looks, `led_defaults` and step colours as they are. Old keys of a type go in `old_keys`, refused with the new form (`moved_text`). One of several chips for one job is a platform of a base component instead: it derives from the base's class (`LedStrip`, `LedDriver`: they set `domain`), its key is the `platform:` name, and the base's key is its list and pin key ([Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform)). The YAML key, the pin key, the schema and the "which hubs can be an input / output / analog" checks follow from it. Then `gemifi_build.py schema -o site/src/schema/device.json`.
-4. **Tests**: a core test YAML with the hub and its test in `test/` (run by `core/test`), and a builder test of its validation and C.
-
-### LED drivers
-
-TM1628, MAX7219, TM1637 and HT16K33 chips, for LEDs and segment digits: see [components/led_driver](../components/led_driver/README.md).
+What each kind implements: [Adding a hub type](../components/hub/README.md#adding-a-hub-type), [Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform), [Adding a driver platform](../components/led_driver/README.md#adding-a-driver-platform), [Adding a display platform](../components/display/README.md#adding-a-display-platform).
 
 ### Full-colour LEDs
 
@@ -123,19 +118,17 @@ Anything that only switches pins on or off (a plain on, a named look like `blue`
 
 The strip's `gamma:` and `white:` calibrate what goes on the wire, so colours look right ([led_strip "Calibration"](../components/led_strip/README.md#calibration)).
 
-### XY pads
-
-See [components/xy_pad](../components/xy_pad/README.md).
-
 ### LED walk (finding LEDs)
 
 To find which output drives which LED on new hardware, list every candidate output under `leds:` and build with `GM_LED_WALK_MS` set (stm32f1: `make LED_WALK=100`). Each LED then lights on its own for that many milliseconds, in `leds:` order, and the device log shows `walk LED <n>`. Holding any button pauses the walk. Normal LED behaviour is off in such a build; without the define the code isn't built at all.
 
-## Components
+## Controls
 
-Every component has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.
+The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix) are what the player plays; they are built into the core (`src/controller.c`), not components yet.
 
-| Component | Fields | Params it creates (per item, as arrays) |
+Every control has an `id` (what the rest of the file uses to refer to it) and/or a `name` (display text). See "Ids and names" below.
+
+| Control | Fields | Params it creates (per item, as arrays) |
 |---|---|---|
 | button | `id`/`name`, `pin`, `led` (an LED id, optional), default `action` and its `cc:` (CC actions), `note:` (action `note`), `mcu:` (action `mcu`), `program:`, `mmc:` or `sysex:`; optional `bank:`, `channel:`, `min:`, `max:` ("MIDI messages") | `button.action`, `button.number` |
 | LED | `id`/`name`, `pin`, optional `pin2` (bicolour: the second colour), optional `pin3` (with `pin2`: an RGB LED, `pin` red, `pin2` green, `pin3` blue), optional `idle:` / `active:` ("LED looks" below), optional `feedback:`, `owner:`, `timeout:` ("DAW feedback") | – (LEDs show their button's state, or the octave/transpose level, or what the host sends) |

@@ -342,7 +342,7 @@ COMP_STR_MAX = 31               # sysex.md lstring
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
 # gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
-# type is a component of its own, components/<key>/ (core/README.md "Adding a hub type").
+# type is a component of its own, components/<key>/ (components/hub/README.md "Adding a hub type").
 # The hub types, from the components, in GM_HUB_* order.
 HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key))}
 # The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.

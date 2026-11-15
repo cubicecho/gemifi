@@ -94,7 +94,7 @@ HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("int
 
 
 def hub(typ):
-    return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Virtual pins and hubs\")")
+    return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
 
 
 def hub_domain(domain):

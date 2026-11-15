@@ -1,6 +1,6 @@
 # ht16k33
 
-An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/gm_hub.h) base): `ht16k33.c` (the driver), `ht16k33.h` (its config), `__init__.py` (the YAML: validation and generated C). Its host test is `core/test/test_i2c.c`, with the other I2C hubs'.
+An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/README.md) base): `ht16k33.c` (the driver), `ht16k33.h` (its config), `__init__.py` (the YAML: validation and generated C). Its host test is `core/test/test_i2c.c`, with the other I2C hubs'.
 
 `ht16k33` drives an HT16K33 (the Adafruit 14-segment and 7-segment backpacks and similar boards) on an [`i2c:`](../i2c/README.md) bus (`address`, default 0x70; `i2c_id:` with several buses): 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
 

@@ -1,6 +1,6 @@
 # led_strip
 
-The base component of **LED strips**: chains of LEDs that show any colour, a byte per colour, declared ESPHome style under `led_strip:`, each on a platform. A strip still gives pins, as every hub does ([core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)), named `{ led_strip: <id>, number: n }`.
+The base component of **LED strips**: chains of LEDs that show any colour, a byte per colour, declared ESPHome style under `led_strip:`, each on a platform. A strip still gives pins, as every hub does ([core/README.md "Components"](../../core/README.md#components)), named `{ led_strip: <id>, number: n }`.
 
 ```yaml
 led_strip:

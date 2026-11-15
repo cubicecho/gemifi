@@ -1,7 +1,7 @@
 """gemifi components, one folder each, as in ESPHome: components/<name>/ holds a component's builder
-part (its __init__.py: schema, validation, generated C) and, as they move here, its C sources, docs and
-tests. A base component (hub, display) defines what the components on it (sn74hc595, ssd1306 ...)
-implement.
+part (its __init__.py: schema, validation, generated C), its C sources, its README and tests. A base
+component (hub, display, led_strip, led_driver) defines what the components on it (sn74hc595, ssd1306,
+ws2812, tm1628 ...) implement (core/README.md "Components").
 """
 import importlib
 import os

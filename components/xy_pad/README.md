@@ -1,6 +1,6 @@
 # xy_pad
 
-A hub type ([hub](../hub/gm_hub.h), [core/README.md "Virtual pins and hubs"](../../core/README.md#virtual-pins-and-hubs)): `xy_pad.c` (the driver), `xy_pad.h` (its config), `__init__.py` (the YAML: validation and generated C). Its state (`gm_hub.h` `u.xy`) stays in the core, with `vpin_analog_jump` (`gm_vpin.h`), which reads it; the hardware analog scan leaves the pad out of its plan (`gm_adc_plan`). Its host test is `core/test/test_pads.c`, with the pads'.
+A hub type ([hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components)): `xy_pad.c` (the driver), `xy_pad.h` (its config), `__init__.py` (the YAML: validation and generated C). Its state (`gm_hub.h` `u.xy`) stays in the core, with `vpin_analog_jump` (`gm_vpin.h`), which reads it; the hardware analog scan leaves the pad out of its plan (`gm_adc_plan`). Its host test is `core/test/test_pads.c`, with the pads'.
 
 A 4-wire resistive XY pad is two plates that touch where pressed. To read X, the core drives `x_plus_pin` high and `x_minus_pin` low, and reads the voltage of the floating Y plate. That reading is the touch position. Y is read the other way round. Each axis is read on the other plate's minus pin if that pin has an ADC, otherwise on its plus pin. The other plate is always released before a plate is driven, so a touch never joins two driven pins.
 

@@ -86,17 +86,17 @@ GM_ROOT := $(ROOT)
 CTL_COMPONENT_SRCS := $(GM_COMPONENT_SRCS)
 CTL_COMPONENT_INCS := $(addprefix -I,$(GM_COMPONENT_INCS))
 CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
-            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c feedback.c monitor.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
             $(DEV_DIR)/gm_device_config.c $(CTL_COMPONENT_SRCS)
 
 $(DEVICE): $(YAML) | $(BUILD)
 	{ cat $(YAML); echo 'write_to_flash: { last_preset: true }'; echo 'unlock: true'; } > $@
 
 # gm_components.mk too: make generates it for the -include above, then reads it again.
-$(DEV_DIR)/gm_device_config.c $(DEV_DIR)/gm_components.mk: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py) | $(BUILD)
+$(DEV_DIR)/gm_device_config.c $(DEV_DIR)/gm_components.mk: $(DEVICE) $(wildcard $(ROOT)/tools/builder/*.py $(ROOT)/components/*.py $(ROOT)/components/*/__init__.py) | $(BUILD)
 	$(PYTHON) $(ROOT)/tools/builder/gemifi_build.py generate $(DEVICE) -o $(DEV_DIR) >/dev/null
 
-$(BUILD)/libctl.so: $(CTL_SRCS) $(wildcard $(ROOT)/core/include/*.h $(PLAT)/include/*.h) | $(BUILD)
+$(BUILD)/libctl.so: $(CTL_SRCS) $(DEV_DIR)/gm_components.mk $(wildcard $(ROOT)/core/include/*.h $(PLAT)/include/*.h) | $(BUILD)
 	$(HOSTCC) $(CFLAGS) -shared -DHAL_APP_FW_UPLOAD=0 -I$(DEV_DIR) $(CTL_COMPONENT_INCS) $(CTL_SRCS) -o $@
 
 # CS_ARGS=-q: fewer power-cut sweeps; -long: 20x the writes, no sweeps.

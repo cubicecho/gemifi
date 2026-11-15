@@ -109,7 +109,9 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Component:** one kind of part a device can have, in a folder of its own: its C code, its YAML
   (validation and generated C), its docs and its tests. A device builds only the components it uses.
   A base component defines what the components on it implement (`hub`, `display`, `led_strip`,
-  `led_driver`). Owner: `components/<name>/`
+  `led_driver`). A control (buttons, LEDs, analog inputs, encoders, pads, modes, the key matrix) is a
+  component too, built when the device has it; it shares state with the controller through
+  `gm_controls.h`. Owner: `components/<name>/`
   (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. Every hub
   type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform, the
@@ -169,16 +171,16 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 ### Controls
 
 - **Button:** a switch with an action (CC momentary/toggle/ramp, note, octave, transpose, program,
-  preset, MMC, SysEx ...). Owner: `gm_button_t`; `controller.c` "buttons".
+  preset, MMC, SysEx ...). Owner: `gm_button_t`; the `buttons` component (`components/buttons`).
 - **LED:** a light on one, two or three pins (single, bicolour, RGB), showing its button, a level or
-  what a host sends; looks for idle and active. Owner: `gm_led_t`; `controller.c` "LEDs".
+  what a host sends; looks for idle and active. Owner: `gm_led_t`; the `leds` component (`components/leds`).
 - **Analog input (pot, fader, wheel):** a reading sent as CC, 14-bit, NRPN/RPN, pitch bend or pressure.
-  Owner: `gm_analog_t`; `controller.c` "analog inputs".
+  Owner: `gm_analog_t`; the `analog` component (`components/analog`).
 - **Encoder:** a rotary encoder sending absolute or relative values, with acceleration and an LED ring.
-  Owner: `gm_encoder_t`; `controller.c` "encoders" (scan side and main side), "encoder rings".
+  Owner: `gm_encoder_t`; the `encoders` component (`components/encoders`); its ring, the `leds` component.
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
-  `gm_matrix_t`; `controller.c` "key matrix", "velocity".
-- **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; `controller.c` "pads".
+  `gm_matrix_t`; the `key_matrix` component (`components/key_matrix`).
+- **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).
 - **Control twin:** a second copy of a control on a layer. Owner: `gm_pad_twin_t` and the layer tables.
 
 ### Behaviour
@@ -187,7 +189,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **MIDI message (kind):** what a control sends (CC, note, NRPN, SysEx string ...). Owner:
   `controller.c` "MIDI messages", `gm_ctl_t`, `gm_sysex_t`.
 - **Mode / layer / cycle:** a held or toggled state that changes what controls do (Shift, a button
-  layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; `controller.c` "modes".
+  layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; the `modes` component (`components/modes`).
 - **Param:** a setting a host can read and change at run time (`button.action`, `midi.channel` ...).
   Owner: `core/src/params.c`, `core/src/settings.c`.
 - **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. Owner:
@@ -204,7 +206,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **SysEx protocol (GSX):** the request/response protocol over MIDI SysEx: HELLO, params, presets,
   components, firmware upload. Owner: `protocol/sysex.md`; `gsx.c`, `app_proto.c`.
 - **Feedback:** a host lighting LEDs, writing display text, moving rings (F1 plain, F3 DAW scripts).
-  Owner: `controller.c` "host feedback", `gm_feedback.h`.
+  Owner: `core/src/feedback.c`, `gm_feedback.h`.
 - **Mackie Control (MCU):** the DAW protocol on a second port. Owner: `core/src/mcu.c`.
 - **DIN MIDI:** 5-pin MIDI in/out and thru. Owner: `core/src/din.c`.
 - **Safety:** unlock before risky requests, status LED, boot and factory-reset combos. Owner:

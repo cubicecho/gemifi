@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.51.0](https://github.com/cubicecho/gemifi/compare/v0.50.0...v0.51.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **site:** name the test files, for node 22's --test ([57e4ffe](https://github.com/cubicecho/gemifi/commit/57e4ffe9ac28344e9edf5f0af2d52c51b4373f5a))
+
+
+### Features
+
+* **site:** a docs section built from the repo's READMEs ([95b73f8](https://github.com/cubicecho/gemifi/commit/95b73f87b2aa61ee96feeab7f9b36b18f666c26b))
+* **site:** link the site to its docs pages, ESP32 test results, CI for the site ([afc0d21](https://github.com/cubicecho/gemifi/commit/afc0d21e5628dcf943f7bb0707f17abb01d6022c))
+
 # [0.50.0](https://github.com/cubicecho/gemifi/compare/v0.49.0...v0.50.0) (2026-11-15)
 
 

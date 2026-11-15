@@ -28,8 +28,6 @@ Through `core/include/gm_controls.h`:
 - `btn_hist`, the samples, for the raw readings (`GM_MONITOR`);
 - `shift`, which the modes' octave and transpose bindings use, and `BTN_CH`.
 
-The modes are still in `core/src/controller.c`.
-
 ## Tests
 
 In `core/test/`: `test_controller.c` (debounce, actions, ramps, presets), `test_modes.c` (modes, layers, cycles) and `test_msg.c` (program, MMC, SysEx and panic actions).

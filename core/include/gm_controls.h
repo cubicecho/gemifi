@@ -130,14 +130,61 @@ void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch ben
 void buttons_off(void);                 /* a preset switch: let go of every note and CC */
 #endif
 
-/* ---- modes (controller.c, core/README.md "Modes") --------------------------- */
+/* ---- modes (components/modes, core/README.md "Modes") ---------------------- */
 
 #if GM_N_MODES > 0
+#if GM_HAS_MATRIX
+uint32_t keys_mode(void);               /* the mode the keys go to; GM_MODE_NONE = the keys play */
+void mode_key(uint32_t mi, uint32_t k); /* key k pressed in mode mi: its binding */
+#endif
+#if GM_LAYER_PARAMS
+uint32_t layer_rank(uint32_t m);        /* how strongly root mode m's layer holds, 0 = off */
+#endif
+/* What LED li shows instead of level: a mode's LED, a preset number's blink. */
+uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now);
+#define MODE_LED(li, level, now) mode_led(li, level, now)
 int mode_button(uint32_t i, int down);  /* button i as a mode's toggle, hold or cycle button: 1 if it was */
 int mode_btn(uint32_t i, int down);     /* button i as a function button of the active mode: 1 if it was */
 /* Button i released after a preset switch (its release is silent): a hold
  * mode still ends with its button. */
 void mode_late_release(uint32_t i);
+void modes_init(void);
+#if GM_N_CYCLES
+void cycles_init(void);                 /* no cycle on a step (before the settings are loaded) */
+void cycles_start(void);                /* each cycle on its first enabled step */
+#endif
+#else
+#define MODE_LED(li, level, now) (level)
+#endif
+/* Which of each base and its twins is live (core/README.md "Button layers"),
+ * then EVENT 8 for each mode that went off or on. */
+#if GM_LAYER_PARAMS
+void layers_update(void);
+void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers_report asked for */
+#else
+#define layers_update() ((void)0)
+#endif
+
+/* ---- LEDs (controller.c) -------------------------------------------------- */
+
+/* LED levels (see led_show): LV_BLINK | level blinks it; LV_RGB | m lights
+ * the pins in mask m (an RGB colour, or a cycle step's colour); LV_RGB |
+ * LV_COLOUR | m shows led_colour[] (a DAW's colour, FB_LED_RGB) on an LED
+ * that can show any colour (a full-colour hub's, VPIN_RGB), else mask m;
+ * LV_RGB | LV_STEP(s) | m shows step s's full colour (gm_mode_rgb[s],
+ * GM_MODE_RGB) there, else mask m. */
+#define LV_BLINK 0x80u
+#define LV_RGB 0x40u
+#define LV_COLOUR 0x20u
+#define LV_STEP_SHIFT 8u                /* mode index + 1, 7 bits (the builder's MODE_RGB_MAX) */
+#define LV_STEP(m) (((m) + 1u) << LV_STEP_SHIFT)
+extern uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* LEDs: what each shows; 0xFFFF draws it again */
+extern uint8_t led_dead[GM_ARR(GM_N_LEDS)];     /* modes (layers_update): a layer twin (or its base) not shown now */
+
+/* ---- key matrix (controller.c) -------------------------------------------- */
+
+#if GM_HAS_MATRIX
+void keys_off(void);                    /* Note Off for every held key; their releases send nothing */
 #endif
 
 /* ---- analog inputs (components/analog) ------------------------------------ */

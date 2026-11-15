@@ -187,7 +187,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **MIDI message (kind):** what a control sends (CC, note, NRPN, SysEx string ...). Owner:
   `controller.c` "MIDI messages", `gm_ctl_t`, `gm_sysex_t`.
 - **Mode / layer / cycle:** a held or toggled state that changes what controls do (Shift, a button
-  layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; `controller.c` "modes".
+  layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; the `modes` component (`components/modes`).
 - **Param:** a setting a host can read and change at run time (`button.action`, `midi.channel` ...).
   Owner: `core/src/params.c`, `core/src/settings.c`.
 - **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. Owner:

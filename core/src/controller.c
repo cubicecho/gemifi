@@ -30,7 +30,6 @@
 #include "gm_vpin.h"
 #include "gm_hal.h"
 #include "app_proto.h"
-#include "params.h"
 #include "gm_presets.h"
 #include "gm_feedback.h"
 #include "gm_mcu.h"
@@ -511,8 +510,8 @@ void gm_init(uint32_t fw_version, int safe_mode)
     gm_din_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
-#if GM_N_CYCLES
-    cycles_init();                  /* no step yet: set once the settings are loaded (below) */
+#if GM_N_MODES > 0
+    modes_init();                   /* no mode on, no cycle on a step: those wait for the settings (below) */
 #endif
     layers_update();                /* no mode yet: every base live, every twin hidden */
     for (uint32_t i = 0; i < gm_device.n_leds; i++) {
@@ -528,9 +527,6 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_HAS_MATRIX
     if (gm_device.matrix)
         matrix_init();
-#endif
-#if GM_N_MODES > 0
-    modes_init();
 #endif
 #if GM_N_BUTTONS > 0
     buttons_init();
@@ -598,8 +594,8 @@ void gm_poll(void)
 
     /* Keys and buttons first, and their MIDI to the host at once: nothing
      * below (protocol, presets, analog, LEDs, the display, the TM1628 bus)
-     * stands between a key and its USB packet. Keys still go before buttons,
-     * as before. Part numbers name the part, not the order. */
+     * stands between a key and its USB packet. Keys go before buttons. Part
+     * numbers name the part, not the order. */
 #if GM_HAS_MATRIX
     keys_poll();
 #endif

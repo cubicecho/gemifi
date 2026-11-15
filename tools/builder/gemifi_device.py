@@ -20,33 +20,29 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import (CURVES, INVERT, MIGRATE_HINT, MMC_COMMANDS, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
-                            PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, a_, c_str, errors,
-                            twin_c, type_name)
+from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
+                            PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, c_str, errors, f1_on,
+                            type_name, with_article)
 import gemifi_board as gbd  # noqa: E402
-from components.hub import HubType  # noqa: E402
-from components.led_strip import rgb_curve  # noqa: E402
-from components.hub import c_comment as _comment  # noqa: E402
+from components.led_strip import rgb_curve  # noqa: E402,F401
+from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
 from components import analog, buttons, encoders, key_matrix, leds, modes, pads  # noqa: E402
-from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MAX_MODES, MODE_KEYS,  # noqa: E402,F401
+from components.buttons import MMC_COMMANDS  # noqa: E402,F401
+from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MODE_KEYS,  # noqa: E402,F401
                               STEP_KEYS)
-from components.leds import (LED_DEFAULT_LOOK, LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES,  # noqa: E402,F401
-                             LED_LOOKS, LED_OWNERS, LED_SOURCE_VALUES, LED_SOURCES, TIMEOUT_NEVER,
-                             colour_exact, colour_look, colour_look_needs, colour_mask, led_full_colour,
-                             led_kind, look_word, resolve_led_default, validate_timeout)
-from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, CC_ACTIONS, MSG_ACTIONS,  # noqa: E402,F401
-                                NUMBER_KEYS, PAD_ACTIONS, PRESET_ACTIONS, PROGRAM_ACTIONS, RENAMED_BUTTON,
-                                button_action, number_key)
-from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, RENAMED_ANALOG, TAKEOVER, TOUCH  # noqa: E402,F401
+from components.leds import (LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES, LED_OWNERS,  # noqa: E402,F401
+                             LED_SOURCES, TIMEOUT_NEVER, validate_timeout)
+from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, NUMBER_KEYS,  # noqa: E402,F401
+                                button_action)
+from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, TAKEOVER, TOUCH  # noqa: E402,F401
 from components.encoders import (ACCEL_CURVES, ACCEL_KEYS, ACCEL_PRESETS, ENC_MODES, ENCODER_KEYS,  # noqa: E402,F401
-                                 ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS, RENAMED_ENCODER)
-from components.key_matrix import (MATRIX_FAST_COLS, MATRIX_KEYS, MATRIX_MAX, MATRIX_MAX_ROWS,  # noqa: E402,F401
-                                   RENAMED_MATRIX, RENAMED_VELOCITY, VEL_FAST_RANGE, VEL_SLOW_RANGE, VELOCITY_KEYS)
-from components.pads import MAX_PADS, PAD_DEFAULTS, PAD_KEYS, PAD_SETTINGS_KEYS  # noqa: E402,F401
+                                 ENCODER_NUMBER_KEYS, ENCODER_SETTINGS_KEYS)
+from components.key_matrix import MATRIX_KEYS, VELOCITY_KEYS  # noqa: E402,F401
+from components.pads import PAD_DEFAULTS, PAD_KEYS, PAD_SETTINGS_KEYS  # noqa: E402,F401
 
 try:
     import yaml
@@ -59,8 +55,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.50.0"
-
+VERSION = "0.51.1"
 
 
 # ---- MIDI messages (core/README.md "MIDI messages") ----
@@ -71,7 +66,6 @@ MSG_ALIASES = {"rpn": "nrpn", "bank_select": "program"}
 SYSEX_MAX = 64              # bytes of one sent SysEx string (the stack buffer in controller.c)
 SYSEX_TOKENS = {"v": 0x80, "msb": 0x81, "lsb": 0x82, "ch": 0x83}   # gm_device.h GM_SX_*
 SX_SUM_START, SX_SUM = 0x84, 0x85
-BANK_NONE = 0xFFFF          # gm_device.h GM_BANK_NONE
 CTL_TOP = 0xFFFF            # gm_device.h GM_CTL_TOP
 
 
@@ -179,7 +173,6 @@ WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
-PARAM_NAME = {i: n for n, i, _s, _c in PARAMS}
 
 
 def stored_counts(dev):
@@ -197,7 +190,6 @@ def stored_counts(dev):
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
-WIDE_MODES = {"cc14", "nrpn14", "rpn14"}       # 14-bit values (a SysEx string with msb / lsb too)
 PRESET_GLOBALS = {
     "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
              "transpose": ("midi.transpose", 0, "int", -24, 24),
@@ -323,13 +315,12 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # platform: ws2812, ... }], pins { led_strip: strip, number: 0 }.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
-# gm_hub_t entry. The tables below (HUB_ENUM, HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
+# gm_hub_t entry. The tables below (HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
 # type is a component of its own, components/<key>/ (components/hub/README.md "Adding a hub type").
 # The hub types, from the components, in GM_HUB_* order.
 HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key))}
 # The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
 DISPLAY_PLATFORMS = {t.platform: t for t in sorted(components.display_platforms(), key=lambda t: t.num)}
-HUB_ENUM = {k: t.enum for k, t in HUB_DEFS.items()}
 HUB_TYPES = list(HUB_DEFS)
 # A domain's platforms, by domain: {"led_strip": {"ws2812": WS2812, ...}}.
 HUB_DOMAINS = {d: {k: t for k, t in HUB_DEFS.items() if t.domain == d}
@@ -343,11 +334,9 @@ HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_key
 HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
 I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
 MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
-MUX_SELECT = {k: HUB_DEFS[k].n_sel for k in MUX_HUBS}
 XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
 TM_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, TM1628)}
 RAM_HUBS = {k for k, t in HUB_DEFS.items() if t.ram}
-FULL_COLOUR_HUBS = [k for k, t in HUB_DEFS.items() if t.full_colour]
 OUT_HUBS = {k for k, t in HUB_DEFS.items() if "out" in t.roles}
 IN_HUBS = {k for k, t in HUB_DEFS.items() if "in" in t.roles}
 ANALOG_HUBS = {k for k, t in HUB_DEFS.items() if "analog" in t.roles}
@@ -462,8 +451,6 @@ class Diag:
         if self.src:
             d["file"] = self.src
         return d
-
-
 
 
 # ---------------------------------------------------------------------------------------------
@@ -917,7 +904,7 @@ class Device:
         self.presets = []
         self.modes = []              # Hub per mode (components/modes), in YAML order; a cycle's steps in a row
         self.n_cycles = 0            # modes: cycle: groups
-        self.pads = []               # Hub per pad (validate_pads), in YAML order
+        self.pads = []               # Hub per pad (pads.validate), in YAML order
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
@@ -1097,8 +1084,8 @@ class _V:
             k0, p0, l0, _, d0 = self.ids[v]
             how = lambda pth, dn: f"{pth} (derived from its name '{dn}')" if dn else pth  # noqa: E731
             self.err(f"{path}.{'name' if derived else 'id'}", line,
-                     f"id '{v}' of {how(path, derived)} is already the id of {how(p0, d0)} (line {l0}, {a_(k0)}); "
-                     "ids are unique across the device: set a different id:")
+                     f"id '{v}' of {how(path, derived)} is already the id of {how(p0, d0)} (line {l0}, "
+                     f"{with_article(k0)}); ids are unique across the device: set a different id:")
             return None
         self.ids[v] = (kind, path, line, index, derived)
         return v
@@ -1159,7 +1146,8 @@ class _V:
             self.err(path, line, f"no {kind} with id '{raw}'{extra} ({plural}: {', '.join(known) or 'none'}{hint})")
             return None
         if target[0] != kind:
-            self.err(path, line, f"'{raw}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+            self.err(path, line, f"'{raw}' is the id of {target[1]} ({with_article(target[0])}), not of "
+                                 f"{with_article(kind)}")
             return None
         return target[3]
 
@@ -1339,8 +1327,8 @@ class _V:
         self.uses.setdefault(key, []).append((name, u))
 
     def matrix_rows(self, d, path, why, hubs=None):
-        """A matrix's rows (matrix_rows), for a component: on the hubs that give rows by default."""
-        return matrix_rows(self, d, path, ROW_HUBS if hubs is None else hubs, why)
+        """A matrix's rows (matrix_rows), for a component."""
+        return matrix_rows(self, d, path, why, hubs)
 
     def matrix_columns(self, d, path, owner):
         """A matrix's columns (matrix_columns), for a component."""
@@ -1359,7 +1347,7 @@ class _V:
 
     def mcu_name(self, dev, d, p, kind):
         """d's mcu: control of a kind, 'fader' or 'vpot' (mcu_name) -> its number, or None."""
-        return mcu_name(self, dev, d, p, self.mcu_table(kind), f"{kind}_1")
+        return mcu_name(self, dev, d, p, kind)
 
     @staticmethod
     def mcu_table(kind):
@@ -1374,45 +1362,21 @@ class _V:
         """d[key], the id of a midi_messages.sysex string -> its index (sysex_ref)."""
         return sysex_ref(self, dev, d, key, path)
 
-    @staticmethod
-    def sysex_wide(dev, k):
-        """SysEx string k sends 14-bit values (sysex_wide)."""
-        return sysex_wide(dev, k)
-
-    def mmc_command(self, d, path):
-        """d's mmc: -> the MMC command number (mmc_command)."""
-        return mmc_command(self, d, path)
-
     def bank_value(self, d, p):
         """d's bank: -> the Bank Select value (bank_value)."""
         return bank_value(self, d, p)
 
-    def mode_use(self, dev, mname, path, line):
-        """An analog / encoder mode that needs a message kind: compiled in (mode_use)."""
-        mode_use(self, dev, mname, path, line)
+    def control_mode(self, dev, d, p, modes):
+        """d's mode: -> its index in modes, or None (control_mode)."""
+        return control_mode(self, dev, d, p, modes)
 
     def mode_number(self, dev, d, p, mname, required, keys):
         """analog.cc / encoder.cc from the key the mode takes (mode_number)."""
         return mode_number(self, dev, d, p, mname, required, keys)
 
-    @staticmethod
-    def mode_wide(dev, mname, num):
-        """The mode sends 14-bit values (mode_wide)."""
-        return mode_wide(dev, mname, num)
-
     def control_out(self, d, p, top):
         """channel:, min:, max: -> (min, max, channel) or None (control_out)."""
         return control_out(self, d, p, top)
-
-    @staticmethod
-    def f1_on(dev):
-        """Plain feedback reaches the main port (f1_on)."""
-        return f1_on(dev)
-
-    @staticmethod
-    def f1_off_why(dev):
-        """Why plain feedback is off, for a message (f1_off_why)."""
-        return f1_off_why(dev)
 
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
@@ -1523,8 +1487,6 @@ def fmt_us(us):
     return f"{us:g}us"
 
 
-
-
 # ---------------------------------------------------------------------------------------------
 # ids and display names
 
@@ -1577,8 +1539,6 @@ def suggest_id(text, kind="item"):
 def example_id(kind):
     return {"button": "button_1", "LED": "led_1", "analog input": "volume", "encoder": "encoder_1",
             "hub": "faders", "pad": "pad_1", "i2c bus": "bus_a"}.get(kind, "item")
-
-
 
 
 def humanize(ident):
@@ -1933,8 +1893,6 @@ def timers_text(dev):
     return "timers: " + ", ".join(f"TIM{t} " + names[s].format(trig=HW_ADC_TRIGGER.get(t)) for t, s in ts)
 
 
-
-
 def validate_feedback(v, dev, data):
     """feedback: { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback on the main
     port, and (script) the DAW-script messages of sysex.md 4.6."""
@@ -2118,9 +2076,6 @@ def suggest_node_name(text):
     return s or "my-controller"
 
 
-
-
-
 def mcu_needed(v, dev, path, line):
     if dev.mcu is None:
         v.err(path, line, "Mackie Control needs an `mcu:` section at the top level")
@@ -2128,10 +2083,12 @@ def mcu_needed(v, dev, path, line):
     return True
 
 
-def mcu_name(v, dev, d, p, table, example):
-    """A component's `mcu:` (fader_1 / vpot_1 / ...) -> its number, or None."""
+def mcu_name(v, dev, d, p, kind):
+    """A component's `mcu:` (fader_1 / vpot_1 / ...), a Mackie Control name of a kind (mcu_table) -> its
+    number, or None."""
     if d.get("mcu") is None:
         return None
+    table = v.mcu_table(kind)
     raw, line = d.raw_of("mcu"), d.line_of("mcu")
     if not mcu_needed(v, dev, f"{p}.mcu", line):
         return None
@@ -2141,8 +2098,6 @@ def mcu_name(v, dev, d, p, table, example):
         v.err(f"{p}.mcu", line, f"unknown MCU control '{raw}' ({hint}valid: {', '.join(table)})")
         return None
     return table[d["mcu"]]
-
-
 
 
 def daw_role(v, dev, d, p):
@@ -2184,20 +2139,6 @@ def check_mcu_unique(v, dev, data):
         if any(k == "ring" for k, _ in b.used_by) and (len(b.used_by) > 1 or b.source):
             v.warn(b.path, b.line, f"LED '{b.id}' is in a V-Pot ring and also used elsewhere: the ring "
                                    "will overwrite it")
-
-
-def f1_on(dev):
-    """Plain feedback reaches the main port: enabled, and the main port isn't the MCU port."""
-    return dev.feedback and not (dev.mcu is not None and dev.mcu.cable == 0)
-
-
-def f1_off_why(dev):
-    if not dev.feedback:
-        return "feedback is off (feedback: { enabled: false })"
-    return ("with mcu: on a single port (no USB DAW port), everything the host sends is read as "
-            "Mackie Control")
-
-
 
 
 def validate_screens(v, dev, data):
@@ -2274,9 +2215,11 @@ def validate_hub(v, dev, h, typ, p, line):
     kind.validate(v, dev, hub, h, p, line, ctl)
 
 
-def matrix_rows(v, d, path, hubs, why, role="out"):
-    """Rows of a key_matrix / switch_matrix: a list of pins, or { decoder: <id>, first: n, count: n }
-    for consecutive outputs of a decoder hub."""
+def matrix_rows(v, d, path, why, hubs=None):
+    """Rows of a key_matrix / switch_matrix: a list of pins (on hubs, by default the hubs that give rows;
+    why says why a pin can't be one), or { decoder: <id>, first: n, count: n } for consecutive outputs of a
+    decoder hub."""
+    hubs = ROW_HUBS if hubs is None else hubs
     rows = d.get("rows")
     line = d.line_of("rows") if "rows" in d else d.line
     p = f"{path}.rows"
@@ -2313,7 +2256,7 @@ def matrix_rows(v, d, path, hubs, why, role="out"):
         return []
     if len(rows) > 255:
         v.err(p, line, f"{len(rows)} rows: at most 255")
-    return [v.pin(x, f"{p}[{i}]", rows.line_of(i), role, hubs=hubs, why=why) or NO_PIN
+    return [v.pin(x, f"{p}[{i}]", rows.line_of(i), "out", hubs=hubs, why=why) or NO_PIN
             for i, x in enumerate(rows)]
 
 
@@ -2357,7 +2300,7 @@ def validate_version(v, data):
 
 
 # ---------------------------------------------------------------------------------------------
-# pads (components/pads/README.md "Pads")
+# displays (core/README.md "Displays")
 
 DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
                 "display", "line", "x", "scale", "length"]
@@ -2371,7 +2314,6 @@ DISPLAY_C = {1: "GM_DISPLAY_SEG14", 2: "GM_DISPLAY_SEG7", 3: "GM_DISPLAY_TEXT"}
 DISPLAY_TEXT = 3
 TEXT_W, TEXT_H = 6, 8                # a text display's character cell, in pixels (x scale)
 DISPLAY_SEGS = {1: (15, "segments a..m and the dot"), 2: (8, "segments a..g and the point")}
-SEG14_PINS = 15                      # segments a..m, then the dot
 # each type's segments in gm_display.h order (segment_order: names them in pin order)
 SEG_NAMES = {1: ["a", "b", "c", "d", "e", "f", "g1", "g2", "h", "i", "j", "k", "l", "m", "dot"],
              2: ["a", "b", "c", "d", "e", "f", "g", "dp"]}
@@ -2610,7 +2552,7 @@ def screen_tables(dev):
         return []
     c = ['#include "gm_screen.h"', "const gm_screen_t gm_screens[GM_N_SCREENS] = {"]
     for x in dev.screens:
-        c.append(f"    {{ /* {_comment(x.id)} */")
+        c.append(f"    {{ /* {c_comment(x.id)} */")
         c.append(f"        .type = {x.kind.enum}, .width = {x.width}, .height = {x.height},")
         c += x.kind.c_fields(x)
         c.append("    },")
@@ -2629,21 +2571,21 @@ def display_tables(dev):
             c.append(f"static const gm_pin_t display_{i}_map[{len(x.segs) * nseg}] = {{")
             for k, run in enumerate(x.segs):
                 c.append(f"    /* character {k} */")
-                c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in run]
+                c += [f"    {pn.c()}, /* {c_comment(pn.desc)} */" for pn in run]
             c.append("};")
         elif x.chars is not None:
             c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
-            c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
+            c += [f"    {pn.c()}, /* {c_comment(pn.desc)} */" for pn in x.chars]
             c.append("};")
     c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
     for i, x in enumerate(dev.displays):
         if x.type == DISPLAY_TEXT:
             c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, 0, 0, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, {x.screen}, "
-                     f"{x.at} }}, /* {_comment(x.id)}: {_comment(x.at_desc)} */")
+                     f"{x.at} }}, /* {c_comment(x.id)}: {c_comment(x.at_desc)} */")
             continue
         where = f"0, display_{i}_map" if x.segs is not None else f"display_{i}_chars, 0"
         c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, {where}, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, 0, 0 }}, "
-                 f"/* {_comment(x.id)} */")
+                 f"/* {c_comment(x.id)} */")
     c += ["};", ""]
     return c
 
@@ -2725,8 +2667,8 @@ def layout_control(v, dev, ctl, cid, seen):
             # A warning: a device built on a package may !remove a control the package's layout places.
             v.warn(p, line, f"no control with id '{cid}': not drawn{hint}")
         else:
-            v.err(p, line, f"'{cid}' is {a_(target[0])}: layout: places buttons, analog inputs, encoders, pads "
-                           f"and displays{hint}")
+            v.err(p, line, f"'{cid}' is {with_article(target[0])}: layout: places buttons, analog inputs, encoders, "
+                           f"pads and displays{hint}")
         return None
     kind, index = target[0], target[3]
     comp = {"button": dev.buttons, "analog input": dev.analogs, "encoder": dev.encoders,
@@ -2743,7 +2685,7 @@ def layout_control(v, dev, ctl, cid, seen):
     x0, y0, w, h, given = r
     shape = given or dshape
     if shape not in allowed:
-        v.err(f"{p}.shape", line, f"{a_(kind)} can't be drawn as '{shape}' (use {' | '.join(allowed)})")
+        v.err(f"{p}.shape", line, f"{with_article(kind)} can't be drawn as '{shape}' (use {' | '.join(allowed)})")
         return None
     extra = []
     if shape == "xy":
@@ -2867,7 +2809,7 @@ def layout_tables(dev):
          "shape, x, y, w, h, extras */",
          "const uint8_t gm_layout[GM_LAYOUT_BYTES] = {",
          f"    {LAYOUT_VERSION}, {width}, {height}, {len(items) & 0xFF}, {len(items) >> 8},"]
-    c += [f"    {', '.join(map(str, layout_item_bytes(it)))}, /* {_comment(it.id)}: {names[it.shape]} */"
+    c += [f"    {', '.join(map(str, layout_item_bytes(it)))}, /* {c_comment(it.id)}: {names[it.shape]} */"
           for it in items]
     return c + ["};", ""]
 
@@ -3060,9 +3002,7 @@ def preset_values(v, dev, d, p):
                 a = dev.analogs[idx]
                 m = a.mode
                 if "mode" in o:
-                    m = v.enum_value(o, "mode", f"{cp}.mode", ANALOG_MODES)
-                    if m is not None:
-                        mode_use(v, dev, ANALOG_MODES[m], f"{cp}.mode", line("mode"))
+                    m = control_mode(v, dev, o, cp, ANALOG_MODES)
                     put("analog.mode", idx, m, a.mode, f"{cp}.mode", line("mode"),
                         f"analog.mode[{cid}]", None if m is None else ANALOG_MODES[m])
                     m = a.mode if m is None else m
@@ -3077,9 +3017,7 @@ def preset_values(v, dev, d, p):
                 e = dev.encoders[idx]
                 m = e.mode
                 if "mode" in o:
-                    m = v.enum_value(o, "mode", f"{cp}.mode", ENC_MODES)
-                    if m is not None:
-                        mode_use(v, dev, ENC_MODES[m], f"{cp}.mode", line("mode"))
+                    m = control_mode(v, dev, o, cp, ENC_MODES)
                     put("encoder.mode", idx, m, e.mode, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
                         None if m is None else ENC_MODES[m])
                     m = e.mode if m is None else m
@@ -3237,25 +3175,15 @@ def sysex_ref(v, dev, d, key, path):
     return 0
 
 
-def sysex_wide(dev, k):
-    return 0 <= k < len(dev.sysex) and bool(dev.sysex[k].flags & 1)
-
-
-def mmc_command(v, d, path):
-    """mmc: play | stop | ... | 1..127 -> the MMC command byte (button.number)."""
-    x = d["mmc"]
-    if isinstance(x, int) and not isinstance(x, bool):
-        if 1 <= x <= 127:
-            return x
-        v.err(f"{path}.mmc", d.line_of("mmc"), f"{x} is out of range (1..127)")
-        return 0
-    if isinstance(x, str) and x in MMC_COMMANDS:
-        return MMC_COMMANDS[x]
-    close = difflib.get_close_matches(str(d.raw_of("mmc")), list(MMC_COMMANDS), 1)
-    hint = f"did you mean '{close[0]}'? " if close else ""
-    v.err(f"{path}.mmc", d.line_of("mmc"), f"unknown MMC command '{d.raw_of('mmc')}' ({hint}valid: "
-                                           f"{', '.join(MMC_COMMANDS)}, or a number 1..127)")
-    return 0
+def control_mode(v, dev, d, p, modes):
+    """An analog / encoder's mode: (or a preset's override of it), one of modes -> its index, or None (no
+    mode:, or one that isn't in modes: reported). A mode that needs a message kind compiles it in."""
+    if "mode" not in d:
+        return None
+    m = v.enum_value(d, "mode", f"{p}.mode", modes)
+    if m is not None:
+        mode_use(v, dev, modes[m], f"{p}.mode", d.line_of("mode"))
+    return m
 
 
 def mode_use(v, dev, mname, path, line):
@@ -3266,10 +3194,6 @@ def mode_use(v, dev, mname, path, line):
     if f == "sysex" and not dev.sysex:
         v.err(path, line, "mode sysex sends one of the midi_messages.sysex strings, and there are none")
     dev.msg_used.add(f)
-
-
-def mode_wide(dev, mname, num):
-    return mname in WIDE_MODES or (mname == "sysex" and sysex_wide(dev, num))
 
 
 def mode_number(v, dev, d, p, mname, required, keys):
@@ -3308,8 +3232,6 @@ def control_out(v, d, p, top):
     if lo == (top if hi is None else hi):
         v.err(p, d.line, f"min and max are both {lo}: the control would always send {lo}")
     return lo, CTL_TOP if hi is None else hi, ch
-
-
 
 
 def bank_value(v, d, p):
@@ -3385,7 +3307,7 @@ def msg_tables(dev):
         rows = []
         for x in lst:
             lo, hi, ch = getattr(x, "ctl", None) or (0, CTL_TOP, 0)
-            rows.append(f"    {{ {lo}, {'GM_CTL_TOP' if hi == CTL_TOP else hi}, {ch} }}, /* {_comment(x.id)} */")
+            rows.append(f"    {{ {lo}, {'GM_CTL_TOP' if hi == CTL_TOP else hi}, {ch} }}, /* {c_comment(x.id)} */")
         return [f"const gm_ctl_t {cname}[{count}] = {{", *rows, "};", ""]
 
     c.append("/* MIDI messages: per control { min, max, channel } (channel 0 = midi.channel) */")
@@ -3397,7 +3319,7 @@ def msg_tables(dev):
         c += ctl_table("gm_encoder_ctl", "GM_N_ENCODERS", dev.encoders)
     if any(getattr(b, "bank", None) is not None for b in dev.buttons):
         c.append("const uint16_t gm_button_bank[GM_N_BUTTONS] = { /* Bank Select before a program action */")
-        c += [f"    {'GM_BANK_NONE' if getattr(b, 'bank', None) is None else b.bank}, /* {_comment(b.id)} */"
+        c += [f"    {'GM_BANK_NONE' if getattr(b, 'bank', None) is None else b.bank}, /* {c_comment(b.id)} */"
               for b in dev.buttons]
         c += ["};", ""]
     if any(getattr(e, "mode", 0) for e in dev.encoders):
@@ -3408,8 +3330,8 @@ def msg_tables(dev):
     if dev.sysex:
         for k, x in enumerate(dev.sysex):
             body = ", ".join(f"0x{b:02X}" for b in x.data)
-            c.append(f"static const uint8_t sysex_{k}[{len(x.data)}] = {{ {body} }}; /* {_comment(x.id)}: "
-                     f"{_comment(x.text)} */")
+            c.append(f"static const uint8_t sysex_{k}[{len(x.data)}] = {{ {body} }}; /* {c_comment(x.id)}: "
+                     f"{c_comment(x.text)} */")
         c.append("const gm_sysex_t gm_sysex[GM_N_SYSEX] = {")
         c += [f"    {{ sysex_{k}, {len(x.data)}, {x.flags} }}," for k, x in enumerate(dev.sysex)]
         c += ["};", ""]
@@ -3478,7 +3400,7 @@ def preset_ref(v, cid, path, line, kind, plural):
     if target is not None and target[0] == kind:
         return target[3]
     if target is not None:
-        v.err(path, line, f"'{cid}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+        v.err(path, line, f"'{cid}' is the id of {target[1]} ({with_article(target[0])}), not of {with_article(kind)}")
         return None
     known = [i for i, t in v.ids.items() if t[0] == kind]
     close = difflib.get_close_matches(str(cid), known, 1)
@@ -3742,7 +3664,7 @@ def load_device(path, text=None, subs=None, preset_dir=None):
 
 def generate(dev, source="device.yaml"):
     """-> {"gm_device_config.h": str, "gm_device_config.c": str, "gm_components.h": str}"""
-    src = _comment(source)
+    src = c_comment(source)
     head = (f"/* gm_device_config: do not edit; generated from {src}\n"
             f" * by tools/builder/gemifi_build.py (format: core/README.md). */\n")
     m = dev.matrix
@@ -3793,7 +3715,7 @@ def generate(dev, source="device.yaml"):
         for x in dev.hubs:
             spi = Stm32F1Platform.LEDSTRIP_SPI.get(x.data.num) if x.type == "ws2812" and x.data.hub == 0 else None
             if spi:
-                h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{_comment(x.id)}' on "
+                h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{c_comment(x.id)}' on "
                          f"{x.data.desc}: a frame's bytes (platform/stm32f1/src/hal.c) */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
@@ -3807,27 +3729,13 @@ def generate(dev, source="device.yaml"):
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
           f"#define GM_N_MODES {len(dev.modes)} /* modes: (components/modes/README.md \"Modes\") */"]
-    if modes.mode_rgb(dev):
-        h.append("#define GM_MODE_RGB 1 /* a cycle step has a full colour: gm_mode_rgb[] */")
+    h += modes.c_rgb_defines(dev)
     h += write_to_flash_defines(dev)
-    enc_twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
-    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) + enc_twins
-    if twins:
-        h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, components/modes/README.md \"Button layers\") */")
-    if enc_twins:
-        h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
+    h += modes.c_layer_defines(dev)
     h += encoders.c_defines(dev)
     h += msg_defines(dev)
-    btn_twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
-    if btn_twins:
-        h.append(f"#define GM_BTN_TWINS {btn_twins} /* the last buttons: layer twins (layer.button.*) */")
-    if dev.modes:
-        h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
-                 "/* layer.enabled defaults, per mode */")
-    if getattr(dev, "n_cycles", 0):
-        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
-    if dev.pad_twins:
-        h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
+    h += buttons.c_defines(dev)
+    h += modes.c_defines(dev)
     h += pads.c_defines(dev)
     h += display_defines(dev)
     h += safety_defines(dev)
@@ -3840,16 +3748,13 @@ def generate(dev, source="device.yaml"):
 
     c = [head, '#include "gm_device.h"', '#include "gm_device_config.h"', ""]
 
-    def pin_c(pn):
-        return pn.c()
-
     if dev.hubs:
         for hb in dev.hubs:
             c += hb.kind.c_tables(hb)
         c.append("static const gm_hub_t hubs[GM_N_HUBS] = {")
         for hb in dev.hubs:
             fields = hb.kind.c_fields(hb)
-            c += [f"    {{ /* {hb.index + 1}: {_comment(hb.id)} ({hb.type}) */",
+            c += [f"    {{ /* {hb.index + 1}: {c_comment(hb.id)} ({hb.type}) */",
                   f"        .type = {hb.kind.enum}, {fields[0].lstrip()}", *fields[1:], "    },"]
         c += ["};", ""]
     c += buttons.c_tables(dev)
@@ -3874,20 +3779,10 @@ def generate(dev, source="device.yaml"):
           f"    .scan_us = {dev.scan_us},",
           "};", "",
           "/* param defaults; button.action values: components/buttons/README.md \"Button actions\" */"]
-
-    def arr(name, count_macro, vals, comment=""):
-        size = count_macro if vals else "1"
-        body = ", ".join(str(x) for x in vals) if vals else "0"
-        return f"const int32_t {name}[{size}] = {{ {body} }};{comment}"
-
-    acts = ", ".join(b.action_name for b in dev.buttons)
-    c += [arr("gm_button_action_defaults", "GM_N_BUTTONS", [b.action for b in dev.buttons],
-              f" /* {acts} */" if acts else ""),
-          arr("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons]),
-          arr("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
-          arr("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs],
-              " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""),
-          arr("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders]), ""]
+    c += buttons.c_param_defaults(dev)
+    c += analog.c_param_defaults(dev)
+    c += encoders.c_param_defaults(dev)
+    c += [""]
     c += msg_tables(dev)
     c += feedback_tables(dev)
     c += preset_tables(dev)
@@ -3899,7 +3794,6 @@ def generate(dev, source="device.yaml"):
     c += label_tables(dev)
     return {"gm_device_config.h": "\n".join(h), "gm_device_config.c": "\n".join(c),
             **component_header(dev, source)}
-
 
 
 def safety_defines(dev):
@@ -3994,7 +3888,7 @@ def led_fb_rows(dev):
     """Per LED (source, num, channel, owner, timeout); None when every LED uses the device defaults
     (then no table is generated)."""
     rows, special = [], False
-    # A cycle's LED always shows its step (controller.c mode_led), whatever a host sends: say so
+    # A cycle's LED always shows its step (modes.c mode_led), whatever a host sends: say so
     # (GET_COMPONENT owner), so DAW scripts and the feedback demo leave it alone.
     cycle_leds = {m.led for m in getattr(dev, "modes", []) if m.cycle and m.led is not None}
     for i, x in enumerate(dev.leds):
@@ -4079,7 +3973,7 @@ def feedback_tables(dev):
         for x, (src, owner, timeout) in zip(dev.leds, rows):
             to = "GM_TIMEOUT_NEVER" if timeout == TIMEOUT_NEVER else str(timeout)
             c.append(f"    {{ {SOURCE_ENUM[src[0]]}, {src[1]}, {src[2]}, {OWNER_ENUM[owner]}, {to} }}, "
-                     f"/* {_comment(x.id)} */")
+                     f"/* {c_comment(x.id)} */")
         c += ["};", ""]
     if any(a.pickup for a in dev.analogs):
         c.append("const uint8_t gm_analog_pickup[GM_N_ANALOGS] = { " +
@@ -4103,7 +3997,7 @@ def feedback_tables(dev):
             center = "GM_RING_NO_CENTER" if getattr(e, "ring_center", None) is None else str(e.ring_center)
             if e.ring:
                 c.append(f"static const uint8_t ring_{i}[{len(e.ring)}] = {{ {', '.join(map(str, e.ring))} }}; "
-                         f"/* {_comment(e.id)} */")
+                         f"/* {c_comment(e.id)} */")
                 rings.append(f"{{ ring_{i}, {len(e.ring)}, {center} }}")
             else:
                 rings.append(f"{{ 0, 0, {center} }}")
@@ -4171,8 +4065,8 @@ def preset_tables(dev):
         arr = "0"
         if pr.vals:
             arr = f"preset_{n}_vals"
-            c.append(f"static const gm_preset_val_t {arr}[{len(pr.vals)}] = {{ /* {_comment(pr.name)} */")
-            c += [f"    {{ {pid}, {idx}, {val} }}, /* {_comment(text)} */" for pid, idx, val, text in pr.vals]
+            c.append(f"static const gm_preset_val_t {arr}[{len(pr.vals)}] = {{ /* {c_comment(pr.name)} */")
+            c += [f"    {{ {pid}, {idx}, {val} }}, /* {c_comment(text)} */" for pid, idx, val, text in pr.vals]
             c.append("};")
         prog = "GM_PROGRAM_NONE" if pr.program < 0 else str(pr.program)
         rows.append(f"    {{ {c_str(pr.name)}, {prog}, {len(pr.vals)}, {arr} }}, /* slot {n} */")
@@ -4187,7 +4081,7 @@ def component_lists(dev, source):
                            components.controls(dev))
     srcs = [s for name in used for s in components.sources(name)]
     incs = [f"components/{name}" for name in used if components.has_headers(name)]
-    head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"
+    head = (f"gm_components: do not edit; generated from {c_comment(source)} by tools/builder/gemifi_build.py.\n"
             "The components this device builds (components/<name>/), their C sources and include dirs, under the\n"
             "repo root GM_ROOT, which the including build sets.")
     mk = ["\n".join(f"# {line}" for line in head.split("\n")),
@@ -4217,7 +4111,7 @@ def component_header(dev, source):
 
     def macro(name, items):
         return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
-    lines = [f"/* gm_components.h: do not edit; generated from {_comment(source)}",
+    lines = [f"/* gm_components.h: do not edit; generated from {c_comment(source)}",
              " * by tools/builder/gemifi_build.py. The C side of the components this device builds:",
              " * their headers, and what they add to the hub base (components/hub/gm_hub.h) and the",
              " * display base (components/display/gm_screen.h). */",

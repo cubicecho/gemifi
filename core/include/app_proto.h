@@ -68,8 +68,8 @@ void app_unlocked(uint8_t state);
 void app_send_unsolicited(uint8_t cmd, const uint8_t *payload, uint32_t n);
 
 /* Raw readings (sysex.md 4.8): MONITOR and RAW. On by default; a build can
- * set GM_MONITOR 0 to leave them out. The controller (controller.c) streams
- * them from gm_poll. */
+ * set GM_MONITOR 0 to leave them out. monitor.c streams them (monitor_poll,
+ * from gm_poll). */
 #ifndef GM_MONITOR
 #define GM_MONITOR 1
 #endif

@@ -34,7 +34,7 @@ pad_settings:                  # all optional; these are the param defaults
 ```
 
 - **Sampling.** Every pad is read once a millisecond from the main loop, in the same context as the analog inputs: they often share a mux's select lines and the ADC, so reading pads from the scan interrupt would race with the analog reads. Pads on muxes are read sorted by channel, so muxes with the same select lines switch them once per channel (the Code 61: 8 switches for 16 pads). On an STM32F1 a 16-pad scan takes about 0.15 ms (16 conversions of ~6 us plus 8 settles of 10 us).
-- **A hit.** Readings are 0..4095 (after `inverted`). When a pad reaches `pad.threshold`, its peak over the next `pad.window` ms is taken (4 readings at 3 ms) and Note On goes out with velocity 1..127, linear from `threshold` to `full`, then shaped by `pad.curve` like the keys' curves (soft, hard; fixed = `velocity.fixed`). A pad let go within the window plays at once with the peak so far. It is released (Note Off) below `pad.release`, and can't start a new hit for `pad.retrigger` ms after that (bounce, double hits). The thresholds are live params: tune them from the web app.
+- **A hit.** Readings are 0..4095 (after `inverted`). When a pad reaches `pad.threshold`, its peak over the next `pad.window` ms is taken (4 readings at 3 ms) and Note On goes out with velocity 1..127, linear from `threshold` to `full`, then shaped by `pad.curve` like the keys' curves (soft, hard; fixed = `velocity.fixed`). A pad let go within the window plays at once with the peak so far. It is released (Note Off) below `pad.release`, and can't start a new hit for `pad.retrigger` ms after that (bounce, double hits). The thresholds are live params: tune them from the web app. A soft hit (a peak under twice `pad.threshold`) that falls below `pad.release` again within 3 ms is noise, not a hit: pads see such spikes while a pad board's LEDs change.
 - **Pad octave** (`pad.octave`, -4..4, per preset, starts at 0): every pad's note + 12 × it; a note that would go past 0..127 plays in the nearest octave in range. The `pad_octave_down` / `pad_octave_up` button actions move it, and the display shows `PAD +1`. A hit held across a change gets the Note Off of the note it played.
 - **Polyphonic aftertouch** (`pad.aftertouch`): while a pad is held, its reading from `release` to `full` is sent as poly pressure 0..127, when it moves by 2 or more, at most every 10 ms per pad, and 0 before the Note Off.
 - **At start-up** a pad must read below `pad.release` once before it can play, so a pad held at power-up, or one with the wrong polarity (`inverted:`), stays silent. Such pads are named in a WARN log at the boot log (about 1.5 s).
@@ -44,14 +44,14 @@ pad_settings:                  # all optional; these are the param defaults
 
 ## How it runs
 
-The main loop (`gm_poll`) calls `pads_scan` every millisecond. The pads are read there and not in the scan interrupt, because they share the mux select lines and the ADC with the analog inputs. Pads on muxes are read sorted by channel, so muxes that share select lines switch them once per channel.
+The main loop (`gm_poll`) calls `pads_scan` every millisecond ("Sampling" above).
 
 Each pad goes through four states: blocked (at start-up, until it reads below `pad.release`), idle, peak (the `pad.window` after the threshold) and on. A preset switch (`gm_release_all`) calls `pads_off`, which sends Note Off for every sounding pad and blocks held pads until they're let go.
 
 ## What it shares
 
 Through `core/include/gm_controls.h`:
-- `pad_state` and `pad_lit`, which the LEDs show;
+- `pad_state` and `pad_lit`, which the LEDs show, and `pad_owner`, which of the pad and its twins took the last hit, so whose LED lights;
 - `pad_live`, the live layer twin of each pad, which the modes (`layers_update`) write;
 - `pad_raw`, the last readings, for the raw readings (`GM_MONITOR`).
 

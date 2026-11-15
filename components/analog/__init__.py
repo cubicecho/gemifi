@@ -1,9 +1,9 @@
 """analog: the analog inputs (`analog:`: pots, faders, wheels, pressure strips), a control: analog.c reads them
 and sends what they're set to, this file validates their YAML and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() with the other controls, and c_tables() where
-gm_device_config.c has it.
+builder (gemifi_device.py) calls validate() with the other controls, and c_param_defaults() and c_tables()
+where gm_device_config.c has them.
 """
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, f1_off_why, f1_on, mode_wide
 from components.hub import c_comment
 from components.xy_pad import XYPad
 
@@ -36,15 +36,11 @@ def validate(v, dev, data):
         v.unique_name(names, "analog input", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
         fader = v.mcu_name(dev, d, p, "fader")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ANALOG_MODES)
-            mode = 0 if mode is None else mode
-            v.mode_use(dev, ANALOG_MODES[mode], f"{p}.mode", d.line_of("mode"))
+        mode = v.control_mode(dev, d, p, ANALOG_MODES) or 0
         if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
                                                   f"drop mode: {ANALOG_MODES[mode]} or mcu:")
-        if mode == 1 and pin is not None and pin.hub and isinstance(dev.hubs[pin.hub - 1].kind, XYPad):
+        if ANALOG_MODES[mode] == "pitch_bend" and pin is not None and pin.hub and isinstance(dev.hubs[pin.hub - 1].kind, XYPad):
             v.err(f"{p}.mode", d.line_of("mode"), "pitch_bend centres on the power-up reading, and an XY "
                                                   "pad reads nothing until touched: use cc or channel_pressure")
         cc = v.mode_number(dev, d, p, ANALOG_MODES[mode], fader is None and mode == 0, ANALOG_NUMBER_KEYS)
@@ -53,7 +49,7 @@ def validate(v, dev, data):
                 if k in d:
                     v.err(f"{p}.{k}", d.line_of(k), "a Mackie Control fader (mcu:) sends its own messages: "
                                                     f"drop {k}: or mcu:")
-        ctl = v.control_out(d, p, 16383 if v.mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
+        ctl = v.control_out(d, p, 16383 if mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
         if lo == hi:
@@ -73,8 +69,8 @@ def validate_takeover(v, dev, d, p, fader):
         v.err(f"{p}.takeover", d.line_of("takeover"), f"unknown takeover '{d.raw_of('takeover')}' "
                                                       f"(valid: {', '.join(TAKEOVER)})")
         return False
-    if t == "pickup" and fader is None and not v.f1_on(dev):
-        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + v.f1_off_why(dev))
+    if t == "pickup" and fader is None and not f1_on(dev):
+        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + f1_off_why(dev))
         return False
     return t == "pickup"
 
@@ -92,6 +88,14 @@ def validate_touch(v, d, p):
         v.err(f"{p}.touch", line, f"unknown touch '{d.raw_of('touch')}' (valid: {', '.join(TOUCH)})")
         return 0
     return TOUCH[t]
+
+
+def c_param_defaults(dev):
+    """gm_analog_cc_defaults[] and gm_analog_mode_defaults[] (core/src/settings.c), even without analog
+    inputs."""
+    modes = " /* " + ", ".join(ANALOG_MODES[a.mode] for a in dev.analogs) + " */" if dev.analogs else ""
+    return [c_param_array("gm_analog_cc_defaults", "GM_N_ANALOGS", [a.cc for a in dev.analogs]),
+            c_param_array("gm_analog_mode_defaults", "GM_N_ANALOGS", [a.mode for a in dev.analogs], modes)]
 
 
 def c_tables(dev):

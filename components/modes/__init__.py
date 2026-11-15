@@ -1,23 +1,17 @@
 """modes: the modes (`modes:`), a control: key and button modes, hold modes, layers (a control's twins) and
 cycles. modes.c runs them, this file validates their YAML and writes their C (README.md here). The builder
-(gemifi_device.py) calls validate() after the controls and the presets, and c_tables() where
-gm_device_config.c has it.
+(gemifi_device.py) calls validate() after the controls and before the presets (presets.list), and
+c_rgb_defines(), c_layer_defines(), c_defines() and c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 import re
 
-from components.api import CURVES, WHITE, Hub, LDict, a_, c_str, errors
+from components.api import CURVES, WHITE, Hub, LDict, c_str, errors, with_article
 from components.buttons import ACTION_IDS, button_action
 from components.hub import c_comment
 from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, colour_exact, colour_look,
                              colour_look_needs, colour_mask, full_colour_hubs, led_full_colour, led_kind,
                              look_word, resolve_led_default)
-
-
-def in_device(dev):
-    """Built when the device has modes (GM_N_MODES > 0)."""
-    return bool(dev.modes)
-
 
 # What a key can do in a mode: YAML action -> (gm_device.h GM_MK_* op, the key giving its number or None).
 MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "preset_prev": (3, None),
@@ -40,96 +34,13 @@ MAX_MODES = 64
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 NOTE_RE = re.compile(r"([A-Ga-g])([#b]?)(-?\d+)")
 
-
-def note_text(n):
-    """MIDI note -> name, C4 = 60 (scientific pitch)."""
-    return f"{NOTE_NAMES[n % 12]}{n // 12 - 1}"
+# gm_controls.h LV_STEP: a step's full colour goes in its LED's level as the mode index + 1, in 7 bits
+MODE_RGB_MAX = 127
 
 
-def parse_note(x):
-    """`E3`, `F#3`, `Db4` (C4 = 60) or a MIDI note number -> note, or None."""
-    if isinstance(x, int) and not isinstance(x, bool):
-        return x if 0 <= x <= 127 else None
-    m = NOTE_RE.fullmatch(x.strip()) if isinstance(x, str) else None
-    if not m:
-        return None
-    n = (int(m.group(3)) + 1) * 12 + [0, 2, 4, 5, 7, 9, 11]["CDEFGAB".index(m.group(1).upper())] + \
-        {"#": 1, "b": -1, "": 0}[m.group(2)]
-    return n if 0 <= n <= 127 else None
-
-
-def mode_key_index(v, dev, x, path, line):
-    """A key named in a mode (its note at octave 0, no transpose: the physical key) -> its matrix index."""
-    m = dev.matrix
-    lo, hi = m.first_note, m.first_note + m.keys - 1
-    n = parse_note(x)
-    if n is None:
-        v.err(path, line, f"'{x}' isn't a key: name it by its note at octave 0 (C4 = 60), e.g. E3, F#3, Db4, "
-                          f"or give the MIDI note number (this keyboard: {note_text(lo)}..{note_text(hi)})")
-        return None
-    if not lo <= n <= hi:
-        v.err(path, line, f"{note_text(n)} (note {n}) isn't on the keyboard: its keys are "
-                          f"{note_text(lo)}..{note_text(hi)} (notes {lo}..{hi} at octave 0, from "
-                          "key_matrix.first_note)")
-        return None
-    return n - lo
-
-
-def mode_action(v, dev, name, d, path, line, arg=None):
-    """An action name (+ its number from d, or arg for a key of a range) -> (op, arg, text), or None."""
-    if name not in MODE_ACTIONS:
-        close = difflib.get_close_matches(str(name), list(MODE_ACTIONS), 1)
-        hint = f"did you mean '{close[0]}'? " if close else ""
-        v.err(path, line, f"unknown action '{name}' ({hint}valid in a mode: {', '.join(MODE_ACTIONS)}; or "
-                          "`{ mode: <id> }` to go to a sub-mode)")
-        return None
-    op, argkey = MODE_ACTIONS[name]
-    if name.startswith("preset") and dev.n_presets < 2:
-        v.err(path, line, f"action {name} switches presets, but this device has {dev.n_presets} preset slot: "
-                          "add presets: (with 2 or more slots)")
-        return None
-    if name == "velocity_curve" and not (dev.matrix is not None and dev.matrix.kind == "velocity"):
-        v.err(path, line, "velocity_curve needs a velocity key matrix (key_matrix: { type: velocity })")
-        return None
-    extra = [k for k in (d or {}) if k not in ("action", argkey)]
-    if extra:
-        v.err(f"{path}.{extra[0]}", d.line_of(extra[0]), f"action {name} takes " +
-              (f"{argkey}:" if argkey else "nothing else") + f", not {extra[0]}:")
-        return None
-    if argkey is None:
-        return op, 0, name
-    if arg is not None:
-        return op, arg, f"{name} {arg}"
-    if d is None or argkey not in d:
-        need = {"preset": f"preset: (the slot, 1..{dev.n_presets})", "channel": "channel: (1..16)",
-                "curve": f"curve: ({' | '.join(CURVES)})"}[argkey]
-        example = {"preset": 2, "channel": 10, "curve": "hard"}[argkey]
-        v.err(path, line, f"action {name} needs {need}, e.g. `{{ action: {name}, {argkey}: {example} }}`")
-        return None
-    if argkey == "curve":
-        x = v.enum_value(d, "curve", f"{path}.curve", CURVES)
-        return None if x is None else (op, x, f"{name} {CURVES[x]}")
-    x = v.integer(d, argkey, path, 1, dev.n_presets if argkey == "preset" else 16)
-    return None if x is None else (op, x, f"{name} {x}")
-
-
-def mode_led_ref(v, d, path):
-    """A mode's led: an LED id (lit while the mode is active) or { <LED id>: blink } -> (index, blink)."""
-    x, line = d["led"], d.line_of("led")
-    if isinstance(x, dict):
-        if len(x) != 1:
-            v.err(path, line, "must be an LED id (lit while the mode is active) or `{ <LED id>: blink }`")
-            return None
-        lid, how = next(iter(x.items()))
-        if how not in ("blink", True):
-            v.err(f"{path}.{lid}", x.line_of(lid), f"must be blink or on (got {x.raw_of(lid)!r})")
-            return None
-        holder = LDict(led=lid)
-        holder.line = line
-        idx = v.ref(holder, "led", path, line, "LED", "LEDs")
-        return None if idx is None else (idx, how == "blink")
-    idx = v.ref(d, "led", path, line, "LED", "LEDs")
-    return None if idx is None else (idx, False)
+def in_device(dev):
+    """Built when the device has modes (GM_N_MODES > 0)."""
+    return bool(dev.modes)
 
 
 def validate(v, dev, data):
@@ -275,6 +186,97 @@ def validate(v, dev, data):
         m.keys.sort()
         m.buttons.sort()
     dev.modes = modes
+
+
+def note_text(n):
+    """MIDI note -> name, C4 = 60 (scientific pitch)."""
+    return f"{NOTE_NAMES[n % 12]}{n // 12 - 1}"
+
+
+def parse_note(x):
+    """`E3`, `F#3`, `Db4` (C4 = 60) or a MIDI note number -> note, or None."""
+    if isinstance(x, int) and not isinstance(x, bool):
+        return x if 0 <= x <= 127 else None
+    m = NOTE_RE.fullmatch(x.strip()) if isinstance(x, str) else None
+    if not m:
+        return None
+    n = (int(m.group(3)) + 1) * 12 + [0, 2, 4, 5, 7, 9, 11]["CDEFGAB".index(m.group(1).upper())] + \
+        {"#": 1, "b": -1, "": 0}[m.group(2)]
+    return n if 0 <= n <= 127 else None
+
+
+def mode_key_index(v, dev, x, path, line):
+    """A key named in a mode (its note at octave 0, no transpose: the physical key) -> its matrix index."""
+    m = dev.matrix
+    lo, hi = m.first_note, m.first_note + m.keys - 1
+    n = parse_note(x)
+    if n is None:
+        v.err(path, line, f"'{x}' isn't a key: name it by its note at octave 0 (C4 = 60), e.g. E3, F#3, Db4, "
+                          f"or give the MIDI note number (this keyboard: {note_text(lo)}..{note_text(hi)})")
+        return None
+    if not lo <= n <= hi:
+        v.err(path, line, f"{note_text(n)} (note {n}) isn't on the keyboard: its keys are "
+                          f"{note_text(lo)}..{note_text(hi)} (notes {lo}..{hi} at octave 0, from "
+                          "key_matrix.first_note)")
+        return None
+    return n - lo
+
+
+def mode_action(v, dev, name, d, path, line, arg=None):
+    """An action name (+ its number from d, or arg for a key of a range) -> (op, arg, text), or None."""
+    if name not in MODE_ACTIONS:
+        close = difflib.get_close_matches(str(name), list(MODE_ACTIONS), 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        v.err(path, line, f"unknown action '{name}' ({hint}valid in a mode: {', '.join(MODE_ACTIONS)}; or "
+                          "`{ mode: <id> }` to go to a sub-mode)")
+        return None
+    op, argkey = MODE_ACTIONS[name]
+    if name.startswith("preset") and dev.n_presets < 2:
+        v.err(path, line, f"action {name} switches presets, but this device has {dev.n_presets} preset slot: "
+                          "add presets: (with 2 or more slots)")
+        return None
+    if name == "velocity_curve" and not (dev.matrix is not None and dev.matrix.kind == "velocity"):
+        v.err(path, line, "velocity_curve needs a velocity key matrix (key_matrix: { type: velocity })")
+        return None
+    extra = [k for k in (d or {}) if k not in ("action", argkey)]
+    if extra:
+        v.err(f"{path}.{extra[0]}", d.line_of(extra[0]), f"action {name} takes " +
+              (f"{argkey}:" if argkey else "nothing else") + f", not {extra[0]}:")
+        return None
+    if argkey is None:
+        return op, 0, name
+    if arg is not None:
+        return op, arg, f"{name} {arg}"
+    if d is None or argkey not in d:
+        need = {"preset": f"preset: (the slot, 1..{dev.n_presets})", "channel": "channel: (1..16)",
+                "curve": f"curve: ({' | '.join(CURVES)})"}[argkey]
+        example = {"preset": 2, "channel": 10, "curve": "hard"}[argkey]
+        v.err(path, line, f"action {name} needs {need}, e.g. `{{ action: {name}, {argkey}: {example} }}`")
+        return None
+    if argkey == "curve":
+        x = v.enum_value(d, "curve", f"{path}.curve", CURVES)
+        return None if x is None else (op, x, f"{name} {CURVES[x]}")
+    x = v.integer(d, argkey, path, 1, dev.n_presets if argkey == "preset" else 16)
+    return None if x is None else (op, x, f"{name} {x}")
+
+
+def mode_led_ref(v, d, path):
+    """A mode's led: an LED id (lit while the mode is active) or { <LED id>: blink } -> (index, blink)."""
+    x, line = d["led"], d.line_of("led")
+    if isinstance(x, dict):
+        if len(x) != 1:
+            v.err(path, line, "must be an LED id (lit while the mode is active) or `{ <LED id>: blink }`")
+            return None
+        lid, how = next(iter(x.items()))
+        if how not in ("blink", True):
+            v.err(f"{path}.{lid}", x.line_of(lid), f"must be blink or on (got {x.raw_of(lid)!r})")
+            return None
+        holder = LDict(led=lid)
+        holder.line = line
+        idx = v.ref(holder, "led", path, line, "LED", "LEDs")
+        return None if idx is None else (idx, how == "blink")
+    idx = v.ref(d, "led", path, line, "LED", "LEDs")
+    return None if idx is None else (idx, False)
 
 
 def mode_cycle(v, dev, d, p, cid, given, cycles, new_id, new_mode):
@@ -480,7 +482,7 @@ def mode_layer(v, dev, m, layer, lp, ll):
             known = [i for i, t in v.ids.items() if t[0] in ("button", "pad", "encoder")]
             close = difflib.get_close_matches(str(bid), known, 1)
             hint = f"; did you mean '{close[0]}'?" if close else ""
-            what = f"is the id of {target[1]} ({a_(kind)})" if target else "matches nothing"
+            what = f"is the id of {target[1]} ({with_article(kind)})" if target else "matches nothing"
             v.err(path, line, f"no button, pad or encoder with id '{bid}': it {what}{hint}")
             continue
         idx = target[3]
@@ -719,14 +721,36 @@ def mode_range(v, dev, keys, kp, bind, first, top):
         bind(k, op, j, f"{act} {j}", keys.line_of(sk))
 
 
-# controller.c: a step's full colour goes in its LED's level as the mode index + 1, in 7 bits
-MODE_RGB_MAX = 127
-
-
 def mode_rgb(dev):
     """gm_mode_rgb[] (GM_MODE_RGB): each mode's full step colour, None when no step has one."""
     rgb = [getattr(m, "rgb", None) for m in dev.modes]
     return rgb if any(c is not None for c in rgb) else None
+
+
+def c_rgb_defines(dev):
+    """GM_MODE_RGB 1 when a cycle step has a full colour (gm_mode_rgb[])."""
+    return ["#define GM_MODE_RGB 1 /* a cycle step has a full colour: gm_mode_rgb[] */"] if mode_rgb(dev) else []
+
+
+def c_layer_defines(dev):
+    """GM_LAYERS: the layer twins of the buttons, pads and encoders together, when there are any."""
+    twins = (sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) +
+             sum(1 for e in dev.encoders if getattr(e, "layer", 0)))
+    if not twins:
+        return []
+    return [f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, components/modes/README.md \"Button layers\") */"]
+
+
+def c_defines(dev):
+    """GM_MODES_ENABLED (each mode's layer.enabled default) and GM_N_CYCLES (the cycle: groups), when there
+    are any."""
+    h = []
+    if dev.modes:
+        h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
+                 "/* layer.enabled defaults, per mode */")
+    if getattr(dev, "n_cycles", 0):
+        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
+    return h
 
 
 def c_tables(dev):

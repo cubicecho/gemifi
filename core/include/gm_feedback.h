@@ -1,7 +1,8 @@
 /*
  * gm_feedback.h: host -> device feedback inside the core (core/README.md
- * "DAW feedback"). Internal: midi_in.c, controller.c and mcu.c talk through
- * this; platforms only call gm_midi_rx_byte / gm_midi_rx_usb.
+ * "DAW feedback"). Internal: midi_in.c, feedback.c, mcu.c, app_proto.c and
+ * the leds, analog and encoders components talk through this; platforms only
+ * call gm_midi_rx_byte / gm_midi_rx_usb.
  *
  * Compile-time switches come from gm_device_config.h (tools/builder):
  *   GM_FEEDBACK       F1: plain MIDI feedback on the main port (LEDs follow
@@ -76,31 +77,35 @@
 extern "C" {
 #endif
 
-/* controller.c: one complete channel or realtime message from the host on
+/* feedback.c: one complete channel or realtime message from the host on
  * the main port (F1). m[0] is the status byte; n = 1..3. */
 void gm_fb_msg(const uint8_t *m, uint32_t n);
 
-/* controller.c: the host sets LED `led` to a MIDI value (velocity / CC
+/* leds.c: the host sets LED `led` to a MIDI value (velocity / CC
  * value): 0 = off, 1 = blinking, 2..127 = on (MCU's 0 / 1 / 127 palette). */
 void gm_led_host(uint32_t led, uint32_t value);
 
-/* controller.c: the host's value (0..127) of analog input i (pick-up). */
+/* analog.c: the host's value (0..127) of analog input i (pick-up). Without
+ * analogs, a no-op in controller.c. */
 void gm_analog_host(uint32_t i, uint32_t value);
 
-/* controller.c: draw a ring on encoder e's ring LEDs (GM_RINGS). mode: 0 dot,
+/* leds.c: draw a ring on encoder e's ring LEDs (GM_RINGS). mode: 0 dot,
  * 1 boost/cut, 2 wrap, 3 spread; frac 0..16383 along the ring, or -1 for
  * all off; center: the centre LED, if the encoder has one. */
 void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center);
 
-/* controller.c, for the DAW-script messages (GM_HOST_FB, sysex.md 4.6.2).
- * Script states are host states that don't time out. */
+/* For the DAW-script messages (GM_HOST_FB, sysex.md 4.6.2): the LED ones and
+ * gm_host_release are leds.c's, gm_encoder_host encoders.c's (a no-op in
+ * controller.c without encoders). Script states are host states that don't
+ * time out. */
 void gm_led_script(uint32_t led, uint32_t level);              /* 0 off, 1 blink, 2..127 on */
 void gm_led_script_rgb(uint32_t led, uint32_t r, uint32_t g, uint32_t b, int blink);
 void gm_encoder_host(uint32_t i, uint32_t value);              /* 0..16383, absolute modes */
 void gm_host_release(uint32_t what);                           /* FB_RELEASE: 0 all, 1 LEDs, 2 values */
 
-/* controller.c: the host set debug.events to 1: send EVENT 8 (layer) value
- * 1 for each mode that is on, from the next gm_poll (sysex.md 4.6). */
+/* modes.c: the host set debug.events to 1: send EVENT 8 (layer) value
+ * 1 for each mode that is on, from the next gm_poll (sysex.md 4.6). Without
+ * modes, a no-op in controller.c. */
 void gm_layers_report(void);
 
 /* app_proto.c: FB_TEXT goes to the display (core/src/display.c). */

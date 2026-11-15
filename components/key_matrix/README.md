@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): the keyboard, a matrix of switch keys or velocity keys with two contacts each. At most one per device. Its YAML (`key_matrix:`) and what each setting does: [core/README.md "Controls"](../../core/README.md#controls) ("Key matrix"), "Device YAML" ("Key matrix options"), "Software scan", "Hardware scan" and "Matrices behind decoders".
 
 - `key_matrix.c`: scanning the matrix, timing a velocity key's contacts, the key queue, and playing the keys. Built when the device has a key matrix.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py` (`validate_matrix`).
+- `__init__.py`: the builder part: `validate` (its YAML: rows, columns, contacts, the key map, velocity), `c_defines` (the scan tables' sizes), `c_param_defaults` (the key times) and `c_tables` (`gm_matrix_t`), and when it's built.
 
 ## How it runs
 

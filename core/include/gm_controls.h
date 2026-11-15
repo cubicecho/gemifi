@@ -314,6 +314,9 @@ extern uint8_t enc_live[NE];            /* modes (layers_update): per scanned en
 #else
 #define ENC_LIVE(i) (i)
 #endif
+#if GM_MSG_KINDS
+uint32_t enc_kind(int32_t mode);        /* what encoder.mode sends: K_CC for a 7-bit mode, else its K_* */
+#endif
 int32_t enc_top(uint32_t i);            /* the top of encoder i's values: 127, or 16383 in a 14-bit mode */
 int32_t enc_span(uint32_t i, int32_t top);      /* an absolute mode's positions, 0..span; 0: relative */
 uint32_t enc_out(uint32_t i, int32_t p, int32_t top);   /* the value position p sends */

@@ -37,12 +37,21 @@ uint8_t enc_live[NE];
 #endif
 
 #if GM_N_ENCODERS > 0
+#if GM_MSG_KINDS
+_Static_assert(ENC_CC14 - 3 == K_CC14 && ENC_NRPN - 3 == K_NRPN && ENC_RPN14 - 3 == K_RPN14, "enc_kind");
+/* What encoder.mode sends: K_CC for the 7-bit modes, the K_* of the
+ * absolute ones from ENC_CC14 on. */
+uint32_t enc_kind(int32_t mode)
+{
+    return mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC;
+}
+#endif
+
 /* The top of encoder i's values: 127, or 16383 in a 14-bit mode. */
 int32_t enc_top(uint32_t i)
 {
 #if GM_MSG_KINDS
-    int32_t mode = gm_cfg.enc_mode[i];
-    if (mode >= ENC_CC14 && kind_wide((uint32_t)mode - 3u, (uint32_t)gm_cfg.enc_cc[i]))
+    if (kind_wide(enc_kind(gm_cfg.enc_mode[i]), (uint32_t)gm_cfg.enc_cc[i]))
         return 16383;
 #else
     (void)i;
@@ -236,8 +245,7 @@ void encoders_poll(uint32_t now)
             if (v != enc_value[i]) {
                 enc_value[i] = (int16_t)v;
 #if GM_MSG_KINDS
-                int32_t mode = gm_cfg.enc_mode[i];
-                send_value(mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC, ENC_CH(i), num, enc_out(i, v, top));
+                send_value(enc_kind(gm_cfg.enc_mode[i]), ENC_CH(i), num, enc_out(i, v, top));
 #else
                 midi3(st, num, enc_out(i, v, top));
 #endif

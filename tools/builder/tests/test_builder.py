@@ -449,6 +449,27 @@ class TestValidation(unittest.TestCase):
         self.assertError(drivers.replace("{ led_driver: mx, number: 0 }", "{ led_strip: mx, number: 0 }"),
                          r"hub 'mx' is a max7219: write `led_driver: mx`, not `led_strip: mx`", path="leds[1].pin")
 
+    def test_led_driver_own_latch(self):
+        """Chips on one bus share their clock and data pins, but each needs its own latch: a TM1628's
+        stb_pin, a MAX7219 chain's cs_pin (final_validate, after every hub)."""
+        share = "{ number: %s, allow_other_uses: true }"
+        tm = (STM32_BASE + "led_driver:\n"
+              f"  - {{ id: drv_a, platform: tm1628, clk_pin: {share % 'PB0'}, dio_pin: {share % 'PB1'}, stb_pin: PB2 }}\n"
+              f"  - {{ id: drv_b, platform: tm1628, clk_pin: {share % 'PB0'}, dio_pin: {share % 'PB1'}, stb_pin: PB3 }}\n"
+              "leds:\n  - { id: l0, pin: { led_driver: drv_a, number: 0 } }\n  - { id: l1, pin: { led_driver: drv_b, number: 0 } }\n")
+        self.assertClean(tm)
+        self.assertError(tm.replace("stb_pin: PB3", f"stb_pin: {share % 'PB2'}").replace("stb_pin: PB2 }", f"stb_pin: {share % 'PB2'} }}"),
+                         r"PB2 is already the stb_pin of hub 'drv_a': chips can share clk_pin and dio_pin, but each "
+                         r"needs its own stb_pin", path="led_driver[1].stb_pin")
+        mx = (STM32_BASE + "led_driver:\n"
+              f"  - {{ id: drv_a, platform: max7219, clk_pin: {share % 'PA5'}, din_pin: {share % 'PA7'}, cs_pin: PA4 }}\n"
+              f"  - {{ id: drv_b, platform: max7219, clk_pin: {share % 'PA5'}, din_pin: {share % 'PA7'}, cs_pin: PA3 }}\n"
+              "leds:\n  - { id: l0, pin: { led_driver: drv_a, number: 0 } }\n  - { id: l1, pin: { led_driver: drv_b, number: 0 } }\n")
+        self.assertClean(mx)
+        self.assertError(mx.replace("cs_pin: PA3", f"cs_pin: {share % 'PA4'}").replace("cs_pin: PA4 }", f"cs_pin: {share % 'PA4'} }}"),
+                         r"PA4 is already the cs_pin of hub 'drv_a': chains can share clk_pin and din_pin, but each "
+                         r"needs its own cs_pin", path="led_driver[1].cs_pin")
+
     def test_old_led_driver_keys(self):
         """The LED drivers' old per-chip keys (tm1628:, max7219:, tm1637:, ht16k33:), as list keys and as
         pin keys, are refused with the new form."""

@@ -42,6 +42,11 @@ class HubType:
         """Check hub h (the YAML mapping at path p) and fill in hub. ctl(key, role, ...) resolves a
         control pin."""
 
+    def final_validate(self, v, dev, hubs):
+        """After every hub is validated, so every hub id is known (ESPHome's FINAL_VALIDATE_SCHEMA):
+        checks across hubs, this type's (hubs, in file order: those with this key), and anything that
+        names a hub declared further down."""
+
     def moved_text(self):
         """What an old list or pin key (old_keys) says: the new form."""
         raise NotImplementedError(self.key)
@@ -69,6 +74,19 @@ class HubType:
         """The C lines of the entry's config: its gm_hub_t union member (core/include/gm_device.h), e.g.
         `.sr = { ... },`. The first line goes after .type."""
         raise NotImplementedError(self.key)
+
+
+def check_own_latch(v, hubs, key, what, shared):
+    """Each of hubs (on one bus: clock and data pins shared) needs its own MCU latch pin (hub.latch, YAML
+    key): what = 'chips' or 'chains', shared = the keys they may share, for the message."""
+    seen = {}
+    for h in hubs:
+        if h.latch.hub != 0:
+            continue
+        if h.latch.num in seen:
+            v.err(f"{h.path}.{key}", h.line, f"{h.latch.desc} is already the {key} of hub '{seen[h.latch.num]}': "
+                                             f"{what} can share {shared}, but each needs its own {key}")
+        seen.setdefault(h.latch.num, h.id)
 
 
 class ShiftRegister(HubType):

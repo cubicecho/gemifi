@@ -1382,6 +1382,14 @@ class _V:
     def use(self, key, name, u):
         self.uses.setdefault(key, []).append((name, u))
 
+    def matrix_rows(self, d, path, why, hubs=None):
+        """A matrix's rows (matrix_rows), for a component: on the hubs that give rows by default."""
+        return matrix_rows(self, d, path, ROW_HUBS if hubs is None else hubs, why)
+
+    def matrix_columns(self, d, path, owner):
+        """A matrix's columns (matrix_columns), for a component."""
+        return matrix_columns(self, d, path, owner)
+
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
         (clock with clock, ...) on different hubs, and each sets allow_other_uses: true."""
@@ -1651,7 +1659,10 @@ def validate(data, file=None):
                     validate_hub(v, dev, h, typ, p, line)
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
-    resolve_switch_matrices(v, dev)
+    for t in HUB_DEFS.values():
+        hubs = [h for h in dev.hubs if h.type == t.key]
+        if hubs:
+            t.final_validate(v, dev, hubs)
     validate_screens(v, dev, data)
 
     # i2c
@@ -1663,21 +1674,6 @@ def validate(data, file=None):
                                   "the platform's hal_i2c_* are stubs)")
         need_i2c = False        # don't also ask for the i2c: pins
     i2c_buses.validate_buses(v, dev, data, on_i2c if need_i2c else [], plat.i2c_buses)
-    stbs = {}
-    for h in dev.hubs:
-        if h.type in TM_HUBS and h.latch.hub == 0:
-            if h.latch.num in stbs:
-                v.err(f"{h.path}.stb_pin", h.line, f"{h.latch.desc} is already the stb_pin of hub "
-                                                   f"'{stbs[h.latch.num]}': chips can share clk_pin and "
-                                                   "dio_pin, but each needs its own stb_pin")
-            stbs.setdefault(h.latch.num, h.id)
-    css = {}
-    for h in dev.hubs:
-        if h.type == "max7219" and h.latch.hub == 0:
-            if h.latch.num in css:
-                v.err(f"{h.path}.cs_pin", h.line, f"{h.latch.desc} is already the cs_pin of hub '{css[h.latch.num]}': "
-                                                  "chains can share clk_pin and din_pin, but each needs its own cs_pin")
-            css.setdefault(h.latch.num, h.id)
 
     preset_slots(v, dev, data)
     validate_midi_messages(v, dev, data)
@@ -2865,15 +2861,6 @@ def matrix_columns(v, d, path, owner):
         v.err(p, d.line_of("columns"), f"{len(cols)} columns: at most 32")
     return [v.pin(x, f"{p}[{i}]", cols.line_of(i), "in", allow_hub=False, line_kind="column", owner=owner)
             or NO_PIN for i, x in enumerate(cols)]
-
-
-def resolve_switch_matrices(v, dev):
-    for hub in dev.hubs:
-        if hub.type != "switch_matrix" or not isinstance(hub.raw, dict):
-            continue
-        why = "switch_matrix rows are MCU pins or decoder outputs"
-        hub.rows = matrix_rows(v, hub.raw, hub.path, ROW_HUBS, why)
-        hub.cols = matrix_columns(v, hub.raw, hub.path, owner=f"hub{hub.index}")
 
 
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")

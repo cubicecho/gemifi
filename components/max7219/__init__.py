@@ -2,6 +2,7 @@
 led_driver base (components/led_driver): `led_driver: [{ id: digits, platform: max7219, ... }]`. The
 YAML and the C: README.md here.
 """
+from components.hub import check_own_latch
 from components.led_driver import LedDriver
 
 DEPENDENCIES = ("led_driver",)
@@ -40,6 +41,9 @@ class MAX7219(LedDriver):
         return [f"        .mx = {{ .clk = {hub.clock.c()}, .din = {hub.data.c()}, .cs = {hub.latch.c()},",
                 f"                .chips = {hub.chain}, .intensity = {hub.intensity}, "
                 f".scan_limit = {hub.grids} }},"]
+
+    def final_validate(self, v, dev, hubs):
+        check_own_latch(v, hubs, "cs_pin", "chains", "clk_pin and din_pin")
 
 
 HUB_TYPES = (MAX7219(),)

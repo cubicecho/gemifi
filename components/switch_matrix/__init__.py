@@ -1,6 +1,6 @@
 """switch_matrix: a matrix of switches scanned from the scan interrupt, a hub type on the hub base
 (components/hub). The YAML and the C: README.md here. Its rows and columns are resolved after every hub
-is known (gemifi_device.py resolve_switch_matrices: rows may name a decoder declared further down).
+is known (final_validate: rows may name a decoder declared further down).
 """
 from components.hub import HubType, c_comment
 
@@ -16,7 +16,7 @@ class SwitchMatrix(HubType):
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         # Rows may name a decoder declared further down: pins are resolved after all hubs
-        # (resolve_switch_matrices). The size is known now, for pin numbers on this hub.
+        # (final_validate). The size is known now, for pin numbers on this hub.
         rows, cols = h.get("rows"), h.get("columns")
         nr = rows.get("count", 0) if isinstance(rows, dict) else len(rows) if isinstance(rows, list) else 0
         nc = len(cols) if isinstance(cols, list) else 0
@@ -30,6 +30,12 @@ class SwitchMatrix(HubType):
         if hub.rows_per_scan and isinstance(nr, int) and nr and hub.rows_per_scan >= nr:
             v.warn(f"{p}.rows_per_scan", h.line_of("rows_per_scan"), f"{hub.rows_per_scan} >= its {nr} rows: "
                                                                       "every row is read on every scan anyway")
+
+    def final_validate(self, v, dev, hubs):
+        for hub in hubs:
+            if isinstance(hub.raw, dict):
+                hub.rows = v.matrix_rows(hub.raw, hub.path, "switch_matrix rows are MCU pins or decoder outputs")
+                hub.cols = v.matrix_columns(hub.raw, hub.path, owner=f"hub{hub.index}")
 
     def c_tables(self, hub):
         if not hub.rows or not hub.cols:

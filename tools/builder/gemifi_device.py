@@ -5403,7 +5403,7 @@ def generate(dev, source="device.yaml"):
          f"#define GM_USB_PID 0x{dev.usb[1]:04X}",
          f"#define GM_N_HUBS {len(dev.hubs)}",
          f"#define GM_HUB_TYPES 0x{hub_types_mask(dev):04X}u /* hub types used, bit = GM_HUB_*: "
-         "vpin.c links only their drivers */",
+         "hub_ops[] holds only their drivers (gm_components.h) */",
          f"#define GM_N_BUTTONS {len(dev.buttons)}",
          f"#define GM_N_LEDS {len(dev.leds)}",
          f"#define GM_N_ANALOGS {len(dev.analogs)}",
@@ -5427,7 +5427,7 @@ def generate(dev, source="device.yaml"):
     h += matrix_defines(dev)
     hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
     if hub_ram:
-        h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (vpin.c hub_ram): its tm1628 and LED hubs' */")
+        h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (gm_hub_ram, components/hub): its LED strips' and drivers' */")
     strips = sum(1 for x in dev.hubs if x.type == "ws2812")
     if strips:
         h.append(f"#define GM_LEDSTRIPS {strips} /* ws2812 hubs (the platform's hal_ledstrip_*) */")

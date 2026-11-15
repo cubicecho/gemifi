@@ -4,8 +4,7 @@ __init__.py lists its HubType instances in HUB_TYPES; this is the class they der
 several types share (ShiftRegister, I2CExpander). Interchangeable chips for one job are platforms of a
 base component of their own (led_strip), whose class derives from this one.
 
-The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; core/README.md "Virtual pins and
-hubs".
+The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; README.md here.
 """
 import re
 

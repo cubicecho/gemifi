@@ -3,7 +3,7 @@
 A control ([core/README.md "Controls"](../../core/README.md#controls)): velocity pads, read from an ADC pin or a mux channel, that play a note with a velocity from how hard they're hit. Its YAML (`pads:`, `pad_settings:`) and what each setting does: [core/README.md "Pads"](../../core/README.md#pads).
 
 - `pads.c`: reading the pads and playing them. Built when the device has pads.
-- `__init__.py`: when it's built. The YAML is still validated in `tools/builder/gemifi_device.py` (`validate_pads`).
+- `__init__.py`: the builder part: `validate` (its YAML), `c_defines` and `c_tables` (its generated C: `GM_N_PADS`, the `GM_PAD_*_DEFAULT`s, `gm_pads[]`, `gm_pad_twins[]`), and when it's built.
 
 ## How it runs
 

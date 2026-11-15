@@ -2,6 +2,15 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.51.1](https://github.com/cubicecho/gemifi/compare/v0.51.0...v0.51.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **core:** gm_fb_msg builds clean with feedback and no buttons, analog inputs or encoders (B2) ([16e374c](https://github.com/cubicecho/gemifi/commit/16e374cc2867f702773eb0c9f18169c99b2e7dcb))
+* **core:** modes_init before the first layers_update (B3) ([5e40d7e](https://github.com/cubicecho/gemifi/commit/5e40d7eabbad8b652b43a7c05ac204611d8c561d))
+* **core:** the raw readings build with a key matrix and no buttons (B1) ([d4e01e2](https://github.com/cubicecho/gemifi/commit/d4e01e2aec21092120ed823876f31900f0f9ccc2))
+
 # [0.51.0](https://github.com/cubicecho/gemifi/compare/v0.50.0...v0.51.0) (2026-11-15)
 
 

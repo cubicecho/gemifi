@@ -1,7 +1,7 @@
 """modes: the modes (`modes:`), a control: key and button modes, hold modes, layers (a control's twins) and
 cycles. modes.c runs them, this file validates their YAML and writes their C (README.md here). The builder
-(gemifi_device.py) calls validate() after the controls and the presets, and c_tables() where
-gm_device_config.c has it.
+(gemifi_device.py) calls validate() after the controls and before the presets (presets.list), and
+c_rgb_defines(), c_layer_defines(), c_defines() and c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 import re
@@ -34,7 +34,7 @@ MAX_MODES = 64
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 NOTE_RE = re.compile(r"([A-Ga-g])([#b]?)(-?\d+)")
 
-# controller.c: a step's full colour goes in its LED's level as the mode index + 1, in 7 bits
+# gm_controls.h LV_STEP: a step's full colour goes in its LED's level as the mode index + 1, in 7 bits
 MODE_RGB_MAX = 127
 
 

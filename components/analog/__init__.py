@@ -1,7 +1,7 @@
 """analog: the analog inputs (`analog:`: pots, faders, wheels, pressure strips), a control: analog.c reads them
 and sends what they're set to, this file validates their YAML and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() with the other controls, and c_tables() where
-gm_device_config.c has it.
+builder (gemifi_device.py) calls validate() with the other controls, and c_param_defaults() and c_tables()
+where gm_device_config.c has them.
 """
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, f1_off_why, f1_on, mode_wide
 from components.hub import c_comment

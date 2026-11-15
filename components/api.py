@@ -96,6 +96,7 @@ class LDict(dict):
 
 
 class LList(list):
+    """list that remembers the line of itself and of each item (1-based)."""
     line = 0
 
     def __init__(self, *a):

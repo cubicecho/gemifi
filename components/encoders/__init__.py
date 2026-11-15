@@ -1,7 +1,7 @@
 """encoders: the rotary encoders (`encoders:`, `encoder_settings:`), a control: encoders.c counts their detents
 from the scan and sends them, this file validates their YAML and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() with the other controls, and c_defines() / c_tables() where
-gm_device_config.h / .c have them.
+builder (gemifi_device.py) calls validate() with the other controls, and c_defines(), c_param_defaults()
+and c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 

@@ -1,6 +1,7 @@
 """buttons: the buttons (`buttons:`), a control: buttons.c samples them and runs their actions, this file
 validates their YAML (and a preset's or a layer's button action) and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() after the LEDs, and c_tables() where gm_device_config.c has it.
+builder (gemifi_device.py) calls validate() after the LEDs, and c_defines(), c_param_defaults() and
+c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 

@@ -14,7 +14,7 @@ RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.
                     "slow_ms": "renamed: use `slow:` with a unit, e.g. `slow: 120ms`"}
 
 # key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
-# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
+# columns in a uint32_t (key_matrix.c), until it is widened for larger devices.
 MATRIX_MAX = 32
 
 # Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
@@ -22,7 +22,7 @@ MATRIX_MAX = 32
 VEL_FAST_RANGE = (1, 500)
 VEL_SLOW_RANGE = (20, 2000)
 
-MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
+MATRIX_FAST_COLS = 16   # key_matrix.c FAST_COLS: columns read as port runs
 
 
 def in_device(dev):
@@ -164,7 +164,7 @@ def validate_velocity(v, d, path, kind):
 
 
 def matrix_col_runs(dev, m):
-    """How many col_run_t entries controller.c's gm_init makes for the key matrix: runs of columns
+    """How many col_run_t entries key_matrix.c's matrix_init makes for the key matrix: runs of columns
     c, c+1, ... on consecutive bits of one input register. NUC1xx and STM32F1 have a register per
     port of 16 pins (pin = port * 16 + bit); elsewhere, or for hub pins, assume one per column."""
     cols = m.cols[:MATRIX_FAST_COLS]
@@ -182,7 +182,7 @@ def matrix_col_runs(dev, m):
 
 
 def c_defines(dev):
-    """The key-matrix scan's table sizes in controller.c (core/README.md "Generated code")."""
+    """The key-matrix scan's table sizes in key_matrix.c (core/README.md "Generated code")."""
     m = dev.matrix
     if not m:
         return []

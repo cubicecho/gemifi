@@ -93,7 +93,7 @@ def colour_mask(c):
 
 def led_full_colour(dev, pin, pin2, pin3):
     """The LED's pins are one LED of a full-colour hub (its red, green and blue in a row, from LED *
-    colour_pins): it can show any colour (controller.c led_full_colour, vpin_rgb)."""
+    colour_pins): it can show any colour (leds.c led_full_colour, vpin_rgb)."""
     if pin in (None, NO_PIN) or pin.hub in (0, 0xFF) or pin.hub > len(dev.hubs):
         return False
     hub = dev.hubs[pin.hub - 1]
@@ -131,6 +131,7 @@ def colour_exact(kind, c):
 
 
 def led_kind(pin2, pin3):
+    """The kind of LED its pins make: 'rgb' (pin3 given), 'bicolour' (pin2) or 'single'."""
     return "rgb" if pin3 is not NO_PIN else "bicolour" if pin2 is not NO_PIN else "single"
 
 
@@ -254,6 +255,7 @@ def led_ref(v, dev, d, p, user):
 
 
 def validate_owner(v, d, path):
+    """An LED's owner: (LED_OWNERS) -> its GM_OWNER_* value, or None when not given or unknown (reported)."""
     if d.get("owner") is None:
         return None
     o = d["owner"]

@@ -904,7 +904,7 @@ class Device:
         self.presets = []
         self.modes = []              # Hub per mode (components/modes), in YAML order; a cycle's steps in a row
         self.n_cycles = 0            # modes: cycle: groups
-        self.pads = []               # Hub per pad (validate_pads), in YAML order
+        self.pads = []               # Hub per pad (pads.validate), in YAML order
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
@@ -3888,7 +3888,7 @@ def led_fb_rows(dev):
     """Per LED (source, num, channel, owner, timeout); None when every LED uses the device defaults
     (then no table is generated)."""
     rows, special = [], False
-    # A cycle's LED always shows its step (controller.c mode_led), whatever a host sends: say so
+    # A cycle's LED always shows its step (modes.c mode_led), whatever a host sends: say so
     # (GET_COMPONENT owner), so DAW scripts and the feedback demo leave it alone.
     cycle_leds = {m.led for m in getattr(dev, "modes", []) if m.cycle and m.led is not None}
     for i, x in enumerate(dev.leds):

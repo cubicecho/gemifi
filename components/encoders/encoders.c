@@ -31,12 +31,10 @@ int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
 static const volatile uint32_t *enc_ra[GM_ARR(NE_HW)], *enc_rb[GM_ARR(NE_HW)];
 static uint32_t enc_ma[GM_ARR(NE_HW)], enc_mb[GM_ARR(NE_HW)];
-#endif
 #if GM_ENC_TWINS
-uint8_t enc_live[NE];
+uint8_t enc_live[GM_ARR(NE_HW)];
 #endif
 
-#if GM_N_ENCODERS > 0
 #if GM_MSG_KINDS
 _Static_assert(ENC_CC14 - 3 == K_CC14 && ENC_NRPN - 3 == K_NRPN && ENC_RPN14 - 3 == K_RPN14, "enc_kind");
 /* What encoder.mode sends: K_CC for the 7-bit modes, the K_* of the
@@ -97,7 +95,6 @@ void enc_at(uint32_t i, int32_t v, int32_t top, int32_t span)
 #endif
     enc_value[i] = (int16_t)(v < 0 ? 0 : v > span ? span : v);
 }
-#endif
 
 /* FB_VALUE: value 0..16383 over the encoder's range. */
 void gm_encoder_host(uint32_t i, uint32_t value)
@@ -110,8 +107,6 @@ void gm_encoder_host(uint32_t i, uint32_t value)
     else if (span)
         enc_value[i] = (int16_t)((int32_t)value * span / 16383);
 }
-
-#if GM_N_ENCODERS > 0
 
 void encoder_step(uint32_t i)
 {
@@ -136,9 +131,7 @@ void encoder_step(uint32_t i)
         enc_count[i]--;
     }
 }
-#endif
 
-#if GM_N_ENCODERS > 0
 #if GM_ENC_ACCEL
 /* Acceleration (components/encoders/README.md "Encoder acceleration"), per scanned encoder
  * (its twins share it): when it last turned (ms), the smoothed time between

@@ -30,7 +30,6 @@
 #include "gm_vpin.h"
 #include "gm_hal.h"
 #include "app_proto.h"
-#include "params.h"
 #include "gm_presets.h"
 #include "gm_feedback.h"
 #include "gm_mcu.h"

@@ -170,9 +170,6 @@ void buttons_off(void);                 /* a preset switch: let go of every note
 uint32_t keys_mode(void);               /* the mode the keys go to; GM_MODE_NONE = the keys play */
 void mode_key(uint32_t mi, uint32_t k); /* key k pressed in mode mi: its binding */
 #endif
-#if GM_LAYER_PARAMS
-uint32_t layer_rank(uint32_t m);        /* how strongly root mode m's layer holds, 0 = off */
-#endif
 /* What LED li shows instead of level: a mode's LED, a preset number's blink. */
 uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now);
 #define MODE_LED(li, level, now) mode_led(li, level, now)
@@ -309,7 +306,7 @@ extern volatile uint16_t enc_count[GM_ARR(NE_HW)];   /* encoders; the raw readin
 extern uint8_t enc_i2c[GM_ARR(NE_HW)];  /* encoders (encoders_init): on an I2C hub, stepped from the main loop */
 extern int16_t enc_value[NE];           /* encoders, and host feedback (enc_at): an absolute position */
 #if GM_ENC_TWINS
-extern uint8_t enc_live[NE];            /* modes (layers_update): per scanned encoder, the index its turns go to */
+extern uint8_t enc_live[GM_ARR(NE_HW)]; /* modes (layers_update): per scanned encoder, the index its turns go to */
 #define ENC_LIVE(i) enc_live[i]
 #else
 #define ENC_LIVE(i) (i)

@@ -15,7 +15,6 @@
 #include "gm_display.h"
 #include "gm_presets.h"
 #include "gm_hal.h"
-#include "params.h"
 
 #if GM_N_MODES > 0
 /* Which modes are on (components/modes/README.md "Modes", "Cycles"): the key modes
@@ -93,7 +92,7 @@ static int binds_channel(const gm_mode_key_t *b, uint32_t n)
  * have twins of the same component, the strongest wins: the held hold
  * mode, then the toggled key mode, then cycle steps, then layer-only
  * toggles, each in mode order (components/modes/README.md "Cycles"). */
-uint32_t layer_rank(uint32_t m)
+static uint32_t layer_rank(uint32_t m)
 {
     if (hold_cur == m)
         return 255u;

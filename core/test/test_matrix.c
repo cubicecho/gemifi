@@ -592,7 +592,7 @@ int main(void)
     CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 1, "encoder turn: CC 30 = 1 (got %d %d)", d1, d2);
 
 #if GM_N_CYCLES
-    /* Cycles (core/README.md "Cycles"): Shift (16/3) + emode (PC4) moves
+    /* Cycles (components/modes/README.md "Cycles"): Shift (16/3) + emode (PC4) moves
      * the encs cycle to its next enabled step: OFF (2, disabled), PLAIN (3),
      * DEV (4), PAN (5); emode_led (PD0-PD2, RGB) shows the step's colour. */
 #define EMODE 36                     /* PC4 */

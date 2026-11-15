@@ -78,7 +78,7 @@ modes:
       mute: { cc: 25, daw: arm_1, active: colour2 }
       lmode: { cc: 26 }              # lmode alone in the layer: CC 26; Shift + it still leaves
       enc: { cc: 31, daw: pan_1 }    # the encoder's twin: CC 31
-  # Shift + emode: the next enabled step (core/README.md "Cycles"), its name
+  # Shift + emode: the next enabled step (components/modes/README.md "Cycles"), its name
   # on the display, its colour on emode_led. Independent of arm. OFF starts
   # disabled, so power-on is PLAIN; DEV's encoder sends no CC (EVENTs only),
   # and its mute twin beats arm's (a cycle step before a layer-only toggle).

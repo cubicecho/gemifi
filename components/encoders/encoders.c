@@ -131,7 +131,7 @@ void encoder_step(uint32_t i)
 
 #if GM_N_ENCODERS > 0
 #if GM_ENC_ACCEL
-/* Acceleration (core/README.md "Encoder acceleration"), per scanned encoder
+/* Acceleration (components/encoders/README.md "Encoder acceleration"), per scanned encoder
  * (its twins share it): when it last turned (ms), the smoothed time between
  * its detents (1/16 ms), the fraction of a step carried to its next turn
  * (1/16 step) and the direction it turns. Main loop only. */

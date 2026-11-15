@@ -179,7 +179,7 @@ modes:
 
 ### 6.1 Phase 2 as implemented (2026-11-02)
 
-Implemented as above (core/README.md "Modes"), on the Keystation with Edit as the toggle: Edit → E3 → a white key from D4 picks preset 1..8, and the edit mode also has octave, transpose, channel and velocity-curve keys. Not tested on hardware yet. Where this section was vague or the implementation differs:
+Implemented as above (components/modes/README.md "Modes"), on the Keystation with Edit as the toggle: Edit → E3 → a white key from D4 picks preset 1..8, and the edit mode also has octave, transpose, channel and velocity-curve keys. Not tested on hardware yet. Where this section was vague or the implementation differs:
 
 - **No `mode` button action.** A root mode is entered only by its `toggle:` button, so `button.action` keeps its 16 values and the schema, host and web lists don't change. A button that enters a mode directly can come later if a device needs one.
 - **The toggle button has no action of its own,** and the builder refuses a preset that rebinds it (that is what would lock you out). A `button.action` the host sets for it is stored but ignored.

@@ -97,7 +97,7 @@ def _twins(lst):
 
 
 def _layer_modes(dev):
-    """layer.enabled: one per mode, on a device with layer twins or a cycle (core/README.md "Cycles")."""
+    """layer.enabled: one per mode, on a device with layer twins or a cycle (components/modes/README.md "Cycles")."""
     has = dev.n_cycles or _twins(dev.buttons) or _twins(dev.encoders) or dev.pad_twins
     return len(dev.modes) if has else 0
 
@@ -132,7 +132,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
     ("preset.count", 33, GLOBAL, lambda d: 1 if d.n_presets > 1 else 0),
-    # layers (core/README.md "Button layers", "Cycles"): global, so they count once in the budget
+    # layers (components/modes/README.md "Button layers", "Cycles"): global, so they count once in the budget
     ("layer.enabled", 34, GLOBAL, _layer_modes),
     ("layer.button.action", 35, GLOBAL, lambda d: _twins(d.buttons)),
     ("layer.button.number", 36, GLOBAL, lambda d: _twins(d.buttons)),
@@ -2357,7 +2357,7 @@ def validate_version(v, data):
 
 
 # ---------------------------------------------------------------------------------------------
-# pads (core/README.md "Pads")
+# pads (components/pads/README.md "Pads")
 
 DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
                 "display", "line", "x", "scale", "length"]
@@ -3806,14 +3806,14 @@ def generate(dev, source="device.yaml"):
           ("presets.slots */" if dev.presets_given else "no presets: in the YAML */"),
           f"#define GM_PRESETS_REVISION {dev.presets_revision} /* presets.revision */",
           f"#define GM_N_YAML_PRESETS {dev.n_yaml_presets} /* slots 1..N come from presets.list */",
-          f"#define GM_N_MODES {len(dev.modes)} /* modes: (core/README.md \"Modes\") */"]
+          f"#define GM_N_MODES {len(dev.modes)} /* modes: (components/modes/README.md \"Modes\") */"]
     if modes.mode_rgb(dev):
         h.append("#define GM_MODE_RGB 1 /* a cycle step has a full colour: gm_mode_rgb[] */")
     h += write_to_flash_defines(dev)
     enc_twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0)) + len(dev.pad_twins) + enc_twins
     if twins:
-        h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, core/README.md \"Button layers\") */")
+        h.append(f"#define GM_LAYERS {twins} /* layer twins (modes: layer:, components/modes/README.md \"Button layers\") */")
     if enc_twins:
         h.append(f"#define GM_ENC_TWINS {enc_twins} /* the last encoders: layer twins, not scanned */")
     h += encoders.c_defines(dev)
@@ -3825,7 +3825,7 @@ def generate(dev, source="device.yaml"):
         h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
                  "/* layer.enabled defaults, per mode */")
     if getattr(dev, "n_cycles", 0):
-        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (core/README.md \"Cycles\") */")
+        h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
     if dev.pad_twins:
         h.append(f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */")
     h += pads.c_defines(dev)
@@ -3873,7 +3873,7 @@ def generate(dev, source="device.yaml"):
           f"    .boot_combo = {combo},",
           f"    .scan_us = {dev.scan_us},",
           "};", "",
-          "/* param defaults; button.action values: core/README.md \"Button actions\" */"]
+          "/* param defaults; button.action values: components/buttons/README.md \"Button actions\" */"]
 
     def arr(name, count_macro, vals, comment=""):
         size = count_macro if vals else "1"

@@ -1,11 +1,13 @@
 """buttons: the buttons (`buttons:`), a control: buttons.c samples them and runs their actions, this file
 validates their YAML (and a preset's or a layer's button action) and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() after the LEDs, and c_tables() where gm_device_config.c has it.
+builder (gemifi_device.py) calls validate() after the LEDs, and c_defines(), c_param_defaults() and
+c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import MMC_COMMANDS, NO_PIN, RENAMED_ID, Hub, c_str, twin_c
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
+from components.leds import led_ref
 
 # components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
 # actions (13-15) need 2+ preset slots; `mcu` (16) only exists on devices with an `mcu:` section; the
@@ -23,13 +25,10 @@ PAD_ACTIONS = {"pad_octave_down", "pad_octave_up"}                  # only on de
 MSG_ACTIONS = {"program": "program", "panic": "panic", "mmc": "mmc", "sysex": "sysex"}   # action -> its MIDI message kind (MSG_FEATURES)
 # the YAML keys that give button.number (mcu: aside)
 NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
+# MMC commands (MIDI 1.0 MMC, `F0 7F dev 06 cmd F7`): the YAML's mmc: names -> button.number
+MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
+                "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
-
-def number_key(act):
-    """The key that gives button.number for an action (None: the action takes no number)."""
-    if act in ("program", "mmc", "sysex"):
-        return act
-    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
                "bank", "channel", "min", "max"]
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
@@ -55,17 +54,8 @@ def validate(v, dev, data):
         v.unique_name(names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
         act, num = button_action(v, dev, d, p)
-        led = -1
-        if d.get("led") is not None:
-            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
-            if idx is not None:
-                led = idx
-                if led > 127:
-                    v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-                    led = -1
-        if led >= 0:
-            dev.leds[led].used_by.append(("button", act))
-        top = 16383 if act == "sysex" and v.sysex_wide(dev, num) else 127
+        led = led_ref(v, dev, d, p, ("button", act))
+        top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
                                action_name=act, number=num, led=led, daw=v.daw_role(dev, d, p),
                                ctl=v.control_out(d, p, top), bank=button_bank(v, dev, d, p, act)))
@@ -103,6 +93,13 @@ def button_action(v, dev, d, p, base=None):
         num = button_mcu(v, dev, d, p, act)
         return (act if act == "mcu" else base[0] if base else "none"), num
     return act, button_number(v, dev, d, p, act, base)
+
+
+def number_key(act):
+    """The key that gives button.number for an action (None: the action takes no number)."""
+    if act in ("program", "mmc", "sysex"):
+        return act
+    return "note" if act == "note" else "cc" if act in CC_ACTIONS else "preset" if act == "preset_select" else None
 
 
 def button_number(v, dev, d, p, act, base=None):
@@ -144,7 +141,7 @@ def button_number(v, dev, d, p, act, base=None):
               (", the preset slot" if want == "preset" else "")) + ")")
         return 0
     if want == "mmc":
-        return v.mmc_command(d, p)
+        return mmc_command(v, d, p)
     if want == "sysex":
         return v.sysex_ref(dev, d, "sysex", p)
     return v.integer(d, want, p, lo, hi, default=0)
@@ -174,6 +171,23 @@ def button_mcu(v, dev, d, p, act):
     return notes[d["mcu"]]
 
 
+def mmc_command(v, d, path):
+    """mmc: play | stop | ... | 1..127 -> the MMC command byte (button.number)."""
+    x = d["mmc"]
+    if isinstance(x, int) and not isinstance(x, bool):
+        if 1 <= x <= 127:
+            return x
+        v.err(f"{path}.mmc", d.line_of("mmc"), f"{x} is out of range (1..127)")
+        return 0
+    if isinstance(x, str) and x in MMC_COMMANDS:
+        return MMC_COMMANDS[x]
+    close = difflib.get_close_matches(str(d.raw_of("mmc")), list(MMC_COMMANDS), 1)
+    hint = f"did you mean '{close[0]}'? " if close else ""
+    v.err(f"{path}.mmc", d.line_of("mmc"), f"unknown MMC command '{d.raw_of('mmc')}' ({hint}valid: "
+                                           f"{', '.join(MMC_COMMANDS)}, or a number 1..127)")
+    return 0
+
+
 def button_bank(v, dev, d, p, act):
     """bank: 0..16383 (or { msb, lsb }) on a program action -> its Bank Select, or None."""
     if "bank" not in d:
@@ -186,6 +200,21 @@ def button_bank(v, dev, d, p, act):
     if bank is not None:
         dev.msg_used.add("program")
     return bank
+
+
+def c_defines(dev):
+    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any."""
+    twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
+    return [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
+
+
+def c_param_defaults(dev):
+    """gm_button_action_defaults[] and gm_button_number_defaults[] (core/src/settings.c), even without
+    buttons."""
+    acts = ", ".join(b.action_name for b in dev.buttons)
+    return [c_param_array("gm_button_action_defaults", "GM_N_BUTTONS", [b.action for b in dev.buttons],
+                          f" /* {acts} */" if acts else ""),
+            c_param_array("gm_button_number_defaults", "GM_N_BUTTONS", [b.number for b in dev.buttons])]
 
 
 def c_tables(dev):

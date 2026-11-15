@@ -1,0 +1,18 @@
+# Test device for core/test/test_keys_only.c: a key matrix and nothing else
+# (no buttons, LEDs, analog inputs or encoders), so the core builds for a
+# keyboard-only device. Not a real board.
+gemifi: 2
+name: keys-only-test
+friendly_name: Keys Only Test
+board_id: 0x3F13
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+
+# 2 drive rows (active-high) x 4 sense columns, two contacts per key.
+key_matrix:
+  type: velocity
+  rows: [PA0, PA1]
+  columns: [PB0, PB1, PB2, PB3]
+  keys: 4
+  first_note: 60

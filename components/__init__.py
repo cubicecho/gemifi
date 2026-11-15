@@ -2,7 +2,8 @@
 part (its __init__.py: schema, validation, generated C), its C sources, its README and tests. A base
 component (hub, display, led_strip, led_driver) defines what the components on it (sn74hc595, ssd1306,
 ws2812, tm1628 ...) implement (core/README.md "Components"). A control component (pads, ...) is built
-when the device has that control (its in_device(dev)).
+when the device has that control (its in_device(dev)), or on every device when it is REQUIRED (leds: the
+status LED and the lamp test need it).
 """
 import importlib
 import os

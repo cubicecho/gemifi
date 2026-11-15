@@ -1,10 +1,10 @@
 /*
  * modes.c: the modes (modes:), a control component (README.md here): key
  * and button modes, hold modes, layers and cycles. The buttons hand a mode
- * its buttons (mode_button, mode_btn), the key matrix its keys (keys_mode,
- * mode_key); the LEDs show a mode's LEDs (mode_led). layers_update picks
- * the live one of each control and its layer twins. Shares its state
- * through gm_controls.h.
+ * its buttons (mode_toggle_button, mode_function_button), the key matrix
+ * its keys (keys_mode, mode_key); the LEDs show a mode's LEDs (mode_led).
+ * layers_update picks the live one of each control and its layer twins.
+ * Shares its state through gm_controls.h.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -15,7 +15,6 @@
 #include "gm_display.h"
 #include "gm_presets.h"
 #include "gm_hal.h"
-#include "params.h"
 
 #if GM_N_MODES > 0
 /* Which modes are on (components/modes/README.md "Modes", "Cycles"): the key modes
@@ -93,7 +92,7 @@ static int binds_channel(const gm_mode_key_t *b, uint32_t n)
  * have twins of the same component, the strongest wins: the held hold
  * mode, then the toggled key mode, then cycle steps, then layer-only
  * toggles, each in mode order (components/modes/README.md "Cycles"). */
-uint32_t layer_rank(uint32_t m)
+static uint32_t layer_rank(uint32_t m)
 {
     if (hold_cur == m)
         return 255u;
@@ -166,7 +165,7 @@ static uint8_t hold_still_held(uint32_t except)
  * A cycle's button (on each of its steps) moves it to its next step. A
  * disabled mode (layer.enabled 0) can't be entered: its button is as if
  * it weren't there (it can still be left). */
-int mode_button(uint32_t i, int down)
+int mode_toggle_button(uint32_t i, int down)
 {
 #if GM_LAYERS
     const gm_button_t *bt = &gm_device.buttons[i];
@@ -275,14 +274,14 @@ static void mode_run(uint32_t mi, const gm_mode_key_t *b)
         /* fall through */
     case GM_MK_OCTAVE_UP:
     case GM_MK_OCTAVE_RESET:
-        shift(&gm_cfg.octave, up, 4, P_OCTAVE, b->op == GM_MK_OCTAVE_RESET);
+        step_and_show(&gm_cfg.octave, up, 4, P_OCTAVE, b->op == GM_MK_OCTAVE_RESET);
         break;
     case GM_MK_TRANSPOSE_DOWN:
         up = -1;
         /* fall through */
     case GM_MK_TRANSPOSE_UP:
     case GM_MK_TRANSPOSE_RESET:
-        shift(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
+        step_and_show(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
         break;
     case GM_MK_CHANNEL:
     case GM_MK_CHANNEL_UP:
@@ -321,7 +320,7 @@ void mode_key(uint32_t mi, uint32_t k)
  * binds runs that instead of its own action (the held hold mode first, then
  * the toggled one), and its release is silent, even after the mode ends.
  * Returns 1 if the mode took the change. */
-int mode_btn(uint32_t i, int down)
+int mode_function_button(uint32_t i, int down)
 {
     uint64_t bit = 1ull << i;
     if (!down) {
@@ -350,14 +349,14 @@ int mode_btn(uint32_t i, int down)
     return 0;
 }
 
-/* What LED li shows instead of level: after a preset switch from a mode,
- * its count LED blinks the slot number, then it and the done LED flash
- * once; while a mode is active (or its hold button held), its LED is lit
- * (or blinks). */
 /* An int8_t LED reference (-1 = none) is LED li. Compared unsigned: a
  * device has up to 255 LEDs, and (int8_t)li is negative from 128 on. */
 #define LED_IS(ref, li) ((ref) >= 0 && (uint32_t)(ref) == (li))
 
+/* What LED li shows instead of level: after a preset switch from a mode,
+ * its count LED blinks the slot number, then it and the done LED flash
+ * once; while a mode is active (or its hold button held), its LED is lit
+ * (or blinks). */
 uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 {
     if (show_n) {
@@ -472,7 +471,7 @@ void layers_update(void)
         uint8_t dead = ll[l->layer ? l->base : i] != i;
         if (led_dead[i] != dead) {
             led_dead[i] = dead;
-            led_shown[i] = 0xFFFFu;     /* drawn again once it is live */
+            led_redraw(i);              /* drawn again once it is live */
         }
     }
 #undef RANK
@@ -529,16 +528,14 @@ void modes_init(void)
         if (md->led >= 0 && (uint32_t)md->led < gm_device.n_leds && (md->cycle || ((solo_mask >> m) & 1u)))
             solo_leds[(uint32_t)md->led >> 5] |= 1u << ((uint32_t)md->led & 31u);
     }
+#if GM_N_CYCLES
+    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
+        cyc_cur[g] = GM_MODE_NONE;
+#endif
 #endif
 }
 
 #if GM_N_CYCLES
-void cycles_init(void)
-{
-    for (uint32_t g = 0; g < GM_N_CYCLES; g++)
-        cyc_cur[g] = GM_MODE_NONE;
-}
-
 void cycles_start(void)
 {
     for (uint32_t g = 0; g < GM_N_CYCLES; g++)

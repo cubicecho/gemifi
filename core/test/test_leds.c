@@ -1,6 +1,6 @@
 /*
  * test_leds.c: host test of the LED looks (YAML idle: / active:, gm_led_t
- * looks, controller.c led_show) with core/test/leds-test.yaml (host
+ * looks, leds.c led_show) with core/test/leds-test.yaml (host
  * feedback on) and leds-local-test.yaml (the same, feedback off: no host
  * LEDs). The LEDs are on MCU pins; the simulated HAL keeps each pin's level
  * and counts the writes to the LED pins.

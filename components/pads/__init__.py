@@ -5,12 +5,7 @@ validate() with the other controls, and c_defines() / c_tables() where gm_device
 from components.api import CURVES, NO_PIN, RENAMED_ID, Hub, c_str
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
-
-
-def in_device(dev):
-    """Built when the device has pads (GM_N_PADS > 0)."""
-    return bool(dev.pads)
-
+from components.leds import led_ref
 
 # pad_settings: the pad.* param defaults (core/src/settings.c GM_PAD_*_DEFAULT). Readings are 0..4095,
 # after inverted:; window and retrigger in ms.
@@ -21,9 +16,14 @@ PAD_SETTINGS_KEYS = list(PAD_DEFAULTS)
 MAX_PADS = 128
 
 
+def in_device(dev):
+    """Built when the device has pads (GM_N_PADS > 0)."""
+    return bool(dev.pads)
+
+
 def validate(v, dev, data):
-    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note.
-    pad_settings: what all pads share: the sensing (global) and channel / curve / aftertouch (per preset)."""
+    """pads: one entry per pad, an analog source (ADC pin or mux channel) and its default note; then
+    pad_settings: (pad_settings)."""
     names = {}
     pads = v.seq(data.get("pads"), "pads", data.line_of("pads"))
     for i, d in enumerate(pads):
@@ -37,14 +37,7 @@ def validate(v, dev, data):
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", hubs=v.hub_keys(Mux),
                     why="a pad is read with the ADC")
         note = v.integer(d, "note", p, 0, 127, default=0, required=True)
-        led = -1
-        if d.get("led") is not None:           # lit while the pad is held
-            idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
-            if idx is not None and idx > 127:
-                v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
-            elif idx is not None:
-                led = idx
-                dev.leds[led].used_by.append(("pad", None))
+        led = led_ref(v, dev, d, p, ("pad", None))     # lit while the pad is held
         dev.pads.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, note=note, led=led, path=p,
                             line=d.line_of("note") if "note" in d else d.line))
     if len(dev.pads) > MAX_PADS:
@@ -55,7 +48,12 @@ def validate(v, dev, data):
             v.warn(f"{x.path}.note", x.line, f"note {x.note} is also the note of {seen[x.note]}: both pads "
                                               "play the same note")
         seen.setdefault(x.note, x.path)
+    pad_settings(v, dev, data)
 
+
+def pad_settings(v, dev, data):
+    """pad_settings: what all pads share -> dev.pad_set: the sensing (global) and channel / curve /
+    aftertouch (per preset)."""
     if data.get("pad_settings") is None:
         return
     p, line = "pad_settings", data.line_of("pad_settings")
@@ -88,8 +86,10 @@ def validate(v, dev, data):
 
 
 def c_defines(dev):
-    """GM_N_PADS, and with pads the pad.* param defaults from pad_settings: (core/src/settings.c)."""
-    h = ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (components/pads/README.md \"Pads\") */"]
+    """GM_PAD_TWINS (the pad layer twins, gm_pad_twins[], when there are any), GM_N_PADS, and with pads the
+    pad.* param defaults from pad_settings: (core/src/settings.c)."""
+    h = [f"#define GM_PAD_TWINS {len(dev.pad_twins)} /* gm_pad_twins[] */"] if dev.pad_twins else []
+    h += ["", f"#define GM_N_PADS {len(dev.pads)} /* pads: (components/pads/README.md \"YAML\") */"]
     if dev.pads:
         ps = dev.pad_set
         h += [f"#define GM_PAD_CHANNEL_DEFAULT {ps['channel']} /* 0 = midi.channel */",

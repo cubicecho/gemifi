@@ -13,15 +13,21 @@ RENAMED_MATRIX = {"kind": "renamed: use `type:` (switch | velocity)", "cols": "r
 RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.6ms`",
                     "slow_ms": "renamed: use `slow:` with a unit, e.g. `slow: 120ms`"}
 
+# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
+# columns in a uint32_t (key_matrix.c), until it is widened for larger devices.
+MATRIX_MAX = 32
+
+# Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
+# velocity.slow params; their ranges are in core/src/settings.c).
+VEL_FAST_RANGE = (1, 500)
+VEL_SLOW_RANGE = (20, 2000)
+
+MATRIX_FAST_COLS = 16   # key_matrix.c FAST_COLS: columns read as port runs
+
 
 def in_device(dev):
     """Built when the device has a key matrix (GM_HAS_MATRIX 1)."""
     return dev.matrix is not None
-
-
-# key_matrix rows and columns: the core scans at most 32 rows (GM_MATRIX_ROWS) and keeps each row's
-# columns in a uint32_t (core/src/controller.c), until it is widened for larger devices.
-MATRIX_MAX = 32
 
 
 def validate(v, dev, data):
@@ -136,12 +142,6 @@ def validate_key_map(v, d, p, lrows, lcols, keys, by_rows, kind):
     return flat
 
 
-# Default key times for velocity 127 and 1, in 0.1 ms (the velocity.fast /
-# velocity.slow params; their ranges are in core/src/settings.c).
-VEL_FAST_RANGE = (1, 500)
-VEL_SLOW_RANGE = (20, 2000)
-
-
 def validate_velocity(v, d, path, kind):
     """key_matrix.velocity: { fast, slow } (time periods) -> (fast, slow) in 0.1 ms, None where not given."""
     p = f"{path}.velocity"
@@ -163,12 +163,8 @@ def validate_velocity(v, d, path, kind):
     return fast, slow
 
 
-MATRIX_FAST_COLS = 16   # controller.c FAST_COLS: columns read as port runs
-MATRIX_MAX_ROWS = 32    # controller.c: rows scanned
-
-
 def matrix_col_runs(dev, m):
-    """How many col_run_t entries controller.c's gm_init makes for the key matrix: runs of columns
+    """How many col_run_t entries key_matrix.c's matrix_init makes for the key matrix: runs of columns
     c, c+1, ... on consecutive bits of one input register. NUC1xx and STM32F1 have a register per
     port of 16 pins (pin = port * 16 + bit); elsewhere, or for hub pins, assume one per column."""
     cols = m.cols[:MATRIX_FAST_COLS]
@@ -186,12 +182,12 @@ def matrix_col_runs(dev, m):
 
 
 def c_defines(dev):
-    """The key-matrix scan's table sizes in controller.c (core/README.md "Generated code")."""
+    """The key-matrix scan's table sizes in key_matrix.c (core/README.md "Generated code")."""
     m = dev.matrix
     if not m:
         return []
     dec = any(0 < pn.hub <= len(dev.hubs) and dev.hubs[pn.hub - 1].type == "decoder" for pn in m.rows)
-    return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX_ROWS)} /* key-matrix rows scanned (at most 32) */",
+    return [f"#define GM_MATRIX_ROWS {min(len(m.rows), MATRIX_MAX)} /* key-matrix rows scanned (at most 32) */",
             f"#define GM_MATRIX_COL_RUNS {matrix_col_runs(dev, m)} /* runs of adjacent column bits on one port */",
             f"#define GM_MATRIX_DECODER {1 if dec else 0} /* rows on a decoder: one-store row selects */"]
 

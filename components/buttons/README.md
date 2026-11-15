@@ -12,13 +12,13 @@ A control ([core/README.md "Controls"](../../core/README.md#controls)): buttons 
 ## How it runs
 
 The main loop (`gm_poll`) calls:
-- `buttons_sample` every `BTN_SAMPLE_MS` (1 ms). A press counts at the first sample that read it closed in every scan since the sample before, so a quick tap is never lost. A release counts once no scan has read it closed for `BTN_STABLE` (16) samples in a row, which rides out contact bounce.
+- `buttons_sample` every `BTN_SAMPLE_MS` (1 ms). A press counts at the first sample that read it closed in every scan since the sample before, so a quick tap is never lost. A release counts once no scan has read it closed for `BTN_STABLE` (16) samples in a row (16 ms), which rides out contact bounce: a contact that flickers during a light press stays one press. A button on a switch matrix is scanned several times per sample (every frame with the hardware scan), so one noisy scan doesn't press it either.
 - `ramps_ms` once per elapsed millisecond: the `cc_ramp` buttons glide towards 127 or 0, and the pitch-bend buttons' bend towards its target.
 
 Each press or release goes, in this order:
 1. to the safety combos (`gm_safety_button`);
 2. to the live one of a button and its layer twins;
-3. to the modes: a mode's toggle, hold or cycle button (`mode_button`), or a function button of the active mode (`mode_btn`);
+3. to the modes: a mode's toggle, hold or cycle button (`mode_toggle_button`), or a function button of the active mode (`mode_function_button`);
 4. to the button's own action (`button_changed`).
 
 A preset switch (`gm_release_all`) calls `buttons_off`, which lets go of every note and CC the buttons hold. Buttons held through it release silently.
@@ -30,7 +30,7 @@ Through `core/include/gm_controls.h`:
 - `btn_stable`, for `gm_poll`, the LED walk and the idle time (`gm_idle_ms`);
 - `btn_live`, the buttons that take a press, which the modes (`layers_update`) write;
 - `btn_hist`, the samples, for the raw readings (`GM_MONITOR`);
-- `shift`, which the modes' octave and transpose bindings use, and `BTN_CH`.
+- `step_and_show`, which the modes' octave and transpose bindings use, and `BTN_CH`.
 
 ## Tests
 

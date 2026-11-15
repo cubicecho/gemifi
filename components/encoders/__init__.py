@@ -1,11 +1,11 @@
 """encoders: the rotary encoders (`encoders:`, `encoder_settings:`), a control: encoders.c counts their detents
 from the scan and sends them, this file validates their YAML and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() with the other controls, and c_defines() / c_tables() where
-gm_device_config.h / .c have them.
+builder (gemifi_device.py) calls validate() with the other controls, and c_defines(), c_param_defaults()
+and c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, twin_c, type_name
+from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
 
@@ -17,6 +17,21 @@ ENCODER_KEYS = ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu",
 ENCODER_NUMBER_KEYS = ("cc", "nrpn", "rpn")     # the keys that give encoder.cc, by mode
 RENAMED_ENCODER = dict(RENAMED_ID, a="renamed: use `pin_a:` (as ESPHome's rotary_encoder)",
                        b="renamed: use `pin_b:` (as ESPHome's rotary_encoder)")
+
+# Acceleration (components/encoders/README.md "Encoder acceleration").
+# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
+# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
+# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
+ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
+ACCEL_PRESETS = {"off": None,
+                 "low": (60, 15, 4, 0),
+                 "medium": (80, 10, 8, 1),
+                 "high": (100, 8, 16, 1)}
+ACCEL_KEYS = ["slow", "fast", "max", "curve"]
+ACCEL_SLOW_MS = (2, 1000)
+ACCEL_FAST_MS = (1, 999)
+ACCEL_MAX = (1, 32)
+ENCODER_SETTINGS_KEYS = ["acceleration"]
 
 
 def in_device(dev):
@@ -50,17 +65,13 @@ def validate(v, dev, data):
                 v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
                                                      "loop: fast spinning may miss steps")
         vpot = v.mcu_name(dev, d, p, "vpot")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ENC_MODES)
-            mode = 0 if mode is None else mode
-            v.mode_use(dev, ENC_MODES[mode], f"{p}.mode", d.line_of("mode"))
+        mode = v.control_mode(dev, d, p, ENC_MODES) or 0
         for k in ("mode", "channel", "min", "max"):
             if k in d and vpot is not None:
                 v.err(f"{p}.{k}", d.line_of(k), f"a Mackie Control V-Pot (mcu:) sends its own messages: drop {k}: "
                                                 "or mcu:")
         cc = v.mode_number(dev, d, p, ENC_MODES[mode], vpot is None, ENCODER_NUMBER_KEYS)
-        ctl = v.control_out(d, p, 16383 if v.mode_wide(dev, ENC_MODES[mode], cc) else 127)
+        ctl = v.control_out(d, p, 16383 if mode_wide(dev, ENC_MODES[mode], cc) else 127)
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)
@@ -106,22 +117,6 @@ def ring_center(v, dev, d, p, vpot):
     if idx is not None:
         dev.leds[idx].used_by.append(("ring", None))
     return idx
-
-
-# Acceleration (components/encoders/README.md "Encoder acceleration").
-# A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
-# at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
-# None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
-ACCEL_CURVES = ["linear", "quadratic", "cubic"]     # gm_device.h GM_ACCEL_*
-ACCEL_PRESETS = {"off": None,
-                 "low": (60, 15, 4, 0),
-                 "medium": (80, 10, 8, 1),
-                 "high": (100, 8, 16, 1)}
-ACCEL_KEYS = ["slow", "fast", "max", "curve"]
-ACCEL_SLOW_MS = (2, 1000)
-ACCEL_FAST_MS = (1, 999)
-ACCEL_MAX = (1, 32)
-ENCODER_SETTINGS_KEYS = ["acceleration"]
 
 
 def accel_text(a):
@@ -193,8 +188,16 @@ def has_accel(dev):
 
 
 def c_defines(dev):
-    """GM_ENC_ACCEL: 1 with acceleration (gm_enc_accel[])."""
-    return [f"#define GM_ENC_ACCEL {1 if has_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */"]
+    """GM_ENC_TWINS (the layer twins at the end of encoders[], when there are any) and GM_ENC_ACCEL: 1 with
+    acceleration (gm_enc_accel[])."""
+    twins = sum(1 for e in dev.encoders if getattr(e, "layer", 0))
+    return ([f"#define GM_ENC_TWINS {twins} /* the last encoders: layer twins, not scanned */"] if twins else []) + [
+        f"#define GM_ENC_ACCEL {1 if has_accel(dev) else 0} /* 1: gm_enc_accel[] (encoder acceleration:) */"]
+
+
+def c_param_defaults(dev):
+    """gm_encoder_cc_defaults[] (core/src/settings.c), even without encoders."""
+    return [c_param_array("gm_encoder_cc_defaults", "GM_N_ENCODERS", [e.cc for e in dev.encoders])]
 
 
 def c_tables(dev):

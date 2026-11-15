@@ -7,7 +7,7 @@ import difflib
 import re
 
 import components
-from components.api import NO_PIN, RENAMED_ID, Hub, twin_c
+from components.api import NO_PIN, RENAMED_ID, Hub, f1_off_why, f1_on, twin_c
 from components.hub import c_comment
 
 LED_DEFAULTS_KEYS = ["idle", "active"]
@@ -17,11 +17,6 @@ LED_OWNERS = {"host_then_local": 0, "host": 1, "local": 2}
 LED_SOURCES = {"note": 1, "cc": 2, "clock": 3, "transport": 4, "mcu": 5}   # gm_device.h GM_FB_*
 LED_SOURCE_VALUES = {"clock": ["beat"], "transport": ["playing"]}
 TIMEOUT_NEVER = 0xFFFF            # gm_device.h GM_TIMEOUT_NEVER (10 ms units otherwise)
-
-
-# Always built: the status LED and the lamp test use it on any device.
-REQUIRED = True
-
 
 # LED looks (idle: / active:): which of the LED's pins are lit, bit 0 = pin, 1 = pin2, 2 = pin3. Names per
 # kind of LED; "on" is the LED's default active look on every kind.
@@ -33,12 +28,47 @@ LED_LOOKS = {
 }
 LED_LOOK_NAMES = {n: m for k in ("rgb", "bicolour", "single") for n, m in LED_LOOKS[k].items() if n != "on"}
 LED_DEFAULT_LOOK = {"single": (0, 1), "bicolour": (0, 1), "rgb": (0, 7)}   # (idle, active)
-# Full-colour looks, for LEDs that can show any colour (one LED of a full-colour hub, FULL_COLOUR_HUBS):
+LED_KIND_PINS = {"single": 1, "bicolour": 3, "rgb": 7}    # the pins each kind of LED has, as look bits
+# Full-colour looks, for LEDs that can show any colour (one LED of a full-colour hub, full_colour_hubs()):
 # "#rrggbb", or an RGB look name with a brightness, "blue 25%". Elsewhere (led_defaults, a cycle step's
 # colour) they show as the nearest on/off look.
 RGB_LOOK_COLOURS = {"red": 0xFF0000, "green": 0x00FF00, "yellow": 0xFFFF00, "blue": 0x0000FF,
                     "magenta": 0xFF00FF, "cyan": 0x00FFFF, "white": 0xFFFFFF}
 RGB_LOOK_RE = re.compile(r"^#([0-9a-f]{6})$|^([a-z]+)\s+(\d{1,3})\s*%$")
+
+
+# Always built: the status LED and the lamp test use it on any device.
+REQUIRED = True
+
+
+def validate(v, dev, data):
+    """led_defaults: and leds: -> dev.leds (before the buttons: they name their LEDs)."""
+    led_defaults = validate_led_defaults(v, data)
+    leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
+    for i, d in enumerate(leds):
+        p = f"leds[{i}]"
+        d = v.mapping(d, p, leds.line_of(i), LED_KEYS, renamed=RENAMED_ID)
+        if d is None:
+            continue
+        ident = v.ident(d, p, "LED", len(dev.leds))
+        name = v.display_name(d, p, ident)
+        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
+        pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
+        pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
+        if d.get("pin3") is not None and d.get("pin2") is None:
+            v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
+        looks, rgb = validate_led_looks(v, d, p, led_kind(pin2 or NO_PIN, pin3 or NO_PIN), led_defaults,
+                                        led_full_colour(dev, pin, pin2, pin3))
+        src = validate_led_source(v, dev, d, p)
+        owner = validate_owner(v, d, p)
+        timeout = validate_timeout(v, d, "timeout", p, None)
+        if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
+            v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
+        led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
+        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
+                            pin3=pin3 or NO_PIN, looks=looks, rgb=rgb, source=src,
+                            owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
+                            daw=v.daw_role(dev, d, p), local_line=led_owner_line))
 
 
 def colour_look(word):
@@ -63,7 +93,7 @@ def colour_mask(c):
 
 def led_full_colour(dev, pin, pin2, pin3):
     """The LED's pins are one LED of a full-colour hub (its red, green and blue in a row, from LED *
-    colour_pins): it can show any colour (controller.c led_full_colour, vpin_rgb)."""
+    colour_pins): it can show any colour (leds.c led_full_colour, vpin_rgb)."""
     if pin in (None, NO_PIN) or pin.hub in (0, 0xFF) or pin.hub > len(dev.hubs):
         return False
     hub = dev.hubs[pin.hub - 1]
@@ -91,8 +121,7 @@ def colour_nearest(kind, c):
     want = colour_mask(c)
     if not want:
         return 0
-    has = {"single": 1, "bicolour": 3, "rgb": 7}[kind]
-    return (want & has) or 1
+    return (want & LED_KIND_PINS[kind]) or 1
 
 
 def colour_exact(kind, c):
@@ -102,6 +131,7 @@ def colour_exact(kind, c):
 
 
 def led_kind(pin2, pin3):
+    """The kind of LED its pins make: 'rgb' (pin3 given), 'bicolour' (pin2) or 'single'."""
     return "rgb" if pin3 is not NO_PIN else "bicolour" if pin2 is not NO_PIN else "single"
 
 
@@ -148,8 +178,7 @@ def resolve_led_default(kind, word, full=False):
     if word in LED_LOOKS[kind]:
         return LED_LOOKS[kind][word], None
     want = LED_LOOK_NAMES[word]
-    has = {"single": 1, "bicolour": 3, "rgb": 7}[kind]
-    return (want & has) or 1, None
+    return (want & LED_KIND_PINS[kind]) or 1, None
 
 
 def validate_led_looks(v, d, p, kind, defaults, full=False):
@@ -210,7 +239,23 @@ def validate_timeout(v, d, key, path, default):
     return default if t is None else t
 
 
+def led_ref(v, dev, d, p, user):
+    """A button's or pad's led: (an LED id) -> the LED's index, or -1 without one (or for one past index
+    127, which a control can't name: reported). The LED notes user, a (kind, action) pair, in used_by."""
+    if d.get("led") is None:
+        return -1
+    idx = v.ref(d, "led", f"{p}.led", d.line_of("led"), "LED", "LEDs")
+    if idx is None:
+        return -1
+    if idx > 127:
+        v.err(f"{p}.led", d.line_of("led"), "LED index over 127 can't be referenced")
+        return -1
+    dev.leds[idx].used_by.append(user)
+    return idx
+
+
 def validate_owner(v, d, path):
+    """An LED's owner: (LED_OWNERS) -> its GM_OWNER_* value, or None when not given or unknown (reported)."""
     if d.get("owner") is None:
         return None
     o = d["owner"]
@@ -254,8 +299,8 @@ def validate_led_source(v, dev, d, p):
             v.err(f"{fp}.mcu", kl, f"unknown MCU LED '{f.raw_of('mcu')}'{hint}")
             return None
         return (LED_SOURCES[k], notes[f["mcu"]], 0)
-    if not v.f1_on(dev):
-        v.err(f"{fp}.{k}", kl, f"{k}: is plain feedback, but " + v.f1_off_why(dev))
+    if not f1_on(dev):
+        v.err(f"{fp}.{k}", kl, f"{k}: is plain feedback, but " + f1_off_why(dev))
         return None
     if k in LED_SOURCE_VALUES:
         if f[k] not in LED_SOURCE_VALUES[k]:
@@ -266,36 +311,6 @@ def validate_led_source(v, dev, d, p):
     if num is None:
         return None
     return (LED_SOURCES[k], num, ch)
-
-
-def validate(v, dev, data):
-    """led_defaults: and leds: -> dev.leds (before the buttons: they name their LEDs)."""
-    led_defaults = validate_led_defaults(v, data)
-    leds = v.seq(data.get("leds"), "leds", data.line_of("leds"))
-    for i, d in enumerate(leds):
-        p = f"leds[{i}]"
-        d = v.mapping(d, p, leds.line_of(i), LED_KEYS, renamed=RENAMED_ID)
-        if d is None:
-            continue
-        ident = v.ident(d, p, "LED", len(dev.leds))
-        name = v.display_name(d, p, ident)
-        pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "out")
-        pin2 = v.pin(d["pin2"], f"{p}.pin2", d.line_of("pin2"), "out") if d.get("pin2") is not None else NO_PIN
-        pin3 = v.pin(d["pin3"], f"{p}.pin3", d.line_of("pin3"), "out") if d.get("pin3") is not None else NO_PIN
-        if d.get("pin3") is not None and d.get("pin2") is None:
-            v.err(f"{p}.pin3", d.line_of("pin3"), "an RGB LED needs pin2 too (pin red, pin2 green, pin3 blue)")
-        looks, rgb = validate_led_looks(v, d, p, led_kind(pin2 or NO_PIN, pin3 or NO_PIN), led_defaults,
-                                        led_full_colour(dev, pin, pin2, pin3))
-        src = validate_led_source(v, dev, d, p)
-        owner = validate_owner(v, d, p)
-        timeout = validate_timeout(v, d, "timeout", p, None)
-        if timeout is not None and owner in (LED_OWNERS["host"], LED_OWNERS["local"]):
-            v.warn(f"{p}.timeout", d.line_of("timeout"), "only used with owner: host_then_local")
-        led_owner_line = d.line_of("owner") if owner == LED_OWNERS["local"] else None
-        dev.leds.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, pin2=pin2 or NO_PIN,
-                            pin3=pin3 or NO_PIN, looks=looks, rgb=rgb, source=src,
-                            owner=owner, timeout=timeout, path=p, line=d.line, used_by=[],
-                            daw=v.daw_role(dev, d, p), local_line=led_owner_line))
 
 
 def led_rgb_c(x):

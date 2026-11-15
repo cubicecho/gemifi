@@ -43,7 +43,7 @@ Encoders have two halves:
 - **Counting**, from the scan. `gm_scan_tick` (the scan interrupt) calls `encoder_step` for each encoder on every tick. With the hardware scan, an encoder on a scanned switch matrix is stepped from its frames instead. `encoder_step` reads A and B (one load each when they're MCU pins, `vpin_in_reg`), and counts a detent every `steps_per_detent` quarter steps. An encoder on an I2C hub is stepped from the main loop, since I2C can't run in the interrupt.
 - **Sending**, from the main loop. `encoders_poll` takes the detents counted since the last pass and sends them, in the encoder's `mode`, to the live one of it and its layer twins. Acceleration scales the steps by how fast it turns.
 
-The count is free running: only `encoder_step` writes it and only `encoders_poll` reads it, so a detent counted between the main loop's load and store isn't lost. Twins aren't scanned: only the scanned encoders (`NE_HW`) have counts.
+The count is free running: only `encoder_step` writes it (`encoders_poll`, and the raw readings in `monitor.c`, read it), so a detent counted between the main loop's load and store isn't lost. Twins aren't scanned: only the scanned encoders (`NE_HW`) have counts.
 
 ## What it shares
 

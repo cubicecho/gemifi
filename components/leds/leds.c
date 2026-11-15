@@ -23,6 +23,10 @@
 #if GM_HOST_FB
 static uint32_t led_colour[GM_ARR(GM_N_LEDS)];  /* 0xRRGGBB, 8 bits a colour */
 #endif
+/* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
+ * (start, after the lamp test). leds_update() runs every 10 ms over every
+ * LED; an LED whose level and phase didn't change isn't written again. */
+static uint16_t led_shown[GM_ARR(GM_N_LEDS)];
 
 /* Levels: 0 off, 1 on (pin), 2 both pins, 3 pin2, 4+ pin2 blinking
  * (bicolour). LV_BLINK | level: that level, blinking (host feedback).
@@ -183,8 +187,8 @@ void gm_host_release(uint32_t what)
 }
 
 /* Who drives LED i (core/README.md "LED ownership"). local = the device's
- * own state for it (its button's), LOCAL_HAS set; an LED no button uses has
- * no local state, so the host always drives it. now10 = hal_millis() / 10. */
+ * own state for it (its button's or pad's), LOCAL_HAS set; an LED no button
+ * or pad uses has no local state, so the host always drives it. now10 = hal_millis() / 10. */
 #define LOCAL_HAS 0x80u
 static uint32_t led_level(uint32_t i, uint32_t local, uint32_t now10)
 {
@@ -208,11 +212,6 @@ static uint32_t led_level(uint32_t i, uint32_t local, uint32_t now10)
 }
 #endif
 
-/* What each LED last showed: (level << 1) | blink phase, 0xFFFF = not known
- * (start, after the lamp test). leds_update() runs every 10 ms over every
- * LED; an LED whose level and phase didn't change isn't written again. */
-uint16_t led_shown[GM_ARR(GM_N_LEDS)];
-
 /* Whether level shows differently in the two blink phases (led_show). */
 static int led_blinks(const gm_led_t *l, uint32_t level)
 {
@@ -225,6 +224,11 @@ static int led_blinks(const gm_led_t *l, uint32_t level)
 
 #if GM_LAYERS
 uint8_t led_dead[GM_ARR(GM_N_LEDS)];
+
+void led_redraw(uint32_t i)
+{
+    led_shown[i] = 0xFFFFu;
+}
 #endif
 
 static void led_set(uint32_t i, uint32_t level, int blink_on)

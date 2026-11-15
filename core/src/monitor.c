@@ -79,10 +79,10 @@ static uint32_t mon_bits(uint8_t *p, uint32_t nbits, uint32_t (*bit)(uint32_t))
             p[b / 7u] |= (uint8_t)(1u << (b % 7u));
     return n;
 }
+static uint32_t mon_first_bit;      /* mon_bits callbacks: index of bit 0 (key matrix: its row) */
 #endif
 
 #if GM_N_BUTTONS > 0
-static uint32_t mon_first_bit;      /* mon_bits callbacks: index of bit 0 */
 static uint32_t mon_button(uint32_t b)
 {
     return (btn_hist[0] >> (mon_first_bit + b)) & 1u;

@@ -6,7 +6,7 @@
  *   SysEx, main port      -> app_proto_rx_byte (the gemifi protocol, as before)
  *   SysEx, MCU port       -> gm_mcu_sysex (version request)
  *   channel / realtime,
- *     main port           -> gm_fb_msg (F1 feedback, controller.c)
+ *     main port           -> gm_fb_msg (F1 feedback, feedback.c)
  *     MCU port            -> gm_mcu_msg
  *
  * "Main port" = cable 0. The MCU port is cable 1 when the device has a USB

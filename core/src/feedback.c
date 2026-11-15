@@ -72,7 +72,7 @@ static int fb_used(uint32_t type, uint32_t num)
     return num < 128 && ((map[num >> 5] >> (num & 31)) & 1u);
 }
 #else
-#define fb_used(type, num) 0
+#define fb_used(type, num) ((void)(type), (void)(num), 0)
 #endif
 
 #if GM_LED_FB
@@ -98,7 +98,7 @@ static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value
     }
 }
 #else
-#define leds_from(source, num, ch, value) ((void)0)
+#define leds_from(source, num, ch, value) ((void)(num), (void)(ch), (void)(value))
 #endif
 
 #if GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
@@ -145,9 +145,12 @@ static void fb_value(uint32_t kind, uint32_t ch, uint32_t num, uint32_t v, uint3
 #endif
 #if GM_N_ENCODERS > 0
     for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
-        int32_t mode = gm_cfg.enc_mode[i];
-        if ((uint32_t)gm_cfg.enc_cc[i] != num || (mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC) != kind)
+        if ((uint32_t)gm_cfg.enc_cc[i] != num)
             continue;
+#if GM_MSG_KINDS                            /* without them, every mode and kind is K_CC */
+        if (enc_kind(gm_cfg.enc_mode[i]) != kind)
+            continue;
+#endif
 #if GM_CTL
         if (ENC_CH(i) != ch)
             continue;

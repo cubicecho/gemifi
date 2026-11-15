@@ -169,7 +169,7 @@ din_midi:
 # The XY pad, a 4-wire resistive panel [sure]: X (left to right) is PC4 high
 # and PB2 low, read on PC5 (ADC ch15); Y (bottom to top) is PB1 high and PC5
 # low, read on PC4 (ch14). The touch window is the default (touch_min /
-# touch_max, core/README.md "XY pads").
+# touch_max, components/xy_pad/README.md).
 xy_pad:
   - id: xy
     x_plus_pin: PC4
@@ -201,7 +201,7 @@ displays:
 # Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
 # LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
 # the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
-# Looks (components/leds/README.md "LED looks"), the user's request (2026-11-03): every
+# Looks (components/leds/README.md "LED looks (idle and active)"), the user's request (2026-11-03): every
 # LED lit while idle so the panel is easy to see, and changed while active.
 # RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
 # (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per

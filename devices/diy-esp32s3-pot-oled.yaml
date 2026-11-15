@@ -2,7 +2,7 @@
 # DIY test device: an ESP32-S3-WROOM-1 (ESP32-S3-DevKitC-1), one 10k pot and a 0.96" 128x64 SSD1306
 # I2C OLED. The same as diy-esp32-pot-oled, with native USB MIDI.
 #
-# Wiring (core/README.md "SSD1306 and SH1106 OLEDs"):
+# Wiring (components/ssd1306/README.md):
 #   pot:  one end to 3V3, the other to GND, the wiper to GPIO1 (ADC1)
 #   OLED: VCC to 3V3, GND to GND, SDA to GPIO8, SCL to GPIO9 (the module has its pull-ups)
 #   USB:  the DevKitC-1's port marked USB (GPIO19 / GPIO20), not the one marked UART

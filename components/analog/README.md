@@ -18,7 +18,6 @@ analog:
 - **Centre.** The input's first reading after power-up is the centre, because a sprung wheel rests there; keep it untouched while the device starts. 16 raw ADC counts either side of it send no bend, so the wheel always returns to exactly 8192.
 - **Range.** From the centre to each end (`adc_min` / `adc_max`, less 8 counts) is one half of 0..16383, so the bend is symmetric even when the centre isn't in the middle of the travel.
 - **Noise.** Changes under 6 raw counts are dropped, except to the centre or an end. Both are raw counts, so a wheel that only moves the reading over part of 0..4095 (set `adc_min` / `adc_max` to its ends) is no twitchier.
-- **Rate.** Pitch-bend and pressure inputs are read every 2 ms; the other analog inputs take turns, one every 2 ms.
 
 ## How it runs
 

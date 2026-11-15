@@ -2,7 +2,7 @@
 
 A control ([core/README.md "Controls"](../../core/README.md#controls)): single-colour, bicolour and RGB LEDs on any output pin (an MCU pin, a shift register, an LED driver's, an LED strip's). Its YAML (`leds:`, `led_defaults:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "LED looks", "Full-colour LEDs" and "LED walk" below, and who drives an LED in [core/README.md "LED ownership"](../../core/README.md#led-ownership).
 
-- `leds.c`: what each LED shows, its looks, who owns it, the TM1628 fade, the LED walk and the encoder rings. Always built (`REQUIRED`): the status LED and the lamp test use it on any device.
+- `leds.c`: what each LED shows, its looks, who owns it, the TM1628 fade, the LED walk and the encoder rings. Always built (`REQUIRED`, not `in_device`, so not in `components.controls()`): the status LED and the lamp test use it on any device.
 - `__init__.py`: the builder part: the looks and the owners, `validate` (its YAML: pins, looks, `led_defaults:`, owner, timeout, feedback source) and `c_tables` (`gm_led_t leds[]`), and that it's always built (`REQUIRED`). Host feedback's per-LED table (`gm_led_fb[]`) stays with the builder's feedback code.
 
 ## LED looks (idle and active)
@@ -68,8 +68,8 @@ Through `core/include/gm_controls.h`:
 - `led_shown` and `led_dead`, which the modes' `layers_update` writes when an LED changes hands between a base and its layer twin;
 - the functions above, for `gm_poll` and `gm_init`.
 
-It reads the buttons' `btn_held`, `btn_toggled` and `ramp_q8`, and the pads' `pad_state` and `pad_lit`.
+It reads the buttons' `btn_held`, `btn_toggled` and `ramp_q8`, and the pads' `pad_state`, `pad_lit` and `pad_owner` (which of a pad and its twins took the hit, so lights its LED).
 
 ## Tests
 
-In `core/test/`: `test_leds.c` (`leds-test.yaml`, `leds-local-test.yaml` and a many-LED variant: looks, owners, timeouts, apply rounds), `test_feedback.c` (host levels, rings) and `test_tm1628.c` (the fade).
+In `core/test/`: `test_leds.c` (`leds-test.yaml`, `leds-local-test.yaml` and a 132-LED variant on 74HC595 chains: the looks, the lamp test, steady LEDs not rewritten, host and DAW-script levels in the looks, the octave levels), `test_feedback.c` (host levels, owners and timeouts, rings) and `test_tm1628.c` (the fade).

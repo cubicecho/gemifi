@@ -44,14 +44,14 @@ pad_settings:                  # all optional; these are the param defaults
 
 ## How it runs
 
-The main loop (`gm_poll`) calls `pads_scan` every millisecond. The pads are read there and not in the scan interrupt, because they share the mux select lines and the ADC with the analog inputs. Pads on muxes are read sorted by channel, so muxes that share select lines switch them once per channel.
+The main loop (`gm_poll`) calls `pads_scan` every millisecond ("Sampling" above).
 
 Each pad goes through four states: blocked (at start-up, until it reads below `pad.release`), idle, peak (the `pad.window` after the threshold) and on. A preset switch (`gm_release_all`) calls `pads_off`, which sends Note Off for every sounding pad and blocks held pads until they're let go.
 
 ## What it shares
 
 Through `core/include/gm_controls.h`:
-- `pad_state` and `pad_lit`, which the LEDs show;
+- `pad_state` and `pad_lit`, which the LEDs show, and `pad_owner`, which of the pad and its twins took the last hit, so whose LED lights;
 - `pad_live`, the live layer twin of each pad, which the modes (`layers_update`) write;
 - `pad_raw`, the last readings, for the raw readings (`GM_MONITOR`).
 

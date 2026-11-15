@@ -178,4 +178,4 @@ It reads the buttons' `btn_held`, and uses their `shift` for its octave and tran
 
 ## Tests
 
-`core/test/test_modes.c`, with `core/test/modes-test.yaml`; `test_encoders.c` (encoder twins in a cycle) and `test_pads.c` (pad twins).
+`core/test/test_modes.c`, with `core/test/modes-test.yaml`; `test_controller.c` (the Keystation's Edit mode: keys bound with `keys:`, its sub-modes), `test_matrix.c` (`matrix-test.yaml`: a hold mode, a layer and a cycle on switch-matrix buttons), `test_encoders.c` (encoder twins in a cycle) and `test_pads.c` (pad twins).

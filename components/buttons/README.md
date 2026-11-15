@@ -12,7 +12,7 @@ A control ([core/README.md "Controls"](../../core/README.md#controls)): buttons 
 ## How it runs
 
 The main loop (`gm_poll`) calls:
-- `buttons_sample` every `BTN_SAMPLE_MS` (1 ms). A press counts at the first sample that read it closed in every scan since the sample before, so a quick tap is never lost. A release counts once no scan has read it closed for `BTN_STABLE` (16) samples in a row, which rides out contact bounce.
+- `buttons_sample` every `BTN_SAMPLE_MS` (1 ms). A press counts at the first sample that read it closed in every scan since the sample before, so a quick tap is never lost. A release counts once no scan has read it closed for `BTN_STABLE` (16) samples in a row (16 ms), which rides out contact bounce: a contact that flickers during a light press stays one press. A button on a switch matrix is scanned several times per sample (every frame with the hardware scan), so one noisy scan doesn't press it either.
 - `ramps_ms` once per elapsed millisecond: the `cc_ramp` buttons glide towards 127 or 0, and the pitch-bend buttons' bend towards its target.
 
 Each press or release goes, in this order:

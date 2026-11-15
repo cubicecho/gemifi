@@ -1,6 +1,6 @@
 # gemifi host feedback, as implemented
 
-What a gemifi device does with the MIDI a host (a DAW) sends back to it, and what it sends on its DAW port. This describes the firmware as built (`core/src/midi_in.c`, `core/src/controller.c`, `core/src/mcu.c`) and the YAML that turns each part on (`tools/builder/gemifi_device.py`). The YAML itself is documented in `core/README.md` "DAW feedback".
+What a gemifi device does with the MIDI a host (a DAW) sends back to it, and what it sends on its DAW port. This describes the firmware as built (`core/src/midi_in.c`, `core/src/feedback.c`, `core/src/mcu.c`, and the host side of the leds, analog and encoders components in `components/`) and the YAML that turns each part on (`tools/builder/gemifi_device.py`). The YAML itself is documented in `core/README.md` "DAW feedback".
 
 **Status: host-tested (core unit tests, the NUC host-sim), not yet checked on hardware or in a DAW.** Hardware and DAW checks are tracked in #26 (and its children #7, #18, #21). Plan and background: `research/protocols/daw-feedback-plan.md`, `research/protocols/host-feedback.md`, issue #6.
 
@@ -97,7 +97,7 @@ Note velocity and CC value map to a level, as in Mackie Control:
 | 1 | blinking (about 1 Hz: 500 ms on, 500 ms off) |
 | 2..127 | on |
 
-On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level (or its YAML `active:` look; 0 shows its `idle:` look, components/leds/README.md "LED looks"); only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
+On a bicolour LED (`pin2:`), F1 and MCU light colour 1 only (the `pin:`); there are no levels for colour 2 in F1 yet (D2 in the plan). DAW scripts have bicolour levels (`sysex.md` §4.6.2: 2..63 colour 1, 64..127 colour 2). An RGB LED (`pin3:`) is white for any level (or its YAML `active:` look; 0 shows its `idle:` look, components/leds/README.md "LED looks (idle and active)"); only FB_LED_RGB picks its colour. LEDs are redrawn every 10 ms.
 
 ### 2.5 Pick-up (`takeover: pickup`)
 

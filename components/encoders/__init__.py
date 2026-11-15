@@ -5,7 +5,7 @@ gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str, twin_c, type_name
+from components.api import NO_PIN, RENAMED_ID, Hub, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
 
@@ -60,7 +60,7 @@ def validate(v, dev, data):
                 v.err(f"{p}.{k}", d.line_of(k), f"a Mackie Control V-Pot (mcu:) sends its own messages: drop {k}: "
                                                 "or mcu:")
         cc = v.mode_number(dev, d, p, ENC_MODES[mode], vpot is None, ENCODER_NUMBER_KEYS)
-        ctl = v.control_out(d, p, 16383 if v.mode_wide(dev, ENC_MODES[mode], cc) else 127)
+        ctl = v.control_out(d, p, 16383 if mode_wide(dev, ENC_MODES[mode], cc) else 127)
         spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)

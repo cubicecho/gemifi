@@ -20,9 +20,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import (CURVES, INVERT, MIGRATE_HINT, MMC_COMMANDS, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
+from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
                             PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, a_, c_str, errors,
-                            twin_c, type_name)
+                            f1_on, twin_c, type_name)
 import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment as _comment  # noqa: E402
@@ -31,6 +31,7 @@ from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
 from components import analog, buttons, encoders, key_matrix, leds, modes, pads  # noqa: E402
+from components.buttons import MMC_COMMANDS  # noqa: E402,F401
 from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MAX_MODES, MODE_KEYS,  # noqa: E402,F401
                               STEP_KEYS)
 from components.leds import (LED_DEFAULT_LOOK, LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES,  # noqa: E402,F401
@@ -193,7 +194,6 @@ def stored_counts(dev):
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
-WIDE_MODES = {"cc14", "nrpn14", "rpn14"}       # 14-bit values (a SysEx string with msb / lsb too)
 PRESET_GLOBALS = {
     "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
              "transpose": ("midi.transpose", 0, "int", -24, 24),
@@ -1330,8 +1330,8 @@ class _V:
         self.uses.setdefault(key, []).append((name, u))
 
     def matrix_rows(self, d, path, why, hubs=None):
-        """A matrix's rows (matrix_rows), for a component: on the hubs that give rows by default."""
-        return matrix_rows(self, d, path, ROW_HUBS if hubs is None else hubs, why)
+        """A matrix's rows (matrix_rows), for a component."""
+        return matrix_rows(self, d, path, why, hubs)
 
     def matrix_columns(self, d, path, owner):
         """A matrix's columns (matrix_columns), for a component."""
@@ -1350,7 +1350,7 @@ class _V:
 
     def mcu_name(self, dev, d, p, kind):
         """d's mcu: control of a kind, 'fader' or 'vpot' (mcu_name) -> its number, or None."""
-        return mcu_name(self, dev, d, p, self.mcu_table(kind), f"{kind}_1")
+        return mcu_name(self, dev, d, p, kind)
 
     @staticmethod
     def mcu_table(kind):
@@ -1365,15 +1365,6 @@ class _V:
         """d[key], the id of a midi_messages.sysex string -> its index (sysex_ref)."""
         return sysex_ref(self, dev, d, key, path)
 
-    @staticmethod
-    def sysex_wide(dev, k):
-        """SysEx string k sends 14-bit values (sysex_wide)."""
-        return sysex_wide(dev, k)
-
-    def mmc_command(self, d, path):
-        """d's mmc: -> the MMC command number (mmc_command)."""
-        return mmc_command(self, d, path)
-
     def bank_value(self, d, p):
         """d's bank: -> the Bank Select value (bank_value)."""
         return bank_value(self, d, p)
@@ -1386,24 +1377,9 @@ class _V:
         """analog.cc / encoder.cc from the key the mode takes (mode_number)."""
         return mode_number(self, dev, d, p, mname, required, keys)
 
-    @staticmethod
-    def mode_wide(dev, mname, num):
-        """The mode sends 14-bit values (mode_wide)."""
-        return mode_wide(dev, mname, num)
-
     def control_out(self, d, p, top):
         """channel:, min:, max: -> (min, max, channel) or None (control_out)."""
         return control_out(self, d, p, top)
-
-    @staticmethod
-    def f1_on(dev):
-        """Plain feedback reaches the main port (f1_on)."""
-        return f1_on(dev)
-
-    @staticmethod
-    def f1_off_why(dev):
-        """Why plain feedback is off, for a message (f1_off_why)."""
-        return f1_off_why(dev)
 
     def check_uses(self):
         """A pin used twice is an error, unless every use is a hub control line of the same kind
@@ -2110,10 +2086,12 @@ def mcu_needed(v, dev, path, line):
     return True
 
 
-def mcu_name(v, dev, d, p, table, example):
-    """A component's `mcu:` (fader_1 / vpot_1 / ...) -> its number, or None."""
+def mcu_name(v, dev, d, p, kind):
+    """A component's `mcu:` (fader_1 / vpot_1 / ...), a Mackie Control name of a kind (mcu_table) -> its
+    number, or None."""
     if d.get("mcu") is None:
         return None
+    table = v.mcu_table(kind)
     raw, line = d.raw_of("mcu"), d.line_of("mcu")
     if not mcu_needed(v, dev, f"{p}.mcu", line):
         return None
@@ -2164,18 +2142,6 @@ def check_mcu_unique(v, dev, data):
         if any(k == "ring" for k, _ in b.used_by) and (len(b.used_by) > 1 or b.source):
             v.warn(b.path, b.line, f"LED '{b.id}' is in a V-Pot ring and also used elsewhere: the ring "
                                    "will overwrite it")
-
-
-def f1_on(dev):
-    """Plain feedback reaches the main port: enabled, and the main port isn't the MCU port."""
-    return dev.feedback and not (dev.mcu is not None and dev.mcu.cable == 0)
-
-
-def f1_off_why(dev):
-    if not dev.feedback:
-        return "feedback is off (feedback: { enabled: false })"
-    return ("with mcu: on a single port (no USB DAW port), everything the host sends is read as "
-            "Mackie Control")
 
 
 def validate_screens(v, dev, data):
@@ -2252,9 +2218,11 @@ def validate_hub(v, dev, h, typ, p, line):
     kind.validate(v, dev, hub, h, p, line, ctl)
 
 
-def matrix_rows(v, d, path, hubs, why, role="out"):
-    """Rows of a key_matrix / switch_matrix: a list of pins, or { decoder: <id>, first: n, count: n }
-    for consecutive outputs of a decoder hub."""
+def matrix_rows(v, d, path, why, hubs=None):
+    """Rows of a key_matrix / switch_matrix: a list of pins (on hubs, by default the hubs that give rows;
+    why says why a pin can't be one), or { decoder: <id>, first: n, count: n } for consecutive outputs of a
+    decoder hub."""
+    hubs = ROW_HUBS if hubs is None else hubs
     rows = d.get("rows")
     line = d.line_of("rows") if "rows" in d else d.line
     p = f"{path}.rows"
@@ -2291,7 +2259,7 @@ def matrix_rows(v, d, path, hubs, why, role="out"):
         return []
     if len(rows) > 255:
         v.err(p, line, f"{len(rows)} rows: at most 255")
-    return [v.pin(x, f"{p}[{i}]", rows.line_of(i), role, hubs=hubs, why=why) or NO_PIN
+    return [v.pin(x, f"{p}[{i}]", rows.line_of(i), "out", hubs=hubs, why=why) or NO_PIN
             for i, x in enumerate(rows)]
 
 
@@ -3214,27 +3182,6 @@ def sysex_ref(v, dev, d, key, path):
     return 0
 
 
-def sysex_wide(dev, k):
-    return 0 <= k < len(dev.sysex) and bool(dev.sysex[k].flags & 1)
-
-
-def mmc_command(v, d, path):
-    """mmc: play | stop | ... | 1..127 -> the MMC command byte (button.number)."""
-    x = d["mmc"]
-    if isinstance(x, int) and not isinstance(x, bool):
-        if 1 <= x <= 127:
-            return x
-        v.err(f"{path}.mmc", d.line_of("mmc"), f"{x} is out of range (1..127)")
-        return 0
-    if isinstance(x, str) and x in MMC_COMMANDS:
-        return MMC_COMMANDS[x]
-    close = difflib.get_close_matches(str(d.raw_of("mmc")), list(MMC_COMMANDS), 1)
-    hint = f"did you mean '{close[0]}'? " if close else ""
-    v.err(f"{path}.mmc", d.line_of("mmc"), f"unknown MMC command '{d.raw_of('mmc')}' ({hint}valid: "
-                                           f"{', '.join(MMC_COMMANDS)}, or a number 1..127)")
-    return 0
-
-
 def mode_use(v, dev, mname, path, line):
     """An analog / encoder mode that needs a message kind: it is compiled in."""
     f = MODE_FEATURE.get(mname)
@@ -3243,10 +3190,6 @@ def mode_use(v, dev, mname, path, line):
     if f == "sysex" and not dev.sysex:
         v.err(path, line, "mode sysex sends one of the midi_messages.sysex strings, and there are none")
     dev.msg_used.add(f)
-
-
-def mode_wide(dev, mname, num):
-    return mname in WIDE_MODES or (mname == "sysex" and sysex_wide(dev, num))
 
 
 def mode_number(v, dev, d, p, mname, required, keys):

@@ -3,7 +3,7 @@ and sends what they're set to, this file validates their YAML and writes their C
 builder (gemifi_device.py) calls validate() with the other controls, and c_tables() where
 gm_device_config.c has it.
 """
-from components.api import NO_PIN, RENAMED_ID, Hub, c_str
+from components.api import NO_PIN, RENAMED_ID, Hub, c_str, f1_off_why, f1_on, mode_wide
 from components.hub import c_comment
 from components.xy_pad import XYPad
 
@@ -53,7 +53,7 @@ def validate(v, dev, data):
                 if k in d:
                     v.err(f"{p}.{k}", d.line_of(k), "a Mackie Control fader (mcu:) sends its own messages: "
                                                     f"drop {k}: or mcu:")
-        ctl = v.control_out(d, p, 16383 if v.mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
+        ctl = v.control_out(d, p, 16383 if mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
         lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
         hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
         if lo == hi:
@@ -73,8 +73,8 @@ def validate_takeover(v, dev, d, p, fader):
         v.err(f"{p}.takeover", d.line_of("takeover"), f"unknown takeover '{d.raw_of('takeover')}' "
                                                       f"(valid: {', '.join(TAKEOVER)})")
         return False
-    if t == "pickup" and fader is None and not v.f1_on(dev):
-        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + v.f1_off_why(dev))
+    if t == "pickup" and fader is None and not f1_on(dev):
+        v.err(f"{p}.takeover", d.line_of("takeover"), "pickup needs the host's value: " + f1_off_why(dev))
         return False
     return t == "pickup"
 

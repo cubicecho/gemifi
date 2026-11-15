@@ -7,7 +7,7 @@ import difflib
 import re
 
 import components
-from components.api import NO_PIN, RENAMED_ID, Hub, twin_c
+from components.api import NO_PIN, RENAMED_ID, Hub, f1_off_why, f1_on, twin_c
 from components.hub import c_comment
 
 LED_DEFAULTS_KEYS = ["idle", "active"]
@@ -254,8 +254,8 @@ def validate_led_source(v, dev, d, p):
             v.err(f"{fp}.mcu", kl, f"unknown MCU LED '{f.raw_of('mcu')}'{hint}")
             return None
         return (LED_SOURCES[k], notes[f["mcu"]], 0)
-    if not v.f1_on(dev):
-        v.err(f"{fp}.{k}", kl, f"{k}: is plain feedback, but " + v.f1_off_why(dev))
+    if not f1_on(dev):
+        v.err(f"{fp}.{k}", kl, f"{k}: is plain feedback, but " + f1_off_why(dev))
         return None
     if k in LED_SOURCE_VALUES:
         if f[k] not in LED_SOURCE_VALUES[k]:

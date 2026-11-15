@@ -22,3 +22,6 @@ class Pin:
 
 
 NO_PIN = Pin(0xFF, 0, 0, "-")
+
+# Said after the message for a key that moved onto a base component (old_keys).
+MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"

@@ -47,7 +47,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | done |
 | D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | done |
 | R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | done |
-| F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | approved |
+| F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | done |
 
 ## Model changes
 

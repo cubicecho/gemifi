@@ -16,6 +16,7 @@ class SSD1306(ScreenType):
     time. ESP only for now, as the I2C hubs."""
     platform, enum, num = "ssd1306", "GM_SCREEN_SSD1306", 1
     keys = ("id", "platform", "address", "i2c_id", "model", "width", "height", "contrast", "rotate")
+    old_keys = ("ssd1306",)
     i2c = True
     schema = {"width": (64, 128), "height": (16, 64), "contrast": (0, 255)}
     enums = {"model": list(OLED_MODELS), "rotate": [0, 180]}

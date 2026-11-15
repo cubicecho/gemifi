@@ -20,7 +20,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import INVERT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Pin  # noqa: E402,F401
+from components.api import INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Pin  # noqa: E402,F401
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -421,7 +421,8 @@ RENAMED_TOP = {
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
     "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
     "ssd1306": "moved: an OLED is a display now, ESPHome style: `display: [{ id: oled, platform: ssd1306, "
-               "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)",
+               "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)"
+               + MIGRATE_HINT,
     **HUB_MOVED,
 }
 RENAMED_PIN = {
@@ -3194,7 +3195,7 @@ DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows",
                 "display", "line", "x", "scale", "length"]
 TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
 RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
-                              "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)"}
+                              "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)" + MIGRATE_HINT}
 SEGMENT_KEYS = {"chars", "segment_step", "segment_order"}      # segment types only
 # gm_display.h GM_DISPLAY_*: the C name, and (pins per character, what they are)
 DISPLAY_TYPES = {"segment14": 1, "segment7": 2, "text": 3}

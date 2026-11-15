@@ -18,7 +18,8 @@ class HubType:
     # A platform of a domain: the base component whose YAML list it is in, ESPHome style (led_strip:
     # [{ id, platform: <key>, ... }]); the domain is then the list key and the pin key.
     domain = None
-    old_keys = ()               # older list and pin keys, refused with moved_text()
+    old_keys = ()               # older list and pin keys, refused with moved_text() (gemifi_build.py migrate
+                                # rewrites them)
     enum = ""                   # gm_device.h GM_HUB_*
     num = 0                     # ... its value
     keys = ("id",)              # a hub's YAML keys

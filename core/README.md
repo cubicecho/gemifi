@@ -62,7 +62,7 @@ A **base component** defines what the components on it implement, and holds the 
 
 Each component's README has its YAML keys, its pins and how it runs. A device builds only the components it uses, those they depend on (`DEPENDENCIES`) and the required ones (`REQUIRED`): the builder writes their sources and include dirs into `gm_components.mk` (make) and `gm_components.cmake` (ESP-IDF), and their headers and what they add to the hub and screen structs into `gm_components.h`, next to `gm_device_config.h`.
 
-The YAML keys a component had before are refused, with the new form in the message (`ssd1306:` is `display:` with `platform: ssd1306`; `ws2812:` and `maudio_pad_leds:` are `led_strip:`; `tm1628:`, `max7219:`, `tm1637:` and `ht16k33:` are `led_driver:`).
+The YAML keys a component had before are refused, with the new form in the message (`ssd1306:` is `display:` with `platform: ssd1306`; `ws2812:` and `maudio_pad_leds:` are `led_strip:`; `tm1628:`, `max7219:`, `tm1637:` and `ht16k33:` are `led_driver:`). `gemifi_build.py migrate --write <file>` rewrites a file to the new form ([tools/builder](../tools/builder/README.md)).
 
 ### Pins
 
@@ -98,7 +98,7 @@ buttons:
 
 A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device.
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them.
 2. **`<name>.c`, `<name>.h`**: its C, compiled only into devices that use it. Its folder is an include dir when it has headers.
 3. **`README.md`**: its YAML keys and pins, how it runs, its files and tests, as the others do.
 4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).

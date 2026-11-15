@@ -4,6 +4,7 @@ platform is a hub type in a component of its own (components/ws2812, maudio_pads
 what they share: a byte per colour in the hub RAM, gamma: and white:. The C side is led_strip.h
 (the colour output); README.md.
 """
+from components.api import MIGRATE_HINT
 from components.hub import HubType, c_comment
 
 
@@ -17,7 +18,7 @@ class LedStrip(HubType):
 
     def moved_text(self):
         return (f"moved: an LED strip is `led_strip: [{{ id: strip, platform: {self.key}, ... }}]` now, ESPHome "
-                "style, and its pins `{ led_strip: strip, number: n }`")
+                "style, and its pins `{ led_strip: strip, number: n }`" + MIGRATE_HINT)
 
     def c_tables(self, hub):
         if hub.gamma == 1:

@@ -1,6 +1,7 @@
-"""What the builder gives components: the pin model. A leaf module (it imports nothing of the builder's),
-so a component's __init__.py can import it at load time; the builder (tools/builder/gemifi_device.py)
-imports components, and passes the rest (the validator, the platform) to their calls.
+"""What the builder gives components: the pin model, the record type (Hub) and C strings. A leaf module
+(it imports nothing of the builder's), so a component's __init__.py can import it at load time; the
+builder (tools/builder/gemifi_device.py) imports components, and passes the rest (the validator, the
+platform) to their calls.
 """
 
 # gm_pin_t.flags (core/include/gm_pin.h)
@@ -25,3 +26,24 @@ NO_PIN = Pin(0xFF, 0, 0, "-")
 
 # Said after the message for a key that moved onto a base component (old_keys).
 MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"
+
+
+class Hub:
+    """A record of the device model (a hub, a button, an LED, a mode ...): its fields as attributes."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def c_str(s):
+    """s as a C string literal (UTF-8, escaped)."""
+    out = []
+    for b in s.encode("utf-8"):
+        c = chr(b)
+        if c in '"\\':
+            out.append("\\" + c)
+        elif 32 <= b < 127 and c != "?":   # '?' escaped: no trigraphs
+            out.append(c)
+        else:
+            out.append(f"\\{b:03o}")
+    return '"' + "".join(out) + '"'

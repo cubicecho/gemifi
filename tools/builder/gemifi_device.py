@@ -20,7 +20,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Pin  # noqa: E402,F401
+from components.api import (INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Hub, Pin,  # noqa: E402,F401
+                            c_str)
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -955,12 +956,7 @@ PLATFORMS = {p.name: p for p in [
 # ---------------------------------------------------------------------------------------------
 # the model
 
-# Pin, NO_PIN: components/api.py (imported above).
-
-
-class Hub:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
+# Pin, NO_PIN, Hub (a record: a hub, a button, an LED ...): components/api.py (imported above).
 
 
 class Device:
@@ -5348,17 +5344,7 @@ def load_device(path, text=None, subs=None, preset_dir=None):
 # ---------------------------------------------------------------------------------------------
 # code generation
 
-def c_str(s):
-    out = []
-    for b in s.encode("utf-8"):
-        c = chr(b)
-        if c in '"\\':
-            out.append("\\" + c)
-        elif 32 <= b < 127 and c != "?":   # '?' escaped: no trigraphs
-            out.append(c)
-        else:
-            out.append(f"\\{b:03o}")
-    return '"' + "".join(out) + '"'
+# c_str: components/api.py (imported above).
 
 
 def generate(dev, source="device.yaml"):

@@ -2,7 +2,7 @@
 16), two YAML keys of one hub type (GM_HUB_MUX) on the hub base (components/hub). The YAML and the C:
 README.md here.
 """
-import gemifi_device as gd  # the builder, which loads the components: used at call time only
+from components.api import NO_PIN
 from components.hub import HubType
 
 
@@ -38,7 +38,7 @@ class Mux(HubType):
     def c_fields(self, hub):
         sel = [x.c() for x in hub.sel] + ["GM_NO_PIN"] * (4 - len(hub.sel))
         return [f"        .mux = {{ .sel = {{ {', '.join(sel)} }},",
-                f"                 .common = {(hub.common or gd.NO_PIN).c()}, .enable = {hub.enable.c()}, "
+                f"                 .common = {(hub.common or NO_PIN).c()}, .enable = {hub.enable.c()}, "
                 f".settle_us = {hub.settle_us}, .n_sel = {hub.n_sel} }},"]
 
 

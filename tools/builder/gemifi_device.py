@@ -20,6 +20,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
+from components.api import INVERT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Pin  # noqa: E402,F401
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -469,7 +470,6 @@ typename union unsigned using virtual void volatile wchar_t while xor xor_eq""".
 # read y/n as booleans. An id must read the same everywhere, so these are refused even when quoted.
 YAML_WORDS = {"y", "n", "yes", "no", "on", "off", "true", "false", "null"}
 
-INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
 MIDI_TRANSPORT_MACRO = {"usb": "GM_MIDI_USB", "serial": "GM_MIDI_SERIAL", "ble": "GM_MIDI_BLE"}
 DEFAULT_USB = (0x1209, 0x0002)   # pid.codes test PID (protocol/sysex.md section 7)
 
@@ -733,6 +733,10 @@ class Platform:
         """-> (ok, warning or None)"""
         return False, None
 
+    def adc_text(self):
+        """Its ADC pins, for messages."""
+        return "no ADC pins"
+
 
 class NucPlatform(Platform):
     name = "nuvoton-nuc1xx"
@@ -756,6 +760,9 @@ class NucPlatform(Platform):
             out.append(("error", "NUC1xx GPIOs have no internal pull-down: fit an external one and use "
                                  "mode: INPUT (INPUT_PULLUP uses the quasi-bidirectional mode's weak pull-up)"))
         return out
+
+    def adc_text(self):
+        return "ADC pins: PA0-PA7"
 
     def adc(self, num):
         return num < 8, None   # PA0-PA7 = ADC0-ADC7
@@ -803,6 +810,9 @@ class Stm32F1Platform(Platform):
             out.append(("warning", f"{nm} is in the backup domain: it can only sink about 3 mA and "
                                    "switch slowly (2 MHz); don't drive LEDs from it directly"))
         return out
+
+    def adc_text(self):
+        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
 
     def adc(self, num):
         return num in self.ADC, None
@@ -912,6 +922,9 @@ class EspPlatform(Platform):
             return f"{len(others) + 1} ws2812 strips: {self.name} has {self.rmt_tx} RMT TX channels, one a strip"
         return None
 
+    def adc_text(self):
+        return f"ADC pins: {_ranges(self.adc1 | self.adc2, lambda n: f'GPIO{n}')}"
+
     def adc(self, num):
         if num in self.adc1:
             return True, None
@@ -941,21 +954,7 @@ PLATFORMS = {p.name: p for p in [
 # ---------------------------------------------------------------------------------------------
 # the model
 
-class Pin:
-    """A resolved gm_pin_t: hub 0 = MCU, n = hubs[n-1]; GM_HUB_NONE (0xFF) = no pin."""
-
-    def __init__(self, hub, flags, num, desc):
-        self.hub, self.flags, self.num, self.desc = hub, flags, num, desc
-
-    def c(self):
-        if self.hub == 0xFF:
-            return "GM_NO_PIN"
-        fl = [n for b, n in ((INVERT, "GM_PIN_INVERT"), (PULLUP, "GM_PIN_PULLUP"),
-                             (PULLDOWN, "GM_PIN_PULLDOWN"), (OPEN_DRAIN, "GM_PIN_OPEN_DRAIN")) if self.flags & b]
-        return f"{{ {self.hub}, {' | '.join(fl) or '0'}, {self.num} }}"
-
-
-NO_PIN = Pin(0xFF, 0, 0, "-")
+# Pin, NO_PIN: components/api.py (imported above).
 
 
 class Hub:
@@ -1308,7 +1307,7 @@ class _V:
                 ok, w = self.plat.adc(num)
                 if not ok:
                     self.err(path, line, f"{name} has no ADC on {self.plat.name} "
-                                         f"({adc_text(self.plat)}; or use a mux hub channel)")
+                                         f"({self.plat.adc_text()}; or use a mux hub channel)")
                 elif w:
                     self.warn(path, line, w)
             r = "in" if role == "common" else role
@@ -1351,7 +1350,7 @@ class _V:
             return None
         if role == "analog" and hub.common is not None and not hub.common_adc:
             self.err(path, line, f"hub '{hub.id}' common_pin {hub.common.desc} has no ADC, so its "
-                                 f"channels can't be analog ({adc_text(self.plat)})")
+                                 f"channels can't be analog ({self.plat.adc_text()})")
         if flags & PULLDOWN:
             self.err(path, line, f"a {hub.type} pin has no pull-down")
         if flags & PULLUP and not hub.kind.pullup:
@@ -1495,14 +1494,6 @@ def fmt_us(us):
 def type_name(v):
     return {dict: "mapping", LDict: "mapping", list: "list", LList: "list", str: "string", int: "integer",
             bool: "boolean", float: "number", type(None): "nothing"}.get(type(v), type(v).__name__)
-
-
-def adc_text(plat):
-    if plat.name == "nuvoton-nuc1xx":
-        return "ADC pins: PA0-PA7"
-    if plat.name == "stm32f1":
-        return "ADC pins: PA0-PA7, PB0-PB1, PC0-PC5"
-    return f"ADC pins: {_ranges(plat.adc1 | plat.adc2, lambda n: f'GPIO{n}')}"
 
 
 # ---------------------------------------------------------------------------------------------

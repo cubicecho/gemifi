@@ -43,10 +43,10 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | A2 | API change | `led_strip: [{ id, platform: ws2812 \| maudio_pads, ... }]`, pins `{ led_strip: id, number: n }`, the full-colour LED code in the base; the old `ws2812:` / `maudio_pad_leds:` keys refused with the new form. | M8 | R5, A1 | done |
 | A3 | API change | `led_driver: [{ id, platform: tm1628 \| max7219 \| tm1637 \| ht16k33, ... }]`, pins `{ led_driver: id, number: n }`, the LED-byte RAM and send code in the base; the old keys refused with the new form. | M8 | R5, A1 | done |
 | R7 | Refactor [pattern] | A builder hook for checks across hubs and late resolution, so `resolve_switch_matrices` and the one-`stb_pin` / one-`cs_pin` checks move into their components. | M1: the last hub-specific code in `gemifi_device.py` | R5 | approved |
-| R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | approved |
-| D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | approved |
-| D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | approved |
-| R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | approved |
+| R8 | Refactor [simplify] | A small builder API for components (the pin model, `NO_PIN`, `LList`, `adc_text`) instead of `import gemifi_device as gd` at call time. | Components stop depending on the builder's import order | R5 | done |
+| D2 | Docs | The generated `gm_device_config.h` comments that name `vpin.c` ("links only their drivers", "vpin.c hub_ram") point at the components; changes generated output. | The generated file matches the code | R5 | done |
+| D3 | Docs | `components/ws2812/test/test_ws2812.c` still says "(vpin.c)". | — | R4 | done |
+| R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | done |
 | F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | approved |
 
 ## Model changes

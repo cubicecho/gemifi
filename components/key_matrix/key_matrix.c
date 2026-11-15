@@ -74,8 +74,8 @@ static uint8_t rows_sel;
 #define rows_sel 0
 /* The common software scan gets a loop of its own (matrix_scan_fast): rows
  * on MCU pins with an output register, every column on one input register,
- * no shift-register hubs, contacts on columns (the Keystation). gm_init
- * picks it. */
+ * no shift-register hubs, contacts on columns (the Keystation).
+ * matrix_init picks it (scan_fast_init). */
 #define SCAN_FAST 1
 static uint8_t scan_fast;
 static const volatile uint32_t *fast_in;   /* the columns' input register */
@@ -87,8 +87,14 @@ static uint32_t mraw[FAST_ROWS];    /* each row's last reading & fast_mask */
 #endif
 static uint8_t knote[NK], kchan[NK];
 /* Contacts on rows 2p and 2p+1 (a velocity matrix with contacts: rows, the
- * Code 61), matrix_init: the hardware scan's frames take rows in pairs. */
-static int by_rows_pairs;
+ * Code 61): the scans take rows in pairs, and there's no fast scan. Of the
+ * const config, so the test folds to a constant (a cached copy is a load
+ * more in the scan tick). */
+static int contacts_on_rows(const gm_matrix_t *m)
+{
+    return m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+}
+static int by_rows_pairs;           /* contacts_on_rows, for the hardware scan's frames (matrix_init) */
 #if GM_WRITE_LAST_PRESET
 uint8_t keys_down;
 #define KEY_HELD(on) (keys_down = (uint8_t)((on) ? keys_down + 1u : keys_down ? keys_down - 1u : 0u))
@@ -270,8 +276,7 @@ static void matrix_scan_fast(const gm_matrix_t *m)
  * that way.) */
 __attribute__((noinline)) static void scan_fast_init(const gm_matrix_t *m)
 {
-    scan_fast = rows_fast && cols_fast && !m_hubs && n_runs &&
-                !(m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS);
+    scan_fast = rows_fast && cols_fast && !m_hubs && n_runs && !contacts_on_rows(m);
     fast_in = col_run[0].reg;
     fast_mask = 0;
     for (uint32_t i = 0; i < n_runs; i++) {
@@ -294,7 +299,7 @@ void matrix_scan(void)
     }
 #endif
     uint32_t rows = m->n_rows > FAST_ROWS ? FAST_ROWS : m->n_rows;
-    int by_rows = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+    int by_rows = contacts_on_rows(m);
     uint32_t even = 0;              /* by_rows: this pass's reading of row r - 1 */
     for (uint32_t r = 0; r < rows; r++) {
 #if GM_MATRIX_DECODER
@@ -463,7 +468,7 @@ void keys_off(void)
 void matrix_init(void)
 {
     const gm_matrix_t *m = gm_device.matrix;
-    by_rows_pairs = m->kind == GM_MATRIX_KIND_VELOCITY && m->contacts == GM_MATRIX_CONTACTS_ROWS;
+    by_rows_pairs = contacts_on_rows(m);
     rows_fast = m->n_rows <= FAST_ROWS;
 #if GM_MATRIX_DECODER
     rows_dec = m->n_rows > 0;

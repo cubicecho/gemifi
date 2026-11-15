@@ -85,11 +85,22 @@ test("every component README has a docs page in a known group", () => {
   );
 });
 
+test("the base components are in their own section, out of their groups", () => {
+  const docs = buildDocs();
+  const bases = docs.base.items.map((i) => i.title);
+  assert.ok(bases.includes("hub") && bases.includes("display"), bases.join(", "));
+  for (const i of docs.base.items) {
+    assert.equal(i.of.key, i.title, `${i.title}: the base of another group`);
+    for (const g of docs.groups) assert.ok(!g.items.some((x) => x.url === i.url), `${i.title} is also in ${g.title}`);
+  }
+  for (const g of docs.groups) assert.ok(g.items.length, `${g.title}: empty`);
+});
+
 test("every page in the docs tree is built", () => {
   const docs = buildDocs();
   const urls = [
     ...docs.core.map((c) => c.url),
-    ...docs.groups.flatMap((g) => g.items.map((i) => i.url)),
+    ...[docs.base, ...docs.groups].flatMap((g) => g.items.map((i) => i.url)),
     ...docs.platforms.flatMap((p) => [p.url, ...p.children.map((c) => c.url)]),
     "/docs/",
     "/docs/devices/",

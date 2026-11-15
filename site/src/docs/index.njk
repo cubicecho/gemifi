@@ -6,7 +6,7 @@ permalink: /docs/
 crumb: gemifi
 lede: Everything a device YAML can hold, one page per component as in ESPHome, and the chips and devices it runs on. Each page is a README in the repo, collected when the site is built.
 ---
-<section class="section">
+<section class="section tone tone-overview">
   <h2 id="start">Start here</h2>
   <ul class="card-grid">
     <li><article class="card"><h3><a class="card-link" href="{{ '/get-started/' | url }}">Get started</a></h3><p>Run the dashboard, write a YAML, build and flash.</p></article></li>
@@ -16,8 +16,8 @@ lede: Everything a device YAML can hold, one page per component as in ESPHome, a
   </ul>
 </section>
 
-{% for g in docs.groups %}
-<section class="section">
+{% for g in [docs.base].concat(docs.groups) %}
+<section class="section tone tone-{{ g.key }}">
   <h2 id="{{ g.key }}">{{ g.title }}</h2>
   {% if g.intro %}<p class="section-intro">{{ g.intro }}</p>{% endif %}
   <ul class="card-grid">
@@ -26,7 +26,11 @@ lede: Everything a device YAML can hold, one page per component as in ESPHome, a
       <article class="card">
         <h3><a class="card-link" href="{{ i.url | url }}"><code>{{ i.title }}</code></a></h3>
         <p>{{ i.summary }}</p>
-        {% if i.base %}<div class="card-foot"><span class="docs-nav-base">base component</span></div>{% endif %}
+        {% if i.of %}
+        <div class="card-foot">
+          <span class="docs-base-of tone tone-{{ i.of.key }}">base of {% if i.of.shown %}<a href="#{{ i.of.key }}">{{ i.of.title }}</a>{% else %}{{ i.of.title }}{% endif %}</span>
+        </div>
+        {% endif %}
       </article>
     </li>
     {% endfor %}
@@ -34,7 +38,7 @@ lede: Everything a device YAML can hold, one page per component as in ESPHome, a
 </section>
 {% endfor %}
 
-<section class="section">
+<section class="section tone tone-platforms">
   <h2 id="platforms">Platforms</h2>
   <p class="section-intro">The chip families gemifi builds for. A device YAML picks one with <code>platform:</code>.</p>
   <ul class="card-grid">
@@ -49,7 +53,7 @@ lede: Everything a device YAML can hold, one page per component as in ESPHome, a
   </ul>
 </section>
 
-<section class="section">
+<section class="section tone tone-devices">
   <h2 id="devices">Devices</h2>
   <p class="section-intro">
     <a href="{{ '/docs/devices/' | url }}">Tested devices</a> lists every device YAML in the repo and what has been checked on hardware.

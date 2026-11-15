@@ -5,7 +5,7 @@ layout: base.njk
 <div class="docs">
   <aside class="docs-side">{% include "docs-nav.njk" %}</aside>
   <article class="docs-main">
-    {% if crumb %}<p class="eyebrow">{{ crumb }}</p>{% endif %}
+    {% if crumb %}<p class="eyebrow{% if tone %} tone tone-{{ tone }}{% endif %}">{{ crumb }}</p>{% endif %}
     <h1>{{ title }}</h1>
     {% if lede %}<p class="docs-lede">{{ lede }}</p>{% endif %}
     {{ content | safe }}

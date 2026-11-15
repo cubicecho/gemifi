@@ -297,13 +297,60 @@ main:has(> .docs) {
 .docs-nav-head:first-child {
   margin-top: 0;
 }
-.docs-nav-base {
-  margin-left: 0.35rem;
-  padding: 0 0.4rem;
+/* Each docs section has a tone: a hue at one lightness and chroma, so the
+   heads read as a set. It marks the section's head in the tree, its h2 and
+   cards on the docs home, and the crumb above a page in it. */
+.tone {
+  --tone: oklch(0.52 0.14 var(--tone-h, 250));
+}
+@media (prefers-color-scheme: dark) {
+  .tone {
+    --tone: oklch(0.76 0.13 var(--tone-h, 250));
+  }
+}
+.tone-overview { --tone-h: 250; }
+.tone-base { --tone-h: 300; }
+.tone-controls { --tone-h: 150; }
+.tone-i2c { --tone-h: 185; }
+.tone-hub { --tone-h: 55; }
+.tone-led_strip { --tone-h: 345; }
+.tone-led_driver { --tone-h: 100; }
+.tone-display { --tone-h: 215; }
+.tone-platforms { --tone-h: 25; }
+.tone-devices { --tone-h: 75; }
+.tone-other { --tone: var(--muted-fg); }
+
+.docs-nav-head.tone {
+  padding-left: 0.5rem;
+  border-left: 3px solid var(--tone);
+  color: var(--tone);
+}
+.docs-main > .section.tone > h2 {
+  padding-left: 0.65rem;
+  border-left: 4px solid var(--tone);
+  color: var(--tone);
+}
+.docs-main > .section.tone .card {
+  border-top: 3px solid var(--tone);
+}
+.docs-main > .section.tone .card:hover {
+  border-color: var(--tone);
+}
+.docs-main > .eyebrow.tone {
+  color: var(--tone);
+  font-weight: 600;
+}
+/* On a base component's card: the group it is the base of, lifted above the card's own link. */
+.docs-base-of {
+  position: relative;
+  z-index: 1;
+  padding: 0 0.5rem;
   border-radius: 999px;
-  font-size: 0.72rem;
-  color: var(--muted-fg);
-  background: var(--hairline);
+  border: 1px solid var(--tone);
+  color: var(--tone);
+}
+.docs-base-of a {
+  color: inherit;
 }
 .docs-toc .toc-3 {
   padding-left: 0.75rem;

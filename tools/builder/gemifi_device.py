@@ -1365,9 +1365,9 @@ class _V:
         """d's bank: -> the Bank Select value (bank_value)."""
         return bank_value(self, d, p)
 
-    def mode_use(self, dev, mname, path, line):
-        """An analog / encoder mode that needs a message kind: compiled in (mode_use)."""
-        mode_use(self, dev, mname, path, line)
+    def control_mode(self, dev, d, p, modes):
+        """d's mode: -> its index in modes, or None (control_mode)."""
+        return control_mode(self, dev, d, p, modes)
 
     def mode_number(self, dev, d, p, mname, required, keys):
         """analog.cc / encoder.cc from the key the mode takes (mode_number)."""
@@ -3001,9 +3001,7 @@ def preset_values(v, dev, d, p):
                 a = dev.analogs[idx]
                 m = a.mode
                 if "mode" in o:
-                    m = v.enum_value(o, "mode", f"{cp}.mode", ANALOG_MODES)
-                    if m is not None:
-                        mode_use(v, dev, ANALOG_MODES[m], f"{cp}.mode", line("mode"))
+                    m = control_mode(v, dev, o, cp, ANALOG_MODES)
                     put("analog.mode", idx, m, a.mode, f"{cp}.mode", line("mode"),
                         f"analog.mode[{cid}]", None if m is None else ANALOG_MODES[m])
                     m = a.mode if m is None else m
@@ -3018,9 +3016,7 @@ def preset_values(v, dev, d, p):
                 e = dev.encoders[idx]
                 m = e.mode
                 if "mode" in o:
-                    m = v.enum_value(o, "mode", f"{cp}.mode", ENC_MODES)
-                    if m is not None:
-                        mode_use(v, dev, ENC_MODES[m], f"{cp}.mode", line("mode"))
+                    m = control_mode(v, dev, o, cp, ENC_MODES)
                     put("encoder.mode", idx, m, e.mode, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
                         None if m is None else ENC_MODES[m])
                     m = e.mode if m is None else m
@@ -3176,6 +3172,17 @@ def sysex_ref(v, dev, d, key, path):
     v.err(f"{path}.{key}", d.line_of(key), f"no SysEx string with id '{d.raw_of(key)}' (midi_messages.sysex: "
                                             f"{', '.join(known) or 'none'}{hint})")
     return 0
+
+
+def control_mode(v, dev, d, p, modes):
+    """An analog / encoder's mode: (or a preset's override of it), one of modes -> its index, or None (no
+    mode:, or one that isn't in modes: reported). A mode that needs a message kind compiles it in."""
+    if "mode" not in d:
+        return None
+    m = v.enum_value(d, "mode", f"{p}.mode", modes)
+    if m is not None:
+        mode_use(v, dev, modes[m], f"{p}.mode", d.line_of("mode"))
+    return m
 
 
 def mode_use(v, dev, mname, path, line):

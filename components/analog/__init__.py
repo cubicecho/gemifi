@@ -36,11 +36,7 @@ def validate(v, dev, data):
         v.unique_name(names, "analog input", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
         fader = v.mcu_name(dev, d, p, "fader")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ANALOG_MODES)
-            mode = 0 if mode is None else mode
-            v.mode_use(dev, ANALOG_MODES[mode], f"{p}.mode", d.line_of("mode"))
+        mode = v.control_mode(dev, d, p, ANALOG_MODES) or 0
         if mode != 0 and fader is not None:
             v.err(f"{p}.mode", d.line_of("mode"), "a Mackie Control fader (mcu:) sends its own messages: "
                                                   f"drop mode: {ANALOG_MODES[mode]} or mcu:")

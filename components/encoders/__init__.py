@@ -50,11 +50,7 @@ def validate(v, dev, data):
                 v.warn(f"{p}.{key}", d.line_of(key), "encoder on an I2C hub is polled from the main "
                                                      "loop: fast spinning may miss steps")
         vpot = v.mcu_name(dev, d, p, "vpot")
-        mode = 0
-        if "mode" in d:
-            mode = v.enum_value(d, "mode", f"{p}.mode", ENC_MODES)
-            mode = 0 if mode is None else mode
-            v.mode_use(dev, ENC_MODES[mode], f"{p}.mode", d.line_of("mode"))
+        mode = v.control_mode(dev, d, p, ENC_MODES) or 0
         for k in ("mode", "channel", "min", "max"):
             if k in d and vpot is not None:
                 v.err(f"{p}.{k}", d.line_of(k), f"a Mackie Control V-Pot (mcu:) sends its own messages: drop {k}: "

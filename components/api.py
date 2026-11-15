@@ -121,8 +121,8 @@ def errors(diags):
     return [d for d in diags if d.level == "error"]
 
 
-def a_(kind):
-    """'an LED', 'an analog input', 'a button'."""
+def with_article(kind):
+    """kind with its indefinite article: 'an LED', 'an analog input', 'a button'."""
     return f"{'an' if kind[:1] in 'aeiouAEIOUL' else 'a'} {kind}"
 
 

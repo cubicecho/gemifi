@@ -21,11 +21,11 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
 from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
-                            PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, a_, c_str, errors,
-                            f1_on, type_name)
+                            PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, c_str, errors, f1_on,
+                            type_name, with_article)
 import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
-from components.hub import c_comment as _comment  # noqa: E402
+from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
@@ -1084,8 +1084,8 @@ class _V:
             k0, p0, l0, _, d0 = self.ids[v]
             how = lambda pth, dn: f"{pth} (derived from its name '{dn}')" if dn else pth  # noqa: E731
             self.err(f"{path}.{'name' if derived else 'id'}", line,
-                     f"id '{v}' of {how(path, derived)} is already the id of {how(p0, d0)} (line {l0}, {a_(k0)}); "
-                     "ids are unique across the device: set a different id:")
+                     f"id '{v}' of {how(path, derived)} is already the id of {how(p0, d0)} (line {l0}, "
+                     f"{with_article(k0)}); ids are unique across the device: set a different id:")
             return None
         self.ids[v] = (kind, path, line, index, derived)
         return v
@@ -1146,7 +1146,8 @@ class _V:
             self.err(path, line, f"no {kind} with id '{raw}'{extra} ({plural}: {', '.join(known) or 'none'}{hint})")
             return None
         if target[0] != kind:
-            self.err(path, line, f"'{raw}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+            self.err(path, line, f"'{raw}' is the id of {target[1]} ({with_article(target[0])}), not of "
+                                 f"{with_article(kind)}")
             return None
         return target[3]
 
@@ -2551,7 +2552,7 @@ def screen_tables(dev):
         return []
     c = ['#include "gm_screen.h"', "const gm_screen_t gm_screens[GM_N_SCREENS] = {"]
     for x in dev.screens:
-        c.append(f"    {{ /* {_comment(x.id)} */")
+        c.append(f"    {{ /* {c_comment(x.id)} */")
         c.append(f"        .type = {x.kind.enum}, .width = {x.width}, .height = {x.height},")
         c += x.kind.c_fields(x)
         c.append("    },")
@@ -2570,21 +2571,21 @@ def display_tables(dev):
             c.append(f"static const gm_pin_t display_{i}_map[{len(x.segs) * nseg}] = {{")
             for k, run in enumerate(x.segs):
                 c.append(f"    /* character {k} */")
-                c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in run]
+                c += [f"    {pn.c()}, /* {c_comment(pn.desc)} */" for pn in run]
             c.append("};")
         elif x.chars is not None:
             c.append(f"static const gm_pin_t display_{i}_chars[{len(x.chars)}] = {{")
-            c += [f"    {pn.c()}, /* {_comment(pn.desc)} */" for pn in x.chars]
+            c += [f"    {pn.c()}, /* {c_comment(pn.desc)} */" for pn in x.chars]
             c.append("};")
     c.append("const gm_display_t gm_displays[GM_N_DISPLAYS] = {")
     for i, x in enumerate(dev.displays):
         if x.type == DISPLAY_TEXT:
             c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, 0, 0, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, {x.screen}, "
-                     f"{x.at} }}, /* {_comment(x.id)}: {_comment(x.at_desc)} */")
+                     f"{x.at} }}, /* {c_comment(x.id)}: {c_comment(x.at_desc)} */")
             continue
         where = f"0, display_{i}_map" if x.segs is not None else f"display_{i}_chars, 0"
         c.append(f"    {{ {DISPLAY_C[x.type]}, {x.n}, {where}, {DISPLAY_SHOWS_C[x.shows]}, {x.scale}, 0, 0 }}, "
-                 f"/* {_comment(x.id)} */")
+                 f"/* {c_comment(x.id)} */")
     c += ["};", ""]
     return c
 
@@ -2666,8 +2667,8 @@ def layout_control(v, dev, ctl, cid, seen):
             # A warning: a device built on a package may !remove a control the package's layout places.
             v.warn(p, line, f"no control with id '{cid}': not drawn{hint}")
         else:
-            v.err(p, line, f"'{cid}' is {a_(target[0])}: layout: places buttons, analog inputs, encoders, pads "
-                           f"and displays{hint}")
+            v.err(p, line, f"'{cid}' is {with_article(target[0])}: layout: places buttons, analog inputs, encoders, "
+                           f"pads and displays{hint}")
         return None
     kind, index = target[0], target[3]
     comp = {"button": dev.buttons, "analog input": dev.analogs, "encoder": dev.encoders,
@@ -2684,7 +2685,7 @@ def layout_control(v, dev, ctl, cid, seen):
     x0, y0, w, h, given = r
     shape = given or dshape
     if shape not in allowed:
-        v.err(f"{p}.shape", line, f"{a_(kind)} can't be drawn as '{shape}' (use {' | '.join(allowed)})")
+        v.err(f"{p}.shape", line, f"{with_article(kind)} can't be drawn as '{shape}' (use {' | '.join(allowed)})")
         return None
     extra = []
     if shape == "xy":
@@ -2808,7 +2809,7 @@ def layout_tables(dev):
          "shape, x, y, w, h, extras */",
          "const uint8_t gm_layout[GM_LAYOUT_BYTES] = {",
          f"    {LAYOUT_VERSION}, {width}, {height}, {len(items) & 0xFF}, {len(items) >> 8},"]
-    c += [f"    {', '.join(map(str, layout_item_bytes(it)))}, /* {_comment(it.id)}: {names[it.shape]} */"
+    c += [f"    {', '.join(map(str, layout_item_bytes(it)))}, /* {c_comment(it.id)}: {names[it.shape]} */"
           for it in items]
     return c + ["};", ""]
 
@@ -3306,7 +3307,7 @@ def msg_tables(dev):
         rows = []
         for x in lst:
             lo, hi, ch = getattr(x, "ctl", None) or (0, CTL_TOP, 0)
-            rows.append(f"    {{ {lo}, {'GM_CTL_TOP' if hi == CTL_TOP else hi}, {ch} }}, /* {_comment(x.id)} */")
+            rows.append(f"    {{ {lo}, {'GM_CTL_TOP' if hi == CTL_TOP else hi}, {ch} }}, /* {c_comment(x.id)} */")
         return [f"const gm_ctl_t {cname}[{count}] = {{", *rows, "};", ""]
 
     c.append("/* MIDI messages: per control { min, max, channel } (channel 0 = midi.channel) */")
@@ -3318,7 +3319,7 @@ def msg_tables(dev):
         c += ctl_table("gm_encoder_ctl", "GM_N_ENCODERS", dev.encoders)
     if any(getattr(b, "bank", None) is not None for b in dev.buttons):
         c.append("const uint16_t gm_button_bank[GM_N_BUTTONS] = { /* Bank Select before a program action */")
-        c += [f"    {'GM_BANK_NONE' if getattr(b, 'bank', None) is None else b.bank}, /* {_comment(b.id)} */"
+        c += [f"    {'GM_BANK_NONE' if getattr(b, 'bank', None) is None else b.bank}, /* {c_comment(b.id)} */"
               for b in dev.buttons]
         c += ["};", ""]
     if any(getattr(e, "mode", 0) for e in dev.encoders):
@@ -3329,8 +3330,8 @@ def msg_tables(dev):
     if dev.sysex:
         for k, x in enumerate(dev.sysex):
             body = ", ".join(f"0x{b:02X}" for b in x.data)
-            c.append(f"static const uint8_t sysex_{k}[{len(x.data)}] = {{ {body} }}; /* {_comment(x.id)}: "
-                     f"{_comment(x.text)} */")
+            c.append(f"static const uint8_t sysex_{k}[{len(x.data)}] = {{ {body} }}; /* {c_comment(x.id)}: "
+                     f"{c_comment(x.text)} */")
         c.append("const gm_sysex_t gm_sysex[GM_N_SYSEX] = {")
         c += [f"    {{ sysex_{k}, {len(x.data)}, {x.flags} }}," for k, x in enumerate(dev.sysex)]
         c += ["};", ""]
@@ -3399,7 +3400,7 @@ def preset_ref(v, cid, path, line, kind, plural):
     if target is not None and target[0] == kind:
         return target[3]
     if target is not None:
-        v.err(path, line, f"'{cid}' is the id of {target[1]} ({a_(target[0])}), not of {a_(kind)}")
+        v.err(path, line, f"'{cid}' is the id of {target[1]} ({with_article(target[0])}), not of {with_article(kind)}")
         return None
     known = [i for i, t in v.ids.items() if t[0] == kind]
     close = difflib.get_close_matches(str(cid), known, 1)
@@ -3663,7 +3664,7 @@ def load_device(path, text=None, subs=None, preset_dir=None):
 
 def generate(dev, source="device.yaml"):
     """-> {"gm_device_config.h": str, "gm_device_config.c": str, "gm_components.h": str}"""
-    src = _comment(source)
+    src = c_comment(source)
     head = (f"/* gm_device_config: do not edit; generated from {src}\n"
             f" * by tools/builder/gemifi_build.py (format: core/README.md). */\n")
     m = dev.matrix
@@ -3714,7 +3715,7 @@ def generate(dev, source="device.yaml"):
         for x in dev.hubs:
             spi = Stm32F1Platform.LEDSTRIP_SPI.get(x.data.num) if x.type == "ws2812" and x.data.hub == 0 else None
             if spi:
-                h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{_comment(x.id)}' on "
+                h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{c_comment(x.id)}' on "
                          f"{x.data.desc}: a frame's bytes (platform/stm32f1/src/hal.c) */")
     if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
@@ -3753,7 +3754,7 @@ def generate(dev, source="device.yaml"):
         c.append("static const gm_hub_t hubs[GM_N_HUBS] = {")
         for hb in dev.hubs:
             fields = hb.kind.c_fields(hb)
-            c += [f"    {{ /* {hb.index + 1}: {_comment(hb.id)} ({hb.type}) */",
+            c += [f"    {{ /* {hb.index + 1}: {c_comment(hb.id)} ({hb.type}) */",
                   f"        .type = {hb.kind.enum}, {fields[0].lstrip()}", *fields[1:], "    },"]
         c += ["};", ""]
     c += buttons.c_tables(dev)
@@ -3972,7 +3973,7 @@ def feedback_tables(dev):
         for x, (src, owner, timeout) in zip(dev.leds, rows):
             to = "GM_TIMEOUT_NEVER" if timeout == TIMEOUT_NEVER else str(timeout)
             c.append(f"    {{ {SOURCE_ENUM[src[0]]}, {src[1]}, {src[2]}, {OWNER_ENUM[owner]}, {to} }}, "
-                     f"/* {_comment(x.id)} */")
+                     f"/* {c_comment(x.id)} */")
         c += ["};", ""]
     if any(a.pickup for a in dev.analogs):
         c.append("const uint8_t gm_analog_pickup[GM_N_ANALOGS] = { " +
@@ -3996,7 +3997,7 @@ def feedback_tables(dev):
             center = "GM_RING_NO_CENTER" if getattr(e, "ring_center", None) is None else str(e.ring_center)
             if e.ring:
                 c.append(f"static const uint8_t ring_{i}[{len(e.ring)}] = {{ {', '.join(map(str, e.ring))} }}; "
-                         f"/* {_comment(e.id)} */")
+                         f"/* {c_comment(e.id)} */")
                 rings.append(f"{{ ring_{i}, {len(e.ring)}, {center} }}")
             else:
                 rings.append(f"{{ 0, 0, {center} }}")
@@ -4064,8 +4065,8 @@ def preset_tables(dev):
         arr = "0"
         if pr.vals:
             arr = f"preset_{n}_vals"
-            c.append(f"static const gm_preset_val_t {arr}[{len(pr.vals)}] = {{ /* {_comment(pr.name)} */")
-            c += [f"    {{ {pid}, {idx}, {val} }}, /* {_comment(text)} */" for pid, idx, val, text in pr.vals]
+            c.append(f"static const gm_preset_val_t {arr}[{len(pr.vals)}] = {{ /* {c_comment(pr.name)} */")
+            c += [f"    {{ {pid}, {idx}, {val} }}, /* {c_comment(text)} */" for pid, idx, val, text in pr.vals]
             c.append("};")
         prog = "GM_PROGRAM_NONE" if pr.program < 0 else str(pr.program)
         rows.append(f"    {{ {c_str(pr.name)}, {prog}, {len(pr.vals)}, {arr} }}, /* slot {n} */")
@@ -4080,7 +4081,7 @@ def component_lists(dev, source):
                            components.controls(dev))
     srcs = [s for name in used for s in components.sources(name)]
     incs = [f"components/{name}" for name in used if components.has_headers(name)]
-    head = (f"gm_components: do not edit; generated from {_comment(source)} by tools/builder/gemifi_build.py.\n"
+    head = (f"gm_components: do not edit; generated from {c_comment(source)} by tools/builder/gemifi_build.py.\n"
             "The components this device builds (components/<name>/), their C sources and include dirs, under the\n"
             "repo root GM_ROOT, which the including build sets.")
     mk = ["\n".join(f"# {line}" for line in head.split("\n")),
@@ -4110,7 +4111,7 @@ def component_header(dev, source):
 
     def macro(name, items):
         return f"#define {name}" + "".join(f" \\\n    {i}" for i in items)
-    lines = [f"/* gm_components.h: do not edit; generated from {_comment(source)}",
+    lines = [f"/* gm_components.h: do not edit; generated from {c_comment(source)}",
              " * by tools/builder/gemifi_build.py. The C side of the components this device builds:",
              " * their headers, and what they add to the hub base (components/hub/gm_hub.h) and the",
              " * display base (components/display/gm_screen.h). */",

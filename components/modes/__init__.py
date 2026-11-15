@@ -6,7 +6,7 @@ gm_device_config.c has it.
 import difflib
 import re
 
-from components.api import CURVES, WHITE, Hub, LDict, a_, c_str, errors
+from components.api import CURVES, WHITE, Hub, LDict, c_str, errors, with_article
 from components.buttons import ACTION_IDS, button_action
 from components.hub import c_comment
 from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, colour_exact, colour_look,
@@ -482,7 +482,7 @@ def mode_layer(v, dev, m, layer, lp, ll):
             known = [i for i, t in v.ids.items() if t[0] in ("button", "pad", "encoder")]
             close = difflib.get_close_matches(str(bid), known, 1)
             hint = f"; did you mean '{close[0]}'?" if close else ""
-            what = f"is the id of {target[1]} ({a_(kind)})" if target else "matches nothing"
+            what = f"is the id of {target[1]} ({with_article(kind)})" if target else "matches nothing"
             v.err(path, line, f"no button, pad or encoder with id '{bid}': it {what}{hint}")
             continue
         idx = target[3]

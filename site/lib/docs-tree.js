@@ -24,7 +24,7 @@ import {
   resolveLink,
 } from "./repo-docs.js";
 
-/** The component groups in tree order; a group's base component (same key) comes first. */
+/** The component groups in tree order. A group's base component (same key) is listed under BASE instead. */
 export const GROUPS = [
   { key: "controls", title: "Controls", intro: "What the player plays. Each is built when the device has it." },
   { key: "i2c", title: "Buses", intro: "The buses other components sit on." },
@@ -38,6 +38,13 @@ export const GROUPS = [
   { key: "display", title: "Displays", intro: "Screens, each on a platform, and the text shown on them." },
   { key: "other", title: "Other", intro: "" },
 ];
+
+/** The base components, out of their groups: what each group's components are built on. */
+export const BASE = {
+  key: "base",
+  title: "Base components",
+  intro: "The base of each group: the YAML list its components go in, and what they share.",
+};
 
 const CORE = [
   { file: "core/README.md", url: "/docs/core/", title: "Device YAML and the core", label: "Device YAML" },
@@ -102,22 +109,30 @@ export function buildDocs() {
     };
   });
 
-  // Components into their groups, the base first, with a line each for the docs home.
+  // Components into their groups, with a line each for the docs home. A group's base component goes in the
+  // base group instead, so a group lists only what is built on it (and one that is only its base drops out).
   const groups = GROUPS.map((g) => ({ ...g, items: [] }));
+  const base = { ...BASE, items: [] };
   for (const c of components) {
     const page = rendered.find((r) => r.url === c.url);
     const key = componentGroup(c.name, readRepo(c.file));
     const group = groups.find((g) => g.key === key) ?? groups.find((g) => g.key === "other");
-    page.group = group.title;
     page.summary = componentSummary(c.name);
     page.base = c.name === group.key;
-    group.items.push({ title: c.name, url: c.url, summary: page.summary, base: page.base });
+    const home = page.base ? base : group;
+    page.group = home.title;
+    page.tone = home.key;
+    home.items.push({ title: c.name, url: c.url, summary: page.summary, of: page.base ? group : undefined });
   }
-  for (const g of groups) g.items.sort((a, b) => Number(b.base) - Number(a.base) || a.title.localeCompare(b.title));
+  const shown = groups.filter((g) => g.items.length);
+  for (const g of [base, ...shown]) g.items.sort((a, b) => a.title.localeCompare(b.title));
+  // A base names its group, linked on the docs home when the group is shown.
+  for (const i of base.items) i.of = { key: i.of.key, title: i.of.title, shown: shown.includes(i.of) };
 
   cache = {
     core: CORE.map((c) => ({ title: c.label, url: specs.find((s) => s.file === c.file).url })),
-    groups: groups.filter((g) => g.items.length),
+    base,
+    groups: shown,
     platforms: platformItems,
     pages: rendered,
     /** A repo path (with an optional #anchor) as a site link: its doc page if it has one, else GitHub. */

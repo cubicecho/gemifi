@@ -48,4 +48,4 @@ It reads the scan's `scan_ticks` (the time a key's contacts are measured in), an
 
 ## Tests
 
-In `core/test/`: `test_controller.c` (the Keystation: velocity, octave, the fast scan, and again with `GM_TEST_SLOW_COLS=1` for the column runs), `test_matrix.c` (`matrix-test.yaml`: decoder rows, row-pair contacts, the key map; built again against `matrix-hw-test.yaml` for the hardware scan) and `test_modes.c` (mode keys).
+In `core/test/`: `test_controller.c` (the Keystation: velocity, octave, the fast scan, the keys of its Edit mode's `keys:`, and again with `GM_TEST_SLOW_COLS=1` for the column runs and `GM_TEST_SLOW_ROWS=1` for rows by pin writes) and `test_matrix.c` (`matrix-test.yaml`: decoder rows, row-pair contacts, the key map; built again against `matrix-hw-test.yaml` for the hardware scan).

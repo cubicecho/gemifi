@@ -51,7 +51,7 @@ Each pad goes through four states: blocked (at start-up, until it reads below `p
 ## What it shares
 
 Through `core/include/gm_controls.h`:
-- `pad_state` and `pad_lit`, which the LEDs show;
+- `pad_state` and `pad_lit`, which the LEDs show, and `pad_owner`, which of the pad and its twins took the last hit, so whose LED lights;
 - `pad_live`, the live layer twin of each pad, which the modes (`layers_update`) write;
 - `pad_raw`, the last readings, for the raw readings (`GM_MONITOR`).
 

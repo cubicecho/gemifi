@@ -22,8 +22,6 @@
 #if GM_N_BUTTONS > 0
 #define BEND_SEND_MS 2u             /* pitch bend buttons: at most one bend per 2 ms while it glides */
 uint64_t btn_stable, btn_toggled;
-/* Held, and the press went to this button: a layer twin and its base read
- * the same pin, but only the live one takes the press (and its release). */
 uint64_t btn_held;
 #if GM_LAYERS
 uint64_t btn_live = ~0ull;
@@ -302,12 +300,12 @@ void buttons_sample(void)
     }
 }
 
-/* Called once per elapsed millisecond. */
 /* The buttons set to cc_ramp, worked out again when a param changes: the
  * millisecond loop looks at those only. */
 static btn_bits_t ramp_mask;
 static uint32_t ramp_gen;
 
+/* Called once per elapsed millisecond. */
 void ramps_ms(uint32_t now)
 {
     if (ramp_gen != params_gen || !params_gen) {

@@ -594,8 +594,8 @@ void gm_poll(void)
 
     /* Keys and buttons first, and their MIDI to the host at once: nothing
      * below (protocol, presets, analog, LEDs, the display, the TM1628 bus)
-     * stands between a key and its USB packet. Keys still go before buttons,
-     * as before. Part numbers name the part, not the order. */
+     * stands between a key and its USB packet. Keys go before buttons. Part
+     * numbers name the part, not the order. */
 #if GM_HAS_MATRIX
     keys_poll();
 #endif

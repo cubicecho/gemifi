@@ -367,13 +367,9 @@ static uint32_t velocity(uint16_t dt_ticks)
 {
     if (gm_cfg.vel_curve == CURVE_FIXED || gm_device.matrix->kind != GM_MATRIX_KIND_VELOCITY)
         return (uint32_t)gm_cfg.vel_fixed;
-    /* In microseconds: a hardware scan's ticks (frames) are a few tens of
-     * us, finer than the 0.1 ms steps of vel_fast / vel_slow. The tick
-     * period is in 1/16 us. (dt * q4) >> 4 as two products that fit 32
-     * bits, dt <= 0xFFFF (kq_push saturates it) and q4 < 2^20 (the scan
-     * period is at most 0xFFFF us; the platforms slow it to 5 ms at most,
-     * frames are tens of us): no divide. A time of 2^28 or more (the whole
-     * product over 32 bits) saturates there, as it always has. */
+    /* The key time in us (the tick period q4 is 1/16 us): (dt * q4) >> 4
+     * as two products that fit 32 bits (dt <= 0xFFFF, q4 < 2^20), no
+     * divide; 2^28 us or more saturates. */
     uint32_t q4 = gm_scan_period_us * 16u;
 #if GM_HW_SCAN
     if (hw_on)

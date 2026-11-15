@@ -1,22 +1,10 @@
 /*
  * pads.c: the velocity pads (pads:, pad_settings:), a control component
- * (README.md here). Called from the main loop (core/src/controller.c
- * gm_poll); shares its state through gm_controls.h.
- *
- * Every pad is read once per ms from the main loop, like the analog inputs
- * (with the hardware analog scan: its strongest reading of the ~5 sweeps
- * since the last pass, vpin_analog_peak):
- * they share the mux select lines and the one ADC, so reading them from the
- * scan interrupt would race with the main loop's reads. A hit: the reading
- * crosses pad.threshold, the peak over the next pad.window ms gives the
- * velocity (pad.threshold..pad.full -> 1..127, then pad.curve), and the pad
- * is let go below pad.release. A soft one (peak under twice pad.threshold)
- * that falls below pad.release again within PAD_MIN_MS is noise, not a hit:
- * the Code 61's pads see such spikes (velocity 1-3) while the pad board's
- * LEDs change. A hard short strike still counts.
- * pad.retrigger ms after a release must pass before the next hit. A pad
- * that reads high at start-up stays silent until it first reads below
- * pad.release (wrong polarity, or held).
+ * (README.md here, which describes a hit): reading them and playing their
+ * hits. The main loop (core/src/controller.c gm_poll) calls pads_scan once
+ * per ms, which reads every pad (with the hardware analog scan: its
+ * strongest reading since the last pass, vpin_analog_peak). Shares its
+ * state through gm_controls.h.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -28,7 +16,9 @@
 
 #if GM_N_PADS > 0
 #define PAD_AT_MS 10u               /* poly aftertouch: at most once per 10 ms per pad */
-#define PAD_MIN_MS 3u               /* a soft hit stays at or above pad.release this long */
+/* A soft hit (peak under twice pad.threshold) that falls below pad.release
+ * within this is noise, not a hit (spikes while a pad board's LEDs change). */
+#define PAD_MIN_MS 3u
 uint8_t pad_state[NP];
 static uint8_t pad_note[NP], pad_ch[NP], pad_at[NP];
 static uint16_t pad_peak[NP];

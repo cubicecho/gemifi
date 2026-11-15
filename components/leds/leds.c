@@ -187,8 +187,8 @@ void gm_host_release(uint32_t what)
 }
 
 /* Who drives LED i (core/README.md "LED ownership"). local = the device's
- * own state for it (its button's), LOCAL_HAS set; an LED no button uses has
- * no local state, so the host always drives it. now10 = hal_millis() / 10. */
+ * own state for it (its button's or pad's), LOCAL_HAS set; an LED no button
+ * or pad uses has no local state, so the host always drives it. now10 = hal_millis() / 10. */
 #define LOCAL_HAS 0x80u
 static uint32_t led_level(uint32_t i, uint32_t local, uint32_t now10)
 {

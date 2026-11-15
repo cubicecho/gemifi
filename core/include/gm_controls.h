@@ -124,8 +124,7 @@ void sysex_send(uint32_t k, uint32_t v, uint8_t ch);   /* SysEx string k with va
  * scan since the sample before: 1 ms), so a quick tap is never lost; a
  * release counts once no scan has read it closed for BTN_STABLE samples in a
  * row (16 ms), which rides out contact bounce and a light press losing
- * contact for a moment (on the Code 61, 4 ms and sometimes 10 ms counted a
- * press twice). */
+ * contact for a moment. */
 #define BTN_STABLE 16u
 /* A reading of every button, one bit each, in the narrowest type that holds
  * GM_N_BUTTONS (64-bit shifts are library calls on a Cortex-M0). */
@@ -300,8 +299,12 @@ void analog_pickup_off(void);           /* every input back in control of its va
 #else
 #define ENC_CH(i) midi_chan()
 #endif
-/* Detents, free running: only encoder_step writes it (the scan interrupt,
- * or the main loop for I2C hubs). */
+/* Detents, free running, per scanned encoder (twins have none): only
+ * encoder_step writes it (the scan interrupt, or the main loop for I2C
+ * hubs, never both for one encoder), and encoders_poll takes the turns as
+ * the change since its last look. No read-modify-write from both sides, so
+ * a detent counted between the main loop's load and store isn't lost (the
+ * M0 has no LDREX; a halfword load or store is atomic). */
 extern volatile uint16_t enc_count[GM_ARR(NE_HW)];   /* encoders; the raw readings read it */
 extern uint8_t enc_i2c[GM_ARR(NE_HW)];  /* encoders (encoders_init): on an I2C hub, stepped from the main loop */
 extern int16_t enc_value[NE];           /* encoders, and host feedback (enc_at): an absolute position */

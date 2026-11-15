@@ -18,14 +18,8 @@
 /* Scan state: only the scanned encoders (NE_HW) have it, not their twins. */
 static uint8_t enc_ab[GM_ARR(NE_HW)];
 static int8_t enc_acc[GM_ARR(NE_HW)];
-/* Detents, free running: only encoder_step writes it (the scan interrupt,
- * or the main loop for I2C hubs, never both for one encoder), and the main
- * loop takes the turns as count - enc_seen. No read-modify-write from both
- * sides, so a detent counted between the main loop's load and store isn't
- * lost (the M0 has no LDREX; a halfword load or store is atomic). Twins
- * aren't scanned: only the scanned encoders have counts. */
 volatile uint16_t enc_count[GM_ARR(NE_HW)];
-static uint16_t enc_seen[GM_ARR(NE_HW)];
+static uint16_t enc_seen[GM_ARR(NE_HW)];   /* enc_count at encoders_poll's last look */
 uint8_t enc_i2c[GM_ARR(NE_HW)];
 int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
@@ -199,7 +193,7 @@ void encoders_poll(uint32_t now)
 #if GM_ENC_ACCEL
         int32_t d = enc_accel(p, raw, now);
 #else
-        int16_t d = raw;            /* as before acceleration: the same code */
+        int16_t d = raw;            /* one step per detent */
         (void)now;
 #endif
         send_event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);

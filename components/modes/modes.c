@@ -349,14 +349,14 @@ int mode_function_button(uint32_t i, int down)
     return 0;
 }
 
-/* What LED li shows instead of level: after a preset switch from a mode,
- * its count LED blinks the slot number, then it and the done LED flash
- * once; while a mode is active (or its hold button held), its LED is lit
- * (or blinks). */
 /* An int8_t LED reference (-1 = none) is LED li. Compared unsigned: a
  * device has up to 255 LEDs, and (int8_t)li is negative from 128 on. */
 #define LED_IS(ref, li) ((ref) >= 0 && (uint32_t)(ref) == (li))
 
+/* What LED li shows instead of level: after a preset switch from a mode,
+ * its count LED blinks the slot number, then it and the done LED flash
+ * once; while a mode is active (or its hold button held), its LED is lit
+ * (or blinks). */
 uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 {
     if (show_n) {

@@ -2648,7 +2648,7 @@ list:
         self.assertIn(" preset 2 name=Drums program=-1 n=6 vals=ptr", out)
 
 
-# ---- modes (research/core/presets-design.md §6, core/README.md "Modes") ----
+# ---- modes (research/core/presets-design.md §6, components/modes/README.md "Modes") ----
 
 MODES_NUC = MINIMAL_NUC + """\
   - { id: menu, pin: PA2, led: menu_led }
@@ -2756,7 +2756,7 @@ class TestModes(unittest.TestCase):
         self.assertNotIn("gm_mode_names", c)
 
     def test_layer_pads_and_encoders(self):
-        """Pad and encoder twins, and a twin of the with: toggle itself (core/README.md "Button layers")."""
+        """Pad and encoder twins, and a twin of the with: toggle itself (components/modes/README.md "Button layers")."""
         text = modes(self.GRID + "    kick: { daw: clip_1_1, idle: off, active: colour2 }\n    snare: { daw: clip_2_1 }\n"
                      "    e1: { cc: 41, daw: pan_1 }\n    e2: { name: Pan 2 }\n    sel: { daw: grid_left }\n",
                      self.LAYER_BASE)
@@ -2837,7 +2837,7 @@ class TestModes(unittest.TestCase):
              "    - { id: pan, colour: red, enabled: false, layer: { e1: { cc: 41, daw: pan_1 }, e2: { cc: none } } }\n")
 
     def test_cycle(self):
-        """cycle: + steps: (core/README.md "Cycles"): one root mode per step, the cycle's button on each."""
+        """cycle: + steps: (components/modes/README.md "Cycles"): one root mode per step, the cycle's button on each."""
         text = modes(self.CYCLE + "- id: arm\n  toggle: { button: menu }\n  layer: { e2: { cc: 50 } }\n",
                      self.CYCLE_BASE)
         self.assertClean(text)
@@ -3369,7 +3369,7 @@ class TestPads(unittest.TestCase):
         self.assertEqual({p.pin.hub for p in dev.pads}, {hubs["pad_mux_a"], hubs["pad_mux_b"]})
 
 
-# ---- encoder acceleration (core/README.md "Encoder acceleration") ----
+# ---- encoder acceleration (components/encoders/README.md "Encoder acceleration") ----
 
 ENC_NUC = MINIMAL_NUC + """\
 encoders:

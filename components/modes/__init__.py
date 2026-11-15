@@ -27,10 +27,10 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
 MODE_KEYS = ["id", "toggle", "hold", "parent", "cycle", "led", "preset_blink", "keys", "buttons", "layer", "steps"]
-STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (core/README.md "Cycles")
+STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (components/modes/README.md "Cycles")
 MAX_STEPS = 8
 MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
-# modes[].layer.<button, pad or encoder id>: what its twin is (core/README.md "Button layers")
+# modes[].layer.<button, pad or encoder id>: what its twin is (components/modes/README.md "Button layers")
 LAYER_KEYS = ["name", "action", "cc", "note", "preset", "program", "mmc", "sysex", "daw", "idle", "active"]
 LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
 LAYER_ENCODER_KEYS = ["name", "cc", "daw"]
@@ -278,7 +278,7 @@ def validate(v, dev, data):
 
 
 def mode_cycle(v, dev, d, p, cid, given, cycles, new_id, new_mode):
-    """cycle: { button, with } + steps: (core/README.md "Cycles"): each press moves to the next enabled
+    """cycle: { button, with } + steps: (components/modes/README.md "Cycles"): each press moves to the next enabled
     step. Each step is a root mode of its own (its own index, layer and LED colour), all with the cycle's
     button as toggle / with and cycle = the group number + 1."""
     if given != ["cycle"] or d.get("steps") is None:
@@ -412,7 +412,7 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
                                 f"'{v.mode_toggles.get(idx) or v.mode_with_toggles.get(idx) or v.mode_modifiers[idx]}'")
     elif key == "hold" and d.get("layer") is not None and d.get("keys") is None and d.get("buttons") is None:
         # a hold mode with only a layer: is a modifier (Shift): its button keeps its own action, and
-        # while it is held the layer's twins take their buttons' presses (core/README.md "Button layers")
+        # while it is held the layer's twins take their buttons' presses (components/modes/README.md "Button layers")
         v.mode_modifiers[idx] = m.id
         m.toggle, m.modifier = idx, True
     elif b.action_name != "none":
@@ -454,7 +454,7 @@ def mode_buttons(v, dev, m, btns, bp, bl):
 
 
 def mode_layer(v, dev, m, layer, lp, ll):
-    """layer: { <button, pad or encoder id>: { ... } } (core/README.md "Button layers"): while the mode is
+    """layer: { <button, pad or encoder id>: { ... } } (components/modes/README.md "Button layers"): while the mode is
     active those are their twins. A button twin (action/cc/note/preset, daw, name, idle, active) is appended
     to dev.buttons, a pad twin (daw, name, idle, active) to dev.pad_twins, an encoder twin (cc, daw, name) to
     dev.encoders; a button's or pad's LED gets a twin LED in dev.leds: its pins with the twin's looks.

@@ -3277,7 +3277,7 @@
             },
             "additionalProperties": false
           },
-          "description": "modes, layers and cycles (core/README.md \"Modes\")"
+          "description": "modes, layers and cycles (components/modes/README.md \"Modes\")"
         },
         {
           "type": "string",

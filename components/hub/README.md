@@ -12,7 +12,7 @@ Each hub type is a driver behind one interface, `gm_hub_ops_t` (`gm_hub.h`), lis
 | `input`, `output` | `vpin_input`, `vpin_output` | start-up: a pin is read / driven (I2C: direction and pull-up bits) |
 | `read`, `write` | `vpin_read`, `vpin_write` | anywhere. Without them: the cached `in` / `out` words |
 | `analog` | `vpin_analog` | the main loop: 0..4095 on a channel (mux, XY pad) |
-| `rgb` | `vpin_rgb` | a whole colour on an LED (LED strips); a hub with it is full-colour: its LEDs take full-colour looks ([Full-colour LEDs](../../core/README.md#full-colour-leds)) |
+| `rgb` | `vpin_rgb` | a whole colour on an LED (LED strips); a hub with it is full-colour: its LEDs take full-colour looks ([Full-colour LEDs](../leds/README.md#full-colour-leds)) |
 | `refresh`, `flush` | `vpin_refresh` / `vpin_flush` in the scan tick (HC165 / HC595), or with `GM_HUBF_BUS` `vpin_refresh_i2c` / `vpin_flush_i2c` from the main loop (I2C) | inputs into `in`; `out` to the chip if it changed |
 | `send` | `vpin_poll` every main-loop pass, and `vpin_send_all` | what changed on a bit-banged chip (TM1628, MAX7219, TM1637), at most a budget of bus bytes a pass (4, ~50 µs on the STM32); none on a busy pass (the LED update's) |
 | `poll` | `vpin_poll` every main-loop pass | protocol timing (maudio_pads: one LED per 5 ms, the keepalive, acks; ws2812: a frame when something changed) |

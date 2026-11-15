@@ -355,7 +355,7 @@ An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so
 
 **Added fields.** `takeover`, `mode` and `owner` were added after the first F3 firmware, as the last field of their kind, `touch` after `takeover` later (2026-11-04), and `layer` after that (on buttons and pads after `led`, encoders after `mode`, LEDs after `owner`). An analog's `adc_min` and `adc_max` came after `touch` (2026-11-05, for the input tester, §4.8). Older hosts ignore them (the rule above), and newer hosts accept a reply without them: a field that isn't there means "not reported", and the host behaves as it did before (it sends FB_VALUE and FB_LED to everything). A missing `layer` is 0.
 
-**`layer`** says whether the component is a layer twin (`core/README.md` "Button layers"): 0 = always there (not a twin); n = a twin in mode n − 1 (the firmware's mode index), live only while that mode is on. The device only sends EVENTs from live components, so a host may ignore layers. Firmware from before the byte has twins but doesn't mark them.
+**`layer`** says whether the component is a layer twin (`components/modes/README.md` "Button layers"): 0 = always there (not a twin); n = a twin in mode n − 1 (the firmware's mode index), live only while that mode is on. The device only sends EVENTs from live components, so a host may ignore layers. Firmware from before the byte has twins but doesn't mark them.
 
 **EVENT type 8 (layer)** reports the modes: index = the mode index, value 1 on, 0 off. Like every EVENT, only while `debug.events` is 1. It is sent when a layer turns on or off: a toggle, a hold, a cycle step (0 for the old step, then 1 for the new one). When a host sets `debug.events` to 1, the device sends EVENT 8 value 1 once for each mode that is on, so the host learns the current state; these may come before the SET_PARAM reply. A mode without twins may send EVENT 8 too; no `layer` matches it.
 
@@ -363,7 +363,7 @@ An `index` past the end replies BAD_PARAM (`count` comes with every OK reply, so
 
 **`touch`** is the analog input's YAML `touch:`. With 1 (a touch sensor, reserved: the builder rejects it for now) or 2 (`touch: movement`), the input sends EVENT type 5 while `debug.events` is 1: value 1 touched, 0 released. With 2, "touched" goes just before the first value EVENT of a movement, and "released" once the reading has been still for 300 ms.
 
-**Pads (kind 7).** `count` covers the YAML's pads, then the pad twins (a mode's `layer:`, `core/README.md` "Button layers"; id `<pad>_<mode>`). `role` is the YAML `daw:`; `led` is the pad's LED, or for a twin its twin LED. A base pad plays its note and sends no EVENT. A twin, while its layer is active, takes the physical pad: it sends EVENT type 7 with its own index and plays no note.
+**Pads (kind 7).** `count` covers the YAML's pads, then the pad twins (a mode's `layer:`, `components/modes/README.md` "Button layers"; id `<pad>_<mode>`). `role` is the YAML `daw:`; `led` is the pad's LED, or for a twin its twin LED. A base pad plays its note and sends no EVENT. A twin, while its layer is active, takes the physical pad: it sends EVENT type 7 with its own index and plays no note.
 
 **Encoder twins with `cc: none`** send no CC, only EVENTs (their `layer.encoder.cc` is −1).
 
@@ -406,7 +406,7 @@ Notifications don't take part in stop-and-wait (§1): the host may send them whi
 
 **Out of range:** an index past the last LED, encoder or analog input is ignored. A `kind`, ring `mode` or release `what` the device doesn't know drops the message. Unused `flags` bits are sent as 0 and ignored.
 
-**EVENTs and pick-up:** an analog input's EVENT value is its calibrated position (after `adc_min`/`adc_max`), scaled to 0..16383. With `takeover: pickup`, EVENTs are held back like its CCs until it picks up the host's value. An encoder's EVENT value is the change in steps since the last one: one per detent, or more on a quick turn when the encoder has `acceleration:` (`core/README.md` "Encoder acceleration"), the same steps its CC and V-Pot messages move.
+**EVENTs and pick-up:** an analog input's EVENT value is its calibrated position (after `adc_min`/`adc_max`), scaled to 0..16383. With `takeover: pickup`, EVENTs are held back like its CCs until it picks up the host's value. An encoder's EVENT value is the change in steps since the last one: one per detent, or more on a quick turn when the encoder has `acceleration:` (`components/encoders/README.md` "Encoder acceleration"), the same steps its CC and V-Pot messages move.
 
 **FB_RELEASE:** 1 (LEDs) covers every LED state a host set, rings included. 2 (values) drops the pick-up targets, so analog inputs send at once again; encoder values stay where they are. For FB_LEDS, only the LEDs that exist are set, and the rest of the message still applies.
 

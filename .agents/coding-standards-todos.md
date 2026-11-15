@@ -49,7 +49,7 @@ build. Generated configs and images saved in `~/.cache/gemifi-components-baselin
 | R9 | Refactor [simplify] · low value | `SHIFT_HUBS` in `gemifi_device.py` is never used: delete it. | Dead code | R5 | done |
 | F2 | Feature | `gemifi_build.py migrate`: rewrite an old device YAML to the current keys (`ssd1306:` → `display:`, `ws2812:` → `led_strip:`, `tm1628:` → `led_driver:` ...), from the A2/A3 converter. | Users with their own YAMLs don't edit by hand | A2, A3 | done |
 | R10 | Refactor [move] | Each control's builder part (its validation and generated C, ~1,750 lines of `gemifi_device.py`) moves into its component's `__init__.py`, as the hubs' did; what the controls share with the rest of the device comes through the validator, the pin model and YAML values through `components/api.py`. | M7: a control is one folder, as a hub is | R6 | done (2026-11-15) |
-| D4 | Docs | Each control's YAML docs move from `core/README.md` ("Controls", "Encoder acceleration", "LED looks", "Pitch wheels and aftertouch", "Pads", "Modes", "Button layers", "Cycles" ...) into its README, as the hubs' are, and the ~100 references to them follow. | M7: a control's docs are in its folder | R10 | next: its own PR |
+| D4 | Docs | Each control's YAML docs move from `core/README.md` ("Controls", "Encoder acceleration", "LED looks", "Pitch wheels and aftertouch", "Pads", "Modes", "Button layers", "Cycles" ...) into its README, as the hubs' are, and the ~100 references to them follow. | M7: a control's docs are in its folder | R10 | done (2026-11-15) |
 
 ## Model changes
 

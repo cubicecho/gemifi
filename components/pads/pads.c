@@ -35,7 +35,7 @@ static uint16_t pad_peak[NP];
 static uint32_t pad_t[NP];          /* ms: strike start, last aftertouch, or release */
 uint32_t pad_lit[NP];
 static uint8_t pad_order[NP];       /* read order: same mux channel together */
-/* Pad twins (core/README.md "Button layers"): a hit goes to the pad's live
+/* Pad twins (components/modes/README.md "Button layers"): a hit goes to the pad's live
  * twin, if any: an EVENT with the twin's index, no note. Its release goes
  * to whichever took the hit. */
 #if GM_PAD_TWINS

@@ -144,7 +144,7 @@ typedef struct {
     gm_pin_t pin;
     const char *name;
     int8_t led;           /* index into leds, or -1                        */
-    /* A layer twin (core/README.md "Button layers"): the same physical button
+    /* A layer twin (components/modes/README.md "Button layers"): the same physical button
      * as buttons[base], live only while mode layer - 1 is active (and base
      * then isn't). 0 = an ordinary button. */
     uint8_t layer;
@@ -191,7 +191,7 @@ typedef struct {
     uint8_t base;
 } gm_encoder_t;
 
-/* Encoder acceleration (YAML acceleration:, core/README.md "Encoder
+/* Encoder acceleration (YAML acceleration:, components/encoders/README.md "Encoder
  * acceleration"), one per scanned encoder (its twins share it), only with
  * GM_ENC_ACCEL. Detents at least slow_ms apart move 1 step each; at most
  * fast_ms apart, max steps; in between along the curve. max 1 = off. */
@@ -406,7 +406,7 @@ typedef struct {
 
 extern const gm_preset_def_t gm_presets[];   /* GM_N_PRESETS entries */
 
-/* Modes (research/core/presets-design.md §6, core/README.md "Modes"):
+/* Modes (research/core/presets-design.md §6, components/modes/README.md "Modes"):
  * layers that turn the keys (and buttons: buttons[]) into function keys.
  * Generated only when the YAML has modes: (GM_N_MODES > 0 in
  * gm_device_config.h). A root mode is entered and left with its toggle
@@ -455,7 +455,7 @@ typedef struct {
     const gm_mode_key_t *buttons;   /* { button index, op, arg }, sorted  */
     uint8_t with;                /* toggle only while button with - 1 is held
                                     (else the toggle button's own action runs); 0 = none */
-    /* Cycles (core/README.md "Cycles"): a step of cycle group cycle - 1, 0 =
+    /* Cycles (components/modes/README.md "Cycles"): a step of cycle group cycle - 1, 0 =
      * not a step. A step's toggle / with are its cycle's button: each press
      * moves the group to its next enabled step (layer.enabled), whose led
      * shows colour: 0x80 | pin mask (bit 0 pin, 1 pin2, 2 pin3), 0 = the
@@ -475,7 +475,7 @@ extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
  * Generated only with GM_MODE_RGB. */
 extern const uint32_t gm_mode_rgb[];         /* GM_N_MODES entries */
 
-/* Pads (core/README.md "Pads"): pressure pads (FSR style) that play notes
+/* Pads (components/pads/README.md "Pads"): pressure pads (FSR style) that play notes
  * with a velocity from how hard they are hit. Generated only when the YAML
  * has pads: (GM_N_PADS > 0). The note and the sensing (thresholds, peak
  * window, retrigger guard, curve) are params: gm_settings.h P_PAD_*. */
@@ -488,7 +488,7 @@ typedef struct {
 extern const gm_pad_t gm_pads[];             /* GM_N_PADS entries */
 extern const int32_t gm_pad_note_defaults[]; /* GM_N_PADS entries */
 
-/* Pad layer twins (core/README.md "Button layers"): while mode layer - 1 is
+/* Pad layer twins (components/modes/README.md "Button layers"): while mode layer - 1 is
  * active, a hit on gm_pads[base] is this twin's (an EVENT, no note) and led
  * shows its state. Sensing stays per physical pad. GM_PAD_TWINS entries;
  * component index GM_N_PADS + n. */

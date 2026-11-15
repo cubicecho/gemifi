@@ -296,7 +296,7 @@ LED 4 of 30, id "led_4", no role, colours 2, owner 0, layer 0:
 | 1 | button | 1 down, 0 up |
 | 2 | key | velocity; 0 = release (keys also send their normal notes, so a script usually ignores these) |
 | 3 | analog | the calibrated position, 0..16383. With `takeover: pickup`, held back until the knob picks up the device's target (§5.3) |
-| 4 | encoder | the change in **steps** since the last EVENT, 14-bit two's complement (≥ 8192 means negative: subtract 16384): one per detent, or more on a quick turn when the encoder has acceleration (`core/README.md` "Encoder acceleration"). Use it as the change; the device has already scaled it |
+| 4 | encoder | the change in **steps** since the last EVENT, 14-bit two's complement (≥ 8192 means negative: subtract 16384): one per detent, or more on a quick turn when the encoder has acceleration (`components/encoders/README.md` "Encoder acceleration"). Use it as the change; the device has already scaled it |
 | 5 | touch | `index` is the analog's index. 1 touched, 0 released. Only from analogs with `touch` ≠ 0 (§4.4) |
 | 7 | pad | `index` is the pad's index (kind 7, twins included). The peak reading × 4 on a hit (1..16380), 0 on release. **Only pad twins send it** |
 | 8 | layer | `index` is a mode index: the n − 1 of a twin's `layer` n (§4.4). 1 the mode turned on, 0 off |
@@ -535,9 +535,9 @@ The vocabulary lives in [`hosts/README.md`](../hosts/README.md); the builder acc
 
 Lower-case roles before matching.
 
-**Layers (button, pad and encoder twins).** A device may give a physical button, pad or encoder a second meaning while one of its modes is active (core/README.md "Button layers"): a *twin*, listed as its own component of the same kind, after the YAML's, with its own role. Its `layer` byte (§4.4) names its mode. Treat it like any other component (§5.11).
+**Layers (button, pad and encoder twins).** A device may give a physical button, pad or encoder a second meaning while one of its modes is active (components/modes/README.md "Button layers"): a *twin*, listed as its own component of the same kind, after the YAML's, with its own role. Its `layer` byte (§4.4) names its mode. Treat it like any other component (§5.11).
 - **How modes turn on.** A toggle (a button, maybe with a `with:` button such as Shift), a hold (while a button is held), or a **cycle group**: several modes, exactly one on at a time, and one button steps to the next. Each step is a mode of its own, with its own twins. Layers are independent: a toggle layer, a hold layer and a cycle step can all be on at once. Each change sends EVENT 8 (§4.5).
-- **Which twin wins.** When two modes that are on both have a twin of the same control, one takes it (the order is in core/README.md "Button layers"). Only that one sends EVENTs.
+- **Which twin wins.** When two modes that are on both have a twin of the same control, one takes it (the order is in components/modes/README.md "Button layers"). Only that one sends EVENTs.
 - **Example: the Code 61's encoder modes,** a cycle group. Shift + Encoder mode steps the 8 encoders through:
 
   | Step | E1–E4 | E5–E8 | Bank left / right |

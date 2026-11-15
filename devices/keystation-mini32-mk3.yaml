@@ -83,7 +83,7 @@ presets:
       analog:
         volume: { cc: 11 }                       # expression
 
-# Edit mode (core/README.md "Modes"): Edit turns the keys into function keys (no notes) until it is
+# Edit mode (components/modes/README.md "Modes"): Edit turns the keys into function keys (no notes) until it is
 # pressed again; its LED is lit meanwhile. Keys are named by their note at octave 0: the lowest key
 # is C3. E3, then a white key from D4, picks preset 1..8 (the Edit LED blinks while it waits); A3,
 # then a key from C4, picks MIDI channel 1..16. After a preset switch, Oct - blinks the preset

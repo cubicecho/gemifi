@@ -20,7 +20,7 @@ Output: `build/midi-controller.gfw`. With the Keystation config it is 18.9 KB of
 |---|---|
 | 32 keys | Note On/Off from note 48 (C3), velocity from the time between the two key contacts |
 | Sustain | CC 64 momentary, Sustain LED lit while held |
-| Edit | edit mode (core/README.md "Modes"), Edit LED lit: the keys stop playing and become function keys until Edit is pressed again. E3, then a white key from D4 = preset 1..8; F3 / G3 = previous / next preset; A3, then a key from C4 = channel 1..16; C3 octave reset, C#3 / D#3 octave −/+, D3 transpose reset; C5..F5 velocity curve normal / soft / hard / fixed. After a preset switch, Oct − blinks its number |
+| Edit | edit mode (components/modes/README.md "Modes"), Edit LED lit: the keys stop playing and become function keys until Edit is pressed again. E3, then a white key from D4 = preset 1..8; F3 / G3 = previous / next preset; A3, then a key from C4 = channel 1..16; C3 octave reset, C#3 / D#3 octave −/+, D3 transpose reset; C5..F5 velocity curve normal / soft / hard / fixed. After a preset switch, Oct − blinks its number |
 | Oct − / Oct + | octave −4..+4 (both together: back to 0); LEDs show the octave like the stock firmware (1 = colour A, 2 = both, 3 = colour B, 4 = blinking) |
 | Pitch ▼ / ▲ | pitch bend to the end stop with an 80 ms glide, back to centre on release |
 | Mod | CC 1 ramp up to 127 over 300 ms while held, back down on release |
@@ -45,7 +45,7 @@ Generated from `core/src/settings.c`; arrays are sized by the device. Scope P = 
 | 5 | `velocity.fixed` | P | int | 1..127 | 100 (also the velocity of "Note" buttons) |
 | 6 | `velocity.fast` | G | int (0.1 ms) | 1..500 | 16: key time that gives 127 |
 | 7 | `velocity.slow` | G | int (0.1 ms) | 20..2000 | 1200: key time that gives 1 |
-| 9 | `button.action[7]` | P | enum (core/README.md "Button actions", 0..15) | | CC momentary, CC toggle, Octave down, Octave up, Pitch bend down, Pitch bend up, CC ramp |
+| 9 | `button.action[7]` | P | enum (components/buttons/README.md "Button actions", 0..15) | | CC momentary, CC toggle, Octave down, Octave up, Pitch bend down, Pitch bend up, CC ramp |
 | 10 | `button.number[7]` | P | int | 0..127 | 64, 80, 0, 0, 0, 0, 1 |
 | 11 | `bend.glide` | P | int (ms) | 0..2000 | 80 |
 | 12 | `ramp.time` | P | int (ms) | 0..5000 | 300 |

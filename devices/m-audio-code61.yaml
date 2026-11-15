@@ -201,7 +201,7 @@ displays:
 # Shift has no LED [sure, 2026-11-03]: every LED-driver bit, the pad board's
 # LEDs 16-31 and the unused GPIOs (PC6-8, PC14, PD2) lit nothing on it, and
 # the stock app drives no other outputs (it sends the pad board LEDs 0-15 only).
-# Looks (core/README.md "LED looks"), the user's request (2026-11-03): every
+# Looks (components/leds/README.md "LED looks"), the user's request (2026-11-03): every
 # LED lit while idle so the panel is easy to see, and changed while active.
 # RGB LEDs (buttons, pads) idle blue and go white; the single-colour ones
 # (Channel, Edit, Zone, 1-4) are lit and go dark. Change them here, or per
@@ -429,7 +429,7 @@ encoders:
   - { id: encoder_7, name: "E7", pin_a: { switch_matrix: encoder_rows, number: 12 }, pin_b: { switch_matrix: encoder_rows, number: 13 }, cc: 76 }
   - { id: encoder_8, name: "E8", pin_a: { switch_matrix: encoder_rows, number: 14 }, pin_b: { switch_matrix: encoder_rows, number: 15 }, cc: 77 }
 
-# Encoder acceleration (core/README.md "Encoder acceleration"), on all eight
+# Encoder acceleration (components/encoders/README.md "Encoder acceleration"), on all eight
 # and their twins: detents at least 80 ms apart move 1 step each, quicker
 # turns up to 8 steps per detent (medium: slow 80ms, fast 10ms, max 8,
 # quadratic): 24 detents in half a second sweep 0..127. [guess] untried on
@@ -485,7 +485,7 @@ presets:
 
 # While Channel is held, Up / Down change the MIDI channel (the display
 # shows "CH <n>"; 16 wraps to 1) and the keys keep playing; Channel's LED is
-# lit meanwhile (core/README.md "Modes", hold:).
+# lit meanwhile (components/modes/README.md "Modes", hold:).
 modes:
   - id: channel
     hold: { button: channel }
@@ -511,7 +511,7 @@ modes:
       b8: { cc: 58, daw: arm_7, active: red }
       b9: { cc: 59, daw: arm_8, active: red }
   # Trigger pad mode: Shift + Pad octave - turns the pads into a DAW
-  # script's clip grid (core/README.md "Button layers"): each pad is its
+  # script's clip grid (components/modes/README.md "Button layers"): each pad is its
   # twin, clip_T_S (T = column 1-4 left to right, S = row 1-4 from the top),
   # which plays no note but sends an EVENT the script launches the clip
   # with, and its LED is off unless the script lights it. Pad octave - / +
@@ -538,7 +538,7 @@ modes:
       pad_octave_down: { action: cc_momentary, cc: 115, daw: grid_left }
       pad_octave_up: { action: cc_momentary, cc: 116, daw: grid_right }
   # Shift + Encoder mode cycles E1-E8 through the encoder modes below
-  # (core/README.md "Cycles"), skipping the disabled ones (layer.enabled in
+  # (components/modes/README.md "Cycles"), skipping the disabled ones (layer.enabled in
   # the config; PAN starts disabled). The display shows the mode's name and
   # Encoder mode's LED its colour. Power-on starts in the first enabled one.
   # Encoder mode alone still sends CC 97. Independent of arm and pads.
@@ -596,7 +596,7 @@ modes:
           encoder_6: { cc: none, daw: pan_6 }
           encoder_7: { cc: none, daw: pan_7 }
           encoder_8: { cc: none, daw: pan_8 }
-  # Shift is a modifier (a hold mode with only a layer, core/README.md
+  # Shift is a modifier (a hold mode with only a layer, components/modes/README.md
   # "Button layers"): it still sends CC 102 and is the DAW's shift, and while
   # it is held Up / Down step the program (a Program Change on the MIDI
   # channel) instead of the preset. A button's Shift action is one more line

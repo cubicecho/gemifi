@@ -475,7 +475,7 @@ extern const gm_mode_t gm_modes[];           /* GM_N_MODES entries */
  * Generated only with GM_MODE_RGB. */
 extern const uint32_t gm_mode_rgb[];         /* GM_N_MODES entries */
 
-/* Pads (components/pads/README.md "Pads"): pressure pads (FSR style) that play notes
+/* Pads (components/pads/README.md "YAML"): pressure pads (FSR style) that play notes
  * with a velocity from how hard they are hit. Generated only when the YAML
  * has pads: (GM_N_PADS > 0). The note and the sensing (thresholds, peak
  * window, retrigger guard, curve) are params: gm_settings.h P_PAD_*. */

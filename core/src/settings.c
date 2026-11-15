@@ -25,7 +25,7 @@ int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c 
 #define GM_VEL_SLOW_DEFAULT 1200
 #endif
 
-/* Pad defaults: the YAML's pad_settings: (components/pads/README.md "Pads").
+/* Pad defaults: the YAML's pad_settings: (components/pads/README.md "YAML").
  * Readings are 0..4095, after inverted:. */
 #ifndef GM_PAD_CHANNEL_DEFAULT
 #define GM_PAD_CHANNEL_DEFAULT 0

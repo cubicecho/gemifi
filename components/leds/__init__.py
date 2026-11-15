@@ -72,11 +72,15 @@ def led_full_colour(dev, pin, pin2, pin3):
             pin3 is not None and pin3.hub == pin.hub and pin3.num == pin.num + 2)
 
 
+def full_colour_hubs():
+    """The hub types whose LEDs can show any colour (the LED strips), in GM_HUB_* order."""
+    return [t.key for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key)) if t.full_colour]
+
+
 def colour_look_needs():
     """Said after a full-colour look an LED can't show."""
-    hubs = [t.key for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key)) if t.full_colour]
     return ("needs an LED that can show any colour: an RGB LED whose pin, pin2 and pin3 are one LED "
-            f"of an LED strip (led_strip: {', '.join(hubs)}; numbers LED * 3, + 1, + 2; "
+            f"of an LED strip (led_strip: {', '.join(full_colour_hubs())}; numbers LED * 3, + 1, + 2; "
             "LED * 4 on an RGBW strip)")
 
 

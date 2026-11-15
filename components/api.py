@@ -1,8 +1,7 @@
-"""What the builder gives components: the pin model, the record type (Hub), the YAML values (LDict, LList),
-C strings and a few text helpers. A leaf module
-(it imports nothing of the builder's), so a component's __init__.py can import it at load time; the
-builder (tools/builder/gemifi_device.py) imports components, and passes the rest (the validator, the
-platform) to their calls.
+"""What the builder gives components: the pin model, the record type (Hub), the YAML values (LDict,
+LList), C strings and a few text helpers and data. A leaf module (it imports nothing of the builder's), so
+a component's __init__.py can import it at load time; the builder (tools/builder/gemifi_device.py)
+imports components, and passes the rest (the validator, the platform) to their calls.
 """
 
 # gm_pin_t.flags (core/include/gm_pin.h)
@@ -35,6 +34,9 @@ RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, u
 # MMC commands (MIDI 1.0 MMC, `F0 7F dev 06 cmd F7`): the YAML's mmc: names -> button.number
 MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
+
+# The white keys of an octave (pitch classes): a key matrix's white_from:, the layout's keyboard.
+WHITE = {0, 2, 4, 5, 7, 9, 11}
 
 # Said after the message for a key that moved onto a base component (old_keys).
 MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"

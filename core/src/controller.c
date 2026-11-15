@@ -111,7 +111,7 @@ static uint8_t keys_down;
 #define KEY_HELD(on) ((void)0)
 #endif
 
-static uint8_t chan(void)
+static uint8_t midi_chan(void)
 {
     return (uint8_t)((gm_cfg.channel - 1) & 0x0F);
 }
@@ -138,10 +138,10 @@ static void midi2(uint8_t status, uint32_t a)
 /* unused when every kind of control has its own channel: (GM_*_CTL) */
 __attribute__((unused)) static void cc(uint32_t num, uint32_t value)
 {
-    midi3(0xB0 | chan(), num, value);
+    midi3(0xB0 | midi_chan(), num, value);
 }
 
-static void event(uint8_t type, uint32_t index, uint32_t value)
+static void send_event(uint8_t type, uint32_t index, uint32_t value)
 {
     INPUT_NOW();
     if (gm_cfg.events)
@@ -170,7 +170,7 @@ static void event(uint8_t type, uint32_t index, uint32_t value)
 /* A control's channel: its channel:, else midi.channel. */
 static uint8_t ctl_chan(const gm_ctl_t *t)
 {
-    return t->channel ? (uint8_t)((t->channel - 1u) & 0x0Fu) : chan();
+    return t->channel ? (uint8_t)((t->channel - 1u) & 0x0Fu) : midi_chan();
 }
 
 static int32_t ctl_hi(const gm_ctl_t *t, int32_t top)
@@ -719,7 +719,7 @@ static uint8_t enc_live[NE];        /* per scanned encoder: the index its turns 
 #if GM_ENC_CTL
 #define ENC_CH(i) ctl_chan(&gm_encoder_ctl[i])
 #else
-#define ENC_CH(i) chan()
+#define ENC_CH(i) midi_chan()
 #endif
 
 /* The top of encoder i's values: 127, or 16383 in a 14-bit mode. */
@@ -1117,14 +1117,14 @@ static void keys_poll(void)
                 continue;
             }
             knote[e.key] = (uint8_t)n;
-            kchan[e.key] = chan();
+            kchan[e.key] = midi_chan();
             midi3(0x90 | kchan[e.key], (uint32_t)n, v);
-            event(EV_KEY, e.key, v);
+            send_event(EV_KEY, e.key, v);
         } else {
             if (knote[e.key] != NOTE_NONE)
                 midi3(0x80 | kchan[e.key], knote[e.key], 0);
             knote[e.key] = NOTE_NONE;
-            event(EV_KEY, e.key, 0);
+            send_event(EV_KEY, e.key, 0);
         }
     }
 }
@@ -1181,7 +1181,7 @@ static int32_t program;
 #define BTN_OUT(i, v, top) ctl_out(&gm_button_ctl[i], (int32_t)(v), (top))
 #define BTN_CC(i, num, v) midi3((uint8_t)(0xB0u | BTN_CH(i)), (num), BTN_OUT(i, v, 127))
 #else
-#define BTN_CH(i) chan()
+#define BTN_CH(i) midi_chan()
 #define BTN_OUT(i, v, top) ((uint32_t)(v))
 #define BTN_CC(i, num, v) cc((num), (v))
 #endif
@@ -1281,7 +1281,7 @@ static void button_changed(uint32_t i, int down)
 {
     int32_t act = gm_cfg.btn_action[i];
     uint32_t num = (uint32_t)gm_cfg.btn_number[i];
-    event(EV_BUTTON, i, (uint32_t)down);
+    send_event(EV_BUTTON, i, (uint32_t)down);
     app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? " down" : " up");
     switch (act) {
     case ACT_CC_MOMENTARY:
@@ -1547,7 +1547,7 @@ static int mode_button(uint32_t i, int down)
                 btn_in_mode &= ~bit;
         }
         if (!md->modifier)
-            event(EV_BUTTON, i, (uint32_t)down);    /* a modifier's: button_changed */
+            send_event(EV_BUTTON, i, (uint32_t)down);    /* a modifier's: button_changed */
 #if GM_N_CYCLES
         if (md->cycle) {
             if (down)
@@ -1681,7 +1681,7 @@ static int mode_btn(uint32_t i, int down)
         if (!(btn_in_mode & bit))
             return 0;
         btn_in_mode &= ~bit;
-        event(EV_BUTTON, i, 0);
+        send_event(EV_BUTTON, i, 0);
         return 1;
     }
     btn_in_mode &= ~bit;
@@ -1694,7 +1694,7 @@ static int mode_btn(uint32_t i, int down)
         for (uint32_t k = 0; k < m->n_buttons; k++)
             if (m->buttons[k].key == i) {
                 btn_in_mode |= bit;
-                event(EV_BUTTON, i, 1);
+                send_event(EV_BUTTON, i, 1);
                 app_log(LOG_DEBUG, gm_device.buttons[i].name, ": mode action");
                 mode_run(mi, &m->buttons[k]);
                 return 1;
@@ -1847,7 +1847,7 @@ static void ramps_ms(uint32_t now)
         t_bend = now;
         bend_sent = bend;
         uint32_t v = (uint32_t)(bend + 8192);
-        midi3(0xE0 | chan(), v & 0x7F, v >> 7);
+        midi3(0xE0 | midi_chan(), v & 0x7F, v >> 7);
     }
 }
 #endif
@@ -1900,7 +1900,7 @@ static void touch_poll(void)
     for (uint32_t i = 0; i < GM_N_ANALOGS; i++)
         if (a_touched[i] && now - a_moved[i] >= TOUCH_STILL_MS) {
             a_touched[i] = 0;
-            event(EV_TOUCH, i, 0);
+            send_event(EV_TOUCH, i, 0);
         }
 }
 #endif
@@ -1910,7 +1910,7 @@ static void touch_poll(void)
 #define AN_CH(i) ctl_chan(&gm_analog_ctl[i])
 #define AN_OUT(i, v, top) ctl_out(&gm_analog_ctl[i], (int32_t)(v), (top))
 #else
-#define AN_CH(i) chan()
+#define AN_CH(i) midi_chan()
 #define AN_OUT(i, v, top) ((uint32_t)(v))
 #endif
 #if GM_MSG_KINDS
@@ -1950,11 +1950,11 @@ static void analog_event(uint32_t i, int32_t pos)
         a_moved[i] = hal_millis();
         if (!a_touched[i]) {
             a_touched[i] = 1;
-            event(EV_TOUCH, i, 1);
+            send_event(EV_TOUCH, i, 1);
         }
     }
 #endif
-    event(EV_ANALOG, i, (uint32_t)pos << 2);
+    send_event(EV_ANALOG, i, (uint32_t)pos << 2);
 }
 
 void gm_analog_host(uint32_t i, uint32_t value)
@@ -2006,7 +2006,7 @@ static void analog_bend(uint32_t i, int32_t pos)
     if (d == 0 || (d < step && b != 8192 && b != 0 && b != 16383))
         return;
     a_bend[i] = (int16_t)b;
-    midi3(0xE0 | chan(), (uint32_t)b & 0x7Fu, (uint32_t)b >> 7);
+    midi3(0xE0 | midi_chan(), (uint32_t)b & 0x7Fu, (uint32_t)b >> 7);
     analog_event(i, pos);
 }
 
@@ -2230,7 +2230,7 @@ static void pad_hit(uint32_t i, uint32_t now)
 #if GM_PAD_TWINS
     pad_owner[i] = pad_live[i];
     if (pad_owner[i]) {
-        event(EV_PAD, NP + pad_owner[i] - 1u, (uint32_t)pad_peak[i] << 2);
+        send_event(EV_PAD, NP + pad_owner[i] - 1u, (uint32_t)pad_peak[i] << 2);
         return;
     }
 #endif
@@ -2241,7 +2241,7 @@ static void pad_hit(uint32_t i, uint32_t now)
         n += 12;
     uint32_t v = pad_velocity(pad_peak[i]);
     pad_at[i] = 0;
-    pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : chan();
+    pad_ch[i] = gm_cfg.pad_channel ? (uint8_t)((gm_cfg.pad_channel - 1) & 0x0F) : midi_chan();
     pad_note[i] = (uint8_t)n;
     midi3(0x90 | pad_ch[i], (uint32_t)n, v);
 }
@@ -2251,7 +2251,7 @@ static void pad_end(uint32_t i)
 {
 #if GM_PAD_TWINS
     if (pad_owner[i]) {
-        event(EV_PAD, NP + pad_owner[i] - 1u, 0);
+        send_event(EV_PAD, NP + pad_owner[i] - 1u, 0);
         return;
     }
 #endif
@@ -2434,7 +2434,7 @@ static void encoders_poll(uint32_t now)
         int16_t d = raw;            /* as before acceleration: the same code */
         (void)now;
 #endif
-        event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
+        send_event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
 #if GM_MCU
         if (gm_encoder_mcu[i] != GM_MCU_NONE) {
             gm_mcu_vpot(gm_encoder_mcu[i], d);      /* it sends at most 15 */
@@ -2799,7 +2799,7 @@ static void layers_update(void)
     for (uint32_t v = 0; v < 2u; v++)
         for (uint32_t m = 0; m < GM_N_MODES; m++)
             if (((d >> m) & 1u) && ((on >> m) & 1u) == v)
-                event(EV_LAYER, m, v);
+                send_event(EV_LAYER, m, v);
 }
 #endif
 
@@ -3152,7 +3152,7 @@ static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value
         if (f->source != source)
             continue;
         if (source == GM_FB_NOTE || source == GM_FB_CC) {
-            uint32_t want = f->channel ? f->channel - 1u : chan();
+            uint32_t want = f->channel ? f->channel - 1u : midi_chan();
             if (f->num != num || want != ch)
                 continue;
         }
@@ -3274,7 +3274,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
     if (!fb_used(type, num))
         return;                     /* the channel is each control's */
 #else
-    if (ch != chan() || !fb_used(type, num))
+    if (ch != midi_chan() || !fb_used(type, num))
         return;
 #endif
 #if GM_N_BUTTONS > 0
@@ -3368,7 +3368,7 @@ void gm_release_all(void)
     btn_ignore = btn_held;
     btn_toggled = 0;
     if (bend_sent != 0x7FFFFFFF && bend_sent != 0)
-        midi3(0xE0 | chan(), 0, 0x40);      /* centre */
+        midi3(0xE0 | midi_chan(), 0, 0x40);      /* centre */
     bend = bend_target = 0;
     bend_sent = 0;
 #endif
@@ -3813,7 +3813,7 @@ void gm_poll(void)
         report_due = 0;
         for (uint32_t m = 0; m < GM_N_MODES; m++)
             if ((modes_was >> m) & 1u)
-                event(EV_LAYER, m, 1);
+                send_event(EV_LAYER, m, 1);
     }
 #endif
     gm_din_poll(now);

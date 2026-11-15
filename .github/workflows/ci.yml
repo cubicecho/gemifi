@@ -119,3 +119,23 @@ jobs:
       - run: npx tsc --noEmit -p .
       - run: npx vitest run
       - run: npm run build
+
+  site:
+    name: Site and docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      # Builds the site (the docs are the repo's READMEs) and checks every link, id and repo path.
+      - run: npm test

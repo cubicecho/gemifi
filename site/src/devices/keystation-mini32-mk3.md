@@ -116,8 +116,8 @@ update goes over USB from the browser.
    plugging the keyboard in.
 
 The step-by-step runbook, with every command, is
-[`tools/README.md`]({{ site.blob }}tools/README.md); the bootloader is described in
-[`bootloader/nuvoton-nuc1xx/README.md`]({{ site.blob }}bootloader/nuvoton-nuc1xx/README.md).
+[`tools/README.md`]({{ "tools/README.md" | repoLink }}); the bootloader is described in
+[`bootloader/nuvoton-nuc1xx/README.md`]({{ "bootloader/nuvoton-nuc1xx/README.md" | repoLink }}).
 
 ## Back to stock
 

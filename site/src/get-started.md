@@ -72,5 +72,5 @@ and Zynthian each need a port picked in the DAW: see [DAW setup]({{ '/daw-setup/
 <p class="readme-link">
   More detail: the <a href="{{ site.blob }}tools/builder/README.md" rel="noopener">builder and dashboard</a>,
   the <a href="{{ site.blob }}web/updater/README.md" rel="noopener">web updater</a> and the
-  <a href="{{ site.blob }}core/README.md" rel="noopener">device YAML format</a>.
+  <a href="{{ "core/README.md" | repoLink }}" rel="noopener">device YAML format</a>.
 </p>

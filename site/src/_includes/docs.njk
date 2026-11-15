@@ -1,0 +1,28 @@
+---
+layout: base.njk
+---
+{#- A docs page: the tree on the left, the page, and its contents on the right (wide screens). -#}
+<div class="docs">
+  <aside class="docs-side">{% include "docs-nav.njk" %}</aside>
+  <article class="docs-main">
+    {% if crumb %}<p class="eyebrow">{{ crumb }}</p>{% endif %}
+    <h1>{{ title }}</h1>
+    {% if lede %}<p class="docs-lede">{{ lede }}</p>{% endif %}
+    {{ content | safe }}
+    {% if source %}
+    <p class="docs-source">
+      This page is <a href="{{ source }}" rel="noopener"><code>{{ sourceFile }}</code></a> in the repo,
+      collected when the site is built. Fix it there.
+    </p>
+    {% endif %}
+  </article>
+  {%- set toc = doc.toc if doc else toc -%}
+  {% if toc and toc.length > 1 %}
+  <nav class="docs-toc" aria-label="On this page">
+    <p class="docs-nav-head">On this page</p>
+    <ul>
+      {% for t in toc %}<li class="toc-{{ t.level }}"><a href="#{{ t.id }}">{{ t.text }}</a></li>{% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+</div>

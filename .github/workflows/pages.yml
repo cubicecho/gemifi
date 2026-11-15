@@ -14,6 +14,16 @@ on:
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
+      # gemifi only: the docs pages are the repo's READMEs (site/lib/docs-tree.js), so a change
+      # to one redeploys the site. Keep this list when re-syncing the file from cubesite.
+      - "components/**/README.md"
+      - "components/**/__init__.py"
+      - "core/*.md"
+      - "platform/*/README.md"
+      - "bootloader/**/README.md"
+      - "firmware/*/midi-controller/README.md"
+      - "tools/README.md"
+      - "devices/*.yaml"
   workflow_dispatch:
 
 permissions:

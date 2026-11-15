@@ -32,7 +32,7 @@ with it the web updater ([#54]({{ site.repo }}/issues/54)); flash such a build
 with `gemifi.py` there, or expect it. Plain feedback and the script are on by
 default. What each one needs in the YAML: [Components]({{ '/components/' | url }}#feedback). The exact messages are in
 [`protocol/host-feedback.md`]({{ site.blob }}protocol/host-feedback.md); the YAML
-is in [`core/README.md`]({{ site.blob }}core/README.md#daw-feedback).
+is in [`core/README.md`]({{ "core/README.md#daw-feedback" | repoLink }}).
 
 Use one of plain feedback or the script on the main port, not both: they'd
 both drive the same LEDs.

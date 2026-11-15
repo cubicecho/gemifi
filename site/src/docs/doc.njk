@@ -1,0 +1,43 @@
+---
+# One page per doc in _data/docs.js: a component's, the core's or a platform's Markdown from the repo.
+pagination:
+  data: docs.pages
+  size: 1
+  alias: doc
+permalink: "{{ doc.url }}"
+layout: docs.njk
+eleventyComputed:
+  title: "{{ doc.title }}"
+  description: "{{ doc.summary or (doc.platform.summary if doc.platform) or (doc.title + ' — gemifi docs') }}"
+  crumb: "{{ doc.group or ('Platform' if doc.platform else ('Core' if doc.section == 'core' else 'Docs')) }}"
+  source: "{{ doc.source }}"
+  sourceFile: "{{ doc.file }}"
+---
+{%- set p = doc.platform -%}
+{% if p %}
+<p class="docs-lede">{{ p.summary }}</p>
+<dl class="facts">
+  <div><dt>Status</dt><dd><span class="status status-{{ p.status }}">{{ statuses[p.status].label }}</span></dd></div>
+  <div><dt>YAML</dt><dd>{% for k in p.keys %}<code>platform: {{ k }}</code>{% if not loop.last %}<br />{% endif %}{% endfor %}</dd></div>
+  {% for row in p.facts %}
+  <div><dt>{{ row[0] }}</dt><dd>{{ row[1] | safe }}</dd></div>
+  {% endfor %}
+  <div>
+    <dt>Devices</dt>
+    <dd>
+      {% for d in collections.devices %}{% if p.devices.includes(d.page.fileSlug) %}<a href="{{ d.url | url }}">{{ d.data.maker }} {{ d.data.model }}</a> <span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span><br />{% endif %}{% endfor %}
+      <a href="{{ '/docs/devices/' | url }}">Every tested YAML</a>
+    </dd>
+  </div>
+  <div>
+    <dt>More</dt>
+    <dd>
+      {% for d in p.docs %}<a href="{{ docs.link(d[0]) }}">{{ d[1] }}</a> · {% endfor %}<a href="{{ site.repo }}/issues/{{ p.issue }}" rel="noopener">hardware tests (#{{ p.issue }})</a>
+    </dd>
+  </div>
+</dl>
+{% if doc.html %}<h2 id="platform-notes">Platform notes</h2>{% endif %}
+{% endif %}
+<div class="prose wide docs-body">
+{{ doc.html | safe }}
+</div>

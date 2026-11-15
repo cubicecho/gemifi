@@ -46,12 +46,12 @@ permalink: /platforms/
         <tr><th>App flash</th><td>99 KB</td><td>32 KB</td><td>1.9 MB slot</td></tr>
         <tr><th>USB-MIDI</th><td>yes</td><td>yes</td><td>S2, S3</td></tr>
         <tr><th>Serial MIDI</th><td>no</td><td>no</td><td>yes</td></tr>
-        <tr><th>BLE MIDI</th><td>no</td><td>no</td><td>ESP32, S3 (untested)</td></tr>
+        <tr><th>BLE MIDI</th><td>no</td><td>no</td><td>ESP32 (checked), S3</td></tr>
         <tr><th>DIN MIDI</th><td>yes</td><td>no</td><td>no</td></tr>
         <tr><th>First install</th><td>gemifi bootloader, over SWD</td><td>gemifi bootloader, over SWD</td><td>ROM bootloader, Web Serial</td></tr>
         <tr><th>Updates</th><td>USB, through the bootloader</td><td>USB, through the bootloader</td><td>MIDI, A/B slots</td></tr>
         <tr><th>Hardware scan (DMA)</th><td>yes</td><td>no</td><td>no</td></tr>
-        <tr><th>On hardware</th><td>works</td><td>works</td><td>not yet</td></tr>
+        <tr><th>On hardware</th><td>works</td><td>works</td><td>ESP32 (classic) works</td></tr>
       </tbody>
     </table>
   </div>
@@ -75,7 +75,7 @@ permalink: /platforms/
     <div>
       <dt>More</dt>
       <dd>
-        {% for doc in p.docs %}<a href="{{ site.blob }}{{ doc[0] }}" rel="noopener">{{ doc[1] }}</a> · {% endfor %}<a href="{{ site.repo }}/issues/{{ p.issue }}" rel="noopener">hardware tests (#{{ p.issue }})</a>
+        {% for doc in p.docs %}<a href="{{ doc[0] | repoLink }}">{{ doc[1] }}</a> · {% endfor %}<a href="{{ site.repo }}/issues/{{ p.issue }}" rel="noopener">hardware tests (#{{ p.issue }})</a>
       </dd>
     </div>
   </dl>
@@ -128,6 +128,6 @@ permalink: /platforms/
 
 <p class="readme-link">
   What each component costs on each platform:
-  <a href="{{ site.blob }}core/performance.md" rel="noopener"><code>core/performance.md</code></a>.
-  The bootloaders' rules: <a href="{{ site.blob }}bootloader/README.md" rel="noopener"><code>bootloader/README.md</code></a>.
+  <a href="{{ "core/performance.md" | repoLink }}" rel="noopener"><code>core/performance.md</code></a>.
+  The bootloaders' rules: <a href="{{ "bootloader/README.md" | repoLink }}" rel="noopener"><code>bootloader/README.md</code></a>.
 </p>

@@ -1,18 +1,21 @@
 /*
- * controller.c: the generic MIDI controller runtime. See gm_controller.h
- * and core/README.md for what the components and actions do.
+ * controller.c: the generic MIDI controller runtime: MIDI out and the MIDI
+ * messages the controls send, the scan, the preset release, gm_init and
+ * gm_poll. The controls themselves are components (components/buttons,
+ * leds, analog, encoders, pads, modes, key_matrix), sharing state with this
+ * file through gm_controls.h. See gm_controller.h and core/README.md.
  *
  * Split between contexts:
- *   gm_scan_tick() (timer interrupt): key matrix, encoders not on I2C hubs,
- *     shift-register hub refresh/flush. Key changes go to the main loop
- *     through a small queue.
+ *   gm_scan_tick() (timer interrupt): the key matrix (matrix_scan),
+ *     encoders not on I2C hubs (encoder_step), shift-register hub
+ *     refresh/flush. Key changes go to the main loop through a small queue.
  *   gm_scan_frames() (the platform's DMA interrupt, same level), with a
  *     hardware scan instead: the matrices and their encoders from finished
  *     frames; the scan tick then leaves those alone.
  *   gm_poll() (main loop): everything that sends MIDI, buttons, analog
  *     inputs and pads, ramps, LEDs, I2C and TM1628 hubs, the protocol.
- * Host feedback (gm_fb_msg, from midi_in.c) also runs in the main loop: the
- * platform feeds received MIDI from its main loop.
+ * Host feedback (gm_fb_msg in feedback.c, from midi_in.c) also runs in the
+ * main loop: the platform feeds received MIDI from its main loop.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -35,25 +38,8 @@
 #include "gm_din.h"
 #include "gm_safety.h"
 
-
 #define I2C_MS          1u
 #define BOOT_LOG_MS     1500u
-
-
-#ifndef GM_N_MODES
-#define GM_N_MODES 0                /* a config generated before modes */
-#endif
-/* Modes need a button to enter them; only a mode's keys: (function keys)
- * need the key matrix, and the builder checks that (core/README.md "Modes"). */
-#if GM_N_MODES > 0 && GM_N_BUTTONS == 0
-#error "modes need a toggle, hold or cycle button (the builder checks this)"
-#endif
-#ifndef GM_LAYERS
-#define GM_LAYERS 0                 /* layer twins (modes: layer:), core/README.md "Button layers" */
-#endif
-#if GM_LAYERS && GM_N_MODES == 0
-#error "button layers belong to modes (the builder checks this)"
-#endif
 
 static uint32_t fw_ver;
 static uint8_t has_sr_hubs;         /* any VPIN_SCAN_IO hub (74HC595/165): refresh in the tick */
@@ -61,7 +47,7 @@ static uint8_t has_matrices;        /* any switch-matrix hub: scan in the tick *
 static uint8_t has_i2c_hubs;        /* any VPIN_BUS_IO hub (I2C): every I2C_MS */
 static uint8_t has_main_hubs;       /* any VPIN_MAIN hub (TM1628, MAUDIO_PADS): vpin_poll every pass */
 
-/* ---- MIDI out --------------------------------------------------------- */
+/* ---- MIDI out ---------------------------------------------------------- */
 
 /* write_to_flash.last_preset: when the last local input was (gm_idle_ms;
  * the keys held: keys_down). One store per message or EVENT; nothing
@@ -231,8 +217,7 @@ void send_value(uint32_t kind, uint8_t ch, uint32_t num, uint32_t v)
 }
 #endif
 
-
-
+/* ---- the scan ---------------------------------------------------------- */
 
 volatile uint32_t scan_ticks;
 volatile uint32_t gm_scan_period_us;
@@ -430,35 +415,23 @@ void gm_scan_tick(void)
         vpin_flush();
 }
 
-/* ---- key matrix: components/key_matrix ------------------------------------ */
+/* ---- controls the device doesn't have ---------------------------------- */
 
-/* ---- modes: components/modes ----------------------------------------------- */
-
+/* The protocol and host feedback call these whatever the device has; without
+ * the control (its component isn't built) they do nothing. */
 #if GM_N_MODES == 0
-/* app_proto.c calls it whatever the device has: without modes (the modes
- * component isn't built), there's nothing to report. */
 void gm_layers_report(void)
 {
 }
 #endif
-
-/* ---- analog inputs: components/analog ----------------------------------- */
-
 #if GM_N_ANALOGS == 0
-/* Host feedback (app_proto.c) calls it whatever the device has: without
- * analog inputs (the analog component isn't built), it does nothing. */
 void gm_analog_host(uint32_t i, uint32_t value)
 {
     (void)i;
     (void)value;
 }
 #endif
-
-/* ---- encoders: components/encoders ---------------------------------------- */
-
 #if GM_N_ENCODERS == 0
-/* Host feedback (app_proto.c) calls it whatever the device has: without
- * encoders (the encoders component isn't built), it does nothing. */
 void gm_encoder_host(uint32_t i, uint32_t value)
 {
     (void)i;
@@ -466,7 +439,7 @@ void gm_encoder_host(uint32_t i, uint32_t value)
 }
 #endif
 
-/* ---- idle time (write_to_flash.last_preset) -------------------------------- */
+/* ---- idle time (write_to_flash.last_preset) ---------------------------- */
 
 #if GM_WRITE_LAST_PRESET
 uint32_t gm_idle_ms(void)
@@ -483,7 +456,7 @@ uint32_t gm_idle_ms(void)
 }
 #endif
 
-/* ---- preset switch: let go of everything --------------------------------- */
+/* ---- preset switch: let go of everything ------------------------------- */
 
 void gm_release_all(void)
 {
@@ -501,7 +474,7 @@ void gm_release_all(void)
 #endif
 }
 
-/* ---- init and main loop ----------------------------------------------- */
+/* ---- init -------------------------------------------------------------- */
 
 uint32_t gm_buttons_now(void)
 {
@@ -605,175 +578,7 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #endif
 }
 
-/* ---- raw readings (sysex.md 4.8) ---------------------------------------- */
-
-/* MONITOR turns the stream on for a few seconds; gm_poll sends one RAW
- * message per GM_MONITOR_INTERVAL_MS, the kinds in turn, each its next
- * chunk. The readings are what the scan last saw (it isn't stopped or
- * locked: a reading a scan tick old is fine for a tester). */
-#if GM_MONITOR
-#define MON_CHUNK 32u               /* values per message */
-#define MON_BITS 512u               /* key-matrix contacts per message */
-#define MON_KINDS 5u                /* GSX_MON_* bits */
-static uint8_t mon_kinds;           /* the kinds streaming, 0 = off */
-static uint8_t mon_turn;            /* the kind (bit) sending next */
-static uint16_t mon_first;          /* its next chunk: first index (key matrix: row) */
-static uint32_t mon_until, mon_t;
-static const uint8_t mon_raw_kind[MON_KINDS] = { EV_BUTTON, EV_KEY, EV_ANALOG, EV_ENCODER, EV_PAD };
-
-/* How many values (key matrix: rows) a kind has. */
-static uint32_t mon_count(uint32_t b)
-{
-    switch (b) {
-    case 0:
-        return GM_N_OWN_BUTTONS;
-#if GM_HAS_MATRIX
-    case 1:
-        return gm_device.matrix ? (gm_device.matrix->n_rows > FAST_ROWS ? FAST_ROWS : gm_device.matrix->n_rows) : 0u;
-#endif
-    case 2:
-        return GM_N_ANALOGS;
-    case 3:
-        return NE_HW;
-#if GM_N_PADS > 0
-    case 4:
-        return GM_N_PADS;
-#endif
-    default:
-        return 0;
-    }
-}
-
-uint32_t gm_monitor(uint32_t kinds)
-{
-    uint32_t have = 0;
-    for (uint32_t b = 0; b < MON_KINDS; b++)
-        if (mon_count(b))
-            have |= 1u << b;
-    kinds &= have;
-    if (kinds != mon_kinds) {
-        mon_turn = 0;
-        mon_first = 0;
-    }
-    mon_kinds = (uint8_t)kinds;
-    mon_until = hal_millis() + GM_MONITOR_TIMEOUT_MS;
-    return kinds;
-}
-
-#if GM_N_BUTTONS > 0 || GM_HAS_MATRIX
-/* Bits into 7-bit bytes, 7 per byte (bit i of byte j = bit 7j + i). Only
- * buttons and the key matrix send bits (a device with neither: unused). */
-static uint32_t mon_bits(uint8_t *p, uint32_t nbits, uint32_t (*bit)(uint32_t))
-{
-    uint32_t n = (nbits + 6u) / 7u;
-    for (uint32_t j = 0; j < n; j++)
-        p[j] = 0;
-    for (uint32_t b = 0; b < nbits; b++)
-        if (bit(b))
-            p[b / 7u] |= (uint8_t)(1u << (b % 7u));
-    return n;
-}
-#endif
-
-#if GM_N_BUTTONS > 0
-static uint32_t mon_first_bit;      /* mon_bits callbacks: index of bit 0 */
-static uint32_t mon_button(uint32_t b)
-{
-    return (btn_hist[0] >> (mon_first_bit + b)) & 1u;
-}
-#endif
-#if GM_HAS_MATRIX
-static uint32_t mon_cols;
-static uint32_t mon_contact(uint32_t b)
-{
-    return (mprev[mon_first_bit + b / mon_cols] >> (b % mon_cols)) & 1u;
-}
-#endif
-
-/* One kind's value i (analog, encoder, pad) as a u14. */
-static uint32_t mon_value(uint32_t b, uint32_t i)
-{
-    switch (b) {
-#if GM_N_ANALOGS > 0
-    case 2:
-        return a_raw[i] < 0 ? 0x3FFFu : (uint32_t)a_raw[i];
-#endif
-#if GM_N_ENCODERS > 0
-    case 3:
-        return enc_count[i] & 0x3FFFu;
-#endif
-#if GM_N_PADS > 0
-    case 4:
-        return pad_raw[i];
-#endif
-    default:
-        return 0;
-    }
-}
-
-static void monitor_poll(uint32_t now)
-{
-    if (!mon_kinds)
-        return;
-    if ((int32_t)(now - mon_until) >= 0) {
-        mon_kinds = 0;              /* the host stopped renewing it */
-        return;
-    }
-    if (now - mon_t < GM_MONITOR_INTERVAL_MS)
-        return;
-    mon_t = now;
-    uint32_t b = mon_turn;
-    while (!((mon_kinds >> b) & 1u))
-        b = (b + 1u) % MON_KINDS;
-    uint32_t total = mon_count(b), first = mon_first, n, cols = 1;
-#if GM_HAS_MATRIX
-    if (b == 1u) {
-        cols = gm_device.matrix->n_cols > 32u ? 32u : gm_device.matrix->n_cols;
-        if (!cols)
-            cols = 1;
-    }
-#endif
-    uint32_t chunk = b == 1u ? MON_BITS / cols : MON_CHUNK;
-    n = total - first < chunk ? total - first : chunk;
-    uint8_t p[4 + (MON_BITS + 6u) / 7u];
-    _Static_assert(4u + 2u * MON_CHUNK <= sizeof(p), "RAW values");
-    uint32_t len = 0;
-    p[len++] = mon_raw_kind[b];
-    if (b == 1u) {
-#if GM_HAS_MATRIX
-        p[len++] = (uint8_t)first;
-        p[len++] = (uint8_t)n;
-        p[len++] = (uint8_t)cols;
-        mon_first_bit = first;
-        mon_cols = cols;
-        len += mon_bits(p + len, n * cols, mon_contact);
-#endif
-    } else {
-        p[len++] = (uint8_t)(first & 0x7Fu);
-        p[len++] = (uint8_t)(first >> 7);
-        p[len++] = (uint8_t)n;
-        if (b == 0u) {
-#if GM_N_BUTTONS > 0
-            mon_first_bit = first;
-            len += mon_bits(p + len, n, mon_button);
-#endif
-        } else {
-            for (uint32_t i = 0; i < n; i++) {
-                uint32_t v = mon_value(b, first + i);
-                p[len++] = (uint8_t)(v & 0x7Fu);
-                p[len++] = (uint8_t)(v >> 7);
-            }
-        }
-    }
-    app_send_unsolicited(GSX_MSG_RAW, p, len);
-    if (first + n < total) {
-        mon_first = (uint16_t)(first + n);    /* the rest of this kind next time */
-        return;
-    }
-    mon_first = 0;
-    mon_turn = (uint8_t)((b + 1u) % MON_KINDS);
-}
-#endif
+/* ---- main loop --------------------------------------------------------- */
 
 void gm_poll(void)
 {

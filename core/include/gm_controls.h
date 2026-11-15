@@ -22,6 +22,20 @@
 extern "C" {
 #endif
 
+#ifndef GM_N_MODES
+#define GM_N_MODES 0                    /* a config generated before modes */
+#endif
+/* Modes need a button to enter them; only a mode's keys: (function keys)
+ * need the key matrix, and the builder checks that (core/README.md "Modes"). */
+#if GM_N_MODES > 0 && GM_N_BUTTONS == 0
+#error "modes need a toggle, hold or cycle button (the builder checks this)"
+#endif
+#ifndef GM_LAYERS
+#define GM_LAYERS 0                     /* layer twins (modes: layer:), core/README.md "Button layers" */
+#endif
+#if GM_LAYERS && GM_N_MODES == 0
+#error "button layers belong to modes (the builder checks this)"
+#endif
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
 #endif
@@ -66,7 +80,7 @@ extern "C" {
 #define NE_HW (GM_N_ENCODERS - GM_ENC_TWINS)
 #define NOTE_NONE 0xFFu                 /* a key or button with no note sounding */
 
-/* ---- MIDI out (controller.c) ---------------------------------------------- */
+/* ---- MIDI out (controller.c) ------------------------------------------- */
 
 uint8_t midi_chan(void);                /* the device's MIDI channel, 0-15 (midi.channel - 1) */
 void midi3(uint8_t status, uint32_t a, uint32_t b);
@@ -81,7 +95,7 @@ static inline void cc(uint32_t num, uint32_t value)
     midi3(0xB0 | midi_chan(), num, value);
 }
 
-/* ---- MIDI messages (controller.c, core/README.md "MIDI messages") --------- */
+/* ---- MIDI messages (controller.c, core/README.md "MIDI messages") ------ */
 
 #if GM_CTL
 uint8_t ctl_chan(const gm_ctl_t *t);    /* a control's channel: its channel:, else midi.channel */
@@ -101,7 +115,7 @@ void sysex_out(const uint8_t *m, uint32_t n);
 void sysex_send(uint32_t k, uint32_t v, uint8_t ch);   /* SysEx string k with value v and channel ch filled in */
 #endif
 
-/* ---- buttons (components/buttons) ----------------------------------------- */
+/* ---- buttons (components/buttons) -------------------------------------- */
 
 #if GM_N_BUTTONS > 0
 #define BTN_SAMPLE_MS 1u                /* gm_poll samples the buttons every BTN_SAMPLE_MS */
@@ -148,7 +162,7 @@ void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch ben
 void buttons_off(void);                 /* a preset switch: let go of every note and CC */
 #endif
 
-/* ---- modes (components/modes, core/README.md "Modes") ---------------------- */
+/* ---- modes (components/modes, core/README.md "Modes") ------------------ */
 
 #if GM_N_MODES > 0
 #if GM_HAS_MATRIX
@@ -183,7 +197,7 @@ void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers
 #define layers_update() ((void)0)
 #endif
 
-/* ---- LEDs (components/leds) ----------------------------------------------- */
+/* ---- LEDs (components/leds) -------------------------------------------- */
 
 /* LED levels (see led_show): LV_BLINK | level blinks it; LV_RGB | m lights
  * the pins in mask m (an RGB colour, or a cycle step's colour); LV_RGB |
@@ -207,13 +221,19 @@ void leds_update(uint32_t now);         /* every LED_MS: what each LED shows */
 int leds_apply(void);                   /* the passes between: show a few of them; 1 if it did any */
 int leds_round_open(void);              /* a fade round is being shown: the main-loop hubs wait */
 
-/* ---- host feedback (feedback.c) ------------------------------------------ */
+/* ---- host feedback (feedback.c) ---------------------------------------- */
 
 #if GM_FEEDBACK
 void feedback_init(void);               /* gm_init: which LED sources the device has */
 #endif
 
-/* ---- the scan (controller.c) --------------------------------------------- */
+/* ---- raw readings (monitor.c) ------------------------------------------ */
+
+#if GM_MONITOR
+void monitor_poll(uint32_t now);        /* gm_poll: the next RAW message, while a host asks for them */
+#endif
+
+/* ---- the scan (controller.c) ------------------------------------------- */
 
 /* Scan ticks: +1 per gm_scan_tick, or per frame with the hardware scan
  * (which counts the time then). Written by the scan interrupt only. */
@@ -223,7 +243,7 @@ extern uint8_t hw_on;                   /* the scan: the platform scans; frames 
 extern uint32_t hw_frame_q4;            /* the scan: the hardware scan's frame period, 1/16 us */
 #endif
 
-/* ---- key matrix (components/key_matrix) ----------------------------------- */
+/* ---- key matrix (components/key_matrix) -------------------------------- */
 
 #if GM_HAS_MATRIX
 #ifndef GM_MATRIX_ROWS
@@ -249,7 +269,7 @@ void keys_poll(void);                   /* the main loop: the queued key changes
 void keys_off(void);                    /* Note Off for every held key; their releases send nothing */
 #endif
 
-/* ---- analog inputs (components/analog) ------------------------------------ */
+/* ---- analog inputs (components/analog) --------------------------------- */
 
 #if GM_N_ANALOGS > 0
 #define ANALOG_MS 2u                    /* one analog input per period (without the hardware analog scan) */
@@ -272,7 +292,7 @@ void analog_poll(void);
 void analog_pickup_off(void);           /* every input back in control of its value (pick-up) */
 #endif
 
-/* ---- encoders (components/encoders) --------------------------------------- */
+/* ---- encoders (components/encoders) ------------------------------------ */
 
 #if GM_N_ENCODERS > 0
 /* An encoder's channel (channel:). */
@@ -301,7 +321,7 @@ void encoders_init(void);
 void encoders_poll(uint32_t now);
 #endif
 
-/* ---- pads (components/pads) ----------------------------------------------- */
+/* ---- pads (components/pads) -------------------------------------------- */
 
 #if GM_N_PADS > 0
 #define NP GM_N_PADS

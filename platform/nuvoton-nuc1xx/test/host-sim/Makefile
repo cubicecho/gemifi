@@ -86,7 +86,7 @@ GM_ROOT := $(ROOT)
 CTL_COMPONENT_SRCS := $(GM_COMPONENT_SRCS)
 CTL_COMPONENT_INCS := $(addprefix -I,$(GM_COMPONENT_INCS))
 CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
-            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c feedback.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
+            $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c feedback.c monitor.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
             $(DEV_DIR)/gm_device_config.c $(CTL_COMPONENT_SRCS)
 
 $(DEVICE): $(YAML) | $(BUILD)

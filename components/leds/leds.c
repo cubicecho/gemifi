@@ -499,7 +499,7 @@ void leds_lamp(int on)
     }
 }
 
-/* ---- encoder rings (MCU V-Pots, DAW scripts) ------------------------------ */
+/* ---- encoder rings (MCU V-Pots, DAW scripts) --------------------------- */
 
 #if GM_RINGS && GM_N_ENCODERS > 0
 void gm_ring_draw(uint32_t e, uint32_t mode, int32_t frac, int center)

@@ -21,6 +21,7 @@ platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upl
 | `include/gm_controller.h`, `src/controller.c` | the runtime: the scan tick and the hardware scan, MIDI out and the MIDI messages, the preset release, `gm_init` and `gm_poll`; the controls are components |
 | `include/gm_controls.h` | what the controller and the control components share: the MIDI helpers, the state one control keeps and another reads (each with its writer), what `gm_poll` and `gm_init` call. Not for the platforms |
 | `src/feedback.c` | host feedback (F1): what the host sends lights LEDs, sets toggles, gives analog inputs and encoders its value |
+| `src/monitor.c` | the raw readings (MONITOR / RAW, "Raw readings" below): what the controls last read, for a tester |
 | `src/midi_in.c` | incoming MIDI: USB-MIDI packets or a byte stream, sorted by port into SysEx (the protocol), feedback and MCU |
 | `include/gm_feedback.h` | the feedback switches (`GM_FEEDBACK`, `GM_MCU`, ...) and the calls between the files above |
 | `include/gm_mcu.h`, `src/mcu.c` | Mackie Control on the DAW port; empty unless the YAML has `mcu:` |

@@ -20,8 +20,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import (INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, Hub, Pin,  # noqa: E402,F401
-                            c_str)
+from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PULLDOWN, PULLUP, RENAMED_ID,  # noqa: E402,F401
+                            Hub, Pin, c_str)
 import gemifi_board as gbd  # noqa: E402
 from components.hub import HubType  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402
@@ -202,7 +202,6 @@ def stored_counts(dev):
 # The per-preset globals a preset may set (§10.2): YAML section -> key -> (param, default, kind, lo, hi).
 # Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
 # enum's YAML names in value order.
-CURVES = ["normal", "soft", "hard", "fixed"]
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
@@ -413,8 +412,6 @@ MODE_STRINGS = {"INPUT": {"input"}, "OUTPUT": {"output"}, "OUTPUT_OPEN_DRAIN": {
                 "INPUT_OUTPUT_OPEN_DRAIN": {"input", "output", "open_drain"}}
 
 # Format 1 keys: an old file gets one error per old key, at its line, saying what replaced it.
-RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, used for references) "
-                       "and/or `name:` (display text)"}
 RENAMED_TOP = {
     "hubs": "replaced: declare each hub under its chip's key, ESPHome style, e.g. "
             "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` "
@@ -1183,6 +1180,33 @@ class _V:
         """name: (free text, optional), else derived from the id: oct_down -> "Oct down"."""
         name = self.string(d, "name", path)
         return name if name is not None else humanize(ident or "")
+
+    def unique_name(self, names, kind, name, path, d):
+        """Display names label the rows of the web config table and the CLI's `param:name` keys:
+        two of the same kind with one name can't be told apart. names: (kind, name) -> path, kept by
+        the caller across its list."""
+        if not name:
+            return
+        first = names.setdefault((kind, name.lower()), path)
+        if first != path:
+            self.warn(f"{path}.name" if "name" in d else path, d.line_of("name") if "name" in d else d.line,
+                      f"'{name}' is also the name of {first}: the config page and CLI can't tell them apart "
+                      "(set a different name:)")
+
+    def enum_value(self, d, key, path, options):
+        """d[key]'s index in options, or None (an error, with the closest option)."""
+        x = d[key]
+        if x in options:
+            return options.index(x)
+        close = difflib.get_close_matches(str(d.raw_of(key)), options, 1)
+        hint = f"did you mean '{close[0]}'? " if close else ""
+        self.err(path, d.line_of(key), f"unknown {key} '{d.raw_of(key)}' ({hint}valid: {', '.join(options)})")
+        return None
+
+    @staticmethod
+    def hub_keys(cls):
+        """The hub types (YAML keys) whose HubType is a cls (components/<name>), for a pin's hubs=."""
+        return {k for k, t in HUB_DEFS.items() if isinstance(t, cls)}
 
     def ref(self, container, key, path, line, kind, plural):
         """A reference to another component by id (`led: edit_led`, boot_combo items, hub pins).
@@ -1973,7 +1997,7 @@ def validate_din(v, dev, data, tr, plat):
         rx = v.pin(d["rx_pin"], "din_midi.rx_pin", d.line_of("rx_pin"), "in", allow_hub=False)
     mode = DIN_MODES.index("usb_merge")
     if "mode" in d:
-        m = enum_value(v, d, "mode", "din_midi.mode", DIN_MODES)
+        m = v.enum_value(d, "mode", "din_midi.mode", DIN_MODES)
         mode = mode if m is None else m
         if m == DIN_MODES.index("separate_port"):
             v.warn("din_midi.mode", d.line_of("mode"),
@@ -2323,7 +2347,7 @@ def validate_components(v, dev, data):
             continue
         ident = v.ident(d, p, "button", len(dev.buttons))
         name = v.display_name(d, p, ident)
-        unique_name(v, names, "button", name, p, d)
+        v.unique_name(names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
         act, num = button_action(v, dev, d, p)
         led = -1
@@ -2349,12 +2373,12 @@ def validate_components(v, dev, data):
             continue
         ident = v.ident(d, p, "analog input", len(dev.analogs))
         name = v.display_name(d, p, ident)
-        unique_name(v, names, "analog input", name, p, d)
+        v.unique_name(names, "analog input", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog")
         fader = mcu_name(v, dev, d, p, MCU_FADERS, "fader_1")
         mode = 0
         if "mode" in d:
-            mode = enum_value(v, d, "mode", f"{p}.mode", ANALOG_MODES)
+            mode = v.enum_value(d, "mode", f"{p}.mode", ANALOG_MODES)
             mode = 0 if mode is None else mode
             mode_use(v, dev, ANALOG_MODES[mode], f"{p}.mode", d.line_of("mode"))
         if mode != 0 and fader is not None:
@@ -2388,7 +2412,7 @@ def validate_components(v, dev, data):
             continue
         ident = v.ident(d, p, "encoder", len(dev.encoders))
         name = v.display_name(d, p, ident)
-        unique_name(v, names, "encoder", name, p, d)
+        v.unique_name(names, "encoder", name, p, d)
         enc_hubs = IN_HUBS - MUX_HUBS
         why = "encoders can't be on a mux"
         pins = {}
@@ -2404,7 +2428,7 @@ def validate_components(v, dev, data):
         vpot = mcu_name(v, dev, d, p, MCU_VPOTS, "vpot_1")
         mode = 0
         if "mode" in d:
-            mode = enum_value(v, d, "mode", f"{p}.mode", ENC_MODES)
+            mode = v.enum_value(d, "mode", f"{p}.mode", ENC_MODES)
             mode = 0 if mode is None else mode
             mode_use(v, dev, ENC_MODES[mode], f"{p}.mode", d.line_of("mode"))
         for k in ("mode", "channel", "min", "max"):
@@ -2636,18 +2660,6 @@ def validate_led_source(v, dev, d, p):
     if num is None:
         return None
     return (LED_SOURCES[k], num, ch)
-
-
-def unique_name(v, names, kind, name, path, d):
-    """Display names label the rows of the web config table and the CLI's `param:name` keys:
-    two of the same kind with one name can't be told apart."""
-    if not name:
-        return
-    first = names.setdefault((kind, name.lower()), path)
-    if first != path:
-        v.warn(f"{path}.name" if "name" in d else path, d.line_of("name") if "name" in d else d.line,
-               f"'{name}' is also the name of {first}: the config page and CLI can't tell them apart "
-               "(set a different name:)")
 
 
 def button_action(v, dev, d, p, base=None):
@@ -3083,7 +3095,7 @@ def validate_acceleration(v, d, path, base):
                     step_us=1000, example="10ms")
     mx = v.integer(m, "max", p, *ACCEL_MAX, default=mx)
     if m.get("curve") is not None:
-        c = enum_value(v, m, "curve", f"{p}.curve", ACCEL_CURVES)
+        c = v.enum_value(m, "curve", f"{p}.curve", ACCEL_CURVES)
         curve = curve if c is None else c
     if fast >= slow:
         v.err(p, line, f"fast ({fast}ms) must be shorter than slow ({slow}ms): detents fast apart get max "
@@ -3132,7 +3144,7 @@ def validate_pads(v, dev, data):
             continue
         ident = v.ident(d, p, "pad", len(dev.pads))
         name = v.display_name(d, p, ident)
-        unique_name(v, names, "pad", name, p, d)
+        v.unique_name(names, "pad", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "analog", hubs=MUX_HUBS,
                     why="a pad is read with the ADC")
         note = v.integer(d, "note", p, 0, 127, default=0, required=True)
@@ -3171,7 +3183,7 @@ def validate_pads(v, dev, data):
 
     put("channel", v.integer(s, "channel", p, 0, 16))
     if "curve" in s:
-        put("curve", enum_value(v, s, "curve", f"{p}.curve", CURVES))
+        put("curve", v.enum_value(s, "curve", f"{p}.curve", CURVES))
     if "aftertouch" in s:
         put("aftertouch", int(v.boolean(s, "aftertouch", p)))
     put("threshold", v.integer(s, "threshold", p, 1, 4095))
@@ -3839,7 +3851,7 @@ def preset_values(v, dev, d, p):
                 val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
                 shown = f"{val} ms"
             else:
-                val = enum_value(v, g, k, kp, kind)
+                val = v.enum_value(g, k, kp, kind)
                 shown = None if val is None else kind[val]
             put(param, 0, val, default, kp, kl, param, shown)
 
@@ -3888,7 +3900,7 @@ def preset_values(v, dev, d, p):
                 a = dev.analogs[idx]
                 m = a.mode
                 if "mode" in o:
-                    m = enum_value(v, o, "mode", f"{cp}.mode", ANALOG_MODES)
+                    m = v.enum_value(o, "mode", f"{cp}.mode", ANALOG_MODES)
                     if m is not None:
                         mode_use(v, dev, ANALOG_MODES[m], f"{cp}.mode", line("mode"))
                     put("analog.mode", idx, m, a.mode, f"{cp}.mode", line("mode"),
@@ -3905,7 +3917,7 @@ def preset_values(v, dev, d, p):
                 e = dev.encoders[idx]
                 m = e.mode
                 if "mode" in o:
-                    m = enum_value(v, o, "mode", f"{cp}.mode", ENC_MODES)
+                    m = v.enum_value(o, "mode", f"{cp}.mode", ENC_MODES)
                     if m is not None:
                         mode_use(v, dev, ENC_MODES[m], f"{cp}.mode", line("mode"))
                     put("encoder.mode", idx, m, e.mode, f"{cp}.mode", line("mode"), f"encoder.mode[{cid}]",
@@ -4314,16 +4326,6 @@ def write_to_flash_defines(dev):
             f"#define GM_WRITE_IDLE_MS {w['idle_ms']}u /* write_to_flash.idle: and nothing played for this long */"]
 
 
-def enum_value(v, d, key, path, options):
-    x = d[key]
-    if x in options:
-        return options.index(x)
-    close = difflib.get_close_matches(str(d.raw_of(key)), options, 1)
-    hint = f"did you mean '{close[0]}'? " if close else ""
-    v.err(path, d.line_of(key), f"unknown {key} '{d.raw_of(key)}' ({hint}valid: {', '.join(options)})")
-    return None
-
-
 def preset_ref(v, cid, path, line, kind, plural):
     """A component id used as a key in a preset -> its index, or None after saying why."""
     target = v.ids.get(cid) if isinstance(cid, str) else None
@@ -4431,7 +4433,7 @@ def mode_action(v, dev, name, d, path, line, arg=None):
         v.err(path, line, f"action {name} needs {need}, e.g. `{{ action: {name}, {argkey}: {example} }}`")
         return None
     if argkey == "curve":
-        x = enum_value(v, d, "curve", f"{path}.curve", CURVES)
+        x = v.enum_value(d, "curve", f"{path}.curve", CURVES)
         return None if x is None else (op, x, f"{name} {CURVES[x]}")
     x = v.integer(d, argkey, path, 1, dev.n_presets if argkey == "preset" else 16)
     return None if x is None else (op, x, f"{name} {x}")

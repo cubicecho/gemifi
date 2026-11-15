@@ -24,6 +24,13 @@ class Pin:
 
 NO_PIN = Pin(0xFF, 0, 0, "-")
 
+# The velocity curves (gm_settings.h CURVE_*): velocity.curve, pad_settings.curve.
+CURVES = ["normal", "soft", "hard", "fixed"]
+
+# The old label: key of every list item (format 1).
+RENAMED_ID = {"label": "renamed: use `id:` (lower_snake_case, e.g. `oct_down`, used for references) "
+                       "and/or `name:` (display text)"}
+
 # Said after the message for a key that moved onto a base component (old_keys).
 MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"
 

@@ -18,31 +18,32 @@
 /* Scan state: only the scanned encoders (NE_HW) have it, not their twins. */
 static uint8_t enc_ab[GM_ARR(NE_HW)];
 static int8_t enc_acc[GM_ARR(NE_HW)];
-/* Detents, free running: only encoder_step writes it (the scan interrupt,
- * or the main loop for I2C hubs, never both for one encoder), and the main
- * loop takes the turns as count - enc_seen. No read-modify-write from both
- * sides, so a detent counted between the main loop's load and store isn't
- * lost (the M0 has no LDREX; a halfword load or store is atomic). Twins
- * aren't scanned: only the scanned encoders have counts. */
 volatile uint16_t enc_count[GM_ARR(NE_HW)];
-static uint16_t enc_seen[GM_ARR(NE_HW)];
+static uint16_t enc_seen[GM_ARR(NE_HW)];   /* enc_count at encoders_poll's last look */
 uint8_t enc_i2c[GM_ARR(NE_HW)];
 int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
 static const volatile uint32_t *enc_ra[GM_ARR(NE_HW)], *enc_rb[GM_ARR(NE_HW)];
 static uint32_t enc_ma[GM_ARR(NE_HW)], enc_mb[GM_ARR(NE_HW)];
-#endif
 #if GM_ENC_TWINS
-uint8_t enc_live[NE];
+uint8_t enc_live[GM_ARR(NE_HW)];
 #endif
 
-#if GM_N_ENCODERS > 0
+#if GM_MSG_KINDS
+_Static_assert(ENC_CC14 - 3 == K_CC14 && ENC_NRPN - 3 == K_NRPN && ENC_RPN14 - 3 == K_RPN14, "enc_kind");
+/* What encoder.mode sends: K_CC for the 7-bit modes, the K_* of the
+ * absolute ones from ENC_CC14 on. */
+uint32_t enc_kind(int32_t mode)
+{
+    return mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC;
+}
+#endif
+
 /* The top of encoder i's values: 127, or 16383 in a 14-bit mode. */
 int32_t enc_top(uint32_t i)
 {
 #if GM_MSG_KINDS
-    int32_t mode = gm_cfg.enc_mode[i];
-    if (mode >= ENC_CC14 && kind_wide((uint32_t)mode - 3u, (uint32_t)gm_cfg.enc_cc[i]))
+    if (kind_wide(enc_kind(gm_cfg.enc_mode[i]), (uint32_t)gm_cfg.enc_cc[i]))
         return 16383;
 #else
     (void)i;
@@ -88,7 +89,6 @@ void enc_at(uint32_t i, int32_t v, int32_t top, int32_t span)
 #endif
     enc_value[i] = (int16_t)(v < 0 ? 0 : v > span ? span : v);
 }
-#endif
 
 /* FB_VALUE: value 0..16383 over the encoder's range. */
 void gm_encoder_host(uint32_t i, uint32_t value)
@@ -101,8 +101,6 @@ void gm_encoder_host(uint32_t i, uint32_t value)
     else if (span)
         enc_value[i] = (int16_t)((int32_t)value * span / 16383);
 }
-
-#if GM_N_ENCODERS > 0
 
 void encoder_step(uint32_t i)
 {
@@ -127,9 +125,7 @@ void encoder_step(uint32_t i)
         enc_count[i]--;
     }
 }
-#endif
 
-#if GM_N_ENCODERS > 0
 #if GM_ENC_ACCEL
 /* Acceleration (components/encoders/README.md "Encoder acceleration"), per scanned encoder
  * (its twins share it): when it last turned (ms), the smoothed time between
@@ -197,7 +193,7 @@ void encoders_poll(uint32_t now)
 #if GM_ENC_ACCEL
         int32_t d = enc_accel(p, raw, now);
 #else
-        int16_t d = raw;            /* as before acceleration: the same code */
+        int16_t d = raw;            /* one step per detent */
         (void)now;
 #endif
         send_event(EV_ENCODER, i, (uint32_t)d & 0x3FFFu);
@@ -236,8 +232,7 @@ void encoders_poll(uint32_t now)
             if (v != enc_value[i]) {
                 enc_value[i] = (int16_t)v;
 #if GM_MSG_KINDS
-                int32_t mode = gm_cfg.enc_mode[i];
-                send_value(mode >= ENC_CC14 ? (uint32_t)mode - 3u : K_CC, ENC_CH(i), num, enc_out(i, v, top));
+                send_value(enc_kind(gm_cfg.enc_mode[i]), ENC_CH(i), num, enc_out(i, v, top));
 #else
                 midi3(st, num, enc_out(i, v, top));
 #endif

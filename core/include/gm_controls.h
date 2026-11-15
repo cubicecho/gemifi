@@ -2,8 +2,8 @@
  * gm_controls.h: what the controller (core/src/controller.c) and the control
  * components (components/buttons, leds, pads ...) share: the helpers every
  * control sends with, the state one control keeps and another reads, and
- * what the main loop calls. Each shared variable is written by one
- * component, named with it. Not for the platforms (gm_controller.h is
+ * what the main loop calls. Each shared variable's comment names the
+ * components that write it. Not for the platforms (gm_controller.h is
  * theirs).
  *
  * SPDX-License-Identifier: MIT
@@ -124,8 +124,7 @@ void sysex_send(uint32_t k, uint32_t v, uint8_t ch);   /* SysEx string k with va
  * scan since the sample before: 1 ms), so a quick tap is never lost; a
  * release counts once no scan has read it closed for BTN_STABLE samples in a
  * row (16 ms), which rides out contact bounce and a light press losing
- * contact for a moment (on the Code 61, 4 ms and sometimes 10 ms counted a
- * press twice). */
+ * contact for a moment. */
 #define BTN_STABLE 16u
 /* A reading of every button, one bit each, in the narrowest type that holds
  * GM_N_BUTTONS (64-bit shifts are library calls on a Cortex-M0). */
@@ -156,7 +155,7 @@ extern btn_bits_t btn_hist[BTN_STABLE - 1u];    /* buttons: the samples before t
 extern int16_t ramp_q8[NB];             /* buttons: CC ramp position, 0..127 << 8; the LEDs show it */
 /* *v + step, within -lim..lim (0 with reset), and its name and value on the
  * display: the octave, transpose and pad octave buttons and keys. */
-void shift(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset);
+void step_and_show(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset);
 void buttons_init(void);
 void buttons_sample(void);              /* every BTN_SAMPLE_MS: presses and releases */
 void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch bend glide */
@@ -170,20 +169,18 @@ void buttons_off(void);                 /* a preset switch: let go of every note
 uint32_t keys_mode(void);               /* the mode the keys go to; GM_MODE_NONE = the keys play */
 void mode_key(uint32_t mi, uint32_t k); /* key k pressed in mode mi: its binding */
 #endif
-#if GM_LAYER_PARAMS
-uint32_t layer_rank(uint32_t m);        /* how strongly root mode m's layer holds, 0 = off */
-#endif
 /* What LED li shows instead of level: a mode's LED, a preset number's blink. */
 uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now);
 #define MODE_LED(li, level, now) mode_led(li, level, now)
-int mode_button(uint32_t i, int down);  /* button i as a mode's toggle, hold or cycle button: 1 if it was */
-int mode_btn(uint32_t i, int down);     /* button i as a function button of the active mode: 1 if it was */
+/* Button i as a mode's toggle, hold or cycle button: 1 if it was. */
+int mode_toggle_button(uint32_t i, int down);
+/* Button i as a function button of the active mode: 1 if it was. */
+int mode_function_button(uint32_t i, int down);
 /* Button i released after a preset switch (its release is silent): a hold
  * mode still ends with its button. */
 void mode_late_release(uint32_t i);
-void modes_init(void);
+void modes_init(void);                  /* no mode on, no cycle on a step (before the settings are loaded) */
 #if GM_N_CYCLES
-void cycles_init(void);                 /* no cycle on a step (before the settings are loaded) */
 void cycles_start(void);                /* each cycle on its first enabled step */
 #endif
 #else
@@ -211,9 +208,9 @@ void layers_report_poll(void);          /* gm_poll: the EVENT 8 replay gm_layers
 #define LV_COLOUR 0x20u
 #define LV_STEP_SHIFT 8u                /* mode index + 1, 7 bits (the builder's MODE_RGB_MAX) */
 #define LV_STEP(m) (((m) + 1u) << LV_STEP_SHIFT)
-extern uint16_t led_shown[GM_ARR(GM_N_LEDS)];   /* LEDs: what each shows; 0xFFFF draws it again */
 #if GM_LAYERS
 extern uint8_t led_dead[GM_ARR(GM_N_LEDS)];     /* modes (layers_update): a layer twin (or its base) not shown now */
+void led_redraw(uint32_t i);            /* LED i is drawn again at the next leds_update */
 #endif
 #define LED_MS 10u                      /* gm_poll: leds_update every LED_MS */
 void leds_init(void);
@@ -302,16 +299,23 @@ void analog_pickup_off(void);           /* every input back in control of its va
 #else
 #define ENC_CH(i) midi_chan()
 #endif
-/* Detents, free running: only encoder_step writes it (the scan interrupt,
- * or the main loop for I2C hubs). */
+/* Detents, free running, per scanned encoder (twins have none): only
+ * encoder_step writes it (the scan interrupt, or the main loop for I2C
+ * hubs, never both for one encoder), and encoders_poll takes the turns as
+ * the change since its last look. No read-modify-write from both sides, so
+ * a detent counted between the main loop's load and store isn't lost (the
+ * M0 has no LDREX; a halfword load or store is atomic). */
 extern volatile uint16_t enc_count[GM_ARR(NE_HW)];   /* encoders; the raw readings read it */
 extern uint8_t enc_i2c[GM_ARR(NE_HW)];  /* encoders (encoders_init): on an I2C hub, stepped from the main loop */
 extern int16_t enc_value[NE];           /* encoders, and host feedback (enc_at): an absolute position */
 #if GM_ENC_TWINS
-extern uint8_t enc_live[NE];            /* modes (layers_update): per scanned encoder, the index its turns go to */
+extern uint8_t enc_live[GM_ARR(NE_HW)]; /* modes (layers_update): per scanned encoder, the index its turns go to */
 #define ENC_LIVE(i) enc_live[i]
 #else
 #define ENC_LIVE(i) (i)
+#endif
+#if GM_MSG_KINDS
+uint32_t enc_kind(int32_t mode);        /* what encoder.mode sends: K_CC for a 7-bit mode, else its K_* */
 #endif
 int32_t enc_top(uint32_t i);            /* the top of encoder i's values: 127, or 16383 in a 14-bit mode */
 int32_t enc_span(uint32_t i, int32_t top);      /* an absolute mode's positions, 0..span; 0: relative */

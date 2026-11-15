@@ -1,0 +1,38 @@
+---
+layout: docs.njk
+title: Tested devices
+description: Every device YAML in the gemifi repo, its platform and chip, and what has been checked on real hardware.
+permalink: /docs/devices/
+crumb: Devices
+lede: Every device YAML in the repo, and what has been checked on real hardware. A YAML that builds but hasn't been run is marked so; if you run one, tell us how it went on its issue.
+---
+{%- set checked = tested | selectattr("status", "equalto", "works") -%}
+<p>
+  <strong>{{ checked.length }} of {{ tested.length }}</strong> device YAMLs have been checked on hardware.
+  The list is <a href="{{ site.blob }}site/src/_data/tested.js" rel="noopener"><code>site/src/_data/tested.js</code></a>.
+</p>
+
+<div class="table-scroll">
+<table class="tested">
+  <thead>
+    <tr><th>YAML</th><th>Platform</th><th>Status</th><th>Checked on hardware</th><th>Not yet</th></tr>
+  </thead>
+  <tbody>
+    {% for t in tested %}
+    <tr>
+      <td>
+        <a href="{{ site.blob }}{{ t.yaml }}" rel="noopener"><code>{{ t.file }}</code></a><br />
+        {% if t.device %}{% for d in collections.devices %}{% if d.page.fileSlug == t.device %}<a href="{{ d.url | url }}">{{ t.name }}</a>{% endif %}{% endfor %}{% else %}{{ t.name }}{% endif %}
+      </td>
+      <td>
+        {% for p in docs.platforms %}{% if t.platform in p.keys %}<a href="{{ p.url | url }}"><code>{{ t.platform }}</code></a>{% endif %}{% endfor %}<br />
+        <small>{{ t.chip }}{% if t.board %}, board <code>{{ t.board }}</code>{% endif %}</small>
+      </td>
+      <td><span class="status status-{{ t.status }}">{{ "Works" if t.status == "works" else "Builds" }}</span>{% if t.checked %}<br /><small>{{ t.checked }}</small>{% endif %}</td>
+      <td>{{ t.works or "—" }}</td>
+      <td>{{ t.pending }}{% if t.issue %} <a href="{{ site.repo }}/issues/{{ t.issue }}" rel="noopener">#{{ t.issue }}</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>

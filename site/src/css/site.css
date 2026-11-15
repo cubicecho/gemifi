@@ -231,3 +231,159 @@
   gap: 0.5rem 1.25rem;
   font-size: 0.95rem;
 }
+
+/* ---- Docs (/docs/): the tree, the page, its contents ---------------------
+   Three columns on a wide screen, the tree folded into a "Docs menu" above
+   the page on a narrow one. A docs page gets a wider main than the rest. */
+main:has(> .docs) {
+  max-width: 92rem;
+}
+.docs {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr) 13rem;
+  gap: 2.5rem;
+  align-items: start;
+  padding-top: 1.5rem;
+}
+.docs:not(:has(.docs-toc)) {
+  grid-template-columns: 15rem minmax(0, 1fr);
+}
+.docs-side,
+.docs-toc {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  font-size: 0.92rem;
+}
+.docs-nav-toggle > summary {
+  display: none;
+}
+.docs-nav ul,
+.docs-toc ul {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.docs-nav ul ul {
+  margin: 0 0 0 0.85rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--hairline);
+}
+.docs-nav a,
+.docs-toc a {
+  display: inline-block;
+  padding: 0.15rem 0;
+  color: var(--muted-fg);
+  text-decoration: none;
+}
+.docs-nav a:hover,
+.docs-toc a:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.docs-nav a[aria-current="page"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.docs-nav-head {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.docs-nav-head:first-child {
+  margin-top: 0;
+}
+.docs-nav-base {
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--muted-fg);
+  background: var(--hairline);
+}
+.docs-toc .toc-3 {
+  padding-left: 0.75rem;
+}
+.docs-main {
+  min-width: 0;
+}
+.docs-main > h1 {
+  margin: 0.25rem 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+.docs-lede {
+  margin: 0 0 1.5rem;
+  font-size: 1.1rem;
+  color: var(--muted-fg);
+}
+.docs-main > .section:first-of-type {
+  padding-top: 0.5rem;
+}
+.docs-body {
+  margin-top: 1.5rem;
+}
+.docs-body h2,
+.docs-body h3,
+.docs-main h2[id] {
+  scroll-margin-top: 1rem;
+}
+.docs-source {
+  margin: 3rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.9rem;
+  color: var(--muted-fg);
+}
+.table-scroll {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.table-scroll > table {
+  margin: 0;
+}
+table.tested {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+table.tested th,
+table.tested td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+}
+table.tested small {
+  color: var(--muted-fg);
+}
+
+@media (max-width: 75rem) {
+  .docs,
+  .docs:not(:has(.docs-toc)) {
+    grid-template-columns: 14rem minmax(0, 1fr);
+  }
+  .docs-toc {
+    display: none;
+  }
+}
+@media (max-width: 52rem) {
+  .docs,
+  .docs:not(:has(.docs-toc)) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+  .docs-side {
+    position: static;
+    max-height: none;
+  }
+  .docs-nav-toggle > summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.5rem 0;
+  }
+}

@@ -1,0 +1,43 @@
+{#- The docs tree, on every docs page. Item urls have no path prefix, as page.url. -#}
+{%- macro item(title, url, extra) -%}
+<li><a href="{{ url | url }}"{% if page.url == url %} aria-current="page"{% endif %}>{{ title }}</a>{{ extra | safe }}</li>
+{%- endmacro -%}
+<details class="docs-nav-toggle" open>
+  <summary>Docs menu</summary>
+  <nav class="docs-nav" aria-label="Docs">
+    <p class="docs-nav-head">Overview</p>
+    <ul>
+      {{ item("Docs home", "/docs/") }}
+      {{ item("Get started", "/get-started/") }}
+      {% for c in docs.core %}{{ item(c.title, c.url) }}{% endfor %}
+    </ul>
+    {% for g in docs.groups %}
+    <p class="docs-nav-head">{{ g.title }}</p>
+    <ul>
+      {% for i in g.items %}{{ item(i.title, i.url, ' <span class="docs-nav-base">base</span>' if i.base else '') }}{% endfor %}
+    </ul>
+    {% endfor %}
+    <p class="docs-nav-head">Platforms</p>
+    <ul>
+      {% for p in docs.platforms %}
+      <li>
+        <a href="{{ p.url | url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>{{ p.title }}</a>
+        {% if p.children.length %}
+        <ul>
+          {% for c in p.children %}{{ item(c.label, c.url) }}{% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="docs-nav-head">Devices</p>
+    <ul>
+      {{ item("Tested devices", "/docs/devices/") }}
+      {% for d in collections.devices %}{{ item(d.data.maker + " " + d.data.model, d.url) }}{% endfor %}
+    </ul>
+  </nav>
+</details>
+{#- Open beside the page on a wide screen; folded above it on a phone, where it would push the page down. -#}
+<script>
+  if (matchMedia("(max-width: 52rem)").matches) document.querySelector(".docs-nav-toggle").open = false;
+</script>

@@ -1,0 +1,67 @@
+---
+layout: docs.njk
+title: Docs
+description: The gemifi docs, collected from the repo when the site is built - the device YAML, every component, the platforms and chips, and which devices have been tested on hardware.
+permalink: /docs/
+crumb: gemifi
+lede: Everything a device YAML can hold, one page per component as in ESPHome, and the chips and devices it runs on. Each page is a README in the repo, collected when the site is built.
+---
+<section class="section">
+  <h2 id="start">Start here</h2>
+  <ul class="card-grid">
+    <li><article class="card"><h3><a class="card-link" href="{{ '/get-started/' | url }}">Get started</a></h3><p>Run the dashboard, write a YAML, build and flash.</p></article></li>
+    {% for c in docs.core %}
+    <li><article class="card"><h3><a class="card-link" href="{{ c.url | url }}">{{ c.title }}</a></h3><p>{% if loop.first %}The whole YAML format: pins, the device keys, presets, DAW feedback and the generated code.{% else %}What each component costs in time, RAM and flash on each platform.{% endif %}</p></article></li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% for g in docs.groups %}
+<section class="section">
+  <h2 id="{{ g.key }}">{{ g.title }}</h2>
+  {% if g.intro %}<p class="section-intro">{{ g.intro }}</p>{% endif %}
+  <ul class="card-grid">
+    {% for i in g.items %}
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ i.url | url }}"><code>{{ i.title }}</code></a></h3>
+        <p>{{ i.summary }}</p>
+        {% if i.base %}<div class="card-foot"><span class="docs-nav-base">base component</span></div>{% endif %}
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+
+<section class="section">
+  <h2 id="platforms">Platforms</h2>
+  <p class="section-intro">The chip families gemifi builds for. A device YAML picks one with <code>platform:</code>.</p>
+  <ul class="card-grid">
+    {% for p in docs.platforms %}
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ p.url | url }}">{{ p.title }}</a></h3>
+        <div class="card-foot"><span class="status status-{{ p.status }}">{{ statuses[p.status].label }}</span></div>
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section">
+  <h2 id="devices">Devices</h2>
+  <p class="section-intro">
+    <a href="{{ '/docs/devices/' | url }}">Tested devices</a> lists every device YAML in the repo and what has been checked on hardware.
+  </p>
+  <ul class="card-grid">
+    {% for d in collections.devices %}
+    <li>
+      <article class="card">
+        <h3><a class="card-link" href="{{ d.url | url }}">{{ d.data.maker }} {{ d.data.model }}</a></h3>
+        <div class="card-foot"><span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span></div>
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+</section>

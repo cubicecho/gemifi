@@ -111,9 +111,11 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   A base component defines what the components on it implement (`hub`, `display`, `led_strip`,
   `led_driver`). A control (buttons, LEDs, analog inputs, encoders, pads, modes, the key matrix) is a
   component too, built when the device has it; its C shares state with the controller through
-  `gm_controls.h`, and its `__init__.py` validates its YAML and writes its generated C. Owner:
+  `gm_controls.h` (a control has no `.h` of its own), its `__init__.py` validates its YAML and writes
+  its generated C, and `gemifi_device.py` and `controller.c` call it by name. Owner:
   `components/<name>/`
-  (`__init__.py`, `<name>.c/.h`, `README.md`, `test/`); found by `components/__init__.py`, listed per
+  (`__init__.py`, `<name>.c`, a `<name>.h` for most hubs and screens, `README.md`, `test/`); found by
+  `components/__init__.py`, which also picks what a device builds (`used()`, with `controls()`), listed per
   device in the generated `gm_components.h`, `gm_components.mk` and `gm_components.cmake`. Every hub
   type is one (`components/<key>/`), and so are the `display` base with its `ssd1306` platform, the
   `led_strip` and `led_driver` bases and the `i2c` base. A base component is built only with a component on it
@@ -166,8 +168,9 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   `hal_i2c_write` / `hal_i2c_read` (`gm_hal.h`, the bus index first), `GM_I2C_BUSES` / `GM_I2C_PINS`
   (generated); each I2C config's `bus` (`gm_hub_i2c_t`, `gm_hub_ht16k33_t`, `gm_screen_ssd1306_t`).
 - **Scan:** reading inputs on a timer (`scan_interval`): the key matrix, switch matrices, encoders and
-  scan hubs, in software or with timer + DMA (hardware scan). Owner: `gm_scan_tick`, `gm_scan_hw`
-  (`controller.c`), `vpin_scan_*`.
+  scan hubs, in software or with timer + DMA (hardware scan). Owner: `gm_scan_tick`, `gm_scan_hw`,
+  `gm_scan_frames` (`controller.c`), `vpin_scan_*`; the key matrix's part `matrix_scan` (software) and
+  `matrix_plan` / `matrix_frame` (hardware) in `components/key_matrix/key_matrix.c`.
 
 ### Controls
 
@@ -182,7 +185,9 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 - **Key matrix:** the keyboard: rows × columns of switch or velocity contacts. At most one. Owner:
   `gm_matrix_t`; the `key_matrix` component (`components/key_matrix`).
 - **Pad:** a velocity pad read from pressure. Owner: `gm_pad_t`; the `pads` component (`components/pads`).
-- **Control twin:** a second copy of a control on a layer. Owner: `gm_pad_twin_t` and the layer tables.
+- **Control twin:** a second copy of a control (button, encoder, pad) on a layer. Owner: `gm_pad_twin_t`
+  and the layer tables; which of a base and its twins is live, the `modes` component's `layers_update`
+  (`btn_live`, `enc_live`, `pad_live` in `gm_controls.h`).
 
 ### Behaviour
 

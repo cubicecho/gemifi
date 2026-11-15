@@ -4,7 +4,8 @@ Chip-independent C code shared by every gemifi firmware: the SysEx protocol, the
 
 ```
 devices/<device>.yaml ──tools/builder──▶ gm_device_config.h / .c ──┐
-core/  (protocol, params, controller, virtual pins)                ├─▶ firmware image
+core/  (protocol, params, controller, virtual pins)                │
+components/<name>/  (controls, hubs, screens, buses: those used)   ├─▶ firmware image
 platform/<family>/  (HAL: pins, ADC, timer, MIDI transport, storage, reboot, upload)
 ```
 
@@ -36,7 +37,7 @@ What each component costs (CPU, latency to MIDI out, MIDI traffic, RAM) and the 
 
 ## Components
 
-The hardware a device's YAML describes is made of **components**, ESPHome style: one folder each in [`components/`](../components/) at the repo root, holding its builder part (`__init__.py`: its YAML keys, validation and generated C), its C (`<name>.c`, `<name>.h`), its `README.md` and, for some, its tests (`test/`). The builder finds them by folder (`components/__init__.py`); a new chip is a new folder, without edits to the core.
+The hardware a device's YAML describes is made of **components**, ESPHome style: one folder each in [`components/`](../components/) at the repo root, holding its builder part (`__init__.py`: its YAML keys, validation and generated C), its C (`<name>.c`, and for most hubs and screens a `<name>.h` with their config), its `README.md` and, for some, its tests (`test/`). The builder finds them by folder (`components/__init__.py`), and that decides what a device compiles (`components.used()`, below). A new hub, strip, driver or display chip is a new folder, without edits to the core; a new control also touches the builder and the controller ("Adding a component").
 
 A **base component** defines what the components on it implement, and holds the code they share. A chip that is one of several for one job is a **platform** of a base: one YAML list for all of them, with `platform:` on each item, as ESPHome's `display:` is. Other chips have a list of their own, named like the ESPHome component. A **control** (buttons, LEDs, the key matrix ...) is a component too: what the player plays, built when the device has it ("Controls" below).
 
@@ -70,7 +71,7 @@ A **base component** defines what the components on it implement, and holds the 
 | [modes](../components/modes/README.md) | `modes:` | modes, layers and cycles, a control |
 | [pads](../components/pads/README.md) | `pads:` | velocity pads, a control ("Controls" below) |
 
-Each component's README has its YAML keys, its pins and how it runs. A device builds only the components it uses, those they depend on (`DEPENDENCIES`) and the required ones (`REQUIRED`): the builder writes their sources and include dirs into `gm_components.mk` (make) and `gm_components.cmake` (ESP-IDF), and their headers and what they add to the hub and screen structs into `gm_components.h`, next to `gm_device_config.h`.
+Each component's README has its YAML keys, its pins and how it runs. A device builds only the components it uses (`components.used()`: those whose hub keys and display platforms its YAML uses, and the controls it has, by each control's `in_device(dev)`, from `components.controls()`), those they depend on (`DEPENDENCIES`) and the required ones (`REQUIRED`, such as `hub` and `leds`): the builder writes their sources and include dirs into `gm_components.mk` (make) and `gm_components.cmake` (ESP-IDF), and their headers and what they add to the hub and screen structs into `gm_components.h`, next to `gm_device_config.h`.
 
 The YAML keys a component had before are refused, with the new form in the message (`ssd1306:` is `display:` with `platform: ssd1306`; `ws2812:` and `maudio_pad_leds:` are `led_strip:`; `tm1628:`, `max7219:`, `tm1637:` and `ht16k33:` are `led_driver:`). `gemifi_build.py migrate --write <file>` rewrites a file to the new form ([tools/builder](../tools/builder/README.md)).
 
@@ -108,11 +109,17 @@ buttons:
 
 A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`), which the builder calls in place, and `in_device(dev)` says whether a device has it. Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them.
-2. **`<name>.c`, `<name>.h`**: its C, compiled only into devices that use it. Its folder is an include dir when it has headers.
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `in_device(dev)` (whether a device has it, so whether it's built), `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`). Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them.
+2. **Its C** (`<name>.c`, and `<name>.h` if others need its types), compiled only into devices that use it. Its folder is an include dir when it has headers.
 3. **`README.md`**: its YAML keys and pins, how it runs, its files and tests, as the others do.
 4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).
 5. **The schema**: `python3 tools/builder/gemifi_build.py schema -o site/src/schema/device.json`.
+
+A **control** is called by name from the builder and the controller, not found through a list, so it also needs:
+- **`tools/builder/gemifi_device.py`**: import it (`from components import ...`), call its `validate` from `validate()` and its `c_*` functions from `generate()`, where the generated header and tables are put together.
+- **`core/include/gm_controls.h`**: its functions and the state it shares, each with its writer (a control has no `.h` of its own).
+- **`core/src/controller.c`**: `gm_init` calls its init, `gm_poll` its poll, `gm_release_all` what it lets go of on a preset switch, each under its `#if` (`GM_N_PADS > 0` ...); a call the protocol or host feedback makes whatever the device has (`gm_analog_host` ...) gets a stub there that does nothing without it.
+- **`core/src/settings.c`**: its params, if it has any.
 
 What each kind implements: [Adding a hub type](../components/hub/README.md#adding-a-hub-type), [Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform), [Adding a driver platform](../components/led_driver/README.md#adding-a-driver-platform), [Adding a display platform](../components/display/README.md#adding-a-display-platform).
 
@@ -183,7 +190,7 @@ encoders:
 
 Without `hardware_scan:`, the key matrix is scanned from the scan tick (`scan_interval`): each row in turn is driven, the columns are read after `settle`, and the row is released. Rows on MCU pins are driven by one store each (`hal_pin_out_reg`), and columns on MCU pins are read as runs of adjacent bits of their port (`hal_pin_in_reg`; the Keystation's PB0–PB5, PB8, PB12 are 3 runs from one load), not pin by pin.
 
-When every row is such a pin, every column is on one input register, nothing is on a shift-register hub and a key's contacts are on columns (the Keystation), `gm_init` picks a loop of its own (`matrix_scan_fast` in `controller.c`). The pins see the same thing: row on, `settle`, read, row off. A row that reads as it did on the last tick (nearly always) is then done; only a row that changed has its columns sorted out of the port bits and its keys looked at. On the NUC120 that is about 38 cycles per row besides the settle, down from about 200, so the Keystation's 8 rows take about 21 us of each 125 us tick instead of about 48 (the `scan load` the firmware logs 2.5 s after boot). A row is released sooner after its read than before, and the next one driven sooner, so a column has about 1 us less to fall back between rows: if a board shows ghost notes on the next row, raise `settle`.
+When every row is such a pin, every column is on one input register, nothing is on a shift-register hub and a key's contacts are on columns (the Keystation), the scan has a faster loop of its own: [key_matrix "How it runs"](../components/key_matrix/README.md#how-it-runs).
 
 ## Hardware scan
 

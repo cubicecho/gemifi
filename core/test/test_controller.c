@@ -60,8 +60,8 @@ static const uint16_t row_pin[8] = { 8, 9, 32, 33, 34, 35, 38, 39 };
 static const uint16_t col_pin[8] = { 16, 17, 18, 19, 20, 21, 24, 28 };
 
 /* The rows' data registers for the fast row path (one store per edge, and
- * with the fast columns the scan's own loop, controller.c
- * matrix_scan_fast). GM_TEST_SLOW_ROWS=1 turns it off: rows by pin writes. */
+ * with the fast columns the scan's own loop, matrix_scan_fast in
+ * components/key_matrix/key_matrix.c). GM_TEST_SLOW_ROWS=1 turns it off: rows by pin writes. */
 static int slow_rows, row_writes;
 volatile uint32_t *hal_pin_out_reg(uint16_t pin)
 {

@@ -1,6 +1,6 @@
 # gemifi host feedback, as implemented
 
-What a gemifi device does with the MIDI a host (a DAW) sends back to it, and what it sends on its DAW port. This describes the firmware as built (`core/src/midi_in.c`, `core/src/controller.c`, `core/src/mcu.c`) and the YAML that turns each part on (`tools/builder/gemifi_device.py`). The YAML itself is documented in `core/README.md` "DAW feedback".
+What a gemifi device does with the MIDI a host (a DAW) sends back to it, and what it sends on its DAW port. This describes the firmware as built (`core/src/midi_in.c`, `core/src/feedback.c`, `core/src/mcu.c`, and the host side of the leds, analog and encoders components in `components/`) and the YAML that turns each part on (`tools/builder/gemifi_device.py`). The YAML itself is documented in `core/README.md` "DAW feedback".
 
 **Status: host-tested (core unit tests, the NUC host-sim), not yet checked on hardware or in a DAW.** Hardware and DAW checks are tracked in #26 (and its children #7, #18, #21). Plan and background: `research/protocols/daw-feedback-plan.md`, `research/protocols/host-feedback.md`, issue #6.
 

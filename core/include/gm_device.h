@@ -154,7 +154,7 @@ typedef struct {
 /* An LED with one, two or three pins. Two pins = a bicolour LED shown with
  * levels: 1 = pin, 2 = both, 3 = pin2, 4 = pin2 blinking. Three pins = an
  * RGB LED (pin red, pin2 green, pin3 blue): any level is white, except the
- * colours FB_LED_RGB sets (controller.c LV_RGB).
+ * colours FB_LED_RGB sets (LV_RGB in gm_controls.h, shown by leds.c).
  * looks (YAML idle: / active:): which pins are lit when the LED is off
  * (idle) and for a plain "on" (active), each a mask (bit 0 pin, 1 pin2,
  * 2 pin3); 0 = the defaults: idle dark, active pin (white on RGB). */

@@ -1,6 +1,6 @@
 # midi-controller (NUC1xx)
 
-The generic gemifi MIDI controller firmware for NUC100/NUC120 chips. The hardware comes from a device description (`devices/<device>.yaml`, turned into `gm_device_config.h/.c` by `tools/builder`, format in [`core/README.md`](../../../core/README.md)). The behaviour is the shared core runtime (`core/src/controller.c`), configurable over SysEx from the web updater or `tools/host/gemifi.py`.
+The generic gemifi MIDI controller firmware for NUC100/NUC120 chips. The hardware comes from a device description (`devices/<device>.yaml`, turned into `gm_device_config.h/.c` by `tools/builder`, format in [`core/README.md`](../../../core/README.md)). The behaviour is the shared core runtime (`core/src/`, with the controls in `components/`), configurable over SysEx from the web updater or `tools/host/gemifi.py`.
 
 > **Status:** running on the Keystation Mini 32 MK3 (2026-10-31), installed through the gemifi bootloader. All 32 keys and velocity, all 7 buttons (sustain CC64, Edit CC80 toggle, octave ±, pitch-bend glide both ways, CC1 ramp), the volume knob (CC7, full range, no drift), all LEDs (incl. the bicolour octave levels) and config get/set/commit checked on hardware; host tests in `core/test` (124 checks; `make test` there).
 

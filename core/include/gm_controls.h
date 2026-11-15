@@ -156,7 +156,7 @@ extern btn_bits_t btn_hist[BTN_STABLE - 1u];    /* buttons: the samples before t
 extern int16_t ramp_q8[NB];             /* buttons: CC ramp position, 0..127 << 8; the LEDs show it */
 /* *v + step, within -lim..lim (0 with reset), and its name and value on the
  * display: the octave, transpose and pad octave buttons and keys. */
-void shift(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset);
+void step_and_show(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset);
 void buttons_init(void);
 void buttons_sample(void);              /* every BTN_SAMPLE_MS: presses and releases */
 void ramps_ms(uint32_t now);            /* every ms: the CC ramps, the pitch bend glide */
@@ -176,8 +176,10 @@ uint32_t layer_rank(uint32_t m);        /* how strongly root mode m's layer hold
 /* What LED li shows instead of level: a mode's LED, a preset number's blink. */
 uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now);
 #define MODE_LED(li, level, now) mode_led(li, level, now)
-int mode_button(uint32_t i, int down);  /* button i as a mode's toggle, hold or cycle button: 1 if it was */
-int mode_btn(uint32_t i, int down);     /* button i as a function button of the active mode: 1 if it was */
+/* Button i as a mode's toggle, hold or cycle button: 1 if it was. */
+int mode_toggle_button(uint32_t i, int down);
+/* Button i as a function button of the active mode: 1 if it was. */
+int mode_function_button(uint32_t i, int down);
 /* Button i released after a preset switch (its release is silent): a hold
  * mode still ends with its button. */
 void mode_late_release(uint32_t i);

@@ -3,7 +3,8 @@
  * sampling and debouncing them, their actions, the CC ramps and the pitch
  * bend buttons' glide. The main loop (core/src/controller.c gm_poll) calls
  * buttons_sample and ramps_ms; a button a mode takes goes to the modes
- * (mode_button, mode_btn). Shares its state through gm_controls.h.
+ * (mode_toggle_button, mode_function_button). Shares its state through
+ * gm_controls.h.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -112,7 +113,7 @@ static void bend_retarget(void)
     bend_target = (dn && !up) ? -8192 : (up && !dn) ? 8191 : 0;
 }
 
-void shift(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset)
+void step_and_show(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset)
 {
     int32_t n = reset ? 0 : *v + step;
     if (n < -lim)
@@ -168,14 +169,14 @@ static void button_changed(uint32_t i, int down)
     case ACT_OCTAVE_UP:
         if (down) {
             int other = held_with_action(act == ACT_OCTAVE_UP ? ACT_OCTAVE_DOWN : ACT_OCTAVE_UP, i);
-            shift(&gm_cfg.octave, act == ACT_OCTAVE_UP ? 1 : -1, 4, P_OCTAVE, other);
+            step_and_show(&gm_cfg.octave, act == ACT_OCTAVE_UP ? 1 : -1, 4, P_OCTAVE, other);
         }
         break;
     case ACT_TRANSPOSE_DOWN:
     case ACT_TRANSPOSE_UP:
         if (down) {
             int other = held_with_action(act == ACT_TRANSPOSE_UP ? ACT_TRANSPOSE_DOWN : ACT_TRANSPOSE_UP, i);
-            shift(&gm_cfg.transpose, act == ACT_TRANSPOSE_UP ? 1 : -1, 24, P_TRANSPOSE, other);
+            step_and_show(&gm_cfg.transpose, act == ACT_TRANSPOSE_UP ? 1 : -1, 24, P_TRANSPOSE, other);
         }
         break;
     case ACT_BEND_DOWN:
@@ -187,7 +188,7 @@ static void button_changed(uint32_t i, int down)
     case ACT_PAD_OCTAVE_UP:
         if (down) {     /* both held: back to 0, as the octave buttons */
             int other = held_with_action(act == ACT_PAD_OCTAVE_UP ? ACT_PAD_OCTAVE_DOWN : ACT_PAD_OCTAVE_UP, i);
-            shift(&gm_cfg.pad_octave, act == ACT_PAD_OCTAVE_UP ? 1 : -1, 4, P_PAD_OCTAVE, other);
+            step_and_show(&gm_cfg.pad_octave, act == ACT_PAD_OCTAVE_UP ? 1 : -1, 4, P_PAD_OCTAVE, other);
         }
         break;
 #endif
@@ -291,9 +292,9 @@ void buttons_sample(void)
                 continue;
             }
 #if GM_N_MODES > 0
-            if (mode_button(i, down))
+            if (mode_toggle_button(i, down))
                 continue;
-            if (mode_btn(i, down))
+            if (mode_function_button(i, down))
                 continue;
 #endif
             button_changed(i, down);

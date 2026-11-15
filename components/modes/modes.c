@@ -1,10 +1,10 @@
 /*
  * modes.c: the modes (modes:), a control component (README.md here): key
  * and button modes, hold modes, layers and cycles. The buttons hand a mode
- * its buttons (mode_button, mode_btn), the key matrix its keys (keys_mode,
- * mode_key); the LEDs show a mode's LEDs (mode_led). layers_update picks
- * the live one of each control and its layer twins. Shares its state
- * through gm_controls.h.
+ * its buttons (mode_toggle_button, mode_function_button), the key matrix
+ * its keys (keys_mode, mode_key); the LEDs show a mode's LEDs (mode_led).
+ * layers_update picks the live one of each control and its layer twins.
+ * Shares its state through gm_controls.h.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -166,7 +166,7 @@ static uint8_t hold_still_held(uint32_t except)
  * A cycle's button (on each of its steps) moves it to its next step. A
  * disabled mode (layer.enabled 0) can't be entered: its button is as if
  * it weren't there (it can still be left). */
-int mode_button(uint32_t i, int down)
+int mode_toggle_button(uint32_t i, int down)
 {
 #if GM_LAYERS
     const gm_button_t *bt = &gm_device.buttons[i];
@@ -275,14 +275,14 @@ static void mode_run(uint32_t mi, const gm_mode_key_t *b)
         /* fall through */
     case GM_MK_OCTAVE_UP:
     case GM_MK_OCTAVE_RESET:
-        shift(&gm_cfg.octave, up, 4, P_OCTAVE, b->op == GM_MK_OCTAVE_RESET);
+        step_and_show(&gm_cfg.octave, up, 4, P_OCTAVE, b->op == GM_MK_OCTAVE_RESET);
         break;
     case GM_MK_TRANSPOSE_DOWN:
         up = -1;
         /* fall through */
     case GM_MK_TRANSPOSE_UP:
     case GM_MK_TRANSPOSE_RESET:
-        shift(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
+        step_and_show(&gm_cfg.transpose, up, 24, P_TRANSPOSE, b->op == GM_MK_TRANSPOSE_RESET);
         break;
     case GM_MK_CHANNEL:
     case GM_MK_CHANNEL_UP:
@@ -321,7 +321,7 @@ void mode_key(uint32_t mi, uint32_t k)
  * binds runs that instead of its own action (the held hold mode first, then
  * the toggled one), and its release is silent, even after the mode ends.
  * Returns 1 if the mode took the change. */
-int mode_btn(uint32_t i, int down)
+int mode_function_button(uint32_t i, int down)
 {
     uint64_t bit = 1ull << i;
     if (!down) {

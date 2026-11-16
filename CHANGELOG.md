@@ -2,6 +2,21 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.56.1](https://github.com/cubicecho/gemifi/compare/v0.56.0...v0.56.1) (2026-11-16)
+
+
+### Performance Improvements
+
+* **core:** host feedback finds a CC's or note's components through an index ([c4d68fc](https://github.com/cubicecho/gemifi/commit/c4d68fcd26f61774dbda79282f5906c1fc801bac)), closes [#68](https://github.com/cubicecho/gemifi/issues/68)
+
+# [0.56.0](https://github.com/cubicecho/gemifi/compare/v0.55.0...v0.56.0) (2026-11-16)
+
+
+### Features
+
+* **site:** a link to a docs page says the page's name, not its repo path ([8e7d292](https://github.com/cubicecho/gemifi/commit/8e7d292eb47d5ee0984f8bc5aadad00e203c0ef8))
+* **site:** docs search (Pagefind) and a docs menu that folds by section ([b563d69](https://github.com/cubicecho/gemifi/commit/b563d693adbfe4738f0b86321f04eb13281b12ce))
+
 # [0.55.0](https://github.com/cubicecho/gemifi/compare/v0.54.0...v0.55.0) (2026-11-16)
 
 

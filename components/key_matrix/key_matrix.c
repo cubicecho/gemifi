@@ -159,9 +159,10 @@ static int key_update(uint32_t k, uint32_t c)
     return 1;
 }
 
-/* One key per scan tick: a key still timing after KT0_MAX ticks stays at
- * KT0_MAX (seconds: velocity 1 long before). Each key is seen every NK
- * ticks, so its age stays far below 0x10000. */
+/* One key per scan tick (with the hardware scan: per batch of frames): a
+ * key still timing after KT0_MAX ticks stays at KT0_MAX (seconds: velocity
+ * 1 long before). Each key is seen every NK ticks (batches of a few frames),
+ * so its age stays far below 0x10000. */
 void kt0_age(void)
 {
     uint32_t k = kt0_next;

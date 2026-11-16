@@ -1411,6 +1411,17 @@ class TestValidation(unittest.TestCase):
         h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
         self.assertIn("#define GM_HW_ADC_PINS 2 ", h)
         self.assertIn("#define GM_HW_ADC_STEPS 8 ", h)
+        self.assertIn("#define GM_HW_ADC_PEAK_PINS 0 ", h)
+        # peaks: only the ADC pins with pads on them (the mux's common once, a direct pad's pin)
+        dev, _ = load(stm0 + "cd74hc4051:\n  - { id: m, pin_s0: PA2, pin_s1: PA3, pin_s2: PA4, common_pin: PA5 }\n"
+                      "analog:\n  - { id: v, pin: PA0, cc: 7 }\n"
+                      "pads:\n  - { id: p, pin: { cd74hc4051: m, number: 0 }, note: 36 }\n"
+                      "  - { id: q, pin: { cd74hc4051: m, number: 1 }, note: 37 }\n"
+                      "  - { id: r, pin: PA6, note: 38 }\n"
+                      "hardware_scan: { analog: true }\n")
+        h = gd.generate(dev, "t.yaml")["gm_device_config.h"]
+        self.assertIn("#define GM_HW_ADC_PINS 3 ", h)
+        self.assertIn("#define GM_HW_ADC_PEAK_PINS 2 ", h)
 
     def test_analog_on_non_adc(self):
         self.assertError(MINIMAL_NUC + "analog:\n  - { id: v, pin: PB0, cc: 7 }\n",

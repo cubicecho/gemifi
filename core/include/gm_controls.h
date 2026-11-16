@@ -242,8 +242,11 @@ void monitor_poll(uint32_t now);        /* gm_poll: the next RAW message, while 
 /* ---- the scan (controller.c) ------------------------------------------- */
 
 /* Scan ticks: +1 per gm_scan_tick, or per frame with the hardware scan
- * (which counts the time then). Written by the scan interrupt only. */
-extern volatile uint32_t scan_ticks;
+ * (which counts the time then). Read and written only at the scan's
+ * interrupt level (the tick and the frames' interrupt share a priority, so
+ * neither preempts the other): not volatile. A main-loop reader would need
+ * it to be. */
+extern uint32_t scan_ticks;
 extern uint8_t hw_on;                   /* the scan: the platform scans; frames come to gm_scan_frames */
 #if GM_HW_SCAN
 extern uint32_t hw_frame_q4;            /* the scan: the hardware scan's frame period, 1/16 us */

@@ -11,6 +11,9 @@
 # Both use a RAM config store (fake_config_store.c); the flash journals are
 # tested per platform.
 # test_feedback:   host feedback + Mackie Control (feedback-test.yaml)
+# test_feedback_fbi, test_matrix_fbi, test_msg_fbi: the same three with
+#                  host feedback's CC / note index on (-DGM_FB_INDEX=1;
+#                  their devices are small enough to walk without it)
 # test_tm1628:     TM1628 LED driver hubs (tm1628-test.yaml); run again with
 #                  GM_TEST_BSRR=1 for the set/reset store path, and with
 #                  GM_TEST_NO_CYCLES=1 too for stores without a cycle counter;
@@ -252,7 +255,8 @@ KO_SRCS := test_keys_only.c $(CORE_SRCS) $(KO_DEV)/gm_device_config.c $(KO_DEV_C
 GES_SRCS := test_gestures.c $(CORE_SRCS) $(GES_DEV)/gm_device_config.c $(GES_DEV_COMP_SRCS)
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812 $(BUILD)/test_keys_only $(BUILD)/test_gestures
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812 $(BUILD)/test_keys_only \
+      $(BUILD)/test_feedback_fbi $(BUILD)/test_matrix_fbi $(BUILD)/test_msg_fbi $(BUILD)/test_gestures
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -285,6 +289,9 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_modes
 	$(BUILD)/test_ws2812
 	$(BUILD)/test_keys_only
+	$(BUILD)/test_feedback_fbi
+	$(BUILD)/test_matrix_fbi
+	$(BUILD)/test_msg_fbi
 	$(BUILD)/test_gestures
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) fake_config_store.h $(DEV)/gm_device_config.h
@@ -373,6 +380,18 @@ $(BUILD)/test_oled: $(OLED_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/com
 $(BUILD)/test_msg: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MSG_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(MSG_DEV) $(MSG_SRCS) -o $@
+
+$(BUILD)/test_feedback_fbi: $(FB_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(FB_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DGM_FB_INDEX=1 -I$(FB_DEV) $(FB_SRCS) -o $@
+
+$(BUILD)/test_matrix_fbi: $(MX_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MX_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DGM_FB_INDEX=1 -I$(MX_DEV) $(MX_SRCS) -Wl,--wrap=gm_display_message -o $@
+
+$(BUILD)/test_msg_fbi: $(MSG_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MSG_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DGM_FB_INDEX=1 -I$(MSG_DEV) $(MSG_SRCS) -o $@
 
 $(BUILD)/test_modes: $(MODES_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(MODES_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)

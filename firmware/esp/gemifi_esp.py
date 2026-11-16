@@ -1,7 +1,7 @@
 # gemifi_esp.py: PlatformIO pre: script shared by the firmware/esp projects (framework = espidf).
 #
 # It runs before PlatformIO's ESP-IDF builder, and sets up what that builder's CMake run reads:
-# - custom_gm_core = gsx (hello): GM_CORE=gsx, the gemifi_esp component compiles core/src/gsx.c only;
+# - custom_gm_core = gsx (hello): GM_CORE=gsx, the gemifi_esp component compiles core/src/gsx.c and crc32.c only;
 #   custom_gm_core = all (midi-controller): GM_CORE=all and GM_DEVICE_DIR, the component compiles
 #   core/src/*.c and the device config: $GM_DEVICE_DIR (an already generated gm_device_config.h/.c,
 #   as tools/builder passes it), else generated here from the device YAML $GM_DEVICE (default:

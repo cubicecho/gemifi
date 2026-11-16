@@ -57,7 +57,7 @@ Generated from `core/src/settings.c`; arrays are sized by the device. Scope P = 
 | 18 | `preset.program` | P | int | −1..127 | −1 (Program Change sent on select; −1 = none) |
 | 19 | `preset.dirty` | – | bool, read-only, volatile | | unsaved host edits to the active preset |
 
-Devices with encoders also get `encoder.cc` (15) and `encoder.mode` (16), both per preset. Devices with one preset have `preset.active` (1..1) but not 18/19.
+Devices with encoders also get `encoder.cc` (15) and `encoder.mode` (16), both per preset. Devices without `presets:` have presets off: none of 17..19, and no preset button actions (core/README.md "Presets").
 
 **Button actions** added for presets: 13 Preset next, 14 Preset previous, 15 Preset select (`button.number` = the slot). Mackie Control moved from 13 to 16 (only on devices with `mcu:`).
 

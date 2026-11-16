@@ -1,9 +1,14 @@
 # analog
 
-A control ([core/README.md "Controls"](../../core/README.md#controls)): analog inputs, such as pots, faders, wheels and pressure strips, read from an ADC pin, a mux channel or an XY pad axis. Its YAML (`analog:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Pitch wheels and aftertouch" below, and in core/README.md [MIDI messages](../../core/README.md#midi-messages) (the message kinds) and [DAW feedback](../../core/README.md#daw-feedback) (pick-up, `touch:`).
+A control ([core/README.md "Controls"](../../core/README.md#controls)): analog inputs, such as pots, faders, wheels and pressure strips, read from an ADC pin, a mux channel or an XY pad axis.
 
-- `analog.c`: reading the inputs and sending what they're set to. Built when the device has analog inputs.
-- `__init__.py`: the builder part: `validate` (its YAML: pin, mode, `mcu:`, calibration, takeover, touch) and `c_tables` (`gm_analog_t analogs[]`), and when it's built.
+```yaml
+analog:
+  - { id: pot_1, pin: PA0, cc: 7 }
+  - { id: pot_2, pin: PA1, cc: 10 }
+```
+
+Its YAML (`analog:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Pitch wheels and aftertouch" below, and in core/README.md [MIDI messages](../../core/README.md#midi-messages) (the message kinds) and [DAW feedback](../../core/README.md#daw-feedback) (pick-up, `touch:`).
 
 ## Pitch wheels and aftertouch
 
@@ -18,6 +23,11 @@ analog:
 - **Centre.** The input's first reading after power-up is the centre, because a sprung wheel rests there; keep it untouched while the device starts. 16 raw ADC counts either side of it send no bend, so the wheel always returns to exactly 8192.
 - **Range.** From the centre to each end (`adc_min` / `adc_max`, less 8 counts) is one half of 0..16383, so the bend is symmetric even when the centre isn't in the middle of the travel.
 - **Noise.** Changes under 6 raw counts are dropped, except to the centre or an end. Both are raw counts, so a wheel that only moves the reading over part of 0..4095 (set `adc_min` / `adc_max` to its ends) is no twitchier.
+
+## Files
+
+- `analog.c`: reading the inputs and sending what they're set to. Built when the device has analog inputs.
+- `__init__.py`: the builder part: `validate` (its YAML: pin, mode, `mcu:`, calibration, takeover, touch) and `c_tables` (`gm_analog_t analogs[]`), and when it's built.
 
 ## How it runs
 

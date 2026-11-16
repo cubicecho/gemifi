@@ -1,8 +1,15 @@
 # tm1628
 
-An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/README.md) base): `tm1628.c` (the driver), `__init__.py` (the YAML: validation and generated C). Its config (`gm_hub_tm1628_t`, `include/gm_device.h`) and state (`gm_hub.h` `u.tm`) stay in the core, with `fade:` (`gm_vpin.h` `vpin_fade*`, `core/src/vpin.c`), which sets the chip's brightness from them. Its host test is `core/test/test_tm1628.c`, with the M-Audio pad board's.
+An LED driver platform ([led_driver](../led_driver/README.md), a hub type on the [hub](../hub/README.md) base): the TM1628 and its relatives that take the same commands (TM1638, TM1620, …), lighting LEDs and segment digits from a bit per output. They're output-only here: the key-scan inputs aren't read.
 
-`tm1628` covers the TM1628 and its relatives that take the same commands (TM1638, TM1620, …: set `ram_bytes` to what the chip has or what the board uses). They're output-only here: the key-scan inputs aren't read.
+```yaml
+led_driver:
+  - { id: leds_a, platform: tm1628, clk_pin: PC10, dio_pin: PC11, stb_pin: PA15 }
+leds:
+  - { id: shift_led, pin: { led_driver: leds_a, number: 37 } }
+```
+
+Set `ram_bytes` to what the chip has or what the board uses (default 14). Its pin numbers, `intensity` and `fade:` are below; the base's pins in [led_driver](../led_driver/README.md).
 
 - **Pin numbers** are display RAM bits: `number = byte * 8 + bit`, bit 0 = the LSB of the byte. `{ led_driver: leds_a, number: 37 }` is byte 4 (address 0xC4), bit 5. On a TM1628 in its usual wiring, byte 2g is SEG1–SEG8 of grid g+1 and byte 2g+1 is SEG9–SEG14, but the board decides what each bit lights.
 - **Sharing**: several chips can share `clk_pin` and `dio_pin` (`allow_other_uses: true` on each), each with its own `stb_pin`. TM1628 lines can't be shared with other hubs' lines.
@@ -39,3 +46,10 @@ leds:
 ```
 
 Build and upload it, then light one bit at a time: from the web app's host-feedback card (each LED is listed by name, with Off / Blink / On), or by sending Note On to the LED's note from any MIDI tool. Note which LED or segment lights for each bit; then replace the list with the real LEDs. The lamp test at start-up lights every listed bit for 0.2 s.
+
+## Files
+
+- `tm1628.c`: the driver.
+- `__init__.py`: the YAML: validation and generated C.
+- Its config (`gm_hub_tm1628_t`, `include/gm_device.h`) and state (`gm_hub.h` `u.tm`) stay in the core, with `fade:` (`gm_vpin.h` `vpin_fade*`, `core/src/vpin.c`), which sets the chip's brightness from them.
+- Its host test is `core/test/test_tm1628.c`, with the M-Audio pad board's.

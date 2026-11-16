@@ -1,9 +1,14 @@
 # leds
 
-A control ([core/README.md "Controls"](../../core/README.md#controls)): single-colour, bicolour and RGB LEDs on any output pin (an MCU pin, a shift register, an LED driver's, an LED strip's). Its YAML (`leds:`, `led_defaults:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "LED looks", "Full-colour LEDs" and "LED walk" below, and who drives an LED in [core/README.md "LED ownership"](../../core/README.md#led-ownership).
+A control ([core/README.md "Controls"](../../core/README.md#controls)): single-colour, bicolour and RGB LEDs on any output pin (an MCU pin, a shift register, an LED driver's, an LED strip's).
 
-- `leds.c`: what each LED shows, its looks, who owns it, the TM1628 fade, the LED walk and the encoder rings. Always built (`REQUIRED`, not `in_device`, so not in `components.controls()`): the status LED and the lamp test use it on any device.
-- `__init__.py`: the builder part: the looks and the owners, `validate` (its YAML: pins, looks, `led_defaults:`, owner, timeout, feedback source) and `c_tables` (`gm_led_t leds[]`), and that it's always built (`REQUIRED`). Host feedback's per-LED table (`gm_led_fb[]`) stays with the builder's feedback code.
+```yaml
+leds:
+  - { id: sustain_led,  pin: { number: PA12, inverted: true } }
+  - { id: oct_down_led, pin: { number: PA10, inverted: true }, pin2: { number: PA14, inverted: true } }
+```
+
+Its YAML (`leds:`, `led_defaults:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "LED looks", "Full-colour LEDs" and "LED walk" below, and who drives an LED in [core/README.md "LED ownership"](../../core/README.md#led-ownership).
 
 ## LED looks (idle and active)
 
@@ -46,6 +51,11 @@ The strip's `gamma:` and `white:` calibrate what goes on the wire, so colours lo
 ## LED walk (finding LEDs)
 
 To find which output drives which LED on new hardware, list every candidate output under `leds:` and build with `GM_LED_WALK_MS` set (stm32f1: `make LED_WALK=100`). Each LED then lights on its own for that many milliseconds, in `leds:` order, and the device log shows `walk LED <n>`. Holding any button pauses the walk. Normal LED behaviour is off in such a build; without the define the code isn't built at all.
+
+## Files
+
+- `leds.c`: what each LED shows, its looks, who owns it, the TM1628 fade, the LED walk and the encoder rings. Always built (`REQUIRED`, not `in_device`, so not in `components.controls()`): the status LED and the lamp test use it on any device.
+- `__init__.py`: the builder part: the looks and the owners, `validate` (its YAML: pins, looks, `led_defaults:`, owner, timeout, feedback source) and `c_tables` (`gm_led_t leds[]`), and that it's always built (`REQUIRED`). Host feedback's per-LED table (`gm_led_fb[]`) stays with the builder's feedback code.
 
 ## How it runs
 

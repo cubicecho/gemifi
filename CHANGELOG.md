@@ -2,6 +2,14 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.54.0](https://github.com/cubicecho/gemifi/compare/v0.53.1...v0.54.0) (2026-11-16)
+
+
+### Features
+
+* **builder:** presets off without presets:, one slot refused ([5776301](https://github.com/cubicecho/gemifi/commit/5776301988ddc16684473cba7257a2b7ba1bf5ca)), closes [#58](https://github.com/cubicecho/gemifi/issues/58)
+* **core:** presets off on a one-slot device ([672678a](https://github.com/cubicecho/gemifi/commit/672678a2a72207e3be92c05e4f03d6016210bc88)), closes [#58](https://github.com/cubicecho/gemifi/issues/58)
+
 ## [0.53.1](https://github.com/cubicecho/gemifi/compare/v0.53.0...v0.53.1) (2026-11-16)
 
 

@@ -70,6 +70,19 @@ test("the homepage links to the docs, the devices and the platforms", () => {
   for (const p of ["docs/", "devices/", "docs/platforms/"]) assert.ok(html.includes(`href="${PREFIX}${p}"`), p);
 });
 
+test("a link to a docs page says the page's name, not its repo path", () => {
+  const encoders = fs.readFileSync(path.join(OUT, "docs/components/encoders/index.html"), "utf8");
+  assert.ok(encoders.includes(`<a href="${PREFIX}docs/core/#controls">Device YAML › Controls</a>`));
+  const bad = [];
+  for (const file of htmlFiles()) {
+    const html = fs.readFileSync(file, "utf8");
+    for (const [, href, text] of html.matchAll(/<a href="([^"]*)">([^<]*\.md\b[^<]*)<\/a>/g)) {
+      if (href.startsWith(`${PREFIX}docs/`)) bad.push(`${path.relative(OUT, file)}: ${text}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
 test("every page names its own address, and the sitemap lists every page", () => {
   const sitemap = fs.readFileSync(path.join(OUT, "sitemap.xml"), "utf8");
   assert.ok(sitemap.startsWith("<?xml"), "sitemap.xml starts with its XML declaration");

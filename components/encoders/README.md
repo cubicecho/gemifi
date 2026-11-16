@@ -48,7 +48,7 @@ The count is free running: only `encoder_step` writes it (`encoders_poll`, and t
 ## What it shares
 
 Through `core/include/gm_controls.h`:
-- `encoder_step` and `enc_i2c`, for the scan tick;
+- `encoder_step`, `enc_i2c` and `enc_matrix`, for the scan tick and the hardware scan's frames;
 - `enc_count`, the detent counts, for the raw readings (`GM_MONITOR`);
 - `enc_value` and `enc_top`, `enc_span`, `enc_out`, `enc_at`, which host feedback uses to take a host's value;
 - `enc_live`, the live twin of each encoder, which the modes (`layers_update`) write.

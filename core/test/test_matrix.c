@@ -331,6 +331,22 @@ static void turn(void)
     run_ms(5);
 }
 
+/* n detents clockwise, each step held for 4 scan ticks: the fewest that
+ * read the encoder's row once in software (one of the two rows per tick,
+ * the matrices every other tick), and 4 frames with the hardware scan. */
+static void turn_quick(int n)
+{
+    static const uint8_t seq[4][2] = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } };
+    out_n = 0;
+    for (int d = 0; d < n; d++)
+        for (int i = 0; i < 4; i++) {
+            closed[17][0] = seq[i][0];
+            closed[17][1] = seq[i][1];
+            ticks(4);
+        }
+    run_ms(5);
+}
+
 int main(void)
 {
     fast_cols = getenv("GM_TEST_FAST_COLS") != NULL;
@@ -590,6 +606,9 @@ int main(void)
     /* encoder, out of any layer: CC 30, from its own value (the twin's turns left it alone) */
     turn();
     CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 1, "encoder turn: CC 30 = 1 (got %d %d)", d1, d2);
+    turn_quick(8);
+    CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 9,
+          "8 quick detents, each step read once: CC 30 = 9, none lost (got %d %d)", d1, d2);
 
 #if GM_N_CYCLES
     /* Cycles (components/modes/README.md "Cycles"): Shift (16/3) + emode (PC4) moves

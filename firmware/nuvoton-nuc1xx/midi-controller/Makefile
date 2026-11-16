@@ -46,7 +46,7 @@ CFLAGS += $(addprefix -I,$(GM_COMPONENT_INCS))
 APP_SRCS := main.c \
             $(PLAT)/src/sys.c \
             $(PLAT)/src/fmc.c \
-            $(PLAT)/src/crc32.c \
+            $(CORE)/src/crc32.c \
             $(PLAT)/src/usbd.c \
             $(PLAT)/src/usb_midi.c \
             $(PLAT)/src/hal.c \

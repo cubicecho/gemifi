@@ -307,6 +307,7 @@ void analog_pickup_off(void);           /* every input back in control of its va
  * M0 has no LDREX; a halfword load or store is atomic). */
 extern volatile uint16_t enc_count[GM_ARR(NE_HW)];   /* encoders; the raw readings read it */
 extern uint8_t enc_i2c[GM_ARR(NE_HW)];  /* encoders (encoders_init): on an I2C hub, stepped from the main loop */
+extern uint8_t enc_matrix[GM_ARR(NE_HW)]; /* encoders (encoders_init): both pins on switch matrices, stepped once they're read */
 extern int16_t enc_value[NE];           /* encoders, and host feedback (enc_at): an absolute position */
 #if GM_ENC_TWINS
 extern uint8_t enc_live[GM_ARR(NE_HW)]; /* modes (layers_update): per scanned encoder, the index its turns go to */

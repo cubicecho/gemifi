@@ -259,15 +259,7 @@ uint32_t hw_frame_q4;
 static gm_scan_plan_t plan;
 static uint32_t hw_prev[HW_ROWS / 2u];   /* the last frame that differed */
 static uint32_t hw_mask;            /* column bits of both halfwords of a frame word */
-#if GM_N_ENCODERS > 0
-static uint8_t enc_fed[NE];         /* both pins on switch matrices: stepped per frame */
-#endif
 typedef uint32_t __attribute__((may_alias)) u32_alias;
-
-static int on_swmatrix(gm_pin_t p)
-{
-    return (vpin_pin_caps(p) & VPIN_MATRIX) != 0;
-}
 #endif
 
 int gm_scan_hw(void)
@@ -321,17 +313,36 @@ void gm_scan_hw_started(uint32_t frame_q4)
     hw_mask = (plan.in_mask & 0xFFFFu) * 0x10001u;
     for (uint32_t i = 0; i < HW_ROWS / 2u; i++)
         hw_prev[i] = 0xFFFFFFFFu;   /* the first frame always counts */
-#if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < NE_HW; i++)
-        enc_fed[i] = (uint8_t)(on_swmatrix(gm_device.encoders[i].a) &&
-                               on_swmatrix(gm_device.encoders[i].b));
-#endif
     vpin_scan_hw(1);
     hw_on = 1;
 #else
     (void)frame_q4;
 #endif
 }
+
+#if GM_HW_SCAN
+/* Bit k: frame word k differs from hw_prev[k], which takes it. Word k holds
+ * rows 2k and 2k+1 (a key pair on a row-pair keybed); only the column bits
+ * count (the rest of the port may be anything). Nothing moved since the
+ * last frame (nearly always): one pass that only ORs the differences. */
+static uint32_t frame_changes(const u32_alias *w, uint32_t words)
+{
+    uint32_t diff = 0;
+    for (uint32_t k = 0; k < words; k++)
+        diff |= (w[k] & hw_mask) ^ hw_prev[k];
+    if (!diff)
+        return 0;
+    uint32_t chg = 0;
+    for (uint32_t k = 0; k < words; k++) {
+        uint32_t x = w[k] & hw_mask;
+        if (x != hw_prev[k]) {
+            chg |= 1u << k;
+            hw_prev[k] = x;
+        }
+    }
+    return chg;
+}
+#endif
 
 void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
 {
@@ -343,18 +354,7 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
     scan_ticks += lost;
     for (uint32_t f = 0; f < n; f++, raw += plan.n_rows) {
         scan_ticks++;
-        /* Word k holds rows 2k and 2k+1 (a key pair on a row-pair keybed);
-         * only the column bits count (the rest of the port may be anything).
-         * Nothing moved since the last frame (nearly always): nothing to do. */
-        const u32_alias *w = (const u32_alias *)(const void *)raw;
-        uint32_t chg = 0;
-        for (uint32_t k = 0; k < words; k++) {
-            uint32_t x = w[k] & hw_mask;
-            if (x != hw_prev[k]) {
-                chg |= 1u << k;
-                hw_prev[k] = x;
-            }
-        }
+        uint32_t chg = frame_changes((const u32_alias *)(const void *)raw, words);
 #if GM_HAS_MATRIX
         chg |= matrix_retry(key_rows);  /* a key change didn't fit: every key row again */
 #endif
@@ -368,8 +368,8 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
         vpin_scan_feed(raw);
 #if GM_N_ENCODERS > 0
         for (uint32_t i = 0; i < NE_HW; i++)
-            if (enc_fed[i])
-                encoder_step(i);
+            if (enc_matrix[i])
+                encoder_step(i);        /* fed by the frames */
 #endif
     }
 #else
@@ -396,18 +396,17 @@ void gm_scan_tick(void)
     part_done(0, &t);
     /* Switch matrices (panel buttons, encoders) every other tick: plenty for
      * both, and it halves their share of the scan. */
-    if (has_matrices && !hw_on && (scan_ticks & 1u))
+    int matrices_read = has_matrices && !hw_on && (scan_ticks & 1u);
+    if (matrices_read)
         vpin_scan_matrices();       /* before the encoders read them */
     part_done(1, &t);
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < NE_HW; i++) {
-#if GM_HW_SCAN
-        if (hw_on && enc_fed[i])
-            continue;
-#endif
-        if (!enc_i2c[i])
+    /* An encoder on switch matrices only moves when they're read: on the
+     * other ticks (and with the hardware scan, which steps it per frame)
+     * it would read the same levels again. */
+    for (uint32_t i = 0; i < NE_HW; i++)
+        if ((matrices_read || !enc_matrix[i]) && !enc_i2c[i])
             encoder_step(i);
-    }
 #endif
     part_done(2, &t);
     if (has_sr_hubs)

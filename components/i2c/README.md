@@ -1,6 +1,6 @@
 # i2c
 
-The base component of the I2C buses, ESPHome style. One bus:
+The base component of the I2C buses, ESPHome style: the SDA and SCL pins of each bus the device's I2C chips are on.
 
 ```yaml
 i2c: { sda: GPIO21, scl: GPIO22 }
@@ -8,7 +8,7 @@ mcp23017:
   - { id: io, address: 0x20 }
 ```
 
-or several, each with an `id`; a component on I2C names its bus with `i2c_id:`:
+That is one bus. Its keys are in the table below, and the components on I2C under "On I2C". A device can have several buses, each with an `id`; a component on I2C names its bus with `i2c_id:`:
 
 ```yaml
 i2c:

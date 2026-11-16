@@ -75,6 +75,11 @@ class EdgesAgree(unittest.TestCase):
     def test_device(self):
         self.assertGreater(self.edges(gd.DEVICE_KEYS.without("platform")), 3)
 
+    def test_midi(self):
+        self.assertEqual(self.edges(gd.USB_KEYS, nest="usb", base=BASE["usb"]), 8)
+        self.assertEqual(self.edges(gd.DIN_KEYS, nest="din_midi", base={"tx_pin": "PA9", "rx_pin": "PA10"}), 2)
+        self.assertEqual(self.edges(gd.MIDI_MESSAGES_KEYS, nest="midi_messages"), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

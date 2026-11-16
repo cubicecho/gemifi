@@ -65,6 +65,11 @@ export const CORE_YAML = {
       title: "Device",
       summary: "The file itself: its format, names, version, and the platform, chip and board it builds for.",
     },
+    {
+      file: "core/yaml/midi.md",
+      title: "MIDI and USB",
+      summary: "USB ids, the MIDI transport, the 5-pin DIN jacks and the message kinds beyond notes and CCs.",
+    },
   ],
 };
 

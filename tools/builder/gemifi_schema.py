@@ -216,9 +216,6 @@ def pin():
 
 def device_schema():
     top_types = {
-        "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
-                                 "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
-        "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
             "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL, "settle": PERIOD,
@@ -256,15 +253,6 @@ def device_schema():
                                               "x": T("integer", minimum=0, maximum=127),
                                               "scale": T("integer", minimum=1, maximum=4),
                                               "length": T("integer", minimum=1, maximum=gd.MAX_TEXT_CHARS)})),
-        "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
-                                      "port_name": STR, "thru": BOOL, "controller_out": BOOL,
-                                      "usb_to_din": BOOL, "dma": BOOL}),
-        "midi_messages": obj(gd.MIDI_MESSAGES_KEYS, {
-            "enable": lst(enum([*gd.MSG_FEATURES, *gd.MSG_ALIASES])), "null_rpn": BOOL,
-            "mmc_device_id": INT7,
-            "sysex": lst(obj(gd.SYSEX_KEYS, {"id": ref("id"), "data":{"type": "string", "description": "hex bytes F0 .. F7, "
-                                                      "with v, msb, lsb, ch and [ ... ] cs placeholders"}}))},
-            "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"),
         "layout": layout(),
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),

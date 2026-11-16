@@ -143,14 +143,14 @@ Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`,
 
 ### MIDI messages
 
-Besides notes, 7-bit CCs, pitch bend, pressure and program changes, a control can send 14-bit CCs, NRPN and RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it (or lists it in `midi_messages.enable`), so a device that uses none of them gets the same image as before.
+Besides notes, 7-bit CCs, pitch bend, pressure and program changes, a control can send 14-bit CCs, NRPN and RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it (or lists it in `midi_messages.enable`), so a device that uses none of them gets the same image as before. The `midi_messages:` keys are in [the MIDI keys](yaml/midi.md#keys).
 
 ```yaml
-midi_messages:                 # all optional
-  enable: [cc14, nrpn, program, panic, mmc]   # compile these in for the web page, even if nothing uses them yet
-  null_rpn: true               # after each NRPN / RPN message, the null RPN (101 / 100 = 127); default false
-  mmc_device_id: 0x7F          # the MMC target, 0..0x7F; default 0x7F (all devices)
-  sysex:                       # strings in hex, F0 to F7, with placeholders
+midi_messages:
+  enable: [cc14, nrpn, program, panic, mmc]
+  null_rpn: true
+  mmc_device_id: 0x7F
+  sysex:
     - { id: gs_volume, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }   # Roland GS master volume
     - { id: cutoff, data: "F0 43 ch 7F msb lsb F7" }
 
@@ -326,7 +326,7 @@ For calibrating and porting, a host can ask for the readings as the scan sees th
 
 ## DIN MIDI
 
-The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). `din_midi.mode` sets how they reach USB:
+The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). The `din_midi:` keys are in [the MIDI keys](yaml/midi.md#keys). `din_midi.mode` sets how they reach USB:
 
 | `mode` | The computer sees | DIN In goes to | DIN Out gets |
 |---|---|---|---|
@@ -344,13 +344,13 @@ In every mode, two settings (MIDI group, stored with the globals) decide the res
 ```yaml
 din_midi:
   tx_pin: PA9
-  rx_pin: PA10                 # optional: without it, MIDI Out only
-  mode: usb_merge              # usb_merge | separate_port | din_only
-  port_name: Code 61 MIDI      # separate_port only
-  thru: false                  # start values of the settings
+  rx_pin: PA10
+  mode: usb_merge
+  port_name: Code 61 MIDI
+  thru: false
   controller_out: true
-  usb_to_din: false            # usb_merge only
-  dma: false                   # stm32f1: DMA channels 4 and 5 ("DMA channels")
+  usb_to_din: false
+  dma: false
 ```
 
 - **Whole messages.** DIN Out mixes three sources: the device, the thru, and USB. Each message goes out whole. While one source's SysEx is going out, the others' messages wait (up to 16: 8 for the thru's and USB's, 4 kept for the device's Note Offs) and follow its F7; a device Note Off that finds no room ends the SysEx there with F7 and drops its rest, since a stuck note is worse. Realtime bytes such as clock go straight through, which MIDI allows. A SysEx from a second source meanwhile is dropped, and one that stalls for 500 ms is ended with F7.
@@ -367,6 +367,8 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys).
+
 ```yaml
 gemifi: 2                      # format version
 name: keystation-mini32        # node name: lowercase letters, digits and -, at most 31; names the built images
@@ -377,13 +379,13 @@ board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DI
 platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
 board: keystation-mini32-mk3   # stm32f1 / nuvoton-nuc1xx: the board profile ("Board profiles"); default per platform
-usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
-midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub or display is used (several: components/i2c)
 scan_interval: 125us           # matrix/encoder scan period
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
-din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
-midi_messages: { enable: [cc14] }   # 14-bit CC, NRPN, bank select, panic, MMC, SysEx ("MIDI messages")
+din_midi: { tx_pin: PA9, rx_pin: PA10 }  # "DIN MIDI"
+midi_messages: { enable: [cc14] }   # "MIDI messages"
 boot_combo: [pitch_down, pitch_up]  # button ids
 factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
 unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")

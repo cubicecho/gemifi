@@ -2562,5 +2562,190 @@
         }
       ]
     }
+  ],
+  "core/midi": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "usb",
+          "type": "mapping",
+          "required": false,
+          "default": "the pid.codes test ids 1209:0002, for development only",
+          "doc": "The USB ids, on platforms with native USB (ignored with another `midi.transport`).",
+          "keys": [
+            {
+              "key": "vid",
+              "type": "integer 0x00..0xFFFF",
+              "required": true,
+              "default": null,
+              "doc": "The USB vendor id (`0x1209`: pid.codes)."
+            },
+            {
+              "key": "pid",
+              "type": "integer 0x00..0xFFFF",
+              "required": true,
+              "default": null,
+              "doc": "The USB product id."
+            },
+            {
+              "key": "daw_port",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true` with `mcu:`",
+              "doc": "A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI.",
+              "see": "core/README.md \"Second USB port and Mackie Control\""
+            }
+          ]
+        },
+        {
+          "key": "midi",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "How the device talks MIDI.",
+          "keys": [
+            {
+              "key": "transport",
+              "type": "`usb`, `serial`, `ble`",
+              "required": false,
+              "default": "`usb`; `serial` on esp32",
+              "doc": "How the device talks MIDI: `usb` (native USB, ESP32-S2/S3), `serial` (a UART) or `ble` (ESP32, ESP32-S3). Only the ESPs have a choice."
+            }
+          ]
+        },
+        {
+          "key": "din_midi",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now).",
+          "see": "core/README.md \"DIN MIDI\"",
+          "keys": [
+            {
+              "key": "tx_pin",
+              "type": "pin",
+              "required": true,
+              "default": null,
+              "doc": "The UART's TX pin: MIDI Out (stm32f1: PA9, USART1)."
+            },
+            {
+              "key": "rx_pin",
+              "type": "pin",
+              "required": false,
+              "default": null,
+              "doc": "The UART's RX pin: MIDI In (stm32f1: PA10). Without it, MIDI Out only."
+            },
+            {
+              "key": "mode",
+              "type": "`din_only`, `separate_port`, `usb_merge`",
+              "required": false,
+              "default": "`usb_merge`",
+              "doc": "How the jacks reach USB: on the device's own port (`usb_merge`), on a second USB-MIDI port (`separate_port`), or not at all (`din_only`).",
+              "see": "core/README.md \"DIN MIDI\""
+            },
+            {
+              "key": "port_name",
+              "type": "text",
+              "required": false,
+              "default": "`<friendly_name> MIDI`",
+              "doc": "The second port's name, with `separate_port`; at most 31 characters."
+            },
+            {
+              "key": "thru",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "DIN In is copied to DIN Out.",
+              "param": "midi.thru"
+            },
+            {
+              "key": "controller_out",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "The device's own messages (keys, pads, CCs, program changes) also go to DIN Out.",
+              "param": "midi.din_out"
+            },
+            {
+              "key": "usb_to_din",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "With `usb_merge`: the host's channel and realtime messages on the device's port go to DIN Out.",
+              "param": "midi.usb_to_din"
+            },
+            {
+              "key": "dma",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "stm32f1: the UART's bytes move by DMA (channels 4 and 5) instead of by interrupt.",
+              "see": "core/README.md \"DMA channels (stm32f1)\""
+            }
+          ]
+        },
+        {
+          "key": "midi_messages",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx.",
+          "see": "core/README.md \"MIDI messages\"",
+          "keys": [
+            {
+              "key": "enable",
+              "type": "list of `cc14`, `nrpn`, `program`, `panic`, `mmc`, `rpn`, `bank_select`",
+              "required": false,
+              "default": null,
+              "doc": "Kinds to compile in even if no control uses them yet, for the web page (each kind is in anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s.",
+              "see": "core/README.md \"MIDI messages\""
+            },
+            {
+              "key": "null_rpn",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "After each NRPN or RPN message, the null RPN (101 / 100 = 127).",
+              "see": "core/README.md \"MIDI messages\""
+            },
+            {
+              "key": "mmc_device_id",
+              "type": "integer 0x00..0x7F",
+              "required": false,
+              "default": "`0x7F` (all devices)",
+              "doc": "The device id MMC commands are sent to."
+            },
+            {
+              "key": "sysex",
+              "type": "list of mapping",
+              "required": false,
+              "default": null,
+              "doc": "SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and `mode: sysex` analog inputs.",
+              "see": "core/README.md \"MIDI messages\"",
+              "keys": [
+                {
+                  "key": "id",
+                  "type": "id",
+                  "required": true,
+                  "default": null,
+                  "doc": "What a control's `sysex:` calls it."
+                },
+                {
+                  "key": "data",
+                  "type": "text",
+                  "required": true,
+                  "default": null,
+                  "doc": "Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders.",
+                  "see": "core/README.md \"MIDI messages\""
+                }
+              ],
+              "sub": "[]"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

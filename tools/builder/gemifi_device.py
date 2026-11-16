@@ -27,9 +27,10 @@ import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
-from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, IdRef as _IdRef,  # noqa: E402
-                             Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map, OneOf as _OneOf,
-                             Period as _Period, Pin as _Pin, Raw as _Raw, Str as _Str, ById as _ById)
+from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, Id as _Id,  # noqa: E402
+                             IdRef as _IdRef, Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map,
+                             Null as _Null, OneOf as _OneOf, Period as _Period, Pin as _Pin, Raw as _Raw, Str as _Str,
+                             ById as _ById)
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -363,13 +364,10 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
-# these lists, so a new key goes here.
-MIDI_KEYS = ["transport"]
-USB_KEYS = ["vid", "pid", "daw_port"]
+# these lists, so a new key goes here. (The Core areas' keys are data: CORE_AREAS, at the end.)
 PROJECT_KEYS = ["version"]
 FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
 MCU_KEYS = ["extender"]
-DIN_KEYS = ["tx_pin", "rx_pin", "mode", "port_name", "thru", "controller_out", "usb_to_din", "dma"]
 HW_SCAN_KEYS = ["matrix", "analog"]
 HW_SCAN_MATRIX_KEYS = ["row_time", "settle", "precharge", "timer"]
 HW_SCAN_ANALOG_KEYS = ["timer"]
@@ -1598,6 +1596,22 @@ DEVICE_KEYS = _Keys(
 )
 
 
+# MIDI and USB (the "midi" area, with din_midi: and midi_messages:, below)
+USB_KEYS = _Keys(
+    _Key("vid", _Hex(0, 0xFFFF), required=True, doc="The USB vendor id (`0x1209`: pid.codes)."),
+    _Key("pid", _Hex(0, 0xFFFF), required=True, doc="The USB product id."),
+    _Key("daw_port", _Bool(), shown_default="`true` with `mcu:`", see='core/README.md "Second USB port and Mackie '
+         'Control"', doc="A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI."),
+)
+MIDI_KEYS = _Keys(
+    _Key("transport", _Enum(MIDI_TRANSPORT_MACRO),
+         shown_default="`usb`; " + ", ".join(f"`{p.default_transport}` on {n}" for n, p in PLATFORMS.items()
+                                             if p.default_transport != "usb"),
+         doc="How the device talks MIDI: `usb` (native USB, ESP32-S2/S3), `serial` (a UART) or `ble` (ESP32, "
+             "ESP32-S3). Only the ESPs have a choice."),
+)
+
+
 def validate(data, file=None):
     """data: the loaded YAML (LDict). Returns (Device or None, [Diag])."""
     v = _V(file)
@@ -1644,7 +1658,7 @@ def validate(data, file=None):
 
     # midi
     midi = data.get("midi") or LDict()
-    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), MIDI_KEYS) is None:
+    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), MIDI_KEYS.names) is None:
         midi = LDict()
     tr = midi.get("transport", plat.default_transport)
     if tr not in plat.transports:
@@ -1657,12 +1671,11 @@ def validate(data, file=None):
     dev.usb = (0, 0)
     daw_port = None
     if "usb" in data:
-        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), USB_KEYS)
+        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), USB_KEYS.names)
         if usb is not None:
-            dev.usb = (v.integer(usb, "vid", "usb", 0, 0xFFFF, required=True) or 0,
-                       v.integer(usb, "pid", "usb", 0, 0xFFFF, required=True) or 0)
+            dev.usb = (USB_KEYS.get(v, usb, "vid", "usb") or 0, USB_KEYS.get(v, usb, "pid", "usb") or 0)
             if "daw_port" in usb:
-                daw_port = (v.boolean(usb, "daw_port", "usb"), usb.line_of("daw_port"))
+                daw_port = (USB_KEYS.get(v, usb, "daw_port", "usb"), usb.line_of("daw_port"))
             if tr != "usb":
                 v.warn("usb", data.line_of("usb"), f"ignored: midi.transport is {tr}")
     elif tr == "usb":
@@ -1966,15 +1979,31 @@ def validate_feedback(v, dev, data):
                                                      "matter for the MCU port")
 
 
+DIN_KEYS = _Keys(
+    _Key("tx_pin", _Pin(), required=True, doc="The UART's TX pin: MIDI Out (stm32f1: PA9, USART1)."),
+    _Key("rx_pin", _Pin(), doc="The UART's RX pin: MIDI In (stm32f1: PA10). Without it, MIDI Out only."),
+    _Key("mode", _Enum(DIN_MODES), default="usb_merge", see='core/README.md "DIN MIDI"',
+         doc="How the jacks reach USB: on the device's own port (`usb_merge`), on a second USB-MIDI port "
+             "(`separate_port`), or not at all (`din_only`)."),
+    _Key("port_name", _Str(), shown_default="`<friendly_name> MIDI`",
+         doc=f"The second port's name, with `separate_port`; at most {COMP_STR_MAX} characters."),
+    _Key("thru", _Bool(), default=False, param="midi.thru", doc="DIN In is copied to DIN Out."),
+    _Key("controller_out", _Bool(), default=True, param="midi.din_out",
+         doc="The device's own messages (keys, pads, CCs, program changes) also go to DIN Out."),
+    _Key("usb_to_din", _Bool(), default=False, param="midi.usb_to_din",
+         doc="With `usb_merge`: the host's channel and realtime messages on the device's port go to DIN Out."),
+    _Key("dma", _Bool(), default=False, see='core/README.md "DMA channels (stm32f1)"',
+         doc="stm32f1: the UART's bytes move by DMA (channels 4 and 5) instead of by interrupt."),
+)
+
+
 def validate_din(v, dev, data, tr, plat):
     """din_midi: 5-pin DIN MIDI In / Out on a UART (core/README.md "DIN MIDI"). mode: how the jacks reach
-    USB: usb_merge (on the main port, the default), separate_port (a second USB-MIDI port: hangs Chrome's
-    Web MIDI on Windows for now, see core/README.md) or din_only. thru,
-    controller_out and usb_to_din are the start values of midi.thru, midi.din_out, midi.usb_to_din."""
+    USB (DIN_KEYS: separate_port hangs Chrome's Web MIDI on Windows for now, see core/README.md)."""
     if "din_midi" not in data:
         return
     line = data.line_of("din_midi")
-    d = v.mapping(data["din_midi"], "din_midi", line, DIN_KEYS)
+    d = v.mapping(data["din_midi"], "din_midi", line, DIN_KEYS.names)
     if d is None:
         return
     tx = v.pin(d.get("tx_pin"), "din_midi.tx_pin", d.line_of("tx_pin") if "tx_pin" in d else d.line, "out",
@@ -1982,11 +2011,9 @@ def validate_din(v, dev, data, tr, plat):
     rx = None
     if d.get("rx_pin") is not None:
         rx = v.pin(d["rx_pin"], "din_midi.rx_pin", d.line_of("rx_pin"), "in", allow_hub=False)
-    mode = DIN_MODES.index("usb_merge")
+    mode = DIN_KEYS.get(v, d, "mode", "din_midi", default=DIN_MODES.index("usb_merge"))     # wrong: the default
     if "mode" in d:
-        m = v.enum_value(d, "mode", "din_midi.mode", DIN_MODES)
-        mode = mode if m is None else m
-        if m == DIN_MODES.index("separate_port"):
+        if mode == DIN_MODES.index("separate_port"):
             v.warn("din_midi.mode", d.line_of("mode"),
                    "separate_port: on Windows, Chrome's Web MIDI (the web updater) can hang for good when "
                    "a device with two USB-MIDI ports leaves or comes back; usb_merge has no such problem")
@@ -2001,22 +2028,21 @@ def validate_din(v, dev, data, tr, plat):
         v.err("din_midi.mode", d.line_of("mode") if "mode" in d else line,
               "separate_port needs the second USB port, which the DAW port (mcu:) already uses: "
               "use usb_merge or din_only, or usb.daw_port: false")
-    name = v.string(d, "port_name", "din_midi")
+    name = DIN_KEYS.get(v, d, "port_name", "din_midi")
     if name is not None and mode != DIN_MODES.index("separate_port"):
         v.warn("din_midi.port_name", d.line_of("port_name"), f"ignored: only separate_port has its own port "
                                                               f"(mode is {DIN_MODES[mode]})")
     if name is not None and len(name) > COMP_STR_MAX:
         v.err("din_midi.port_name", d.line_of("port_name"), f"{len(name)} characters: at most {COMP_STR_MAX}")
-    usb = v.boolean(d, "usb_to_din", "din_midi", default=False)
+    usb = DIN_KEYS.get(v, d, "usb_to_din", "din_midi")
     if "usb_to_din" in d and mode != DIN_MODES.index("usb_merge"):
         v.warn("din_midi.usb_to_din", d.line_of("usb_to_din"),
                "ignored: only usb_merge has it (separate_port always sends its port's messages to DIN Out)")
     if rx is None and d.get("rx_pin") is None and "thru" in d:
         v.warn("din_midi.thru", d.line_of("thru"), "there is no rx_pin (MIDI In) to pass through")
     dev.din = Hub(tx=tx or NO_PIN, rx=rx, mode=mode, port_name=name,
-                  thru=v.boolean(d, "thru", "din_midi", default=False),
-                  out=v.boolean(d, "controller_out", "din_midi", default=True), usb=usb,
-                  dma=v.boolean(d, "dma", "din_midi", default=False))
+                  thru=DIN_KEYS.get(v, d, "thru", "din_midi"), out=DIN_KEYS.get(v, d, "controller_out", "din_midi"),
+                  usb=usb, dma=DIN_KEYS.get(v, d, "dma", "din_midi"))
 
 
 def validate_mcu(v, dev, data, tr, daw_port):
@@ -3093,8 +3119,35 @@ def preset_values(v, dev, d, p):
 # ---------------------------------------------------------------------------------------------
 # MIDI messages (core/README.md "MIDI messages")
 
-MIDI_MESSAGES_KEYS = ["enable", "null_rpn", "mmc_device_id", "sysex"]
-SYSEX_KEYS = ["id", "data"]
+_MM = 'core/README.md "MIDI messages"'
+SYSEX_KEYS = _Keys(
+    _Key("id", _Id(), required=True, doc="What a control's `sysex:` calls it."),
+    _Key("data", _Str(), required=True, see=_MM,
+         doc="Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders."),
+)
+# enable: and sysex: are checked by validate_midi_messages (aliases, names, the strings)
+MIDI_MESSAGES_KEYS = _Keys(
+    _Key("enable", _List(_Enum([*MSG_FEATURES, *MSG_ALIASES])), see=_MM,
+         doc="Kinds to compile in even if no control uses them yet, for the web page (each kind is in "
+             "anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s."),
+    _Key("null_rpn", _Bool(), default=False, see=_MM,
+         doc="After each NRPN or RPN message, the null RPN (101 / 100 = 127)."),
+    _Key("mmc_device_id", _Hex(0, 0x7F), default=0x7F, shown_default="`0x7F` (all devices)",
+         doc="The device id MMC commands are sent to."),
+    _Key("sysex", _List(_Map(SYSEX_KEYS)), see=_MM,
+         doc="SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and "
+             "`mode: sysex` analog inputs."),
+)
+# The "midi" area: MIDI and USB (core/yaml/midi.md)
+MIDI_AREA = _Keys(
+    _Key("usb", _Map(USB_KEYS), shown_default="the pid.codes test ids 1209:0002, for development only",
+         doc="The USB ids, on platforms with native USB (ignored with another `midi.transport`)."),
+    _Key("midi", _Map(MIDI_KEYS), doc="How the device talks MIDI."),
+    _Key("din_midi", _Map(DIN_KEYS), see='core/README.md "DIN MIDI"',
+         doc="5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now)."),
+    _Key("midi_messages", _Map(MIDI_MESSAGES_KEYS), see=_MM,
+         doc="MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx."),
+)
 BANK_KEYS = ["msb", "lsb"]
 
 
@@ -3103,7 +3156,7 @@ def validate_midi_messages(v, dev, data):
     SysEx strings by id)."""
     if data.get("midi_messages") is None:
         return
-    mm = v.mapping(data["midi_messages"], "midi_messages", data.line_of("midi_messages"), MIDI_MESSAGES_KEYS)
+    mm = v.mapping(data["midi_messages"], "midi_messages", data.line_of("midi_messages"), MIDI_MESSAGES_KEYS.names)
     if mm is None:
         return
     if mm.get("enable") is not None:
@@ -3122,17 +3175,16 @@ def validate_midi_messages(v, dev, data):
                 v.warn(p, ln, f"'{x}' is listed twice")
             dev.msg_enable.add(f)
     if "null_rpn" in mm:
-        dev.null_rpn = bool(v.boolean(mm, "null_rpn", "midi_messages"))
+        dev.null_rpn = MIDI_MESSAGES_KEYS.get(v, mm, "null_rpn", "midi_messages")
         dev.null_rpn_line = mm.line_of("null_rpn")
     if "mmc_device_id" in mm:
-        x = v.integer(mm, "mmc_device_id", "midi_messages", 0, 0x7F, default=0x7F)
-        dev.mmc_id = 0x7F if x is None else x
+        dev.mmc_id = MIDI_MESSAGES_KEYS.get(v, mm, "mmc_device_id", "midi_messages")
         dev.mmc_line = mm.line_of("mmc_device_id")
     if mm.get("sysex") is not None:
         lst = v.seq(mm["sysex"], "midi_messages.sysex", mm.line_of("sysex"))
         for i, d in enumerate(lst):
             p = f"midi_messages.sysex[{i}]"
-            d = v.mapping(d, p, lst.line_of(i), SYSEX_KEYS)
+            d = v.mapping(d, p, lst.line_of(i), SYSEX_KEYS.names)
             if d is None:
                 continue
             ident = v.ident(d, p, "SysEx string", len(dev.sysex), allow_name=False)
@@ -4220,4 +4272,5 @@ def write_generated(dev, out_dir, source):
 # component's (KEY_SECTIONS, a hub list); tests/test_core_keys.py checks.
 CORE_AREAS = {
     "device": DEVICE_KEYS,
+    "midi": MIDI_AREA,
 }

@@ -967,5 +967,68 @@
       ],
       "platform": "ws2812"
     }
+  ],
+  "xy_pad": [
+    {
+      "section": "xy_pad",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its two inputs name: `{ xy_pad: <id>, number: x }` and `number: y`."
+        },
+        {
+          "key": "x_plus_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The X plate's + end, driven high to read X. Y is read on it when `x_minus_pin` has no ADC.",
+          "see": "How it reads"
+        },
+        {
+          "key": "x_minus_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The X plate's - end, driven low to read X. Y is read on it if it has an ADC.",
+          "see": "How it reads"
+        },
+        {
+          "key": "y_plus_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The Y plate's + end, driven high to read Y. X is read on it when `y_minus_pin` has no ADC.",
+          "see": "How it reads"
+        },
+        {
+          "key": "y_minus_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The Y plate's - end, driven low to read Y. X is read on it if it has an ADC.",
+          "see": "How it reads"
+        },
+        {
+          "key": "touch_min",
+          "type": "integer 0..4095",
+          "required": false,
+          "default": "`570`",
+          "doc": "The lowest reading that counts as a touch, below `touch_max`.",
+          "see": "How it reads"
+        },
+        {
+          "key": "touch_max",
+          "type": "integer 0..4095",
+          "required": false,
+          "default": "`3430`",
+          "doc": "The highest reading that counts as a touch.",
+          "see": "How it reads"
+        }
+      ]
+    }
   ]
 }

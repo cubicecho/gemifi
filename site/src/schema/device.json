@@ -1356,19 +1356,44 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its two inputs name: `{ xy_pad: <id>, number: x }` and `number: y`."
               },
               "x_plus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The X plate's + end, driven high to read X. Y is read on it when `x_minus_pin` has no ADC."
               },
               "x_minus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The X plate's - end, driven low to read X. Y is read on it if it has an ADC."
               },
               "y_plus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The Y plate's + end, driven high to read Y. X is read on it when `y_minus_pin` has no ADC."
               },
               "y_minus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The Y plate's - end, driven low to read Y. X is read on it if it has an ADC."
               },
               "touch_min": {
                 "anyOf": [
@@ -1380,7 +1405,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The lowest reading that counts as a touch, below `touch_max`. Default: 570.",
+                "default": 570
               },
               "touch_max": {
                 "anyOf": [
@@ -1392,7 +1419,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The highest reading that counts as a touch. Default: 3430.",
+                "default": 3430
               }
             },
             "additionalProperties": false

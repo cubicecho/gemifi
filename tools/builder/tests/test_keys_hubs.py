@@ -28,10 +28,11 @@ def section(name, item, many=True):
 
 
 class EdgesAgree(unittest.TestCase):
-    def edges(self, sec, base, path, keys, context=None, extra="", skip=(), many=True, head=HEAD):
+    def edges(self, sec, base, path, keys, context=None, extra="", skip=(), many=True, head=HEAD, own=()):
         """Each key of keys (a Keys) whose type has edges: those in pass, those past fail at path.key.
         context: key -> the keys the item needs for that key's edges, or a function of the value giving
-        them; extra: more YAML the device needs; skip: keys checked elsewhere; head: the device's start."""
+        them; extra: more YAML the device needs; skip: keys checked elsewhere; head: the device's start;
+        own: keys whose edges in only need no error of their own (a rule between keys may still refuse them)."""
         context = context or {}
         checked = 0
         for k in keys:
@@ -44,7 +45,9 @@ class EdgesAgree(unittest.TestCase):
                     item.update(more(value) if callable(more) else more)
                     item[k.name] = value
                     errs = errors(section(sec, item, many) + extra, head)
-                    if ok:
+                    if ok and k.name in own:
+                        self.assertNotIn(f"{path}.{k.name}", [p for p, _ in errs], (item, errs))
+                    elif ok:
                         self.assertEqual(errs, [], item)
                     else:
                         self.assertIn(f"{path}.{k.name}", [p for p, _ in errs], (item, errs))
@@ -83,6 +86,11 @@ class EdgesAgree(unittest.TestCase):
 
     def test_ht16k33(self):
         self.hub("ht16k33", {"id": "h"}, 8)
+
+    def test_xy_pad(self):
+        pins = {"x_plus_pin": "PB1", "x_minus_pin": "PC5", "y_plus_pin": "PC4", "y_minus_pin": "PB2"}
+        # touch_min 4095 and touch_max 0 are in range, but touch_min must be below touch_max
+        self.hub("xy_pad", {"id": "h", **pins}, 8, own=("touch_min", "touch_max"))
 
     def test_strips(self):
         self.hub("ws2812", {"id": "h", "pin": "PA7", "count": 4}, 8)

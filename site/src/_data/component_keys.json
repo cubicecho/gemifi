@@ -120,6 +120,35 @@
       ]
     }
   ],
+  "decoder": [
+    {
+      "section": "decoder",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its outputs name: `rows: { decoder: <id>, first: n, count: n }`, or a pin `{ decoder: <id>, number: n }`."
+        },
+        {
+          "key": "address",
+          "type": "list of pin",
+          "required": true,
+          "default": null,
+          "doc": "The address pins (1..4), A0 first, shared by its chips."
+        },
+        {
+          "key": "groups",
+          "type": "list of mapping of pin to 0 or 1",
+          "required": false,
+          "default": "one chip, no enable pins",
+          "doc": "Its chips (1..4): each the levels of the enable pins that select it, e.g. `{ PB6: 1, PB7: 0 }`. At most 3 enable pins, the same ones in each."
+        }
+      ]
+    }
+  ],
   "encoders": [
     {
       "section": "encoders",

@@ -884,16 +884,53 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its outputs name: `rows: { decoder: <id>, first: n, count: n }`, or a pin `{ decoder: <id>, number: n }`."
               },
               "address": {
                 "type": "array",
                 "items": {
                   "$ref": "#/definitions/pin"
                 },
-                "description": "the address pins, A0 first"
+                "description": "The address pins (1..4), A0 first, shared by its chips."
               },
-              "groups": {}
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "description": "Its chips (1..4): each the levels of the enable pins that select it, e.g. `{ PB6: 1, PB7: 0 }`. At most 3 enable pins, the same ones in each. Default: one chip, no enable pins."
+              }
             },
             "additionalProperties": false
           },

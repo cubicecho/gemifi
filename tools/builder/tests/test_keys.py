@@ -149,6 +149,30 @@ class KeyData(unittest.TestCase):
             for s in sections:
                 walk(s["keys"], f"{name}: {s['section']}")
 
+    def test_params_are_the_devices(self):
+        """A key's param is one of the device's params (gemifi_device.py PARAMS: the settings schema), and a
+        preset's keys for a component are those that start a per-preset param."""
+        def walk(keys):
+            for k in keys:
+                yield k
+                sub = k.sub_keys()
+                if sub:
+                    yield from walk(sub)
+        seen = set()
+        for s in gs.key_sections():
+            for k in walk(s.keys):
+                if k.param:
+                    self.assertIn(k.param, gd.PARAM_ID, f"{s.yaml_key}.{k.name}")
+                    seen.add(k.param)
+        scope = {n: sc for n, _i, sc, _c in gd.PARAMS}
+        for sec, (_kind, _pl, allowed, _refused) in gd.PRESET_COMPONENTS.items():
+            for k in allowed:
+                self.assertEqual(scope[gs.section_keys(sec)[k].param], gd.PRESET, f"{sec}.{k}")
+        # every param a control's YAML starts has a key that says so
+        for want in ("button.action", "button.number", "analog.cc", "analog.mode", "encoder.cc", "encoder.mode",
+                     "pad.note", "pad.threshold", "velocity.fast", "button.hold_time"):
+            self.assertIn(want, seen)
+
     def test_pad_defaults_are_the_params(self):
         """pad_settings:'s documented defaults are the pad.* param defaults the C gets (PAD_DEFAULTS)."""
         for k in pads.PAD_SETTINGS:

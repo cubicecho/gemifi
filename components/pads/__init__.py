@@ -20,24 +20,24 @@ PAD = Keys(
     CONTROL_ID, CONTROL_NAME,
     Key("pin", Pin(), required=True, doc="What it reads: an ADC pin or a multiplexer channel (`inverted: true` "
                                          "when pressure lowers the reading)."),
-    Key("note", Int(0, 127), required=True, live=True, doc="The note it plays."),
+    Key("note", Int(0, 127), required=True, param="pad.note", doc="The note it plays."),
     Key("led", IdRef("LED"), doc="An LED lit while the pad is held."),
 )
 PAD_KEYS = PAD.names
 PAD_SETTINGS = Keys(
-    Key("channel", Int(0, 16), default=0, shown_default="`0`: `midi.channel`", live=True,
+    Key("channel", Int(0, 16), default=0, shown_default="`0`: `midi.channel`", param="pad.channel",
         doc="The MIDI channel the pads play on (0: `midi.channel`). Per preset."),
-    Key("curve", Enum(CURVES), default="normal", live=True,
+    Key("curve", Enum(CURVES), default="normal", param="pad.curve",
         doc="How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset."),
-    Key("aftertouch", Bool(), default=False, live=True,
+    Key("aftertouch", Bool(), default=False, param="pad.aftertouch",
         doc="Polyphonic aftertouch while a pad is held. Per preset."),
-    Key("threshold", Int(1, 4095), default=200, live=True, see="YAML",
+    Key("threshold", Int(1, 4095), default=200, param="pad.threshold", see="YAML",
         doc="The reading that starts a hit (readings are 0..4095). Between `release` and `full`."),
-    Key("release", Int(0, 4094), default=100, live=True, doc="Below this reading the pad is let go."),
-    Key("full", Int(2, 4095), default=3000, live=True, doc="The peak reading that plays velocity 127."),
-    Key("window", Period(1000, 50_000, step_us=1000, example="3ms"), default="3ms", live=True,
+    Key("release", Int(0, 4094), default=100, param="pad.release", doc="Below this reading the pad is let go."),
+    Key("full", Int(2, 4095), default=3000, param="pad.full", doc="The peak reading that plays velocity 127."),
+    Key("window", Period(1000, 50_000, step_us=1000, example="3ms"), default="3ms", param="pad.window",
         doc="How long after the threshold a hit's peak is looked for."),
-    Key("retrigger", Period(0, 500_000, step_us=1000, example="20ms"), default="20ms", live=True,
+    Key("retrigger", Period(0, 500_000, step_us=1000, example="20ms"), default="20ms", param="pad.retrigger",
         doc="How long after a release the pad can't start a new hit (against bounce and double hits)."),
 )
 PAD_SETTINGS_KEYS = PAD_SETTINGS.names

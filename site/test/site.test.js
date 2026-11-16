@@ -162,7 +162,7 @@ test("a component whose keys are data has a key table on its page, from componen
   }
   const enc = fs.readFileSync(servedFile(`${PREFIX}docs/components/encoders/`), "utf8");
   assert.match(enc, /<td><code>acceleration\.slow<\/code><\/td>/);
-  assert.match(enc, /<em>Can be changed on the device\.<\/em>/);
+  assert.match(enc, /<em>Can be changed on the device<\/em> \(<code>encoder\.cc<\/code>\)\./);
   assert.throws(() => withKeys("# x\n\n<!-- keys -->\n", "components/nope/README.md", all), /no keys/);
   assert.throws(() => withKeys("# x\n", "components/encoders/README.md", all), /put <!-- keys -->/);
 });

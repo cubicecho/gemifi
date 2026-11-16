@@ -1152,7 +1152,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                 "default": "none"
               },
               "cc": {
@@ -1166,7 +1166,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
+                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
               },
               "note": {
                 "anyOf": [
@@ -1179,7 +1179,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The note, with action `note`. Can be changed on the device."
+                "description": "The note, with action `note`. Can be changed on the device (button.number)."
               },
               "preset": {
                 "anyOf": [
@@ -1191,7 +1191,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
               },
               "led": {
                 "type": "string",
@@ -1199,7 +1199,7 @@
               },
               "mcu": {
                 "type": "string",
-                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
+                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
               },
               "daw": {
                 "type": "string",
@@ -1216,7 +1216,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
               },
               "mmc": {
                 "anyOf": [
@@ -1256,11 +1256,11 @@
                     ]
                   }
                 ],
-                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
               },
               "sysex": {
                 "type": "string",
-                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
               },
               "bank": {
                 "anyOf": [
@@ -1420,7 +1420,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                         "default": "none"
                       },
                       "cc": {
@@ -1434,7 +1434,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
+                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                       },
                       "note": {
                         "anyOf": [
@@ -1447,7 +1447,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The note, with action `note`. Can be changed on the device."
+                        "description": "The note, with action `note`. Can be changed on the device (button.number)."
                       },
                       "preset": {
                         "anyOf": [
@@ -1459,7 +1459,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                       },
                       "program": {
                         "anyOf": [
@@ -1472,7 +1472,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                        "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                       },
                       "mmc": {
                         "anyOf": [
@@ -1512,15 +1512,15 @@
                             ]
                           }
                         ],
-                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                       },
                       "sysex": {
                         "type": "string",
-                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                       },
                       "mcu": {
                         "type": "string",
-                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
+                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                       }
                     },
                     "additionalProperties": false
@@ -1596,7 +1596,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                         "default": "none"
                       },
                       "cc": {
@@ -1610,7 +1610,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
+                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                       },
                       "note": {
                         "anyOf": [
@@ -1623,7 +1623,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The note, with action `note`. Can be changed on the device."
+                        "description": "The note, with action `note`. Can be changed on the device (button.number)."
                       },
                       "preset": {
                         "anyOf": [
@@ -1635,7 +1635,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                       },
                       "program": {
                         "anyOf": [
@@ -1648,7 +1648,7 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ],
-                        "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                        "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                       },
                       "mmc": {
                         "anyOf": [
@@ -1688,15 +1688,15 @@
                             ]
                           }
                         ],
-                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                       },
                       "sysex": {
                         "type": "string",
-                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                       },
                       "mcu": {
                         "type": "string",
-                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
+                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                       }
                     },
                     "additionalProperties": false
@@ -1976,7 +1976,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device."
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device (analog.cc)."
               },
               "mode": {
                 "anyOf": [
@@ -1997,7 +1997,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device.",
+                "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device (analog.mode).",
                 "default": "cc"
               },
               "adc_min": {
@@ -2077,7 +2077,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "rpn": {
                 "anyOf": [
@@ -2090,11 +2090,11 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "sysex": {
                 "type": "string",
-                "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device."
+                "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "channel": {
                 "anyOf": [
@@ -2191,7 +2191,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device."
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device (encoder.cc)."
               },
               "steps_per_detent": {
                 "anyOf": [
@@ -2317,7 +2317,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "What a turn sends. Default: absolute. Can be changed on the device.",
+                "description": "What a turn sends. Default: absolute. Can be changed on the device (encoder.mode).",
                 "default": "absolute"
               },
               "nrpn": {
@@ -2331,7 +2331,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
               },
               "rpn": {
                 "anyOf": [
@@ -2344,7 +2344,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
               },
               "channel": {
                 "anyOf": [
@@ -2640,7 +2640,7 @@
                       "$ref": "#/definitions/period"
                     }
                   ],
-                  "description": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`). Default: 1.2ms. Can be changed on the device.",
+                  "description": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`). Default: 1.2ms. Can be changed on the device (velocity.fast).",
                   "default": "1.2ms"
                 },
                 "slow": {
@@ -2649,7 +2649,7 @@
                       "$ref": "#/definitions/period"
                     }
                   ],
-                  "description": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`. Default: 120ms. Can be changed on the device.",
+                  "description": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`. Default: 120ms. Can be changed on the device (velocity.slow).",
                   "default": "120ms"
                 }
               },
@@ -2707,7 +2707,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The note it plays. Can be changed on the device."
+                "description": "The note it plays. Can be changed on the device (pad.note)."
               },
               "led": {
                 "type": "string",
@@ -2739,7 +2739,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "The MIDI channel the pads play on (0: `midi.channel`). Per preset. Default: 0: midi.channel. Can be changed on the device.",
+              "description": "The MIDI channel the pads play on (0: `midi.channel`). Per preset. Default: 0: midi.channel. Can be changed on the device (pad.channel).",
               "default": 0
             },
             "curve": {
@@ -2756,7 +2756,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset. Default: normal. Can be changed on the device.",
+              "description": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset. Default: normal. Can be changed on the device (pad.curve).",
               "default": "normal"
             },
             "aftertouch": {
@@ -2768,7 +2768,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "Polyphonic aftertouch while a pad is held. Per preset. Default: false. Can be changed on the device.",
+              "description": "Polyphonic aftertouch while a pad is held. Per preset. Default: false. Can be changed on the device (pad.aftertouch).",
               "default": false
             },
             "threshold": {
@@ -2782,7 +2782,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`. Default: 200. Can be changed on the device.",
+              "description": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`. Default: 200. Can be changed on the device (pad.threshold).",
               "default": 200
             },
             "release": {
@@ -2796,7 +2796,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "Below this reading the pad is let go. Default: 100. Can be changed on the device.",
+              "description": "Below this reading the pad is let go. Default: 100. Can be changed on the device (pad.release).",
               "default": 100
             },
             "full": {
@@ -2810,7 +2810,7 @@
                   "$ref": "#/definitions/substitution"
                 }
               ],
-              "description": "The peak reading that plays velocity 127. Default: 3000. Can be changed on the device.",
+              "description": "The peak reading that plays velocity 127. Default: 3000. Can be changed on the device (pad.full).",
               "default": 3000
             },
             "window": {
@@ -2819,7 +2819,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "How long after the threshold a hit's peak is looked for. Default: 3ms. Can be changed on the device.",
+              "description": "How long after the threshold a hit's peak is looked for. Default: 3ms. Can be changed on the device (pad.window).",
               "default": "3ms"
             },
             "retrigger": {
@@ -2828,7 +2828,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "How long after a release the pad can't start a new hit (against bounce and double hits). Default: 20ms. Can be changed on the device.",
+              "description": "How long after a release the pad can't start a new hit (against bounce and double hits). Default: 20ms. Can be changed on the device (pad.retrigger).",
               "default": "20ms"
             }
           },
@@ -2851,7 +2851,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "A second press within this long is a double tap (`button.tap_time`). Default: 200ms. Can be changed on the device.",
+              "description": "A second press within this long is a double tap (`button.tap_time`). Default: 200ms. Can be changed on the device (button.tap_time).",
               "default": "200ms"
             },
             "hold_time": {
@@ -2860,7 +2860,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "Held this long, a press is a hold (`button.hold_time`). Default: 200ms. Can be changed on the device.",
+              "description": "Held this long, a press is a hold (`button.hold_time`). Default: 200ms. Can be changed on the device (button.hold_time).",
               "default": "200ms"
             },
             "combo_time": {
@@ -2869,7 +2869,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "Buttons pressed within this long of the first are pressed together (`button.combo_time`). Default: 50ms. Can be changed on the device.",
+              "description": "Buttons pressed within this long of the first are pressed together (`button.combo_time`). Default: 50ms. Can be changed on the device (button.combo_time).",
               "default": "50ms"
             },
             "repeat_delay": {
@@ -2878,7 +2878,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "How long a button is held before it repeats (`button.repeat_delay`). Default: 500ms. Can be changed on the device.",
+              "description": "How long a button is held before it repeats (`button.repeat_delay`). Default: 500ms. Can be changed on the device (button.repeat_delay).",
               "default": "500ms"
             },
             "repeat_rate": {
@@ -2887,7 +2887,7 @@
                   "$ref": "#/definitions/period"
                 }
               ],
-              "description": "The time between repeats (`button.repeat_rate`). Default: 50ms. Can be changed on the device.",
+              "description": "The time between repeats (`button.repeat_rate`). Default: 50ms. Can be changed on the device (button.repeat_rate).",
               "default": "50ms"
             }
           },
@@ -2961,7 +2961,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
+                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
               },
               "note": {
                 "anyOf": [
@@ -2974,7 +2974,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The note, with action `note`. Can be changed on the device."
+                "description": "The note, with action `note`. Can be changed on the device (button.number)."
               },
               "preset": {
                 "anyOf": [
@@ -2986,7 +2986,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
               },
               "program": {
                 "anyOf": [
@@ -2999,7 +2999,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
               },
               "mmc": {
                 "anyOf": [
@@ -3039,15 +3039,15 @@
                     ]
                   }
                 ],
-                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
               },
               "sysex": {
                 "type": "string",
-                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
               },
               "mcu": {
                 "type": "string",
-                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
+                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
               }
             },
             "additionalProperties": false
@@ -3342,7 +3342,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                          "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                           "default": "none"
                         },
                         "cc": {
@@ -3356,7 +3356,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
+                          "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                         },
                         "note": {
                           "anyOf": [
@@ -3369,7 +3369,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The note, with action `note`. Can be changed on the device."
+                          "description": "The note, with action `note`. Can be changed on the device (button.number)."
                         },
                         "preset": {
                           "anyOf": [
@@ -3381,11 +3381,11 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                          "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                         },
                         "mcu": {
                           "type": "string",
-                          "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
+                          "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                         },
                         "program": {
                           "anyOf": [
@@ -3398,7 +3398,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                          "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                         },
                         "mmc": {
                           "anyOf": [
@@ -3438,11 +3438,11 @@
                               ]
                             }
                           ],
-                          "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                          "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                          "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                         }
                       },
                       "additionalProperties": false
@@ -3465,7 +3465,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device."
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device (analog.cc)."
                         },
                         "mode": {
                           "anyOf": [
@@ -3486,7 +3486,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device.",
+                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device (analog.mode).",
                           "default": "cc"
                         },
                         "nrpn": {
@@ -3500,7 +3500,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3513,11 +3513,11 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device."
+                          "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         }
                       },
                       "additionalProperties": false
@@ -3540,7 +3540,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device."
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device (encoder.cc)."
                         },
                         "mode": {
                           "anyOf": [
@@ -3561,7 +3561,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What a turn sends. Default: absolute. Can be changed on the device.",
+                          "description": "What a turn sends. Default: absolute. Can be changed on the device (encoder.mode).",
                           "default": "absolute"
                         },
                         "nrpn": {
@@ -3575,7 +3575,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3588,7 +3588,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
                         }
                       },
                       "additionalProperties": false
@@ -3611,7 +3611,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "The note it plays. Can be changed on the device."
+                          "description": "The note it plays. Can be changed on the device (pad.note)."
                         }
                       },
                       "additionalProperties": false
@@ -3782,7 +3782,7 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                       "default": "none"
                     },
                     "active": {
@@ -3860,7 +3860,7 @@
                           ]
                         }
                       ],
-                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                     },
                     "name": {
                       "type": "string",
@@ -3877,7 +3877,7 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "The note, with action `note`. Can be changed on the device."
+                      "description": "The note, with action `note`. Can be changed on the device (button.number)."
                     },
                     "preset": {
                       "anyOf": [
@@ -3889,7 +3889,7 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                     },
                     "program": {
                       "anyOf": [
@@ -3902,11 +3902,11 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                      "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                     },
                     "sysex": {
                       "type": "string",
-                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                     }
                   },
                   "additionalProperties": false
@@ -3978,7 +3978,7 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
                             "default": "none"
                           },
                           "active": {
@@ -4056,7 +4056,7 @@
                                 ]
                               }
                             ],
-                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
+                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                           },
                           "name": {
                             "type": "string",
@@ -4073,7 +4073,7 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "The note, with action `note`. Can be changed on the device."
+                            "description": "The note, with action `note`. Can be changed on the device (button.number)."
                           },
                           "preset": {
                             "anyOf": [
@@ -4085,7 +4085,7 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
+                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                           },
                           "program": {
                             "anyOf": [
@@ -4098,11 +4098,11 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "The Program Change it sends, with action `program`. Can be changed on the device."
+                            "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                           },
                           "sysex": {
                             "type": "string",
-                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
+                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                           }
                         },
                         "additionalProperties": false

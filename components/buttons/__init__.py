@@ -53,18 +53,18 @@ BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200,
 # The keys of an action and its number: a button's, a gesture's (what it leaves out is the button's) and a
 # combo's. Checked by button_action() and button_number(), whose ranges depend on the action and the device.
 MIDI = 'core/README.md "MIDI messages"'
-ACTION = Key("action", Enum(ACTIONS), default="none", shown_default="`none`; `mcu` with `mcu:`", live=True,
+ACTION = Key("action", Enum(ACTIONS), default="none", shown_default="`none`; `mcu` with `mcu:`", param="button.action",
              see="Button actions", doc="What a press does.")
-CC = Key("cc", Int(0, 127), live=True, doc="The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.")
-NOTE = Key("note", Int(0, 127), live=True, doc="The note, with action `note`.")
-PRESET = Key("preset", Int(1, None), live=True, see='core/README.md "Presets"',
+CC = Key("cc", Int(0, 127), param="button.number", doc="The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.")
+NOTE = Key("note", Int(0, 127), param="button.number", doc="The note, with action `note`.")
+PRESET = Key("preset", Int(1, None), param="button.number", see='core/README.md "Presets"',
              doc="The preset slot (1..slots), with action `preset_select`.")
-PROGRAM = Key("program", Int(0, 127), live=True, see=MIDI, doc="The Program Change it sends, with action `program`.")
-MMC = Key("mmc", OneOf(Enum(MMC_COMMANDS), Int(1, 127)), live=True, see=MIDI,
+PROGRAM = Key("program", Int(0, 127), param="button.number", see=MIDI, doc="The Program Change it sends, with action `program`.")
+MMC = Key("mmc", OneOf(Enum(MMC_COMMANDS), Int(1, 127)), param="button.number", see=MIDI,
           doc="The MMC command it sends, with action `mmc`: a name or 1..127.")
-SYSEX = Key("sysex", IdRef("SysEx string"), live=True, see=MIDI,
+SYSEX = Key("sysex", IdRef("SysEx string"), param="button.number", see=MIDI,
             doc="The id of the `midi_messages.sysex` string it sends, with action `sysex`.")
-MCU = Key("mcu", Str(), live=True, see='core/README.md "Second USB port and Mackie Control"',
+MCU = Key("mcu", Str(), param="button.number", see='core/README.md "Second USB port and Mackie Control"',
           doc="The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).")
 GESTURE = Keys(ACTION, CC, NOTE, PRESET, PROGRAM, MMC, SYSEX, MCU)
 GESTURE_KEYS = GESTURE.names
@@ -106,7 +106,7 @@ _SETTING_DOCS = {
     "repeat_rate": ("Auto-repeat", "The time between repeats (`button.repeat_rate`)."),
 }
 BUTTON_SETTINGS_SPEC = Keys(*(
-    Key(k, Period(lo * 1000, hi * 1000, step_us=1000, example=f"{d}ms"), default=f"{d}ms", live=True,
+    Key(k, Period(lo * 1000, hi * 1000, step_us=1000, example=f"{d}ms"), default=f"{d}ms", param=f"button.{k}",
         see=_SETTING_DOCS[k][0], doc=_SETTING_DOCS[k][1])
     for k, (d, lo, hi, _) in BUTTON_SETTINGS.items()))
 BUTTON_SETTINGS_KEYS = BUTTON_SETTINGS_SPEC.names

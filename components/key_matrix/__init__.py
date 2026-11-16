@@ -27,10 +27,10 @@ MATRIX_FAST_COLS = 16   # key_matrix.c FAST_COLS: columns read as port runs
 SCAN = 'core/README.md "Software scan"'
 VELOCITY = Keys(
     Key("fast", Period(VEL_FAST_RANGE[0] * 100, VEL_FAST_RANGE[1] * 100, step_us=100, example="1.6ms"),
-        default="1.2ms", live=True, doc="The time between a key's two contacts that plays velocity 127 "
+        default="1.2ms", param="velocity.fast", doc="The time between a key's two contacts that plays velocity 127 "
                                         "(`velocity.fast`)."),
     Key("slow", Period(VEL_SLOW_RANGE[0] * 100, VEL_SLOW_RANGE[1] * 100, step_us=100, example="120ms"),
-        default="120ms", live=True, doc="The time that plays velocity 1 (`velocity.slow`). Longer than `fast`."),
+        default="120ms", param="velocity.slow", doc="The time that plays velocity 1 (`velocity.slow`). Longer than `fast`."),
 )
 VELOCITY_KEYS = VELOCITY.names
 KEY_MATRIX = Keys(

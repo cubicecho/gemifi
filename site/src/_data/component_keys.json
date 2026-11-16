@@ -32,7 +32,7 @@
           "default": null,
           "doc": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "analog.cc"
         },
         {
           "key": "mode",
@@ -41,7 +41,7 @@
           "default": "`cc`",
           "doc": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\").",
           "see": "Pitch wheels and aftertouch",
-          "live": true
+          "param": "analog.mode"
         },
         {
           "key": "adc_min",
@@ -96,7 +96,7 @@
           "default": null,
           "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "analog.cc"
         },
         {
           "key": "rpn",
@@ -105,7 +105,7 @@
           "default": null,
           "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "analog.cc"
         },
         {
           "key": "sysex",
@@ -114,7 +114,7 @@
           "default": null,
           "doc": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "analog.cc"
         },
         {
           "key": "channel",
@@ -173,7 +173,7 @@
           "default": "`none`; `mcu` with `mcu:`",
           "doc": "What a press does.",
           "see": "Button actions",
-          "live": true
+          "param": "button.action"
         },
         {
           "key": "cc",
@@ -181,7 +181,7 @@
           "required": false,
           "default": null,
           "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "note",
@@ -189,7 +189,7 @@
           "required": false,
           "default": null,
           "doc": "The note, with action `note`.",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "preset",
@@ -198,7 +198,7 @@
           "default": null,
           "doc": "The preset slot (1..slots), with action `preset_select`.",
           "see": "core/README.md \"Presets\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "led",
@@ -214,7 +214,7 @@
           "default": null,
           "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
           "see": "core/README.md \"Second USB port and Mackie Control\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "daw",
@@ -231,7 +231,7 @@
           "default": null,
           "doc": "The Program Change it sends, with action `program`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "mmc",
@@ -240,7 +240,7 @@
           "default": null,
           "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "sysex",
@@ -249,7 +249,7 @@
           "default": null,
           "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "bank",
@@ -311,7 +311,7 @@
               "default": "`none`; `mcu` with `mcu:`",
               "doc": "What a press does.",
               "see": "Button actions",
-              "live": true
+              "param": "button.action"
             },
             {
               "key": "cc",
@@ -319,7 +319,7 @@
               "required": false,
               "default": null,
               "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "note",
@@ -327,7 +327,7 @@
               "required": false,
               "default": null,
               "doc": "The note, with action `note`.",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "preset",
@@ -336,7 +336,7 @@
               "default": null,
               "doc": "The preset slot (1..slots), with action `preset_select`.",
               "see": "core/README.md \"Presets\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "program",
@@ -345,7 +345,7 @@
               "default": null,
               "doc": "The Program Change it sends, with action `program`.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "mmc",
@@ -354,7 +354,7 @@
               "default": null,
               "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "sysex",
@@ -363,7 +363,7 @@
               "default": null,
               "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "mcu",
@@ -372,7 +372,7 @@
               "default": null,
               "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
               "see": "core/README.md \"Second USB port and Mackie Control\"",
-              "live": true
+              "param": "button.number"
             }
           ]
         },
@@ -391,7 +391,7 @@
               "default": "`none`; `mcu` with `mcu:`",
               "doc": "What a press does.",
               "see": "Button actions",
-              "live": true
+              "param": "button.action"
             },
             {
               "key": "cc",
@@ -399,7 +399,7 @@
               "required": false,
               "default": null,
               "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "note",
@@ -407,7 +407,7 @@
               "required": false,
               "default": null,
               "doc": "The note, with action `note`.",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "preset",
@@ -416,7 +416,7 @@
               "default": null,
               "doc": "The preset slot (1..slots), with action `preset_select`.",
               "see": "core/README.md \"Presets\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "program",
@@ -425,7 +425,7 @@
               "default": null,
               "doc": "The Program Change it sends, with action `program`.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "mmc",
@@ -434,7 +434,7 @@
               "default": null,
               "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "sysex",
@@ -443,7 +443,7 @@
               "default": null,
               "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
               "see": "core/README.md \"MIDI messages\"",
-              "live": true
+              "param": "button.number"
             },
             {
               "key": "mcu",
@@ -452,7 +452,7 @@
               "default": null,
               "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
               "see": "core/README.md \"Second USB port and Mackie Control\"",
-              "live": true
+              "param": "button.number"
             }
           ]
         },
@@ -491,7 +491,7 @@
           "required": false,
           "default": null,
           "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "note",
@@ -499,7 +499,7 @@
           "required": false,
           "default": null,
           "doc": "The note, with action `note`.",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "preset",
@@ -508,7 +508,7 @@
           "default": null,
           "doc": "The preset slot (1..slots), with action `preset_select`.",
           "see": "core/README.md \"Presets\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "program",
@@ -517,7 +517,7 @@
           "default": null,
           "doc": "The Program Change it sends, with action `program`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "mmc",
@@ -526,7 +526,7 @@
           "default": null,
           "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "sysex",
@@ -535,7 +535,7 @@
           "default": null,
           "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "button.number"
         },
         {
           "key": "mcu",
@@ -544,7 +544,7 @@
           "default": null,
           "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
           "see": "core/README.md \"Second USB port and Mackie Control\"",
-          "live": true
+          "param": "button.number"
         }
       ]
     },
@@ -559,7 +559,7 @@
           "default": "`200ms`",
           "doc": "A second press within this long is a double tap (`button.tap_time`).",
           "see": "Gestures",
-          "live": true
+          "param": "button.tap_time"
         },
         {
           "key": "hold_time",
@@ -568,7 +568,7 @@
           "default": "`200ms`",
           "doc": "Held this long, a press is a hold (`button.hold_time`).",
           "see": "Gestures",
-          "live": true
+          "param": "button.hold_time"
         },
         {
           "key": "combo_time",
@@ -577,7 +577,7 @@
           "default": "`50ms`",
           "doc": "Buttons pressed within this long of the first are pressed together (`button.combo_time`).",
           "see": "Combos",
-          "live": true
+          "param": "button.combo_time"
         },
         {
           "key": "repeat_delay",
@@ -586,7 +586,7 @@
           "default": "`500ms`",
           "doc": "How long a button is held before it repeats (`button.repeat_delay`).",
           "see": "Auto-repeat",
-          "live": true
+          "param": "button.repeat_delay"
         },
         {
           "key": "repeat_rate",
@@ -595,7 +595,7 @@
           "default": "`50ms`",
           "doc": "The time between repeats (`button.repeat_rate`).",
           "see": "Auto-repeat",
-          "live": true
+          "param": "button.repeat_rate"
         }
       ]
     }
@@ -639,7 +639,7 @@
           "required": false,
           "default": null,
           "doc": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`.",
-          "live": true
+          "param": "encoder.cc"
         },
         {
           "key": "steps_per_detent",
@@ -723,7 +723,7 @@
           "default": "`absolute`",
           "doc": "What a turn sends.",
           "see": "Encoder modes",
-          "live": true
+          "param": "encoder.mode"
         },
         {
           "key": "nrpn",
@@ -732,7 +732,7 @@
           "default": null,
           "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "encoder.cc"
         },
         {
           "key": "rpn",
@@ -741,7 +741,7 @@
           "default": null,
           "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
           "see": "core/README.md \"MIDI messages\"",
-          "live": true
+          "param": "encoder.cc"
         },
         {
           "key": "channel",
@@ -914,7 +914,7 @@
               "required": false,
               "default": "`1.2ms`",
               "doc": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`).",
-              "live": true
+              "param": "velocity.fast"
             },
             {
               "key": "slow",
@@ -922,7 +922,7 @@
               "required": false,
               "default": "`120ms`",
               "doc": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`.",
-              "live": true
+              "param": "velocity.slow"
             }
           ]
         },
@@ -1126,7 +1126,7 @@
           "required": true,
           "default": null,
           "doc": "The note it plays.",
-          "live": true
+          "param": "pad.note"
         },
         {
           "key": "led",
@@ -1147,7 +1147,7 @@
           "required": false,
           "default": "`0`: `midi.channel`",
           "doc": "The MIDI channel the pads play on (0: `midi.channel`). Per preset.",
-          "live": true
+          "param": "pad.channel"
         },
         {
           "key": "curve",
@@ -1155,7 +1155,7 @@
           "required": false,
           "default": "`normal`",
           "doc": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset.",
-          "live": true
+          "param": "pad.curve"
         },
         {
           "key": "aftertouch",
@@ -1163,7 +1163,7 @@
           "required": false,
           "default": "`false`",
           "doc": "Polyphonic aftertouch while a pad is held. Per preset.",
-          "live": true
+          "param": "pad.aftertouch"
         },
         {
           "key": "threshold",
@@ -1172,7 +1172,7 @@
           "default": "`200`",
           "doc": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`.",
           "see": "YAML",
-          "live": true
+          "param": "pad.threshold"
         },
         {
           "key": "release",
@@ -1180,7 +1180,7 @@
           "required": false,
           "default": "`100`",
           "doc": "Below this reading the pad is let go.",
-          "live": true
+          "param": "pad.release"
         },
         {
           "key": "full",
@@ -1188,7 +1188,7 @@
           "required": false,
           "default": "`3000`",
           "doc": "The peak reading that plays velocity 127.",
-          "live": true
+          "param": "pad.full"
         },
         {
           "key": "window",
@@ -1196,7 +1196,7 @@
           "required": false,
           "default": "`3ms`",
           "doc": "How long after the threshold a hit's peak is looked for.",
-          "live": true
+          "param": "pad.window"
         },
         {
           "key": "retrigger",
@@ -1204,7 +1204,7 @@
           "required": false,
           "default": "`20ms`",
           "doc": "How long after a release the pad can't start a new hit (against bounce and double hits).",
-          "live": true
+          "param": "pad.retrigger"
         }
       ]
     }

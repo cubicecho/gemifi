@@ -222,16 +222,17 @@ PRESET_NOT_HERE = {
                         "top-level pad_settings:" for k in ("threshold", "release", "full", "window", "retrigger")},
 }
 _HW = "the same in every preset: set it on the component itself"
+def _preset_keys(spec):
+    """What a preset may set on a component: the keys that start a param (components/keys.py Key.param),
+    and the rest, refused with where to set them. -> (allowed, refused)."""
+    return [k.name for k in spec if k.param], [k.name for k in spec if not k.param]
+
+
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
-    "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu", "program", "mmc", "sysex"],
-                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank", *buttons.GESTURES,
-                 "repeat"]),
-    "analog": ("analog input", "analog inputs", ["cc", "mode", "nrpn", "rpn", "sysex"],
-               ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw", "channel", "min", "max"]),
-    "encoders": ("encoder", "encoders", ["cc", "mode", "nrpn", "rpn"],
-                 ["id", "name", "pin_a", "pin_b", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
-                  "acceleration", "channel", "min", "max"]),
-    "pads": ("pad", "pads", ["note"], ["id", "name", "pin"]),
+    "buttons": ("button", "buttons", *_preset_keys(buttons.BUTTON)),
+    "analog": ("analog input", "analog inputs", *_preset_keys(analog.ANALOG)),
+    "encoders": ("encoder", "encoders", *_preset_keys(encoders.ENCODER)),
+    "pads": ("pad", "pads", *_preset_keys(pads.PAD)),
 }
 PRESET_KEYS = ["name", "program", "bank", *PRESET_GLOBALS, *PRESET_COMPONENTS]
 PRESETS_KEYS = ["slots", "revision", "list"]

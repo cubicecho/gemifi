@@ -21,8 +21,8 @@ ANALOG = Keys(
     CONTROL_ID, CONTROL_NAME,
     Key("pin", Pin(), required=True, doc="What it reads: an ADC pin, a multiplexer channel or an XY pad axis."),
     Key("cc", Int(0, 127), doc="The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is "
-                               "set.", see='core/README.md "MIDI messages"', live=True),
-    Key("mode", Enum(ANALOG_MODES), default="cc", live=True, see="Pitch wheels and aftertouch",
+                               "set.", see='core/README.md "MIDI messages"', param="analog.cc"),
+    Key("mode", Enum(ANALOG_MODES), default="cc", param="analog.mode", see="Pitch wheels and aftertouch",
         doc="What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string "
             "(core/README.md \"MIDI messages\")."),
     Key("adc_min", Int(0, 4095), default=0, doc="The raw reading at the bottom of its travel. Greater than "
@@ -37,8 +37,8 @@ ANALOG = Keys(
     Key("mcu", Str(), doc="Makes it a Mackie Control fader (`fader_1`..`fader_8`, `master`), which sends its own "
                           "messages: no `mode:`, `channel:`, `min:` or `max:` then.",
         see='core/README.md "Second USB port and Mackie Control"'),
-    CONTROL_DAW, CONTROL_NRPN, CONTROL_RPN,
-    Key("sysex", IdRef("SysEx string"), live=True, see='core/README.md "MIDI messages"',
+    CONTROL_DAW, CONTROL_NRPN.but(param="analog.cc"), CONTROL_RPN.but(param="analog.cc"),
+    Key("sysex", IdRef("SysEx string"), param="analog.cc", see='core/README.md "MIDI messages"',
         doc="The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`."),
     *CONTROL_OUT,
 )

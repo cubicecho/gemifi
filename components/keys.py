@@ -4,21 +4,26 @@ the docs site (the key table on each component's page) all read.
 
     ENCODER_KEYS = Keys(
         Key("steps_per_detent", Int(1, 255), default=4, doc="Quarter steps the encoder counts per click."),
-        Key("mode", Enum(ENC_MODES), default="absolute", doc="How a turn is sent.", see="Encoder modes", live=True),
+        Key("mode", Enum(ENC_MODES), default="absolute", doc="How a turn is sent.", see="Encoder modes",
+            param="encoder.mode"),
         ...)
     spd = ENCODER_KEYS.get(v, d, "steps_per_detent", p)      # checked, and its default when left out
 
 - `doc`: one line, shown in the editor's hover and the docs table. Longer explanations stay in the
   README, and `see` names the heading there ("Encoder modes"), or another doc as the READMEs name one,
   from the repo root (`core/README.md "MIDI messages"`, `hosts/README.md`).
-- `live`: the YAML sets the starting value of a param that the web page (or a preset) can change later
-  without a rebuild (core/README.md "Controls": the params a control creates).
+- `param`: the device param (tools/builder/gemifi_device.py PARAMS, the settings schema of
+  protocol/sysex.md §4.4) whose starting value the key sets: the web page can change it later without a
+  rebuild, and a preset can when it is per preset. A preset's keys for a component are exactly those
+  (gemifi_device.py PRESET_COMPONENTS); tests/test_keys.py checks the params exist.
 - Rules between keys (`cc:` only with some modes, ...) stay as code in the component's validate().
 - A key whose check needs more than its value (pins, references to other ids) is declared here for the
   schema and the docs, and checked by the component's own code.
 
 A leaf module, like api.py: components import it at load time.
 """
+
+import copy
 
 MISSING = object()
 
@@ -227,10 +232,24 @@ class OneOf(Type):
 # -- keys --
 
 class Key:
-    def __init__(self, name, type, default=None, required=False, doc="", see=None, live=False, shown_default=None):
-        """shown_default: what the docs say the default is, when it isn't just the value (Markdown)."""
+    def __init__(self, name, type, default=None, required=False, doc="", see=None, param=None, shown_default=None):
+        """param: the device param (gemifi_device.py PARAMS) whose starting value this key sets: the web page
+        (and, for a per-preset param, a preset) can change it later. shown_default: what the docs say the
+        default is, when it isn't just the value (Markdown)."""
         self.name, self.type, self.default, self.required = name, type, default, required
-        self.doc, self.see, self.live, self.shown_default = doc, see, live, shown_default
+        self.doc, self.see, self.param, self.shown_default = doc, see, param, shown_default
+
+    @property
+    def live(self):
+        return self.param is not None
+
+    def but(self, **changes):
+        """This key with some fields changed: a shared key in a component (CONTROL_NRPN.but(param=...))."""
+        k = copy.copy(self)
+        for f, x in changes.items():
+            assert hasattr(k, f), f
+            setattr(k, f, x)
+        return k
 
     def schema(self):
         """The key's JSON schema: its type's, with the doc line and default for the editor's hover."""
@@ -242,7 +261,7 @@ class Key:
         shown = self.default_text()
         desc = self.doc + (f" Default: {shown.replace('`', '')}." if shown is not None else "")
         if self.live:
-            desc += " Can be changed on the device."
+            desc += f" Can be changed on the device ({self.param})."
         if desc.strip():
             s["description"] = desc.strip()
         if self.default is not None:
@@ -267,7 +286,7 @@ class Key:
         if self.see:
             row["see"] = self.see
         if self.live:
-            row["live"] = True
+            row["param"] = self.param
         sub = self.sub_keys()
         if sub:
             row["keys"] = sub.doc_rows()
@@ -349,11 +368,12 @@ CONTROL_NAME = Key("name", Str(), doc="Its name on the web page and in the CLI. 
                                       "(`oct_down` -> `Oct down`).", shown_default="from the id")
 CONTROL_DAW = Key("daw", Str(), doc="A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
                   see="hosts/README.md")
-# The number an analog input or encoder sends in the NRPN / RPN modes (gemifi_device.py mode_number).
+# The number an analog input or encoder sends in the NRPN / RPN modes (gemifi_device.py mode_number): the
+# component's cc param (`.but(param="encoder.cc")`).
 CONTROL_NRPN = Key("nrpn", Int(0, 16383), doc="The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
-                   see='core/README.md "MIDI messages"', live=True)
+                   see='core/README.md "MIDI messages"')
 CONTROL_RPN = Key("rpn", Int(0, 16383), doc="The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
-                  see='core/README.md "MIDI messages"', live=True)
+                  see='core/README.md "MIDI messages"')
 # channel:, min:, max: (gemifi_device.py control_out): build time only, the same in every preset.
 CONTROL_OUT = Keys(
     Key("channel", Int(1, 16), doc="The MIDI channel it sends on, instead of `midi.channel`."),

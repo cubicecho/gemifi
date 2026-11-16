@@ -2,6 +2,25 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.55.0](https://github.com/cubicecho/gemifi/compare/v0.54.0...v0.55.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **site:** room between a device page's flash note and its first section ([57e293c](https://github.com/cubicecho/gemifi/commit/57e293c764f8d48c0af690855d3f1ae2c22b249b))
+
+
+### Features
+
+* **site:** tools, protocol and DAW scripts in the docs; guides and devices in the docs layout; highlighted code; canonical urls, sitemap, 404 ([186753b](https://github.com/cubicecho/gemifi/commit/186753b8465a15d624dace123909b6385c936ba9))
+
+
+### Performance Improvements
+
+* **scan:** OR a frame's differences before working out which rows moved ([f5f7fcd](https://github.com/cubicecho/gemifi/commit/f5f7fcd65441f91103e54fea8a705c323f4baaee)), closes [#73](https://github.com/cubicecho/gemifi/issues/73)
+* **scan:** step matrix encoders only on the ticks that read the matrices ([5e7d01f](https://github.com/cubicecho/gemifi/commit/5e7d01f97e68acf092bb8bb8621b845c89cf32a8)), closes [#73](https://github.com/cubicecho/gemifi/issues/73)
+* **scan:** work out matrix row release and encoder inversion at init ([cf49789](https://github.com/cubicecho/gemifi/commit/cf49789cc4341985967764368a17e1bc0b943216)), closes [#73](https://github.com/cubicecho/gemifi/issues/73)
+
 # [0.54.0](https://github.com/cubicecho/gemifi/compare/v0.53.1...v0.54.0) (2026-11-16)
 
 

@@ -366,7 +366,6 @@ PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here. (The Core areas' keys are data: CORE_AREAS, at the end.)
 PROJECT_KEYS = ["version"]
-COMBO_KEYS = ["combo", "hold"]        # factory_reset_combo: / unlock: as a mapping
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -3513,11 +3512,23 @@ def msg_tables(dev):
 # ---------------------------------------------------------------------------------------------
 # write_to_flash: what the device stores on its own (core/README.md "Writes the device makes on its own")
 
-# item -> its default (all off). A new item goes here, in WTF_KEYS, and in write_to_flash_defines.
+# item -> its default (all off). A new item goes here, in WTF_DOCS, and in write_to_flash_defines.
 WTF_ITEMS = {"last_preset": False}
-WTF_KEYS = [*WTF_ITEMS, "delay", "idle"]
+WTF_DOCS = {"last_preset": "Store the selected preset (`preset.active`) after a switch, so the device powers up on "
+                           "the preset used last."}
 WTF_DELAY = (10_000, 1_000, 3_600_000, "1s..1h")    # ms: default, min, max, range text
 WTF_IDLE = (3_000, 100, 600_000, "100ms..10min")
+_WTF_SEE = 'core/README.md "Writes the device makes on its own"'
+# delay and idle: their ranges are checked by validate_write_to_flash, which words them (1h, 10min) its own way
+WTF_KEYS = _Keys(
+    *(_Key(k, _Bool(), default=d, see=_WTF_SEE, doc=WTF_DOCS[k]) for k, d in WTF_ITEMS.items()),
+    _Key("delay", _Period(WTF_DELAY[1] * 1000, WTF_DELAY[2] * 1000, step_us=1000, example="10s"),
+         default=f"{WTF_DELAY[0] // 1000}s",
+         doc="A write waits this long after the last change."),
+    _Key("idle", _Period(WTF_IDLE[1] * 1000, WTF_IDLE[2] * 1000, step_us=1000, example="3s"),
+         default=f"{WTF_IDLE[0] // 1000}s",
+         doc="... and until nothing has been played or touched for this long."),
+)
 
 
 def validate_write_to_flash(v, dev, data):
@@ -3537,10 +3548,10 @@ def validate_write_to_flash(v, dev, data):
             v.err("write_to_flash", line, f"must be true, false or a mapping like `{{ last_preset: true }}` "
                                           f"(got {got})")
             return
-        if v.mapping(x, "write_to_flash", line, WTF_KEYS) is None:
+        if v.mapping(x, "write_to_flash", line, WTF_KEYS.names) is None:
             return
-        for k, dflt in WTF_ITEMS.items():
-            w[k] = v.boolean(x, k, "write_to_flash", default=dflt)
+        for k in WTF_ITEMS:
+            w[k] = WTF_KEYS.get(v, x, k, "write_to_flash")
         for key, (dflt, lo, hi, rng) in (("delay", WTF_DELAY), ("idle", WTF_IDLE)):
             ms = v.period(x, key, "write_to_flash", 0, 0xFFFFFFFF * 1000, step_us=1000, example="10s")
             if ms is not None and not lo <= ms <= hi:
@@ -3585,6 +3596,17 @@ def preset_ref(v, cid, path, line, kind, plural):
 RESET_HOLD_DEFAULT_MS = 5000
 UNLOCK_HOLD_DEFAULT_MS = 2000
 COMBO_MAX = 8            # buttons in a combo (sysex.md 4.9 UNLOCK `n`)
+# factory_reset_combo: / unlock: as a mapping (the button ids are checked by combo_buttons)
+RESET_COMBO_KEYS = _Keys(
+    _Key("combo", _List(_IdRef("button")), required=True, doc=f"The buttons, at most {COMBO_MAX}."),
+    _Key("hold", _Period(1_000_000, 30_000_000, step_us=1000, example="5s"),
+         default=f"{RESET_HOLD_DEFAULT_MS // 1000}s", doc="How long they're held before the settings are wiped."),
+)
+UNLOCK_KEYS = _Keys(
+    _Key("combo", _List(_IdRef("button")), shown_default="`boot_combo`", doc=f"The buttons, at most {COMBO_MAX}."),
+    _Key("hold", _Period(0, 10_000_000, step_us=1000, example="2s"), default=f"{UNLOCK_HOLD_DEFAULT_MS // 1000}s",
+         doc="How long they're held to unlock; `0s`: a press."),
+)
 
 
 def combo_buttons(v, dev, seq, path, line):
@@ -3607,17 +3629,16 @@ def combo_buttons(v, dev, seq, path, line):
     return sorted(out)
 
 
-def combo_and_hold(v, dev, data, key, lo_ms, hi_ms, default_ms, example):
-    """`key: [ids]` or `key: { combo: [ids], hold: 2s }` -> (indices or None if not given, hold ms,
-    combo given). combo may be left out of the mapping (None then)."""
+def combo_and_hold(v, dev, data, key, keys, default_ms):
+    """`key: [ids]` or `key: { combo: [ids], hold: 2s }` (keys: RESET_COMBO_KEYS or UNLOCK_KEYS) -> (indices
+    or None if not given, hold ms, combo given). combo may be left out of the mapping (None then)."""
     x, line = data[key], data.line_of(key)
     if isinstance(x, list):
         return combo_buttons(v, dev, x, key, line), default_ms, True
-    d = v.mapping(x, key, line, COMBO_KEYS)
+    d = v.mapping(x, key, line, keys.names)
     if d is None:
         return [], default_ms, True
-    hold = v.period(d, "hold", key, lo_ms * 1000, hi_ms * 1000, step_us=1000, example=example)
-    hold = default_ms if hold is None else hold
+    hold = keys.get(v, d, "hold", key, default=default_ms)
     if d.get("combo") is None:
         return None, hold, False
     return combo_buttons(v, dev, d["combo"], f"{key}.combo", d.line_of("combo")), hold, True
@@ -3628,8 +3649,8 @@ def validate_safety(v, dev, data):
     boot = set(dev.boot_combo)
     if data.get("factory_reset_combo") is not None:
         line = data.line_of("factory_reset_combo")
-        combo, dev.reset_hold_ms, given = combo_and_hold(v, dev, data, "factory_reset_combo", 1000, 30000,
-                                                          RESET_HOLD_DEFAULT_MS, "5s")
+        combo, dev.reset_hold_ms, given = combo_and_hold(v, dev, data, "factory_reset_combo", RESET_COMBO_KEYS,
+                                                          RESET_HOLD_DEFAULT_MS)
         if not given:
             v.err("factory_reset_combo", line, "needs `combo:` (the button ids, e.g. `[oct_down, oct_up]`)")
         combo = combo or []
@@ -3651,8 +3672,8 @@ def validate_safety(v, dev, data):
                 v.err("unlock", line, "unlock: true needs a combo: set `unlock: { combo: [...] }` or "
                                       "boot_combo (or `unlock: false`)")
         else:
-            combo, dev.unlock_hold_ms, given = combo_and_hold(v, dev, data, "unlock", 0, 10000,
-                                                             UNLOCK_HOLD_DEFAULT_MS, "2s")
+            combo, dev.unlock_hold_ms, given = combo_and_hold(v, dev, data, "unlock", UNLOCK_KEYS,
+                                                             UNLOCK_HOLD_DEFAULT_MS)
             if not given:
                 combo = sorted(boot)
                 if not boot:
@@ -3663,6 +3684,28 @@ def validate_safety(v, dev, data):
         idx = v.ref(data, "status_led", "status_led", data.line_of("status_led"), "LED", "LEDs")
         if idx is not None:
             dev.status_led = idx
+
+
+# The "safety" area: safety and storage (core/yaml/safety.md). boot_combo, the combos' buttons and status_led
+# are ids, checked by validate() and validate_safety.
+SAFETY_AREA = _Keys(
+    _Key("boot_combo", _List(_IdRef("button")), see='core/README.md "Recovery and safety"',
+         doc="Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). "
+             "The first 32 buttons only."),
+    _Key("factory_reset_combo", _OneOf(_List(_IdRef("button")), _Map(RESET_COMBO_KEYS)),
+         see='core/README.md "Factory-reset combo"',
+         doc=f"Buttons held at power-up to wipe the settings (every preset, its name and the globals), for "
+             f"{RESET_HOLD_DEFAULT_MS // 1000} s; or a mapping with the hold time."),
+    _Key("unlock", _OneOf(_Bool(), _Map(UNLOCK_KEYS)), default=False, see='core/README.md "Physical unlock"',
+         doc="Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the "
+             f"user to hold a combo on the device. `true`: the `boot_combo` buttons, "
+             f"{UNLOCK_HOLD_DEFAULT_MS // 1000} s."),
+    _Key("status_led", _IdRef("LED"), see='core/README.md "Status LED"',
+         doc="The LED that shows the blink codes; without it there are none."),
+    _Key("write_to_flash", _OneOf(_Bool(), _Map(WTF_KEYS)), default=False, see=_WTF_SEE,
+         doc="What the device writes to its flash on its own (host saves always work); `true` / `false`: every "
+             "item on or off, with the default timings."),
+)
 
 
 def combo_mask(ix):
@@ -4336,4 +4379,5 @@ CORE_AREAS = {
     "midi": MIDI_AREA,
     "scanning": SCAN_AREA,
     "feedback": FEEDBACK_AREA,
+    "safety": SAFETY_AREA,
 }

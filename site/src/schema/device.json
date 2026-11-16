@@ -382,8 +382,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "description": "the id of another component"
-          }
+            "description": "the id of a button"
+          },
+          "description": "Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). The first 32 buttons only."
         },
         {
           "type": "string",
@@ -397,9 +398,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "description": "the id of another component"
-          },
-          "description": "buttons held at power-up to wipe the settings (5 s)"
+            "description": "the id of a button"
+          }
         },
         {
           "type": "object",
@@ -408,23 +408,36 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "description": "the id of another component"
-              }
+                "description": "the id of a button"
+              },
+              "description": "The buttons, at most 8."
             },
             "hold": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long they're held before the settings are wiped. Default: 5s.",
+              "default": "5s"
             }
           },
-          "additionalProperties": false,
-          "description": "combo, and hold: 1s..30s (default 5s)"
+          "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Buttons held at power-up to wipe the settings (every preset, its name and the globals), for 5 s; or a mapping with the hold time."
     },
     "unlock": {
       "anyOf": [
         {
-          "type": "boolean",
-          "description": "true: the boot_combo buttons, 2 s; false/left out: off"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/substitution"
+            }
+          ]
         },
         {
           "type": "object",
@@ -433,21 +446,29 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "description": "the id of another component"
-              }
+                "description": "the id of a button"
+              },
+              "description": "The buttons, at most 8. Default: boot_combo."
             },
             "hold": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long they're held to unlock; `0s`: a press. Default: 2s.",
+              "default": "2s"
             }
           },
-          "additionalProperties": false,
-          "description": "opt-in physical unlock: combo (default boot_combo), hold: 0s..10s (default 2s)"
+          "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the user to hold a combo on the device. `true`: the `boot_combo` buttons, 2 s. Default: false.",
+      "default": false
     },
     "status_led": {
       "type": "string",
-      "description": "the id of another component"
+      "description": "The LED that shows the blink codes; without it there are none."
     },
     "feedback": {
       "anyOf": [
@@ -5626,18 +5647,34 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Store the selected preset (`preset.active`) after a switch, so the device powers up on the preset used last. Default: false.",
+              "default": false
             },
             "delay": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "A write waits this long after the last change. Default: 10s.",
+              "default": "10s"
             },
             "idle": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "... and until nothing has been played or touched for this long. Default: 3s.",
+              "default": "3s"
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "What the device writes to its flash on its own (host saves always work); `true` / `false`: every item on or off, with the default timings. Default: false.",
+      "default": false
     },
     "midi_messages": {
       "anyOf": [

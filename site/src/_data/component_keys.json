@@ -2899,5 +2899,109 @@
         }
       ]
     }
+  ],
+  "core/safety": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "boot_combo",
+          "type": "list of button id",
+          "required": false,
+          "default": null,
+          "doc": "Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). The first 32 buttons only.",
+          "see": "core/README.md \"Recovery and safety\""
+        },
+        {
+          "key": "factory_reset_combo",
+          "type": "list of button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Buttons held at power-up to wipe the settings (every preset, its name and the globals), for 5 s; or a mapping with the hold time.",
+          "see": "core/README.md \"Factory-reset combo\"",
+          "keys": [
+            {
+              "key": "combo",
+              "type": "list of button id",
+              "required": true,
+              "default": null,
+              "doc": "The buttons, at most 8."
+            },
+            {
+              "key": "hold",
+              "type": "time 1s..30s",
+              "required": false,
+              "default": "`5s`",
+              "doc": "How long they're held before the settings are wiped."
+            }
+          ]
+        },
+        {
+          "key": "unlock",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": "`false`",
+          "doc": "Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the user to hold a combo on the device. `true`: the `boot_combo` buttons, 2 s.",
+          "see": "core/README.md \"Physical unlock\"",
+          "keys": [
+            {
+              "key": "combo",
+              "type": "list of button id",
+              "required": false,
+              "default": "`boot_combo`",
+              "doc": "The buttons, at most 8."
+            },
+            {
+              "key": "hold",
+              "type": "time 0us..10s",
+              "required": false,
+              "default": "`2s`",
+              "doc": "How long they're held to unlock; `0s`: a press."
+            }
+          ]
+        },
+        {
+          "key": "status_led",
+          "type": "LED id",
+          "required": false,
+          "default": null,
+          "doc": "The LED that shows the blink codes; without it there are none.",
+          "see": "core/README.md \"Status LED\""
+        },
+        {
+          "key": "write_to_flash",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": "`false`",
+          "doc": "What the device writes to its flash on its own (host saves always work); `true` / `false`: every item on or off, with the default timings.",
+          "see": "core/README.md \"Writes the device makes on its own\"",
+          "keys": [
+            {
+              "key": "last_preset",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "Store the selected preset (`preset.active`) after a switch, so the device powers up on the preset used last.",
+              "see": "core/README.md \"Writes the device makes on its own\""
+            },
+            {
+              "key": "delay",
+              "type": "time 1s..3600s",
+              "required": false,
+              "default": "`10s`",
+              "doc": "A write waits this long after the last change."
+            },
+            {
+              "key": "idle",
+              "type": "time 100ms..600s",
+              "required": false,
+              "default": "`3s`",
+              "doc": "... and until nothing has been played or touched for this long."
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

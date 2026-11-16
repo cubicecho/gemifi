@@ -98,6 +98,12 @@ class EdgesAgree(unittest.TestCase):
             self.assertEqual([str(d) for d in diags if d.level == "error"], [])
             self.assertEqual((dev.feedback, dev.host_fb), (short, short))
 
+    def test_safety(self):
+        # hold: at its edges (the combo's buttons are another check, at the key itself)
+        self.assertEqual(self.edges(gd.RESET_COMBO_KEYS, nest="factory_reset_combo"), 4)
+        self.assertEqual(self.edges(gd.UNLOCK_KEYS, nest="unlock"), 4)
+        self.assertEqual(self.edges(gd.WTF_KEYS, nest="write_to_flash"), 8)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -80,6 +80,11 @@ export const CORE_YAML = {
       title: "DAW feedback",
       summary: "What the device does with the MIDI the host sends back: LED owners, DAW scripts, Mackie Control.",
     },
+    {
+      file: "core/yaml/safety.md",
+      title: "Safety and storage",
+      summary: "Recovery combos, the opt-in physical unlock, the status LED and the writes the device makes on its own.",
+    },
   ],
 };
 

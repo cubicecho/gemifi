@@ -366,7 +366,7 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
-The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the feedback keys](yaml/feedback.md#keys).
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the feedback keys](yaml/feedback.md#keys), [the safety keys](yaml/safety.md#keys).
 
 ```yaml
 gemifi: 2                      # format version
@@ -385,11 +385,11 @@ scan_interval: 125us
 hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # "Hardware scan"
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # "DIN MIDI"
 midi_messages: { enable: [cc14] }   # "MIDI messages"
-boot_combo: [pitch_down, pitch_up]  # button ids
-factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
-unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")
-status_led: edit_led           # blink codes ("Status LED")
-write_to_flash: false          # what the device stores on its own (below); host saves always work
+boot_combo: [pitch_down, pitch_up]
+factory_reset_combo: [oct_down, oct_up]   # "Factory-reset combo"
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # "Physical unlock"
+status_led: edit_led           # "Status LED"
+write_to_flash: false          # "Writes the device makes on its own"
 layout: { controls: { volume: [1, 1] } }   # where the controls are, for drawing the device ("Layout")
 
 cd74hc4051:
@@ -487,16 +487,15 @@ A vendor board has its own `board_id`, and the YAML's must match it when `board:
 
 ### Writes the device makes on its own
 
-`write_to_flash:` says what the device may write to its flash **on its own**, without a host asking. A flash write can need a page erase, which stops the CPU, and with it the key scan, for 20-40 ms: one that lands while you play can lose notes or get a velocity wrong. So these writes are off unless the YAML turns them on, and the ones that are on wait until the controller has been left alone.
+`write_to_flash:` says what the device may write to its flash **on its own**, without a host asking. A flash write can need a page erase, which stops the CPU, and with it the key scan, for 20-40 ms: one that lands while you play can lose notes or get a velocity wrong. So these writes are off unless the YAML turns them on, and the ones that are on wait until the controller has been left alone. The keys are in [the safety keys](yaml/safety.md#keys).
 
 ```yaml
 write_to_flash:
-  last_preset: true   # remember the selected preset across power cycles (default false)
-  delay: 10s          # wait this long after the last change (default 10s, 1s..1h)
-  idle: 3s            # and until nothing has been played or touched for this long (default 3s, 100ms..10min)
+  last_preset: true
+  delay: 10s
+  idle: 3s
 ```
 
-- **`write_to_flash: true` / `false`** is the short form: every item (today only `last_preset`) on or off, with the default timings. Leaving the key out is `false`.
 - **`last_preset`**: store `preset.active` after a preset switch, so the device powers up on the preset used last. The write waits until both hold: `delay` has passed since the last switch, and for `idle` no key or button has been held and nothing has been played (keys, buttons, encoders, pads, or an analog input moving enough to send; ADC noise doesn't count). Until then it stays pending, and goes in the next quiet moment. Off (the default): a switch on the device never writes, and the device always powers up on preset 1, whatever an older firmware stored.
 - **Host saves always work.** The host's commands write whenever they are sent, whatever this says: COMMIT, PRESET_SAVE, PRESET_NAME, PRESET_DELETE, PRESET_MOVE, PRESET_RESET and FACTORY_RESET (protocol/sysex.md §4.5). They store `preset.count` too. A COMMIT also stores `preset.active` (and clears a pending `last_preset` write), but with `last_preset` off the power-up ignores it.
 - `delay` or `idle` with nothing turned on is a warning; so is `last_preset` on a device with presets off (there is nothing to remember, so it stays off).
@@ -505,15 +504,15 @@ write_to_flash:
 
 ### Recovery and safety
 
-Three keys, each left out of the firmware when it isn't used.
+Three keys, each left out of the firmware when it isn't used; they are in [the safety keys](yaml/safety.md#keys), with `boot_combo`.
 
 #### Factory-reset combo
 
 `factory_reset_combo:` lists buttons that, held at power-up, wipe the stored settings: every preset, its name and the globals, as FACTORY_RESET over SysEx does. The firmware and the device ID stay.
 
 ```yaml
-factory_reset_combo: [oct_down, oct_up]                    # held 5 s (the default)
-factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
+factory_reset_combo: [oct_down, oct_up]
+factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }
 ```
 
 - The combo counts if every button of it is down within 1.5 s of the start, and stays down for `hold`. Letting go earlier cancels it: nothing is wiped.
@@ -527,21 +526,21 @@ factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
 Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.9). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
 
 ```yaml
-unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # hold: 0s (a press) .. 10s, default 2s
-unlock: { hold: 3s }       # the combo defaults to boot_combo
-unlock: true               # boot_combo, 2 s
-unlock: false              # off, the same as leaving it out
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }
+unlock: { hold: 3s }
+unlock: true
+unlock: false
 ```
 
 - **Off unless the YAML sets it**, even on a device with a `boot_combo`; it is then compiled out (`GM_UNLOCK 0`). `unlock: true` and `unlock: { hold }` take the `boot_combo` buttons, and are an error on a device without one. The shipped Keystation and Code 61 YAMLs leave it off, with a commented-out `# unlock: { combo: [...] }` line to turn it on.
 - While the window is open, the status LED blinks at 4 Hz and a display shows `HOLD` and the buttons (scrolling). The combo's buttons do nothing else then: no MIDI, no action, and their release is silent too. Outside the window they are ordinary buttons.
 - Once unlocked (the status LED lit for 1 s, `UNLOCKED` on a display), the device stays unlocked until it reboots or no request has come for 5 minutes.
 - The bootloader has no lock: entering it takes the boot combo, an unlocked REBOOT, or the boot-loop guard, which only trips when the app keeps failing.
-- At most 8 buttons. Generated code: `GM_UNLOCK` (0/1), `GM_UNLOCK_COMBO`, `GM_UNLOCK_N`, `GM_UNLOCK_HOLD_MS` and `GM_UNLOCK_REPLY` (the UNLOCK reply's size, which sizes the reply buffer).
+- Generated code: `GM_UNLOCK` (0/1), `GM_UNLOCK_COMBO`, `GM_UNLOCK_N`, `GM_UNLOCK_HOLD_MS` and `GM_UNLOCK_REPLY` (the UNLOCK reply's size, which sizes the reply buffer).
 
 #### Status LED
 
-`status_led: <led id>` picks the LED that shows the blink codes. Without it there are none. While a code shows, it takes over the LED; then the LED goes back to what it showed.
+`status_led:` names the LED that shows the blink codes. While a code shows, it takes over the LED; then the LED goes back to what it showed.
 
 | Pattern | Meaning |
 |---|---|

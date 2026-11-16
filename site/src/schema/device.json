@@ -950,7 +950,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ led_driver: <id>, number: n }`."
               },
               "platform": {
                 "anyOf": [
@@ -1100,10 +1105,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by the board's address jumpers: usually 0x70-0x77. Default: 0x70.",
+                "default": 112
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
             "additionalProperties": false

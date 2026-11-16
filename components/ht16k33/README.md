@@ -13,7 +13,9 @@ displays:
     chars: [{ led_driver: alpha, number: 0 }, { led_driver: alpha, number: 16 }, { led_driver: alpha, number: 32 }, { led_driver: alpha, number: 48 }]
 ```
 
-Its keys: `address` (default 0x70), `intensity`, and `i2c_id:` with several buses. One of the LED drivers for segment digits written from the main loop ([led_driver](../led_driver/README.md)), on the I2C bus (ESP only for now, as the other I2C hubs): its pins are kept in the hub RAM, and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass.
+<!-- keys -->
+
+One of the LED drivers for segment digits written from the main loop ([led_driver](../led_driver/README.md)), on the I2C bus (ESP only for now, as the other I2C hubs): its pins are kept in the hub RAM, and `send` writes only what changed, within the shared 4-byte budget, never on the LED update's pass.
 
 16 bytes of display RAM, pin = COM × 16 + ROW, so on a 14-segment backpack character i is pins 16i–16i+14. Adafruit wires the lower diagonals the other way round from `gm_display.h` (its L is the lower-left one, N the lower-right), so give the display `segment_order: [a, b, c, d, e, f, g1, g2, h, i, j, m, l, k, dot]` [from Adafruit's font table, not tried on a board]. The first write is 0x21 (oscillator on), the whole RAM from address 0, 0xE0 | `intensity`, 0x81 (on, no blink); after that, the first run of changed bytes as one write from its address, as many as the budget has room for (an I2C byte at 400 kHz counts 2), at least one. The key scan isn't read.
 

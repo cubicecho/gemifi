@@ -358,6 +358,51 @@
       ]
     }
   ],
+  "ht16k33": [
+    {
+      "section": "led_driver",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_driver: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`ht16k33`",
+          "required": true,
+          "default": null,
+          "doc": "This chip."
+        },
+        {
+          "key": "address",
+          "type": "integer 0x08..0x77",
+          "required": false,
+          "default": "`0x70`",
+          "doc": "Its I2C address, set by the board's address jumpers: usually 0x70-0x77."
+        },
+        {
+          "key": "intensity",
+          "type": "integer 0..15",
+          "required": false,
+          "default": "`15`",
+          "doc": "The brightness."
+        },
+        {
+          "key": "i2c_id",
+          "type": "I2C bus id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus.",
+          "see": "components/i2c/README.md"
+        }
+      ],
+      "platform": "ht16k33"
+    }
+  ],
   "i2c": [
     {
       "section": "i2c",

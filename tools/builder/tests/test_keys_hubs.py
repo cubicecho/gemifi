@@ -81,6 +81,9 @@ class EdgesAgree(unittest.TestCase):
     def test_max7219(self):
         self.hub("max7219", {"id": "h", "clk_pin": "PB6", "din_pin": "PB7", "cs_pin": "PB8"}, 12)
 
+    def test_ht16k33(self):
+        self.hub("ht16k33", {"id": "h"}, 8)
+
     def test_strips(self):
         self.hub("ws2812", {"id": "h", "pin": "PA7", "count": 4}, 8)
         self.hub("maudio_pads", {"id": "h", "tx_pin": "PA2"}, 8)

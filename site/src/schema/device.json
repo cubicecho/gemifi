@@ -4574,116 +4574,134 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What `parent:` and a key's `{ mode: <id> }` call it; unique among the modes, cycles and steps."
               },
               "toggle": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       },
                       "with": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "A button held with it (Shift): a plain press is the button's own action."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button that enters the mode and, pressed again, leaves it (from a sub-mode too)."
               },
               "hold": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button that keeps the mode on while it is held."
               },
               "one_shot": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button whose tap arms the layer for the next press."
               },
               "parent": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "Makes it a sub-mode of that mode: entered from one of its keys, back to it after one action."
               },
               "cycle": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       },
                       "with": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "A button held with it (Shift): a plain press is the button's own action."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "Makes it a cycle: the button that moves to the next enabled step."
               },
               "led": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of an LED"
                   },
                   {
                     "type": "object",
                     "description": "{ <LED id>: blink }"
                   }
-                ]
+                ],
+                "description": "The LED lit while it is on (a cycle's shows the step's colour). Default: the toggle button's LED; a sub-mode's: its parent's, blinking."
               },
-              "preset_blink": {},
-              "keys": {},
+              "preset_blink": {
+                "description": "After a preset switch from the mode, the first blinks the slot number, then both flash once. Default: its parent's."
+              },
+              "keys": {
+                "description": "What the keys do while it is on, by the key's note at octave 0 (C4 = 60) or MIDI note number: an action, `{ action, ... }`, `{ mode: <sub-mode id> }`, or one range. Needs a key matrix."
+              },
               "buttons": {
                 "type": "object",
-                "description": "button id: what it does in the mode"
+                "description": "What buttons do instead of their own action while it is on: an action or `{ action, ... }`."
               },
               "layer": {
                 "type": "object",
-                "description": "component id: what it does on the layer",
+                "description": "By button, pad or encoder id, what that control's twin is while the mode is on. A root mode only.",
                 "additionalProperties": {
                   "type": "object",
                   "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The twin's name on the web page and in the CLI. Default: <its name> <mode id>."
+                    },
                     "action": {
                       "anyOf": [
                         {
@@ -4717,8 +4735,7 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
-                      "default": "none"
+                      "description": "A button twin's action. Default: the button's. Can be changed on the device (layer.button.action)."
                     },
                     "actions": {
                       "anyOf": [
@@ -4726,14 +4743,7 @@
                           "$ref": "#/definitions/action_list"
                         }
                       ],
-                      "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
-                    },
-                    "active": {
-                      "type": [
-                        "string",
-                        "boolean"
-                      ],
-                      "description": "What it shows while on. Default: on, or led_defaults:'s."
+                      "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Default: the button's. Can be changed on the device (layer.button.action)."
                     },
                     "cc": {
                       "anyOf": [
@@ -4752,18 +4762,46 @@
                         {
                           "const": "none"
                         }
-                      ]
-                    },
-                    "daw": {
-                      "type": "string",
-                      "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
-                    },
-                    "idle": {
-                      "type": [
-                        "string",
-                        "boolean"
                       ],
-                      "description": "What it shows while off. Default: off, or led_defaults:'s."
+                      "description": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs. Default: its base's."
+                    },
+                    "note": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The note, with action `note`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "preset": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The preset slot (1..slots), with action `preset_select`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "program": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The Program Change it sends, with action `program`. Default: the button's. Can be changed on the device (layer.button.number)."
                     },
                     "mmc": {
                       "anyOf": [
@@ -4803,53 +4841,29 @@
                           ]
                         }
                       ],
-                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
-                    },
-                    "name": {
-                      "type": "string",
-                      "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
-                    },
-                    "note": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 127
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The note, with action `note`. Can be changed on the device (button.number)."
-                    },
-                    "preset": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
-                    },
-                    "program": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 127
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
+                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Default: the button's. Can be changed on the device (layer.button.number)."
                     },
                     "sysex": {
                       "type": "string",
-                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
+                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "daw": {
+                      "type": "string",
+                      "description": "The twin's own role for the DAW scripts (left out: none)."
+                    },
+                    "idle": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ],
+                      "description": "What the twin's LED shows while off (a button's or pad's twin). Default: the LED's."
+                    },
+                    "active": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ],
+                      "description": "What the twin's LED shows while on. Default: the LED's."
                     }
                   },
                   "additionalProperties": false
@@ -4861,17 +4875,23 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "$ref": "#/definitions/id"
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "Its mode id, unique among the modes, cycles and steps."
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Its name, up to 16 ASCII characters: the display shows it when the step is switched to. Default: the id."
                     },
                     "colour": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What the cycle's LED shows on this step: a look of that LED, or a full colour (`\"#ff8000\"`, `blue 20%`). Default: the LED's active look."
                     },
                     "enabled": {
                       "anyOf": [
@@ -4881,13 +4901,20 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Whether a press of the cycle's button stops at it. Default: true. Can be changed on the device (layer.enabled).",
+                      "default": true
                     },
                     "layer": {
                       "type": "object",
+                      "description": "By button, pad or encoder id, what that control's twin is while the mode is on.",
                       "additionalProperties": {
                         "type": "object",
                         "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The twin's name on the web page and in the CLI. Default: <its name> <mode id>."
+                          },
                           "action": {
                             "anyOf": [
                               {
@@ -4921,8 +4948,7 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
-                            "default": "none"
+                            "description": "A button twin's action. Default: the button's. Can be changed on the device (layer.button.action)."
                           },
                           "actions": {
                             "anyOf": [
@@ -4930,14 +4956,7 @@
                                 "$ref": "#/definitions/action_list"
                               }
                             ],
-                            "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
-                          },
-                          "active": {
-                            "type": [
-                              "string",
-                              "boolean"
-                            ],
-                            "description": "What it shows while on. Default: on, or led_defaults:'s."
+                            "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Default: the button's. Can be changed on the device (layer.button.action)."
                           },
                           "cc": {
                             "anyOf": [
@@ -4956,18 +4975,46 @@
                               {
                                 "const": "none"
                               }
-                            ]
-                          },
-                          "daw": {
-                            "type": "string",
-                            "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
-                          },
-                          "idle": {
-                            "type": [
-                              "string",
-                              "boolean"
                             ],
-                            "description": "What it shows while off. Default: off, or led_defaults:'s."
+                            "description": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs. Default: its base's."
+                          },
+                          "note": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The note, with action `note`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "preset": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The preset slot (1..slots), with action `preset_select`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "program": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The Program Change it sends, with action `program`. Default: the button's. Can be changed on the device (layer.button.number)."
                           },
                           "mmc": {
                             "anyOf": [
@@ -5007,53 +5054,29 @@
                                 ]
                               }
                             ],
-                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
-                          },
-                          "name": {
-                            "type": "string",
-                            "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
-                          },
-                          "note": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The note, with action `note`. Can be changed on the device (button.number)."
-                          },
-                          "preset": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 1
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
-                          },
-                          "program": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
+                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Default: the button's. Can be changed on the device (layer.button.number)."
                           },
                           "sysex": {
                             "type": "string",
-                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
+                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "daw": {
+                            "type": "string",
+                            "description": "The twin's own role for the DAW scripts (left out: none)."
+                          },
+                          "idle": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "description": "What the twin's LED shows while off (a button's or pad's twin). Default: the LED's."
+                          },
+                          "active": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "description": "What the twin's LED shows while on. Default: the LED's."
                           }
                         },
                         "additionalProperties": false
@@ -5061,7 +5084,8 @@
                     }
                   },
                   "additionalProperties": false
-                }
+                },
+                "description": "A cycle's steps, 2 to 8, taken in turn."
               }
             },
             "additionalProperties": false

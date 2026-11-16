@@ -1857,6 +1857,386 @@
       ]
     }
   ],
+  "modes": [
+    {
+      "section": "modes",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What `parent:` and a key's `{ mode: <id> }` call it; unique among the modes, cycles and steps."
+        },
+        {
+          "key": "toggle",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button that enters the mode and, pressed again, leaves it (from a sub-mode too).",
+          "see": "Modes",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            },
+            {
+              "key": "with",
+              "type": "button id",
+              "required": false,
+              "default": null,
+              "doc": "A button held with it (Shift): a plain press is the button's own action."
+            }
+          ]
+        },
+        {
+          "key": "hold",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button that keeps the mode on while it is held.",
+          "see": "Modes",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            }
+          ]
+        },
+        {
+          "key": "one_shot",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button whose tap arms the layer for the next press.",
+          "see": "One-shot layers",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            }
+          ]
+        },
+        {
+          "key": "parent",
+          "type": "mode id",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a sub-mode of that mode: entered from one of its keys, back to it after one action.",
+          "see": "Modes"
+        },
+        {
+          "key": "cycle",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a cycle: the button that moves to the next enabled step.",
+          "see": "Cycles",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            },
+            {
+              "key": "with",
+              "type": "button id",
+              "required": false,
+              "default": null,
+              "doc": "A button held with it (Shift): a plain press is the button's own action."
+            }
+          ]
+        },
+        {
+          "key": "led",
+          "type": "LED id or `{ <LED id>: blink }`",
+          "required": false,
+          "default": "the toggle button's LED; a sub-mode's: its parent's, blinking",
+          "doc": "The LED lit while it is on (a cycle's shows the step's colour)."
+        },
+        {
+          "key": "preset_blink",
+          "type": "list of 1 or 2 LED ids",
+          "required": false,
+          "default": "its parent's",
+          "doc": "After a preset switch from the mode, the first blinks the slot number, then both flash once."
+        },
+        {
+          "key": "keys",
+          "type": "key → action",
+          "required": false,
+          "default": null,
+          "doc": "What the keys do while it is on, by the key's note at octave 0 (C4 = 60) or MIDI note number: an action, `{ action, ... }`, `{ mode: <sub-mode id> }`, or one range. Needs a key matrix.",
+          "see": "Modes"
+        },
+        {
+          "key": "buttons",
+          "type": "button id → action",
+          "required": false,
+          "default": null,
+          "doc": "What buttons do instead of their own action while it is on: an action or `{ action, ... }`.",
+          "see": "Modes"
+        },
+        {
+          "key": "layer",
+          "type": "button, pad or encoder id → mapping",
+          "required": false,
+          "default": null,
+          "doc": "By button, pad or encoder id, what that control's twin is while the mode is on. A root mode only.",
+          "see": "Button layers",
+          "keys": [
+            {
+              "key": "name",
+              "type": "text",
+              "required": false,
+              "default": "`<its name> <mode id>`",
+              "doc": "The twin's name on the web page and in the CLI."
+            },
+            {
+              "key": "action",
+              "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+              "required": false,
+              "default": "the button's",
+              "doc": "A button twin's action.",
+              "see": "components/buttons/README.md \"Button actions\"",
+              "param": "layer.button.action"
+            },
+            {
+              "key": "actions",
+              "type": "action list: items (an action's name, or a mapping)",
+              "required": false,
+              "default": "the button's",
+              "doc": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping.",
+              "see": "components/buttons/README.md \"Action lists\"",
+              "param": "layer.button.action",
+              "keys": [
+                {
+                  "key": "action",
+                  "type": "`cc_momentary`, `note`, `program`, `panic`, `mmc`, `sysex`",
+                  "required": false,
+                  "default": null,
+                  "doc": "The item's action; left out, its number key says it (`cc:` is `cc_momentary`)."
+                },
+                {
+                  "key": "cc",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A CC: 127 at the press and 0 at the release, or `value:` once."
+                },
+                {
+                  "key": "value",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `cc:`: the value it sends once, at the press."
+                },
+                {
+                  "key": "note",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A note, held while the button is."
+                },
+                {
+                  "key": "program",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A Program Change.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "bank",
+                  "type": "integer 0..16383 or mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `program:`: the Bank Select sent first.",
+                  "see": "core/README.md \"MIDI messages\"",
+                  "keys": [
+                    {
+                      "key": "msb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 0's value."
+                    },
+                    {
+                      "key": "lsb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 32's value."
+                    }
+                  ]
+                },
+                {
+                  "key": "mmc",
+                  "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "An MMC command: a name or 1..127.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "sysex",
+                  "type": "SysEx string id",
+                  "required": false,
+                  "default": null,
+                  "doc": "The id of a `midi_messages.sysex` string.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "channel",
+                  "type": "integer 1..16",
+                  "required": false,
+                  "default": null,
+                  "doc": "Its channel, instead of the button's."
+                }
+              ]
+            },
+            {
+              "key": "cc",
+              "type": "integer 0..127 or `none`",
+              "required": false,
+              "default": "its base's",
+              "doc": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs."
+            },
+            {
+              "key": "note",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The note, with action `note`.",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "preset",
+              "type": "integer from 1",
+              "required": false,
+              "default": "the button's",
+              "doc": "The preset slot (1..slots), with action `preset_select`.",
+              "see": "core/README.md \"Presets\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "program",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The Program Change it sends, with action `program`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "mmc",
+              "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "sysex",
+              "type": "SysEx string id",
+              "required": false,
+              "default": "the button's",
+              "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "daw",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "The twin's own role for the DAW scripts (left out: none).",
+              "see": "hosts/README.md"
+            },
+            {
+              "key": "idle",
+              "type": "look",
+              "required": false,
+              "default": "the LED's",
+              "doc": "What the twin's LED shows while off (a button's or pad's twin).",
+              "see": "components/leds/README.md \"LED looks (idle and active)\""
+            },
+            {
+              "key": "active",
+              "type": "look",
+              "required": false,
+              "default": "the LED's",
+              "doc": "What the twin's LED shows while on.",
+              "see": "components/leds/README.md \"LED looks (idle and active)\""
+            }
+          ],
+          "sub": ".<id>"
+        },
+        {
+          "key": "steps",
+          "type": "list of mapping",
+          "required": false,
+          "default": null,
+          "doc": "A cycle's steps, 2 to 8, taken in turn.",
+          "see": "Cycles",
+          "keys": [
+            {
+              "key": "id",
+              "type": "id",
+              "required": true,
+              "default": null,
+              "doc": "Its mode id, unique among the modes, cycles and steps."
+            },
+            {
+              "key": "name",
+              "type": "text",
+              "required": false,
+              "default": "the id",
+              "doc": "Its name, up to 16 ASCII characters: the display shows it when the step is switched to."
+            },
+            {
+              "key": "colour",
+              "type": "look",
+              "required": false,
+              "default": "the LED's active look",
+              "doc": "What the cycle's LED shows on this step: a look of that LED, or a full colour (`\"#ff8000\"`, `blue 20%`).",
+              "see": "Cycles"
+            },
+            {
+              "key": "enabled",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "Whether a press of the cycle's button stops at it.",
+              "param": "layer.enabled"
+            },
+            {
+              "key": "layer",
+              "type": "button, pad or encoder id → mapping, as `layer.<id>`",
+              "required": false,
+              "default": null,
+              "doc": "By button, pad or encoder id, what that control's twin is while the mode is on.",
+              "see": "Button layers"
+            }
+          ],
+          "sub": "[]"
+        }
+      ]
+    }
+  ],
   "pads": [
     {
       "section": "pads",

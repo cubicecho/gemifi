@@ -138,29 +138,6 @@ def action_list():
                "value, bank, channel }")
 
 
-def modes():
-    toggle = one_of(ID_REF, obj(["button", "with"], {"button": ID_REF, "with": ID_REF}))
-    # a layer entry takes keys of a button, a pad or an encoder (components/modes), typed as theirs
-    layer_keys = sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS))
-    specs = [section_keys(s) for s in ("buttons", "pads", "encoders", "leds")]   # idle:/active: are an LED's
-    layer_types = {k: next(sp[k].schema() for sp in specs if k in sp.by_name) for k in layer_keys
-                   if any(k in sp.by_name for sp in specs)}
-    layer_entry = obj(layer_keys, {**layer_types, "cc": one_of(INT7, {"const": "none"})})
-    step = obj(gd.STEP_KEYS, {"id": ref("id"), "name": STR, "enabled": BOOL, "colour": LOOK,
-                              "layer": {"type": "object", "additionalProperties": layer_entry}})
-    item = obj(gd.MODE_KEYS, {
-        "id": ref("id"), "name": STR, "daw": STR,
-        "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})),
-        "one_shot": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
-        "parent": ID_REF, "preset_blink": {},
-        "led": one_of(ID_REF, {"type": "object", "description": "{ <LED id>: blink }"}),
-        "keys": {}, "buttons": {"type": "object", "description": "button id: what it does in the mode"},
-        "layer": {"type": "object", "description": "component id: what it does on the layer",
-                  "additionalProperties": layer_entry},
-        "steps": lst(step)})
-    return lst(item, "modes, layers and cycles (components/modes/README.md \"Modes\")")
-
-
 def layout():
     """layout: (core/README.md "Layout"): [x, y], [x, y, w, h] or { x, y, w, h, shape } per control id."""
     unit = T("integer", minimum=0, maximum=gd.LAYOUT_MAX)
@@ -221,7 +198,6 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "modes": modes(),
         "display": screen(),
         "displays": lst(obj(gd.DISPLAY_KEYS, {"id": ref("id"), "daw": STR, "type": enum(gd.DISPLAY_TYPES),
                                               "shows": enum(gd.DISPLAY_SHOWS),

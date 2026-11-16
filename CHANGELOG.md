@@ -2,6 +2,30 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.60.0](https://github.com/cubicecho/gemifi/compare/v0.59.0...v0.60.0) (2026-11-16)
+
+
+### Features
+
+* **builder,site:** a key names the device param it starts ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([1f086d2](https://github.com/cubicecho/gemifi/commit/1f086d2dbe214d24ca6456b31e660744bd0534df))
+* **builder,site:** analog keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([b94582f](https://github.com/cubicecho/gemifi/commit/b94582f1c4a9c17a45ca3eef139a31163eb94e79))
+* **builder,site:** buttons keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([06414d7](https://github.com/cubicecho/gemifi/commit/06414d75766cd587cf781fe808c891722fc3a2b2))
+* **builder,site:** key_matrix keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([2b73462](https://github.com/cubicecho/gemifi/commit/2b73462eaae87db8c9345c6dec551688e585a9dd))
+* **builder,site:** leds keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([1702eeb](https://github.com/cubicecho/gemifi/commit/1702eeb900110298ac13f6b7e74fcdba9666deca))
+* **builder,site:** pads keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([704cc8a](https://github.com/cubicecho/gemifi/commit/704cc8a4fdc97c8d751a26d8446fbfe92d559932))
+* **builder:** cd74hc4051/4067 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([4ceb7c7](https://github.com/cubicecho/gemifi/commit/4ceb7c7d9906be505fba71059f8955d52bd0abd3))
+* **builder:** decoder keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([6b0d88c](https://github.com/cubicecho/gemifi/commit/6b0d88ccfa1fb62717de92d4f81f01ff7fed181f))
+* **builder:** ht16k33 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([dd0ad88](https://github.com/cubicecho/gemifi/commit/dd0ad88276b7be3a6222268452a639791585f47f))
+* **builder:** i2c buses, mcp23017/pcf8574 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([4f7ec03](https://github.com/cubicecho/gemifi/commit/4f7ec03c8b49dc6c1ca13893c79857a022c4de4a))
+* **builder:** max7219 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([fbf09de](https://github.com/cubicecho/gemifi/commit/fbf09de34855f3695dd3f93e41559531442da502))
+* **builder:** sn74hc595/165 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([c3c6675](https://github.com/cubicecho/gemifi/commit/c3c6675fa850cf141f35c30b451f154f359327f7))
+* **builder:** ssd1306 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([a77c8c8](https://github.com/cubicecho/gemifi/commit/a77c8c81b3f40ad6ee77d7878853e512575df206))
+* **builder:** switch_matrix keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([d3f9091](https://github.com/cubicecho/gemifi/commit/d3f90917bfdba6fe537291a253c99fd7f1b6f88a))
+* **builder:** the editor schema knows each platform's own keys ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([4da9a5a](https://github.com/cubicecho/gemifi/commit/4da9a5a6c97a66ac1c4515cb00b9625add6da433))
+* **builder:** tm1628 keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([84f2566](https://github.com/cubicecho/gemifi/commit/84f256653022f25a8ca3cabc37dc2ab431d20007))
+* **builder:** ws2812/maudio_pads keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([eb6de55](https://github.com/cubicecho/gemifi/commit/eb6de553a476e254bbbf37a54a7072e4e1af5e3a))
+* **builder:** xy_pad keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([d9e1dc3](https://github.com/cubicecho/gemifi/commit/d9e1dc393145da9d4a7864b7f64e414ab305d7b4))
+
 # [0.59.0](https://github.com/cubicecho/gemifi/compare/v0.58.0...v0.59.0) (2026-11-16)
 
 

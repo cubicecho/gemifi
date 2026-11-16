@@ -288,7 +288,13 @@
       ]
     },
     "scan_interval": {
-      "$ref": "#/definitions/period"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/period"
+        }
+      ],
+      "description": "The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and shift-register hubs are read every tick. Default: 125us.",
+      "default": "125us"
     },
     "hardware_scan": {
       "anyOf": [
@@ -299,10 +305,20 @@
               "type": "object",
               "properties": {
                 "row_time": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time per row: a frame is every row once (an odd row count gets its last row twice)."
                 },
                 "settle": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "From the row's select to the columns' read; at least 0.5us with `precharge`."
                 },
                 "precharge": {
                   "anyOf": [
@@ -312,11 +328,17 @@
                     {
                       "$ref": "#/definitions/substitution"
                     }
-                  ]
+                  ],
+                  "description": "The columns are driven to their idle level before each row, so the read waits less: needs diodes or tolerant drivers. Default: false.",
+                  "default": false
                 },
-                "timer": {}
+                "timer": {
+                  "description": "The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free. Default: auto.",
+                  "default": "auto"
+                }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "The key matrix and every switch matrix, scanned row by row by a timer and DMA."
             },
             "analog": {
               "anyOf": [
@@ -333,14 +355,20 @@
                 {
                   "type": "object",
                   "properties": {
-                    "timer": {}
+                    "timer": {
+                      "description": "The timer that steps the muxes and starts ADC1 (not TIM1). Default: auto.",
+                      "default": "auto"
+                    }
                   },
                   "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; `true`, or a mapping to pick the timer. Default: false.",
+              "default": false
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU."
         },
         {
           "type": "string",

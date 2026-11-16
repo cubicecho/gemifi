@@ -51,7 +51,7 @@ class EdgesAgree(unittest.TestCase):
     def edges(self, keys, context=None, nest=None, more="", base=None):
         """Each key of keys (a Keys) whose type has edges: those in pass (no error at the key's path), those
         past fail there. context: key -> other top-level keys its edges need; nest: the keys are of the
-        top-level key `nest` (a mapping: base, else {})."""
+        top-level key `nest` (a mapping: base, else {}; `a.b`: the mapping b: in a:)."""
         context = context or {}
         n = 0
         for k in keys:
@@ -59,7 +59,10 @@ class EdgesAgree(unittest.TestCase):
                 with self.subTest(key=k.name, value=value):
                     top = dict(context.get(k.name, {}))
                     if nest:
-                        top[nest] = {**(base or {}), **top.pop(nest, {}), k.name: value}
+                        item = {**(base or {}), **top.pop(nest, {}), k.name: value}
+                        for part in reversed(nest.split(".")[1:]):
+                            item = {part: item}
+                        top[nest.split(".")[0]] = item
                         at = f"{nest}.{k.name}"
                     else:
                         top[k.name] = value
@@ -79,6 +82,13 @@ class EdgesAgree(unittest.TestCase):
         self.assertEqual(self.edges(gd.USB_KEYS, nest="usb", base=BASE["usb"]), 8)
         self.assertEqual(self.edges(gd.DIN_KEYS, nest="din_midi", base={"tx_pin": "PA9", "rx_pin": "PA10"}), 2)
         self.assertEqual(self.edges(gd.MIDI_MESSAGES_KEYS, nest="midi_messages"), 4)
+
+    def test_scanning(self):
+        self.assertEqual(self.edges(gd.SCAN_AREA), 4)
+        # row_time and settle at their edges with the other one leaving room (settle + 0.25us <= row_time)
+        sm = "switch_matrix:\n  - { id: sm, rows: [PA2, PA3], columns: [PB0, PB1] }\n"
+        self.assertEqual(self.edges(gd.HW_SCAN_MATRIX_KEYS, nest="hardware_scan.matrix", more=sm,
+                                    base={"row_time": "50us", "settle": "0.25us"}), 8)
 
 
 if __name__ == "__main__":

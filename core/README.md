@@ -195,17 +195,16 @@ When every row is such a pin, every column is on one input register, nothing is 
 
 ## Hardware scan
 
-On a platform whose timers and DMA can do it (stm32f1 for now), `hardware_scan:` takes the matrix scan off the CPU: the key matrix and every switch matrix are scanned row by row by the hardware, and the core only looks at finished frames.
+On a platform whose timers and DMA can do it (stm32f1 for now), `hardware_scan:` takes the matrix scan off the CPU: the key matrix and every switch matrix are scanned row by row by the hardware, and the core only looks at finished frames. Its keys are in [the scanning keys](yaml/scanning.md#keys).
 
 ```yaml
 hardware_scan:
-  matrix:                      # the key matrix and switch matrices
-    row_time: 3.5us            # time per row; a frame is every row once (23 rows on the Code 61, padded to 24)
-    settle: 3us                # row selected -> columns read; at least 0.25us (0.5us with precharge)
-    precharge: false           # drive the columns to their idle level between rows (below)
-    timer: auto                # stm32f1: the timer that paces it, auto or tim1..tim4 ("DMA channels")
-  analog: true                 # analog inputs and pads: mux steps + ADC by timer + DMA (below);
-                               # or `analog: { timer: tim3 }` (auto, tim2..tim4)
+  matrix:
+    row_time: 3.5us            # 23 rows on the Code 61, padded to 24
+    settle: 3us
+    precharge: false
+    timer: auto
+  analog: true                 # or `analog: { timer: tim3 }`
 ```
 
 - **What it needs.** Every row (key matrix and switch matrices) is selected by one store (decoder rows on one port with a set/reset register, `hal_pin_bsrr`), and every column is a bit of one input register. The Code 61 fits: PB3–PB7 select, PB8–PB15 read. If a device doesn't fit, the firmware logs a WARN at boot and scans in software as before. A frame is one reading of each row; an odd row count gets its last row twice, so frames are whole 32-bit words.
@@ -367,7 +366,7 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
-The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys).
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys).
 
 ```yaml
 gemifi: 2                      # format version
@@ -382,8 +381,8 @@ board: keystation-mini32-mk3   # stm32f1 / nuvoton-nuc1xx: the board profile ("B
 usb: { vid: 0x1209, pid: 0x0002 }
 midi: { transport: usb }
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub or display is used (several: components/i2c)
-scan_interval: 125us           # matrix/encoder scan period
-hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
+scan_interval: 125us
+hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # "Hardware scan"
 din_midi: { tx_pin: PA9, rx_pin: PA10 }  # "DIN MIDI"
 midi_messages: { enable: [cc14] }   # "MIDI messages"
 boot_combo: [pitch_down, pitch_up]  # button ids

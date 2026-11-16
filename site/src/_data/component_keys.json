@@ -2747,5 +2747,91 @@
         }
       ]
     }
+  ],
+  "core/scanning": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "scan_interval",
+          "type": "time 1us..65535us",
+          "required": false,
+          "default": "`125us`",
+          "doc": "The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and shift-register hubs are read every tick.",
+          "see": "core/README.md \"Software scan\""
+        },
+        {
+          "key": "hardware_scan",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU.",
+          "see": "core/README.md \"Hardware scan\"",
+          "keys": [
+            {
+              "key": "matrix",
+              "type": "mapping",
+              "required": false,
+              "default": null,
+              "doc": "The key matrix and every switch matrix, scanned row by row by a timer and DMA.",
+              "see": "core/README.md \"Hardware scan\"",
+              "keys": [
+                {
+                  "key": "row_time",
+                  "type": "time 0.5us..50us",
+                  "required": true,
+                  "default": null,
+                  "doc": "The time per row: a frame is every row once (an odd row count gets its last row twice).",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "settle",
+                  "type": "time 0.25us..49.5us",
+                  "required": true,
+                  "default": null,
+                  "doc": "From the row's select to the columns' read; at least 0.5us with `precharge`.",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "precharge",
+                  "type": "`true` or `false`",
+                  "required": false,
+                  "default": "`false`",
+                  "doc": "The columns are driven to their idle level before each row, so the read waits less: needs diodes or tolerant drivers.",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "timer",
+                  "type": "`auto`, `tim1`..`tim4`",
+                  "required": false,
+                  "default": "`auto`",
+                  "doc": "The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free.",
+                  "see": "core/README.md \"DMA channels (stm32f1)\""
+                }
+              ]
+            },
+            {
+              "key": "analog",
+              "type": "`true` or `false` or mapping",
+              "required": false,
+              "default": "`false`",
+              "doc": "The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; `true`, or a mapping to pick the timer.",
+              "see": "core/README.md \"Hardware scan\"",
+              "keys": [
+                {
+                  "key": "timer",
+                  "type": "`auto`, `tim2`..`tim4`",
+                  "required": false,
+                  "default": "`auto`",
+                  "doc": "The timer that steps the muxes and starts ADC1 (not TIM1).",
+                  "see": "core/README.md \"DMA channels (stm32f1)\""
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

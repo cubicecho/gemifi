@@ -70,6 +70,11 @@ export const CORE_YAML = {
       title: "MIDI and USB",
       summary: "USB ids, the MIDI transport, the 5-pin DIN jacks and the message kinds beyond notes and CCs.",
     },
+    {
+      file: "core/yaml/scanning.md",
+      title: "Scanning",
+      summary: "How often the controls are read, and the stm32f1's scans by timers and DMA instead of the CPU.",
+    },
   ],
 };
 

@@ -368,9 +368,6 @@ PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 PROJECT_KEYS = ["version"]
 FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
 MCU_KEYS = ["extender"]
-HW_SCAN_KEYS = ["matrix", "analog"]
-HW_SCAN_MATRIX_KEYS = ["row_time", "settle", "precharge", "timer"]
-HW_SCAN_ANALOG_KEYS = ["timer"]
 COMBO_KEYS = ["combo", "hold"]        # factory_reset_combo: / unlock: as a mapping
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -1426,12 +1423,46 @@ class _V:
 HW_SCAN_PLATFORMS = {"stm32f1"}
 HW_SCAN_GAP_NS = 250
 
+_HW_SCAN_SEE = 'core/README.md "Hardware scan"'
+_HW_TIMERS_SEE = 'core/README.md "DMA channels (stm32f1)"'
+# row_time and settle in us, to 1 ns (validate_hw_scan checks them against each other and the gaps)
+HW_SCAN_MATRIX_KEYS = _Keys(
+    _Key("row_time", _Period(0.5, 50, step_us=0.001, example="3.5us"), required=True, see=_HW_SCAN_SEE,
+         doc="The time per row: a frame is every row once (an odd row count gets its last row twice)."),
+    _Key("settle", _Period(0.25, 49.5, step_us=0.001, example="3us"), required=True, see=_HW_SCAN_SEE,
+         doc="From the row's select to the columns' read; at least 0.5us with `precharge`."),
+    _Key("precharge", _Bool(), default=False, see=_HW_SCAN_SEE,
+         doc="The columns are driven to their idle level before each row, so the read waits less: needs "
+             "diodes or tolerant drivers."),
+    _Key("timer", _Raw({}, "`auto`, `tim1`..`tim4`"), default="auto", see=_HW_TIMERS_SEE,
+         doc="The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free."),
+)
+HW_SCAN_ANALOG_KEYS = _Keys(
+    _Key("timer", _Raw({}, "`auto`, `tim2`..`tim4`"), default="auto", see=_HW_TIMERS_SEE,
+         doc="The timer that steps the muxes and starts ADC1 (not TIM1)."),
+)
+HW_SCAN_KEYS = _Keys(
+    _Key("matrix", _Map(HW_SCAN_MATRIX_KEYS), see=_HW_SCAN_SEE,
+         doc="The key matrix and every switch matrix, scanned row by row by a timer and DMA."),
+    _Key("analog", _OneOf(_Bool(), _Map(HW_SCAN_ANALOG_KEYS)), default=False, see=_HW_SCAN_SEE,
+         doc="The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; "
+             "`true`, or a mapping to pick the timer."),
+)
+# The "scanning" area (core/yaml/scanning.md)
+SCAN_AREA = _Keys(
+    _Key("scan_interval", _Period(1, 0xFFFF), default="125us", see='core/README.md "Software scan"',
+         doc="The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and "
+             "shift-register hubs are read every tick."),
+    _Key("hardware_scan", _Map(HW_SCAN_KEYS), see=_HW_SCAN_SEE,
+         doc="stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU."),
+)
+
 
 def validate_hw_scan(v, dev, data, plat):
     if "hardware_scan" not in data:
         return
     line = data.line_of("hardware_scan")
-    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, HW_SCAN_KEYS)
+    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, HW_SCAN_KEYS.names)
     if hs is None:
         return
     if plat.name not in HW_SCAN_PLATFORMS:
@@ -1441,7 +1472,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "analog" in hs:
         a = hs["analog"]
         if isinstance(a, dict):         # `analog: { timer: tim3 }`
-            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), HW_SCAN_ANALOG_KEYS) is not None:
+            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), HW_SCAN_ANALOG_KEYS.names) is not None:
                 dev.hw_adc = True
                 hw_timer(v, dev, a, "analog")
         else:
@@ -1452,7 +1483,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "matrix" not in hs:
         return
     path, mline = "hardware_scan.matrix", hs.line_of("matrix")
-    mx = v.mapping(hs["matrix"], path, mline, HW_SCAN_MATRIX_KEYS)
+    mx = v.mapping(hs["matrix"], path, mline, HW_SCAN_MATRIX_KEYS.names)
     if mx is None:
         return
     hw_timer(v, dev, mx, "matrix")
@@ -1463,9 +1494,9 @@ def validate_hw_scan(v, dev, data, plat):
         if k not in mx:
             v.err(f"{path}.{k}", mx.line, f"is required (e.g. `{k}: "
                                           f"{'3.5us' if k == 'row_time' else '3us'}`)")
-    row = v.period(mx, "row_time", path, 0.5, 50, step_us=0.001, example="3.5us")
-    settle = v.period(mx, "settle", path, 0.25, 49.5, step_us=0.001, example="3us")
-    pre = v.boolean(mx, "precharge", path)
+    row = HW_SCAN_MATRIX_KEYS.get(v, mx, "row_time", path)
+    settle = HW_SCAN_MATRIX_KEYS.get(v, mx, "settle", path)
+    pre = HW_SCAN_MATRIX_KEYS.get(v, mx, "precharge", path)
     if row is None or settle is None:
         return
     lo = HW_SCAN_GAP_NS * (2 if pre else 1)
@@ -1600,8 +1631,9 @@ DEVICE_KEYS = _Keys(
 USB_KEYS = _Keys(
     _Key("vid", _Hex(0, 0xFFFF), required=True, doc="The USB vendor id (`0x1209`: pid.codes)."),
     _Key("pid", _Hex(0, 0xFFFF), required=True, doc="The USB product id."),
-    _Key("daw_port", _Bool(), shown_default="`true` with `mcu:`", see='core/README.md "Second USB port and Mackie '
-         'Control"', doc="A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI."),
+    _Key("daw_port", _Bool(), shown_default="`true` with `mcu:`",
+         see='core/README.md "Second USB port and Mackie Control"',
+         doc="A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI."),
 )
 MIDI_KEYS = _Keys(
     _Key("transport", _Enum(MIDI_TRANSPORT_MACRO),
@@ -1685,7 +1717,7 @@ def validate(data, file=None):
     validate_mcu(v, dev, data, tr, daw_port)
     validate_din(v, dev, data, tr, plat)
 
-    dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
+    dev.scan_us = SCAN_AREA.get(v, data, "scan_interval", "", default=125)
     validate_hw_scan(v, dev, data, plat)
 
     # hubs (before anything that refers to them), in file order
@@ -3119,22 +3151,22 @@ def preset_values(v, dev, d, p):
 # ---------------------------------------------------------------------------------------------
 # MIDI messages (core/README.md "MIDI messages")
 
-_MM = 'core/README.md "MIDI messages"'
+_MSG_SEE = 'core/README.md "MIDI messages"'
 SYSEX_KEYS = _Keys(
     _Key("id", _Id(), required=True, doc="What a control's `sysex:` calls it."),
-    _Key("data", _Str(), required=True, see=_MM,
+    _Key("data", _Str(), required=True, see=_MSG_SEE,
          doc="Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders."),
 )
 # enable: and sysex: are checked by validate_midi_messages (aliases, names, the strings)
 MIDI_MESSAGES_KEYS = _Keys(
-    _Key("enable", _List(_Enum([*MSG_FEATURES, *MSG_ALIASES])), see=_MM,
+    _Key("enable", _List(_Enum([*MSG_FEATURES, *MSG_ALIASES])), see=_MSG_SEE,
          doc="Kinds to compile in even if no control uses them yet, for the web page (each kind is in "
              "anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s."),
-    _Key("null_rpn", _Bool(), default=False, see=_MM,
+    _Key("null_rpn", _Bool(), default=False, see=_MSG_SEE,
          doc="After each NRPN or RPN message, the null RPN (101 / 100 = 127)."),
     _Key("mmc_device_id", _Hex(0, 0x7F), default=0x7F, shown_default="`0x7F` (all devices)",
          doc="The device id MMC commands are sent to."),
-    _Key("sysex", _List(_Map(SYSEX_KEYS)), see=_MM,
+    _Key("sysex", _List(_Map(SYSEX_KEYS)), see=_MSG_SEE,
          doc="SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and "
              "`mode: sysex` analog inputs."),
 )
@@ -3145,7 +3177,7 @@ MIDI_AREA = _Keys(
     _Key("midi", _Map(MIDI_KEYS), doc="How the device talks MIDI."),
     _Key("din_midi", _Map(DIN_KEYS), see='core/README.md "DIN MIDI"',
          doc="5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now)."),
-    _Key("midi_messages", _Map(MIDI_MESSAGES_KEYS), see=_MM,
+    _Key("midi_messages", _Map(MIDI_MESSAGES_KEYS), see=_MSG_SEE,
          doc="MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx."),
 )
 BANK_KEYS = ["msb", "lsb"]
@@ -4273,4 +4305,5 @@ def write_generated(dev, out_dir, source):
 CORE_AREAS = {
     "device": DEVICE_KEYS,
     "midi": MIDI_AREA,
+    "scanning": SCAN_AREA,
 }

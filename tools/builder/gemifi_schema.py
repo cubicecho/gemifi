@@ -216,11 +216,6 @@ def pin():
 
 def device_schema():
     top_types = {
-        "scan_interval": PERIOD,
-        "hardware_scan": obj(gd.HW_SCAN_KEYS, {
-            "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL, "settle": PERIOD,
-                                                   "timer": {}}),
-            "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS, {"timer": {}}))}),
         "boot_combo": lst(ID_REF),
         # safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED")
         "factory_reset_combo": one_of(

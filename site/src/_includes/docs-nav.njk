@@ -16,6 +16,7 @@
         {{ item("Get started", "/get-started/") }}
         {% for c in docs.core %}{{ item(c.title, c.url) }}{% endfor %}
         {{ item("DAW setup", "/daw-setup/") }}
+        {{ item("Changelog", "/changelog/") }}
       </ul>
     </details>
     {% for g in [docs.coreYaml, docs.base].concat(docs.groups) %}

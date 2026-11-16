@@ -12,6 +12,7 @@ import site from "../src/_data/site.js";
 import tested from "../src/_data/tested.js";
 import { buildDocs, GROUPS } from "../lib/docs-tree.js";
 import { REPO, componentFiles, componentSummary, docUrl, readRepo, resolveLink, slugify } from "../lib/repo-docs.js";
+import { componentKeys, withKeys } from "../lib/keys-table.js";
 
 const OUT = path.resolve(import.meta.dirname, "../_site");
 const PREFIX = site.pathPrefix;
@@ -144,6 +145,26 @@ test("every component README has a docs page in a known group", () => {
     docs.groups.map((g) => g.key),
     GROUPS.map((g) => g.key).filter((k) => docs.groups.some((g) => g.key === k)),
   );
+});
+
+test("a component whose keys are data has a key table on its page, from component_keys.json", () => {
+  const all = componentKeys();
+  assert.ok(all.encoders && all.tm1637, Object.keys(all).join(", "));
+  for (const [name, sections] of Object.entries(all)) {
+    const html = fs.readFileSync(servedFile(`${PREFIX}docs/components/${name}/`), "utf8");
+    assert.ok(idsOf(servedFile(`${PREFIX}docs/components/${name}/`)).has("keys"), `${name}: no Keys heading`);
+    const keysAt = html.indexOf('id="keys"');
+    for (const s of sections) {
+      for (const k of s.keys) assert.ok(html.includes(`<td><code>${k.key}</code></td>`, keysAt), `${name}: no row for ${k.key}`);
+    }
+    // the table sits where the README's marker is: after the YAML example, before the next heading
+    assert.ok(keysAt > html.indexOf("<pre"), `${name}: the key table comes before the example`);
+  }
+  const enc = fs.readFileSync(servedFile(`${PREFIX}docs/components/encoders/`), "utf8");
+  assert.match(enc, /<td><code>acceleration\.slow<\/code><\/td>/);
+  assert.match(enc, /<em>Can be changed on the device\.<\/em>/);
+  assert.throws(() => withKeys("# x\n\n<!-- keys -->\n", "components/nope/README.md", all), /no keys/);
+  assert.throws(() => withKeys("# x\n", "components/encoders/README.md", all), /put <!-- keys -->/);
 });
 
 test("the base components are in their own section, out of their groups", () => {

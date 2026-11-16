@@ -8,17 +8,17 @@ import difflib
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_OUT, Enum, IdRef, Int, Key, Keys, List,
+                             Map, OneOf, Period, Pin, Section, Str)
 
 # encoder.mode (gm_settings.h ENC_*): from cc14 on they need a message kind (core/README.md "MIDI messages").
 ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
              "rpn", "rpn14"]
-ENCODER_KEYS = ["id", "name", "pin_a", "pin_b", "cc", "steps_per_detent", "mcu", "ring", "ring_center", "daw",
-                "acceleration", "mode", "nrpn", "rpn", "channel", "min", "max"]
 ENCODER_NUMBER_KEYS = ("cc", "nrpn", "rpn")     # the keys that give encoder.cc, by mode
 RENAMED_ENCODER = dict(RENAMED_ID, a="renamed: use `pin_a:` (as ESPHome's rotary_encoder)",
                        b="renamed: use `pin_b:` (as ESPHome's rotary_encoder)")
 
-# Acceleration (components/encoders/README.md "Encoder acceleration").
+# Acceleration (README.md "Encoder acceleration").
 # A turn whose detents come at most `slow` apart moves more than one step per detent: up to `max` steps
 # at `fast` apart or less, along `curve` in between. Values are (slow ms, fast ms, max, curve index);
 # None is off (1 step per detent, the C table's { 0, 0, 1, linear }).
@@ -27,11 +27,49 @@ ACCEL_PRESETS = {"off": None,
                  "low": (60, 15, 4, 0),
                  "medium": (80, 10, 8, 1),
                  "high": (100, 8, 16, 1)}
-ACCEL_KEYS = ["slow", "fast", "max", "curve"]
-ACCEL_SLOW_MS = (2, 1000)
-ACCEL_FAST_MS = (1, 999)
-ACCEL_MAX = (1, 32)
-ENCODER_SETTINGS_KEYS = ["acceleration"]
+ACCEL = Keys(
+    Key("slow", Period(2000, 1_000_000, step_us=1000, example="80ms"),
+        doc="Detents this far apart, or further, move 1 step each."),
+    Key("fast", Period(1000, 999_000, step_us=1000, example="10ms"),
+        doc="Detents this close together, or closer, move `max` steps each. Shorter than `slow`."),
+    Key("max", Int(1, 32), doc="The most steps a detent moves (1 is the same as `off`)."),
+    Key("curve", Enum(ACCEL_CURVES), doc="How the steps grow from `slow` to `fast`."),
+)
+ACCEL_KEYS = ACCEL.names
+ACCEL_TYPE = OneOf(Enum(ACCEL_PRESETS), Map(ACCEL))
+
+# One encoder's keys (core/README.md "Controls" has what the controls share), checked by validate().
+ENCODER = Keys(
+    CONTROL_ID, CONTROL_NAME,
+    Key("pin_a", Pin(), required=True, doc="One of its two pins: an MCU pin, a hub's or a switch matrix's (not "
+                                           "a mux's). On an I2C hub it is read from the main loop."),
+    Key("pin_b", Pin(), required=True, doc="The other pin."),
+    Key("cc", Int(0, 127), doc="The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the "
+                               "mode takes `nrpn:` / `rpn:`.", live=True),
+    Key("steps_per_detent", Int(1, 255), default=4, doc="Quarter steps it makes per click (most encoders make 4)."),
+    Key("mcu", Str(), doc="Makes it a Mackie Control V-Pot (`vpot_1`..`vpot_8`), which sends its own messages: "
+                          "no `mode:`, `channel:`, `min:` or `max:` then.",
+        see='core/README.md "Second USB port and Mackie Control"'),
+    Key("ring", List(IdRef("LED")), doc="The LEDs around it, leftmost first (1..16), lit by Mackie Control or a "
+                                        "DAW script."),
+    Key("ring_center", IdRef("LED"), doc="The LED under it, lit by bit 6 of its Mackie Control ring value."),
+    CONTROL_DAW,
+    Key("acceleration", ACCEL_TYPE, default="off", shown_default="`encoder_settings:`'s or `off`",
+        see="Encoder acceleration",
+        doc="How far a quick turn moves per detent: a preset, or a mapping whose keys left out come from "
+            "`encoder_settings:`, else from `medium`."),
+    Key("mode", Enum(ENC_MODES), default="absolute", doc="What a turn sends.", see="Encoder modes", live=True),
+    Key("nrpn", Int(0, 16383), doc="The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.", live=True),
+    Key("rpn", Int(0, 16383), doc="The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.", live=True),
+    *CONTROL_OUT,
+)
+ENCODER_KEYS = ENCODER.names
+ENCODER_SETTINGS = Keys(
+    Key("acceleration", ACCEL_TYPE, default="off", see="Encoder acceleration",
+        doc="The acceleration of every encoder that doesn't set its own."))
+ENCODER_SETTINGS_KEYS = ENCODER_SETTINGS.names
+# Where these keys go in the device YAML (the docs table, gemifi_build.py keys).
+KEY_SECTIONS = (Section("encoders", ENCODER), Section("encoder_settings", ENCODER_SETTINGS, is_list=False))
 
 
 def in_device(dev):
@@ -72,7 +110,7 @@ def validate(v, dev, data):
                                                 "or mcu:")
         cc = v.mode_number(dev, d, p, ENC_MODES[mode], vpot is None, ENCODER_NUMBER_KEYS)
         ctl = v.control_out(d, p, 16383 if mode_wide(dev, ENC_MODES[mode], cc) else 127)
-        spd = v.integer(d, "steps_per_detent", p, 1, 255, default=4)
+        spd = ENCODER.get(v, d, "steps_per_detent", p)
         ring = encoder_ring(v, dev, d, p, vpot)
         center = ring_center(v, dev, d, p, vpot)
         accel = validate_acceleration(v, d, p, accel_default)[1]
@@ -151,14 +189,10 @@ def validate_acceleration(v, d, path, base):
         return True, base
     m = v.mapping(x, p, line, ACCEL_KEYS)
     slow, fast, mx, curve = base or ACCEL_PRESETS["medium"]
-    slow = v.period(m, "slow", p, ACCEL_SLOW_MS[0] * 1000, ACCEL_SLOW_MS[1] * 1000, default=slow,
-                    step_us=1000, example="80ms")
-    fast = v.period(m, "fast", p, ACCEL_FAST_MS[0] * 1000, ACCEL_FAST_MS[1] * 1000, default=fast,
-                    step_us=1000, example="10ms")
-    mx = v.integer(m, "max", p, *ACCEL_MAX, default=mx)
-    if m.get("curve") is not None:
-        c = v.enum_value(m, "curve", f"{p}.curve", ACCEL_CURVES)
-        curve = curve if c is None else c
+    slow = ACCEL.get(v, m, "slow", p, default=slow)
+    fast = ACCEL.get(v, m, "fast", p, default=fast)
+    mx = ACCEL.get(v, m, "max", p, default=mx)
+    curve = ACCEL.get(v, m, "curve", p, default=curve)
     if fast >= slow:
         v.err(p, line, f"fast ({fast}ms) must be shorter than slow ({slow}ms): detents fast apart get max "
                        "steps, slow apart 1")

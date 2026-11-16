@@ -1,0 +1,345 @@
+"""A component's YAML keys as data (issue #161): each key's type, range, default and a line on what it
+does, in one place that the validator, the JSON schema (tools/builder/gemifi_schema.py, for editors) and
+the docs site (the key table on each component's page) all read.
+
+    ENCODER_KEYS = Keys(
+        Key("steps_per_detent", Int(1, 255), default=4, doc="Quarter steps the encoder counts per click."),
+        Key("mode", Enum(ENC_MODES), default="absolute", doc="How a turn is sent.", see="Encoder modes", live=True),
+        ...)
+    spd = ENCODER_KEYS.get(v, d, "steps_per_detent", p)      # checked, and its default when left out
+
+- `doc`: one line, shown in the editor's hover and the docs table. Longer explanations stay in the
+  README, and `see` names the heading there ("Encoder modes"), or another doc as the READMEs name one,
+  from the repo root (`core/README.md "MIDI messages"`, `hosts/README.md`).
+- `live`: the YAML sets the starting value of a param that the web page (or a preset) can change later
+  without a rebuild (core/README.md "Controls": the params a control creates).
+- Rules between keys (`cc:` only with some modes, ...) stay as code in the component's validate().
+- A key whose check needs more than its value (pins, references to other ids) is declared here for the
+  schema and the docs, and checked by the component's own code.
+
+A leaf module, like api.py: components import it at load time.
+"""
+
+MISSING = object()
+
+
+# -- JSON schema pieces (the device schema: tools/builder/gemifi_schema.py) --
+
+def sub():
+    return {"$ref": "#/definitions/substitution"}
+
+
+def T(kind, **kw):
+    """A scalar type that may also be a ${substitution}."""
+    return {"anyOf": [dict({"type": kind}, **kw), sub()]}
+
+
+def enum(values):
+    return {"anyOf": [{"enum": list(values)}, sub()]}
+
+
+def ref(name):
+    return {"$ref": f"#/definitions/{name}"}
+
+
+def one_of(*alts):
+    return {"anyOf": list(alts)}
+
+
+def lst(item, desc=None):
+    s = {"type": "array", "items": item}
+    if desc:
+        s["description"] = desc
+    return s
+
+
+def code(x):
+    return f"`{x}`"
+
+
+# -- types --
+
+class Type:
+    """What a key's value is. text: the docs' type column (Markdown)."""
+    text = ""
+
+    def schema(self):
+        return {}
+
+    def check(self, v, d, key, path, default, required):
+        """The value of d[key] (d the YAML mapping at path), checked with the validator v's own helpers so
+        the messages are the usual ones; default when it is left out (or wrong: reported)."""
+        raise NotImplementedError(f"{type(self).__name__}: checked by the component's code")
+
+    def bad_values(self):
+        """(value, accepted) pairs at the edges of the type, for the tests that the validator agrees."""
+        return []
+
+
+class Int(Type):
+    def __init__(self, lo, hi):
+        self.lo, self.hi = lo, hi
+        self.text = f"integer {lo}..{hi}"
+
+    def schema(self):
+        return T("integer", minimum=self.lo, maximum=self.hi)
+
+    def check(self, v, d, key, path, default, required):
+        return v.integer(d, key, path, self.lo, self.hi, default=default, required=required)
+
+    def bad_values(self):
+        return [(self.lo, True), (self.hi, True), (self.lo - 1, False), (self.hi + 1, False)]
+
+
+class Enum(Type):
+    """One of a list of names; checked to its index (as the C tables count them)."""
+
+    def __init__(self, values):
+        self.values = list(values)
+        self.text = ", ".join(code(x) for x in self.values)
+
+    def schema(self):
+        return enum(self.values)
+
+    def check(self, v, d, key, path, default, required):
+        if d.get(key) is None:
+            if required:
+                v.err(f"{path}.{key}", d.line, "is required")
+            return self.values.index(default) if isinstance(default, str) else default
+        i = v.enum_value(d, key, f"{path}.{key}", self.values)
+        return default if i is None else i
+
+    def bad_values(self):
+        return [(self.values[0], True), ("not_" + self.values[0], False)]
+
+
+class Bool(Type):
+    text = "`true` or `false`"
+
+    def schema(self):
+        return T("boolean")
+
+    def check(self, v, d, key, path, default, required):
+        return v.boolean(d, key, path, default=bool(default))
+
+
+class Period(Type):
+    """An ESPHome time period (`125us`, `1.6ms`, `2s`), checked to whole multiples of step_us."""
+
+    def __init__(self, lo_us, hi_us, step_us=1, example="125us"):
+        self.lo, self.hi, self.step, self.example = lo_us, hi_us, step_us, example
+        self.text = f"time {fmt_us(lo_us)}..{fmt_us(hi_us)}"
+
+    def schema(self):
+        return ref("period")
+
+    def check(self, v, d, key, path, default, required):
+        return v.period(d, key, path, self.lo, self.hi, default=default, step_us=self.step, example=self.example)
+
+    def bad_values(self):
+        return [(f"{self.lo}us", True), (f"{self.hi}us", True), (f"{self.lo - self.step}us", False),
+                (f"{self.hi + self.step}us", False)]
+
+
+class Str(Type):
+    text = "text"
+
+    def schema(self):
+        return {"type": "string"}
+
+    def check(self, v, d, key, path, default, required):
+        return v.string(d, key, path, required=required, default=default)
+
+
+class Pin(Type):
+    text = "pin"
+
+    def schema(self):
+        return ref("pin")
+
+
+class Id(Type):
+    text = "id"
+
+    def schema(self):
+        return ref("id")
+
+
+class IdRef(Type):
+    """The id of another component, of a kind ('LED', ...)."""
+
+    def __init__(self, kind):
+        self.kind = kind
+        self.text = f"{kind} id"
+
+    def schema(self):
+        return {"type": "string", "description": f"the id of {'an' if self.kind[0] in 'AEFHILMNORSX' else 'a'} "
+                                                 f"{self.kind}"}
+
+
+class List(Type):
+    def __init__(self, item):
+        self.item = item
+        self.text = f"list of {item.text}"
+
+    def schema(self):
+        return lst(self.item.schema())
+
+
+class Map(Type):
+    """A mapping with keys of its own (Keys): the docs list them under the key, as `key.sub`."""
+    text = "mapping"
+
+    def __init__(self, keys):
+        self.keys = keys
+
+    def schema(self):
+        return self.keys.schema()
+
+
+class OneOf(Type):
+    """Any of several types, e.g. a preset's name or a mapping."""
+
+    def __init__(self, *types):
+        self.types = types
+        self.text = " or ".join(t.text for t in types)
+
+    def schema(self):
+        return one_of(*(t.schema() for t in self.types))
+
+    def keys(self):
+        """The sub-keys of its mapping, if it takes one."""
+        return next((t.keys for t in self.types if isinstance(t, Map)), None)
+
+
+# -- keys --
+
+class Key:
+    def __init__(self, name, type, default=None, required=False, doc="", see=None, live=False, shown_default=None):
+        """shown_default: what the docs say the default is, when it isn't just the value (Markdown)."""
+        self.name, self.type, self.default, self.required = name, type, default, required
+        self.doc, self.see, self.live, self.shown_default = doc, see, live, shown_default
+
+    def schema(self):
+        """The key's JSON schema: its type's, with the doc line and default for the editor's hover."""
+        s = self.type.schema()
+        if "$ref" in s:                 # draft-07 ignores what sits next to a $ref
+            s = one_of(s)
+        else:
+            s = dict(s)
+        shown = self.default_text()
+        desc = self.doc + (f" Default: {shown.replace('`', '')}." if shown is not None else "")
+        if self.live:
+            desc += " Can be changed on the device."
+        if desc.strip():
+            s["description"] = desc.strip()
+        if self.default is not None:
+            s["default"] = self.default
+        return s
+
+    def default_text(self):
+        """The default as the docs show it (Markdown), or None."""
+        if self.shown_default is not None:
+            return self.shown_default
+        x = self.default
+        return None if x is None else code("true" if x is True else "false" if x is False else x)
+
+    def sub_keys(self):
+        t = self.type
+        return t.keys if isinstance(t, Map) else t.keys() if isinstance(t, OneOf) else None
+
+    def doc_row(self):
+        """The key's row in the docs table (gemifi_build.py keys: site/src/_data/component_keys.json)."""
+        row = {"key": self.name, "type": self.type.text, "required": self.required,
+               "default": self.default_text(), "doc": self.doc}
+        if self.see:
+            row["see"] = self.see
+        if self.live:
+            row["live"] = True
+        sub = self.sub_keys()
+        if sub:
+            row["keys"] = sub.doc_rows()
+        return row
+
+
+class Keys:
+    """A mapping's keys, in the order the docs list them."""
+
+    def __init__(self, *keys):
+        self.keys = keys
+        self.by_name = {k.name: k for k in keys}
+        assert len(self.by_name) == len(keys), "a key twice"
+
+    @property
+    def names(self):
+        return [k.name for k in self.keys]
+
+    def __getitem__(self, name):
+        return self.by_name[name]
+
+    def __iter__(self):
+        return iter(self.keys)
+
+    def __add__(self, other):
+        return Keys(*self.keys, *other.keys)
+
+    def without(self, *names):
+        return Keys(*(k for k in self.keys if k.name not in names))
+
+    def get(self, v, d, name, path, default=MISSING):
+        """d[name], checked by its type (the validator's helpers), or its default (or `default`) when left out."""
+        k = self.by_name[name]
+        return k.type.check(v, d, name, path, k.default if default is MISSING else default, k.required)
+
+    def types(self):
+        """{name: JSON schema}."""
+        return {k.name: k.schema() for k in self.keys}
+
+    def schema(self, desc=None):
+        s = {"type": "object", "properties": self.types(), "additionalProperties": False}
+        if desc:
+            s["description"] = desc
+        return s
+
+    def doc_rows(self):
+        return [k.doc_row() for k in self.keys]
+
+
+class Section:
+    """Where a component's keys go in the device YAML: a top-level key (a list of items, or one mapping),
+    and for a platform of a base (led_driver: [{ platform: tm1637, ... }]) its platform name."""
+
+    def __init__(self, yaml_key, keys, is_list=True, platform=None):
+        self.yaml_key, self.keys, self.is_list, self.platform = yaml_key, keys, is_list, platform
+
+    def doc(self):
+        s = {"section": self.yaml_key, "list": self.is_list, "keys": self.keys.doc_rows()}
+        if self.platform:
+            s["platform"] = self.platform
+        return s
+
+
+def fmt_us(us):
+    """125 -> '125us', 1600 -> '1.6ms', 2000000 -> '2s'."""
+    if us >= 1_000_000 and us % 100_000 == 0:
+        return f"{us / 1_000_000:g}s"
+    if us >= 1000 and us % 100 == 0:
+        return f"{us / 1000:g}ms"
+    return f"{us}us"
+
+
+# -- keys several controls share (core/README.md "Controls"), described once --
+
+CONTROL_ID = Key("id", Id(), doc="What the rest of the file calls it. May be left out when `name:` is given: it is "
+                                 "then made from the name (`Oct down` -> `oct_down`).")
+CONTROL_NAME = Key("name", Str(), doc="Its name on the web page and in the CLI. Left out, it is made from the id "
+                                      "(`oct_down` -> `Oct down`).", shown_default="from the id")
+CONTROL_DAW = Key("daw", Str(), doc="A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+                  see="hosts/README.md")
+# channel:, min:, max: (gemifi_device.py control_out): build time only, the same in every preset.
+CONTROL_OUT = Keys(
+    Key("channel", Int(1, 16), doc="The MIDI channel it sends on, instead of `midi.channel`."),
+    Key("min", Int(0, 16383), doc="The value it sends at the bottom of its range, in the mode's units "
+                                  "(0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."),
+    Key("max", Int(0, 16383), doc="The value it sends at the top of its range (default: the mode's top)."),
+)

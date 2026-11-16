@@ -498,6 +498,57 @@ table.tested small {
 table.tested .nowrap {
   white-space: nowrap;
 }
+/* A component's key table (lib/keys-table.js): key names and values whole, the description takes the room. */
+.keys-table td:first-child,
+.keys-table td code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.keys-table td:nth-child(2) {
+  min-width: 6.5rem;
+}
+.keys-table td:nth-child(3):empty::after {
+  content: "–";
+}
+/* On a phone each key is a block: the key and its type, then its default and what it does. */
+@media (max-width: 40rem) {
+  .keys-table table,
+  .keys-table tbody {
+    display: block;
+  }
+  .keys-table thead {
+    display: none;
+  }
+  .keys-table tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.3rem 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .keys-table td {
+    padding: 0;
+    border: 0;
+  }
+  .keys-table td:nth-child(2) {
+    min-width: 0;
+    color: var(--muted-fg);
+  }
+  .keys-table td:nth-child(3),
+  .keys-table td:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+  .keys-table td:nth-child(3)::before {
+    content: "Default: ";
+    color: var(--muted-fg);
+  }
+  .keys-table td:nth-child(3):has(strong)::before {
+    content: none;           /* **required** says itself */
+  }
+  .keys-table td:nth-child(3):empty {
+    display: none;
+  }
+}
 
 @media (max-width: 75rem) {
   .docs,

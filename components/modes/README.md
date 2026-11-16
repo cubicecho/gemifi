@@ -185,9 +185,10 @@ modes:
 - **Held while other buttons are pressed:** the layer is on for each of those presses, and goes off with the button, as a hold mode's does.
 - **Which presses take it:** any other button's press, whether or not it has a twin in the layer, and the presses of mode buttons too. Encoders and pads with twins in the layer turn and hit as the layer's while it is on, but don't end it; keys of the key matrix aren't in layers.
 - **With the others:** it is a hold mode while on (the held hold mode and an armed one-shot rank first, "Button layers"), so pressing another hold mode's button takes the one-shot as a press would. EVENT 8 says when its layer goes on and off. `layer.enabled` 0: it can't be armed, and can still be turned off.
+- **Several one-shots** each keep their own state: a one-shot arms when its button is let go with no other button pressed since its own press, so one held while another one-shot's button was pressed doesn't arm. One layer is on at a time: the last one-shot (or hold mode) pressed. With one held, a tap of another arms that one for the next press, and the held one's layer is back after it.
 - **One-shot, modifier or gesture?** A modifier (`hold:` with only a layer) is Shift: its button keeps its own action and the layer lasts while it is held. A one-shot gives the layer for one press without holding, and its button does nothing else. A button gesture ([buttons "Gestures"](../buttons/README.md#gestures)) is a second action on the same button; a layer twin is a second action on another button, chosen by a mode's button.
 
-**Generated code:** the mode's `gm_mode_t.hold` is `GM_HOLD_ONE_SHOT` (2), and `GM_MODE_ONE_SHOT 1` in `gm_device_config.h` compiles the one-shot code in (`one_shot_button`, and `mode_one_shot_press`, which `buttons_sample` calls for each press before the modes see it). The runtime keeps 1 byte more.
+**Generated code:** the mode's `gm_mode_t.hold` is `GM_HOLD_ONE_SHOT` (2), and `GM_MODE_ONE_SHOT 1` in `gm_device_config.h` compiles the one-shot code in (`one_shot_button`, and `mode_one_shot_press`, which `buttons_sample` calls for each press before the modes see it). The runtime keeps 9 bytes more (one bit per mode, and whether the one-shot that is on is armed).
 
 ## Files
 

@@ -10,7 +10,8 @@
  * 2 note_hold note 60 / held preset_next, 3 dbl note 62 / twice note 63,
  * 4 both CC 30 / twice CC 31 / held CC 32, 5..7 c1 CC 40, c2 CC 41, c3
  * CC 43, 8 fn: the one-shot fn_layer, plain's twin CC 11, 9..11 oct
- * octave_up, prg program_next, pnext preset_next, each with repeat:.
+ * octave_up, prg program_next, pnext preset_next, each with repeat:, 12
+ * fn2: the one-shot fn2_layer, plain's twin CC 12.
  * Combos: c1 + c2 CC 42, c1 + c2 + c3 note 70. button_settings:
  * tap_time 200 ms, hold_time 300 ms, combo_time 50 ms, repeat_delay
  * 500 ms, repeat_rate 100 ms.
@@ -24,7 +25,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_N_BUTTONS != 13 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2 || !GM_MODE_ONE_SHOT || \
+#if GM_N_BUTTONS != 15 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2 || !GM_MODE_ONE_SHOT || \
     GM_BTN_REPEAT != 0xE00
 #error "test_gestures.c needs the gestures-test.yaml config"
 #endif
@@ -66,7 +67,7 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
-enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN, OCT, PRG, PNEXT };
+enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN, OCT, PRG, PNEXT, FN2 };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
 #define PIN_FN_LED 48               /* PD0 */
 /* A release counts once the contact has read open for BTN_STABLE (16)
@@ -378,16 +379,77 @@ static void test_combos(void)
     gm_cfg.btn_combo_time = COMBO_MS;
 }
 
-/* Plain pressed and let go: its CC, 10 (its own) or 11 (its twin in
- * fn_layer), on and off. */
+/* Plain pressed and let go: its CC, 10 (its own), 11 (its twin in
+ * fn_layer) or 12 (in fn2_layer), on and off; -1 for anything else. */
 static int plain_cc(void)
 {
     out_n = 0;
     press(PLAIN);
     release(PLAIN);
-    int is_own = !strcmp(cc_values(10), "10") && !*cc_values(11);
-    int is_twin = !strcmp(cc_values(11), "10") && !*cc_values(10);
-    return is_own ? 10 : is_twin ? 11 : -1;
+    int sent = 0, which = -1;
+    for (int cc = 10; cc <= 12; cc++) {
+        if (*cc_values(cc)) {
+            sent++;
+            which = !strcmp(cc_values(cc), "10") ? cc : -1;
+        }
+    }
+    return sent == 1 ? which : -1;
+}
+
+/* Button b pressed and let go (a one-shot's tap). */
+static void tap_button(int b)
+{
+    press(b);
+    release(b);
+}
+
+/* Two one-shots: each keeps its own state. */
+static void test_two_one_shots(void)
+{
+    /* fn held, fn2 tapped meanwhile: fn2 for the next press, then fn's (still held), then none */
+    press(FN);
+    tap_button(FN2);
+    CHECK(plain_cc() == 12, "fn held, fn2 tapped: plain is fn2's CC 12");
+    CHECK(plain_cc() == 11, "then fn's (still held): CC 11");
+    release(FN);
+    CHECK(plain_cc() == 10, "fn let go: plain's own CC 10");
+
+    /* fn2 held, fn tapped meanwhile: fn for the next press; fn2's release ends nothing more */
+    press(FN2);
+    tap_button(FN);
+    release(FN2);
+    CHECK(plain_cc() == 11, "fn2 held, fn tapped, fn2 let go: plain is fn's CC 11");
+    CHECK(plain_cc() == 10, "then its own");
+
+    /* fn tapped, then fn2 tapped: fn2's press took fn's layer, fn2 is armed */
+    tap_button(FN);
+    tap_button(FN2);
+    CHECK(plain_cc() == 12, "fn, then fn2: plain is fn2's CC 12");
+    CHECK(plain_cc() == 10, "then its own");
+
+    /* fn, then fn2, held together and let go: no press came after fn2's, so fn2 arms; fn,
+     * held while fn2 was pressed, doesn't */
+    press(FN);
+    press(FN2);
+    release(FN2);
+    release(FN);
+    CHECK(plain_cc() == 12, "fn, fn2 held together, let go: fn2's CC 12");
+    CHECK(plain_cc() == 10, "and not fn's after it");
+}
+
+/* An armed one-shot outlives a preset switch (modes are the same in every
+ * preset), and the next press takes it. */
+static void test_one_shot_preset_switch(void)
+{
+    int from = (int)gm_cfg.preset_active;
+    press(NOTE_HOLD);               /* its hold switches presets after HOLD_MS */
+    tap_button(FN);
+    run_ms(HOLD_MS);
+    CHECK((int)gm_cfg.preset_active == from % 4 + 1, "note_hold held: the next preset");
+    release(NOTE_HOLD);
+    CHECK(level[PIN_FN_LED] == 1, "fn still armed after the switch: its LED lit");
+    CHECK(plain_cc() == 11, "the next press after the switch: plain is fn's CC 11");
+    CHECK(plain_cc() == 10, "then its own");
 }
 
 static void test_one_shot(void)
@@ -567,7 +629,9 @@ int main(void)
     test_combos();
     test_one_shot();
     test_nothing_hangs();
-    test_repeat();                  /* last: it moves the preset on */
+    test_two_one_shots();
+    test_repeat();                  /* these last: they move the preset on */
+    test_one_shot_preset_switch();
 
     printf("test_gestures: %d checks, %d failed\n", checks, fails);
     return fails != 0;

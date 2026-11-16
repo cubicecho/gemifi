@@ -40,6 +40,8 @@ buttons:
   - { id: oct, pin: { number: PB9, inverted: true }, action: octave_up, repeat: true }
   - { id: prg, pin: { number: PB10, inverted: true }, action: program_next, repeat: true }
   - { id: pnext, pin: { number: PB11, inverted: true }, action: preset_next, repeat: true }
+  # a second one-shot's button
+  - { id: fn2, pin: { number: PB12, inverted: true } }
 
 leds:
   - { id: fn_led, pin: PD0 }
@@ -47,6 +49,8 @@ leds:
 modes:
   # fn tapped: plain is CC 11 for its next press; fn held: for every press while held
   - { id: fn_layer, one_shot: fn, layer: { plain: { cc: 11 } } }
+  # fn2: plain is CC 12
+  - { id: fn2_layer, one_shot: fn2, layer: { plain: { cc: 12 } } }
 
 combos:
   - { buttons: [c1, c2], action: cc_momentary, cc: 42 }      # c1 + c2: CC 42

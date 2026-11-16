@@ -1212,7 +1212,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ led_strip: <id>, number: n }`."
               },
               "platform": {
                 "anyOf": [
@@ -1228,16 +1233,27 @@
                 ]
               },
               "tx_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The UART TX pin to the board (PA2 on the Code 61)."
               },
               "rx_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The UART RX pin, to hear the board's answers. Left out, the LEDs are sent blind."
               },
               "count": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 256
                   },
                   {
                     "$ref": "#/definitions/substitution"
@@ -1252,14 +1268,53 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Sends through a DMA channel (stm32f1); `false` sends from the interrupt. Default: true.",
+                "default": true
               },
-              "gamma": {},
-              "white": {},
+              "gamma": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1.0,
+                    "maximum": 3.0
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ],
+                "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                "default": 1
+              },
+              "white": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 255
+                    },
+                    {
+                      "$ref": "#/definitions/substitution"
+                    }
+                  ]
+                },
+                "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+              },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin, to the first LED's DIN: any output on an ESP32, PA7 or PB15 on stm32f1."
               },
-              "order": {}
+              "order": {
+                "type": "string",
+                "description": "The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, `BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs. Default: GRB.",
+                "default": "GRB"
+              }
             },
             "additionalProperties": false
           },

@@ -387,6 +387,74 @@
       ]
     }
   ],
+  "maudio_pads": [
+    {
+      "section": "led_strip",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_strip: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`maudio_pads`",
+          "required": true,
+          "default": null,
+          "doc": "This board."
+        },
+        {
+          "key": "tx_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The UART TX pin to the board (PA2 on the Code 61)."
+        },
+        {
+          "key": "rx_pin",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "The UART RX pin, to hear the board's answers. Left out, the LEDs are sent blind."
+        },
+        {
+          "key": "count",
+          "type": "integer 1..32",
+          "required": false,
+          "default": "`16`",
+          "doc": "The LEDs on the board."
+        },
+        {
+          "key": "dma",
+          "type": "`true` or `false`",
+          "required": false,
+          "default": "`true`",
+          "doc": "Sends through a DMA channel (stm32f1); `false` sends from the interrupt.",
+          "see": "core/README.md \"DMA channels (stm32f1)\""
+        },
+        {
+          "key": "gamma",
+          "type": "number 1..3",
+          "required": false,
+          "default": "`1`",
+          "doc": "The colours' curve: 1 is straight, about 2.2 suits most LEDs.",
+          "see": "components/led_strip/README.md \"Calibration\""
+        },
+        {
+          "key": "white",
+          "type": "list of integer 1..255",
+          "required": false,
+          "default": "all 255",
+          "doc": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255.",
+          "see": "components/led_strip/README.md \"Calibration\""
+        }
+      ],
+      "platform": "maudio_pads"
+    }
+  ],
   "mcp23017": [
     {
       "section": "mcp23017",
@@ -728,6 +796,66 @@
         }
       ],
       "platform": "tm1637"
+    }
+  ],
+  "ws2812": [
+    {
+      "section": "led_strip",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_strip: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`ws2812`",
+          "required": true,
+          "default": null,
+          "doc": "This kind of strip."
+        },
+        {
+          "key": "pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The data pin, to the first LED's DIN: any output on an ESP32, PA7 or PB15 on stm32f1."
+        },
+        {
+          "key": "count",
+          "type": "integer 1..256",
+          "required": true,
+          "default": null,
+          "doc": "The LEDs in the chain."
+        },
+        {
+          "key": "order",
+          "type": "text",
+          "required": false,
+          "default": "`GRB`",
+          "doc": "The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, `BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs."
+        },
+        {
+          "key": "gamma",
+          "type": "number 1..3",
+          "required": false,
+          "default": "`1`",
+          "doc": "The colours' curve: 1 is straight, about 2.2 suits most LEDs.",
+          "see": "components/led_strip/README.md \"Calibration\""
+        },
+        {
+          "key": "white",
+          "type": "list of integer 1..255",
+          "required": false,
+          "default": "all 255",
+          "doc": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255.",
+          "see": "components/led_strip/README.md \"Calibration\""
+        }
+      ],
+      "platform": "ws2812"
     }
   ]
 }

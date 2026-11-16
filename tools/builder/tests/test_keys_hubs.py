@@ -78,6 +78,10 @@ class EdgesAgree(unittest.TestCase):
     def test_tm1628(self):
         self.hub("tm1628", {"id": "h", "clk_pin": "PB6", "dio_pin": "PB7", "stb_pin": "PB8"}, 12)
 
+    def test_strips(self):
+        self.hub("ws2812", {"id": "h", "pin": "PA7", "count": 4}, 8)
+        self.hub("maudio_pads", {"id": "h", "tx_pin": "PA2"}, 8)
+
     def test_switch_matrix(self):
         self.hub("switch_matrix", {"id": "h", "rows": ["PB6", "PB7"], "columns": ["PB8", "PB9"]}, 8)
 

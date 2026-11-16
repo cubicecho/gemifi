@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.57.1](https://github.com/cubicecho/gemifi/compare/v0.57.0...v0.57.1) (2026-11-16)
+
+
+### Performance Improvements
+
+* **buttons:** a layer twin takes its base's reading, no second pin read ([79736f6](https://github.com/cubicecho/gemifi/commit/79736f6e343cab53a48345773f95a1976c376b6e)), closes [#73](https://github.com/cubicecho/gemifi/issues/73)
+
 # [0.57.0](https://github.com/cubicecho/gemifi/compare/v0.56.2...v0.57.0) (2026-11-16)
 
 

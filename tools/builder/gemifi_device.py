@@ -55,7 +55,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.57.0"
+VERSION = "0.57.1"
 
 
 # ---- MIDI messages (core/README.md "MIDI messages") ----

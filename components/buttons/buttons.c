@@ -639,13 +639,23 @@ static void gestures_ms(uint32_t now)
     if (combo_timed_out)
         combo_settle();
 #endif
+#if GM_BTN_HOLD || GM_BTN_DOUBLE
     for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
         uint32_t i = (uint32_t)__builtin_ctzll(m);
         uint32_t age = now - gs_since[i];
         int is_pressed = gs_state[i] == GS_PRESSED;
+        /* without one of the gestures its time is 0: its test is left out (always true) */
+#if GM_BTN_HOLD
         int is_hold = is_pressed && HAS(GM_BTN_HOLD, i) && age >= HOLD_MS;
+#else
+        const int is_hold = 0;
+#endif
+#if GM_BTN_DOUBLE
         int is_long_press = is_pressed && !HAS(GM_BTN_HOLD, i) && age >= TAP_MS;
         int is_single_tap = gs_state[i] == GS_TAPPED && age >= TAP_MS;
+#else
+        const int is_long_press = 0, is_single_tap = 0;
+#endif
         if (is_hold) {
             gs_state[i] = GS_HOLD;
             app_log(LOG_DEBUG, gm_device.buttons[i].name, ": hold");
@@ -658,6 +668,7 @@ static void gestures_ms(uint32_t now)
             tap(i);
         }
     }
+#endif
 }
 
 /* Button i's release skipped the gestures (held through a preset switch):

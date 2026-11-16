@@ -198,8 +198,10 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
   layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; the `modes` component (`components/modes`).
 - **Param:** a setting a host can read and change at run time (`button.action`, `midi.channel` ...).
   Owner: `core/src/params.c`, `core/src/settings.c`.
-- **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. Owner:
-  `core/src/presets.c`.
+- **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. A device
+  without `presets:` has one slot and **presets off**: the slot only holds its settings, and nothing
+  can switch or name it. Owner: `core/src/presets.c`; `GM_HAS_PRESETS` (`gm_settings.h`), the
+  builder's `Device.has_presets`.
 - **Display:** a line of characters the device shows text on: segment characters on hub output pins
   (`segment14`, `segment7`) or text on a screen (`text`, `display: <id>`). It shows its own content (`shows:`), the
   device's messages, or a host's text. Owner: `gm_display_t`, `core/src/display.c`,

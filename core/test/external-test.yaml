@@ -1,0 +1,30 @@
+# External components test device (core/test/test_external.c): a TCA9555 expander (hub type) and an
+# ST7567 LCD (display platform) from core/test/external/, outside gemifi's components/.
+gemifi: 2
+name: external-test
+board_id: 0x3F1A
+platform: esp32s3
+chip: esp32-s3-devkitc-1
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
+
+external_components:
+  - source: external
+
+i2c: { sda: GPIO8, scl: GPIO9 }
+
+tca9555:
+  - { id: exp, address: 0x21 }
+
+display:
+  - { id: lcd, platform: st7567, address: 0x3F, contrast: 33 }
+
+buttons:
+  - { id: b0, pin: { tca9555: exp, number: 0, inverted: true }, action: cc_momentary, cc: 20, led: l3 }
+  - { id: b9, pin: { tca9555: exp, number: 9, inverted: true }, action: cc_momentary, cc: 29 }
+
+leds:
+  - { id: l3, pin: { tca9555: exp, number: 3 } }
+
+displays:
+  - { id: top, display: lcd, line: 0, shows: last_message }

@@ -27,6 +27,7 @@ SPEC = Keys(
 
 class XYPad(HubType):
     key, enum, num = "xy_pad", "GM_HUB_XY", 10
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     spec = SPEC
     keys = tuple(SPEC.names)
     lines = {"x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
@@ -50,7 +51,6 @@ def validate_xy_pad(v, hub, h, p, ctl):
     """xy_pad: a 4-wire resistive panel on four MCU pins. Reading X drives x_plus high and x_minus low,
     and reads the Y plate; reading Y the other way round. Each axis is read on the other plate's minus
     pin if it has an ADC, else its plus pin."""
-    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     hub.n_pins = 2
     hub.sel = [ctl(k, "out") for k in ("x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin")]
     hub.touch_min = SPEC.get(v, h, "touch_min", p)

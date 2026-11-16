@@ -82,18 +82,25 @@ class EdgesAgree(unittest.TestCase):
                 "analog:\n  - { id: a, pin: PA2, cc: 7 }\n"
                 "pads:\n  - { id: p, pin: PA3, note: 36 }\n")
 
-    def slot_2(self, keys, at, context=None):
-        """The edges of keys in preset 2 (slot 1 takes only name: and program:): at(key, value) -> (its preset's
-        keys, the key's path)."""
+    def deep(self, keys, at, more=""):
+        """The edges of keys deeper in the file: at(key, value) -> (the top-level keys to add, the key's path)."""
         n = 0
         for k in keys:
             for value, ok in k.type.bad_values():
                 with self.subTest(key=k.name, value=value):
-                    item, path = at(k.name, value)
-                    errs = errors({"presets": {"list": [{"name": "A"}, {"name": "B", **item}]}}, self.CONTROLS)
-                    (self.assertNotIn if ok else self.assertIn)(path, [p for p, _ in errs], (item, errs))
+                    top, path = at(k.name, value)
+                    errs = errors(top, more)
+                    (self.assertNotIn if ok else self.assertIn)(path, [p for p, _ in errs], (top, errs))
                     n += 1
         return n
+
+    def slot_2(self, keys, at):
+        """The edges of keys in preset 2 (slot 1 takes only name: and program:): at(key, value) -> (its keys,
+        the key's path)."""
+        def put(k, x):
+            item, path = at(k, x)
+            return {"presets": {"list": [{"name": "A"}, {"name": "B", **item}]}}, path
+        return self.deep(keys, put, self.CONTROLS)
 
     def test_presets(self):
         # 64 slots fit an ESP32's NVS, not the STM32F1's config pages
@@ -107,6 +114,18 @@ class EdgesAgree(unittest.TestCase):
             n += self.slot_2(keys, lambda k, x: ({sec: {cid: {k: x}}}, f"presets.list[1].{sec}.{cid}.{k}"))
         self.assertGreater(n, 30)
 
+    def test_displays(self):
+        seg = {"led_driver": [{"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}]}
+        item = {"id": "s", "chars": [{"led_driver": "d", "number": 0}]}
+        n = self.deep(gd.DISPLAY.without(*gd.TEXT_KEYS), lambda k, x: (
+            {**seg, "displays": [{**item, k: x}]}, f"displays[0].{k}"))
+        # a text display on a 128 x 64 OLED (x: its room for a character is a rule of its own: 0..122 at scale 1)
+        esp = {"platform": "esp32", "chip": "esp32", "usb": None, "midi": {"transport": "serial"},
+               "i2c": {"sda": "GPIO21", "scl": "GPIO22"}, "display": [{"id": "oled", "platform": "ssd1306"}]}
+        text = {"id": "t", "display": "oled"}
+        n += self.deep(gd.DISPLAY.without(*gd.SEGMENT_KEYS, "x"), lambda k, x: (
+            {**esp, "displays": [{**text, k: x}]}, f"displays[0].{k}"))
+        self.assertGreater(n, 10)
 
 if __name__ == "__main__":
     unittest.main()

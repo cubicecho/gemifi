@@ -255,7 +255,7 @@ The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and 
 A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...), or a row of text on a screen (`display:`, an OLED). Up to 4 displays, of up to 16 characters each (a text display up to 21), one row each.
 
 - **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. `text`: 5 × 7 characters on a screen (below). Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
-- **Text displays** (`type: text`, the default when `display:` is given): `display:` the id of the screen it is on, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), `line:` the text line its top is on (8 pixels a line from the top: 0–7 on a 64-pixel panel, 0–3 on a 32-pixel one), `x:` the pixel column it starts at (default 0), `scale:` 1–4 (default 1: each character 6 × 8 pixels with its gap, so 21 a row on 128 pixels; scale 2: 12 × 16 pixels, 2 lines tall, 10 a row), `length:` the characters (default as many as fit). Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap. `chars:`, `segment_step:` and `segment_order:` are for segment displays only.
+- **Text displays** (`type: text`) are on a screen, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), placed by text line (8 pixels a line from the top) and pixel column ([the display keys](yaml/displays.md#keys)). At scale 1 a character is 6 × 8 pixels with its gap, so 21 fit a row on 128 pixels; at scale 2 it is 12 × 16 pixels, 2 lines tall, 10 a row. Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap.
 - **Pins.** Each item of `chars:` is a character, left to right:
   - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
   - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
@@ -282,8 +282,8 @@ A display is a row of segment characters on output pins of hubs (a TM1628, MAX72
 ```yaml
 displays:
   - id: display
-    type: segment14            # the default
-    daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
+    type: segment14
+    daw: param                 # what a DAW script shows on it
     chars:                     # left to right: each character's segment a
       - { led_driver: leds_a, number: 48 }
       - { led_driver: leds_a, number: 64 }
@@ -294,6 +294,8 @@ displays:
     segment_step: 16
     chars: [{ led_driver: leds_b, number: 0 }, { led_driver: leds_b, number: 1 }]
 ```
+
+Each key, its range and default: [the display keys](yaml/displays.md#keys).
 
 Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one display a line), graphics, and the TM1640. See #120.
 

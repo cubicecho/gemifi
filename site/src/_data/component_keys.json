@@ -3449,5 +3449,109 @@
         }
       ]
     }
+  ],
+  "core/displays": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "displays",
+          "type": "list of mapping",
+          "required": false,
+          "default": null,
+          "doc": "The displays, up to 4: a row of segment characters on hub pins, or a row of text on a screen.",
+          "see": "core/README.md \"Displays\"",
+          "keys": [
+            {
+              "key": "id",
+              "type": "id",
+              "required": true,
+              "default": null,
+              "doc": "What the rest of the file and a host's FB_TEXT call it."
+            },
+            {
+              "key": "type",
+              "type": "`segment14`, `segment7`, `text`",
+              "required": false,
+              "default": "`text` with `display:`, else `segment14`",
+              "doc": "Its characters: 14 or 7 segments on hub pins, or text on a screen."
+            },
+            {
+              "key": "chars",
+              "type": "list of pin or list of pin",
+              "required": false,
+              "default": null,
+              "doc": "Each character's first pin, or its segments' pins, left to right (hub pins). A segment display's."
+            },
+            {
+              "key": "segment_step",
+              "type": "integer 1..64",
+              "required": false,
+              "default": "`1`",
+              "doc": "Segment k of a character is this many pins times k after its first pin. A segment display's."
+            },
+            {
+              "key": "segment_order",
+              "type": "list of `a`, `b`, `c`, `d`, `dot`, `dp`, `e`, `f`, `g`, `g1`, `g2`, `h`, `i`, `j`, `k`, `l`, `m`",
+              "required": false,
+              "default": "a, b, ... in gm_display.h order",
+              "doc": "The segments in pin order from each first pin; ones left out aren't wired. A segment display's."
+            },
+            {
+              "key": "shows",
+              "type": "`last_message`, `preset_number`, `preset_name`, `channel`, `none`",
+              "required": false,
+              "default": "`last_message` on the first display, else `none`",
+              "doc": "What it shows of its own while no host writes to it."
+            },
+            {
+              "key": "daw",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "What a DAW script shows on it (`time`, `track_name`, `param`, `status`).",
+              "see": "hosts/README.md"
+            },
+            {
+              "key": "display",
+              "type": "display id",
+              "required": false,
+              "default": null,
+              "doc": "The screen it is on: a `display:` item's id. A text display's."
+            },
+            {
+              "key": "line",
+              "type": "integer 0..7",
+              "required": false,
+              "default": "`0`",
+              "doc": "The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen). A text display's."
+            },
+            {
+              "key": "x",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "`0`",
+              "doc": "The pixel column it starts at. A text display's."
+            },
+            {
+              "key": "scale",
+              "type": "integer 1..4",
+              "required": false,
+              "default": "`1`",
+              "doc": "Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall. A text display's."
+            },
+            {
+              "key": "length",
+              "type": "integer 1..21",
+              "required": false,
+              "default": "as many as fit",
+              "doc": "How many characters it has. A text display's."
+            }
+          ],
+          "sub": "[]"
+        }
+      ]
+    }
   ]
 }

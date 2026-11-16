@@ -29,7 +29,8 @@ from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, IdRef as _IdRef,  # noqa: E402
                              Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map, OneOf as _OneOf,
-                             Period as _Period, Pin as _Pin, Raw as _Raw, Str as _Str, ById as _ById)
+                             Period as _Period, Pin as _Pin, Raw as _Raw, Ref as _Ref, Str as _Str, ById as _ById,
+                             CONTROL_DAW as _CONTROL_DAW)
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -2410,8 +2411,6 @@ def validate_version(v, data):
 # ---------------------------------------------------------------------------------------------
 # displays (core/README.md "Displays")
 
-DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
-                "display", "line", "x", "scale", "length"]
 TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
 RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
                               "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)" + MIGRATE_HINT}
@@ -2432,6 +2431,38 @@ MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, p
 DISPLAY_SHOWS = {"last_message": 0, "preset_number": 1, "preset_name": 2, "channel": 3, "none": 4}
 DISPLAY_SHOWS_C = {0: "GM_SHOWS_LAST_MESSAGE", 1: "GM_SHOWS_PRESET_NUMBER", 2: "GM_SHOWS_PRESET_NAME",
                    3: "GM_SHOWS_CHANNEL", 4: "GM_SHOWS_NONE"}
+_SEG = " A segment display's."
+_TEXT = " A text display's."
+# One displays: item, checked by validate_displays(): the segment types' keys, then the text type's. The
+# ranges of line: and x: (the screen's size), and the type and shows names (their messages), stay as code.
+DISPLAY = _Keys(
+    _Key("id", _Ref("id", "id"), required=True, doc="What the rest of the file and a host's FB_TEXT call it."),
+    _Key("type", _Enum(DISPLAY_TYPES), shown_default="`text` with `display:`, else `segment14`",
+         doc="Its characters: 14 or 7 segments on hub pins, or text on a screen."),
+    _Key("chars", _List(_OneOf(_Pin(), _List(_Pin()))),
+         doc="Each character's first pin, or its segments' pins, left to right (hub pins)." + _SEG),
+    _Key("segment_step", _Int(1, 64), default=1,
+         doc="Segment k of a character is this many pins times k after its first pin." + _SEG),
+    _Key("segment_order", _List(_Enum(sorted({n for ns in SEG_NAMES.values() for n in ns}))),
+         shown_default="a, b, ... in gm_display.h order",
+         doc="The segments in pin order from each first pin; ones left out aren't wired." + _SEG),
+    _Key("shows", _Enum(DISPLAY_SHOWS), shown_default="`last_message` on the first display, else `none`",
+         doc="What it shows of its own while no host writes to it."),
+    _CONTROL_DAW.but(doc="What a DAW script shows on it (`time`, `track_name`, `param`, `status`)."),
+    _Key("display", _Ref("id", "display id"), doc="The screen it is on: a `display:` item's id." + _TEXT),
+    _Key("line", _Int(0, 7), default=0,
+         doc="The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen)." + _TEXT),
+    _Key("x", _Int(0, 127), default=0, doc="The pixel column it starts at." + _TEXT),
+    _Key("scale", _Int(1, 4), default=1,
+         doc="Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall." + _TEXT),
+    _Key("length", _Int(1, MAX_TEXT_CHARS), shown_default="as many as fit",
+         doc="How many characters it has." + _TEXT),
+)
+DISPLAY_KEYS = DISPLAY.names
+# The Core area (core/yaml/displays.md)
+DISPLAYS_AREA = _Keys(_Key("displays", _List(_Map(DISPLAY)), see='core/README.md "Displays"',
+                           doc=f"The displays, up to {MAX_DISPLAYS}: a row of segment characters on hub pins, or a "
+                               "row of text on a screen."))
 
 
 def validate_displays(v, dev, data):
@@ -2475,7 +2506,7 @@ def validate_displays(v, dev, data):
                 dev.displays.append(Hub(**x))
             continue
         nseg, what = DISPLAY_SEGS[t]
-        step = v.integer(d, "segment_step", p, 1, 64, default=1)
+        step = DISPLAY.get(v, d, "segment_step", p)
         order = segment_order(v, d, p, t)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
         if not chars:
@@ -2551,7 +2582,7 @@ def validate_text_display(v, dev, d, p):
         return None
     scr.used = True
     lines = scr.height // TEXT_H
-    scale = v.integer(d, "scale", p, 1, 4, default=1)
+    scale = DISPLAY.get(v, d, "scale", p)
     line = v.integer(d, "line", p, 0, lines - 1, default=0)
     x = v.integer(d, "x", p, 0, scr.width - 1, default=0)
     if line + scale > lines:
@@ -2564,7 +2595,7 @@ def validate_text_display(v, dev, d, p):
         v.err(f"{p}.x", d.line_of("x"), f"no room for a character from x {x} at scale {scale} "
                                         f"({TEXT_W * scale} pixels; '{scr.id}' is {scr.width} wide)")
         return None
-    n = v.integer(d, "length", p, 1, MAX_TEXT_CHARS, default=min(room, MAX_TEXT_CHARS))
+    n = DISPLAY.get(v, d, "length", p, default=min(room, MAX_TEXT_CHARS))
     if n > room:
         v.err(f"{p}.length", d.line_of("length"), f"{n} characters at scale {scale} from x {x} are "
                                                   f"{n * TEXT_W * scale} pixels: '{scr.id}' has room for {room}")
@@ -4274,4 +4305,5 @@ def write_generated(dev, out_dir, source):
 CORE_AREAS = {
     "device": DEVICE_KEYS,
     "presets": PRESETS_AREA,
+    "displays": DISPLAYS_AREA,
 }

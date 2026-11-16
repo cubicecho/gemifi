@@ -5352,7 +5352,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file and a host's FB_TEXT call it."
               },
               "type": {
                 "anyOf": [
@@ -5366,7 +5371,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its characters: 14 or 7 segments on hub pins, or text on a screen. Default: text with display:, else segment14."
               },
               "chars": {
                 "type": "array",
@@ -5383,7 +5389,7 @@
                     }
                   ]
                 },
-                "description": "each character's first pin, or its segments' pins"
+                "description": "Each character's first pin, or its segments' pins, left to right (hub pins). A segment display's."
               },
               "segment_step": {
                 "anyOf": [
@@ -5395,7 +5401,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Segment k of a character is this many pins times k after its first pin. A segment display's. Default: 1.",
+                "default": 1
               },
               "segment_order": {
                 "type": "array",
@@ -5427,7 +5435,7 @@
                     }
                   ]
                 },
-                "description": "the segments in pin order"
+                "description": "The segments in pin order from each first pin; ones left out aren't wired. A segment display's. Default: a, b, ... in gm_display.h order."
               },
               "shows": {
                 "anyOf": [
@@ -5443,13 +5451,20 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What it shows of its own while no host writes to it. Default: last_message on the first display, else none."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "What a DAW script shows on it (`time`, `track_name`, `param`, `status`)."
               },
               "display": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "The screen it is on: a `display:` item's id. A text display's."
               },
               "line": {
                 "anyOf": [
@@ -5461,7 +5476,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen). A text display's. Default: 0.",
+                "default": 0
               },
               "x": {
                 "anyOf": [
@@ -5473,7 +5490,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The pixel column it starts at. A text display's. Default: 0.",
+                "default": 0
               },
               "scale": {
                 "anyOf": [
@@ -5485,7 +5504,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall. A text display's. Default: 1.",
+                "default": 1
               },
               "length": {
                 "anyOf": [
@@ -5497,11 +5518,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "How many characters it has. A text display's. Default: as many as fit."
               }
             },
             "additionalProperties": false
-          }
+          },
+          "description": "The displays, up to 4: a row of segment characters on hub pins, or a row of text on a screen."
         },
         {
           "type": "string",

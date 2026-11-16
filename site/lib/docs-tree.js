@@ -70,6 +70,11 @@ export const CORE_YAML = {
       title: "Presets",
       summary: "The preset slots and what each preset changes: the channel, the curves, the controls' numbers and modes.",
     },
+    {
+      file: "core/yaml/displays.md",
+      title: "Displays",
+      summary: "Segment displays on a hub's pins and text displays on a screen: their characters, what they show.",
+    },
   ],
 };
 

@@ -156,7 +156,7 @@ export function buildDocs() {
       .map(([file, label]) => {
         const existing = specs.find((s) => s.file === file);
         if (existing) return { label, url: existing.url };
-        const spec = { file, url: docUrl(file), label, section: "platforms" };
+        const spec = { file, url: docUrl(file), label, linkText: `${p.name} ${label.toLowerCase()}`, section: "platforms" };
         specs.push(spec);
         return { label, url: spec.url };
       });
@@ -164,7 +164,9 @@ export function buildDocs() {
   });
 
   const pages = new Map(specs.filter((s) => s.file).map((s) => [s.file, s.url]));
-  const env = { pages, blob: site.blob, tree: site.tree, prefix: site.pathPrefix };
+  // What a link that names a page by its path says instead (repo-docs.js retitle): its short name.
+  const titles = new Map(specs.filter((s) => s.file).map((s) => [s.file, s.linkText ?? s.label ?? s.title]));
+  const env = { pages, titles, blob: site.blob, tree: site.tree, prefix: site.pathPrefix };
   const md = markdown();
 
   const rendered = specs.map((s) => {

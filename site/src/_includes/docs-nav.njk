@@ -1,51 +1,62 @@
-{#- The docs tree, on every docs page. Item urls have no path prefix, as page.url. Each section head has its tone (site.css). -#}
+{#- The docs tree, on every docs page. Item urls have no path prefix, as page.url. Each section folds; it is
+    open when it holds this page (Overview always is). Each section head has its tone (site.css). -#}
 {%- macro item(title, url) -%}
 <li><a href="{{ url | url }}"{% if page.url == url %} aria-current="page"{% endif %}>{{ title }}</a></li>
 {%- endmacro -%}
 {%- macro head(title, tone) -%}
-<p class="docs-nav-head tone tone-{{ tone }}">{{ title }}</p>
+<summary class="docs-nav-head tone tone-{{ tone }}">{{ title }}</summary>
 {%- endmacro -%}
 <details class="docs-nav-toggle" open>
   <summary>Docs menu</summary>
   <nav class="docs-nav" aria-label="Docs">
-    {{ head("Overview", "overview") }}
-    <ul>
-      {{ item("Docs home", "/docs/") }}
-      {{ item("Get started", "/get-started/") }}
-      {% for c in docs.core %}{{ item(c.title, c.url) }}{% endfor %}
-      {{ item("DAW setup", "/daw-setup/") }}
-    </ul>
+    <details class="docs-nav-section" open>
+      {{ head("Overview", "overview") }}
+      <ul>
+        {{ item("Docs home", "/docs/") }}
+        {{ item("Get started", "/get-started/") }}
+        {% for c in docs.core %}{{ item(c.title, c.url) }}{% endfor %}
+        {{ item("DAW setup", "/daw-setup/") }}
+      </ul>
+    </details>
     {% for g in [docs.base].concat(docs.groups) %}
-    {{ head(g.title, g.key) }}
-    <ul>
-      {% for i in g.items %}{{ item(i.title, i.url) }}{% endfor %}
-    </ul>
+    <details class="docs-nav-section"{% if g.items | holds(page.url) %} open{% endif %}>
+      {{ head(g.title, g.key) }}
+      <ul>
+        {% for i in g.items %}{{ item(i.title, i.url) }}{% endfor %}
+      </ul>
+    </details>
     {% endfor %}
-    {{ head("Platforms", "platforms") }}
-    <ul>
-      {{ item("All platforms", "/docs/platforms/") }}
-      {% for p in docs.platforms %}
-      <li>
-        <a href="{{ p.url | url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>{{ p.title }}</a>
-        {% if p.children.length %}
-        <ul>
-          {% for c in p.children %}{{ item(c.label, c.url) }}{% endfor %}
-        </ul>
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-    {{ head("Devices", "devices") }}
-    <ul>
-      {{ item("All devices", "/devices/") }}
-      {{ item("Tested devices", "/docs/devices/") }}
-      {% for d in collections.devices %}{{ item(d.data.maker + " " + d.data.model, d.url) }}{% endfor %}
-    </ul>
+    <details class="docs-nav-section"{% if page.url == "/docs/platforms/" or docs.platforms | holds(page.url) %} open{% endif %}>
+      {{ head("Platforms", "platforms") }}
+      <ul>
+        {{ item("All platforms", "/docs/platforms/") }}
+        {% for p in docs.platforms %}
+        <li>
+          <a href="{{ p.url | url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>{{ p.title }}</a>
+          {% if p.children.length %}
+          <ul>
+            {% for c in p.children %}{{ item(c.label, c.url) }}{% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    <details class="docs-nav-section"{% if page.url == "/devices/" or page.url == "/docs/devices/" or collections.devices | holds(page.url) %} open{% endif %}>
+      {{ head("Devices", "devices") }}
+      <ul>
+        {{ item("All devices", "/devices/") }}
+        {{ item("Tested devices", "/docs/devices/") }}
+        {% for d in collections.devices %}{{ item(d.data.maker + " " + d.data.model, d.url) }}{% endfor %}
+      </ul>
+    </details>
     {% for g in docs.guides %}
-    {{ head(g.title, g.key) }}
-    <ul>
-      {% for i in g.items %}{{ item(i.title, i.url) }}{% endfor %}
-    </ul>
+    <details class="docs-nav-section"{% if g.items | holds(page.url) %} open{% endif %}>
+      {{ head(g.title, g.key) }}
+      <ul>
+        {% for i in g.items %}{{ item(i.title, i.url) }}{% endfor %}
+      </ul>
+    </details>
     {% endfor %}
   </nav>
 </details>

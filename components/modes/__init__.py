@@ -6,7 +6,7 @@ c_rgb_defines(), c_layer_defines(), c_defines() and c_tables() where gm_device_c
 import difflib
 import re
 
-from components.api import CURVES, WHITE, Hub, LDict, c_str, errors, with_article
+from components.api import CURVES, PRESETS_OFF, WHITE, Hub, LDict, c_str, errors, with_article
 from components.buttons import ACTION_IDS, button_action
 from components.hub import c_comment
 from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, colour_exact, colour_look,
@@ -231,9 +231,8 @@ def mode_action(v, dev, name, d, path, line, arg=None):
                           "`{ mode: <id> }` to go to a sub-mode)")
         return None
     op, argkey = MODE_ACTIONS[name]
-    if name.startswith("preset") and dev.n_presets < 2:
-        v.err(path, line, f"action {name} switches presets, but this device has {dev.n_presets} preset slot: "
-                          "add presets: (with 2 or more slots)")
+    if name.startswith("preset") and not dev.has_presets:
+        v.err(path, line, f"action {name} switches presets, but {PRESETS_OFF}")
         return None
     if name == "velocity_curve" and not (dev.matrix is not None and dev.matrix.kind == "velocity"):
         v.err(path, line, "velocity_curve needs a velocity key matrix (key_matrix: { type: velocity })")
@@ -631,8 +630,8 @@ def mode_show(v, dev, m, d, p):
     if None in idx:
         return
     m.show = (idx[0], idx[-1] if len(idx) > 1 else -1)
-    if dev.n_presets < 2:
-        v.warn(f"{p}.preset_blink", pbl, "only shown after a preset switch, and this device has 1 preset slot")
+    if not dev.has_presets:
+        v.warn(f"{p}.preset_blink", pbl, f"only shown after a preset switch, and {PRESETS_OFF}")
 
 
 def mode_keys(v, dev, m, keys, kp, by_id):

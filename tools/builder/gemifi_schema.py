@@ -182,7 +182,7 @@ def presets():
                         if kind == "bool" else T("integer", minimum=lo, maximum=hi))
         globs[sec] = obj(list(keys), types)
     item = obj(gd.PRESET_KEYS, {"program": INT7, **globs, **comps})
-    return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=1, maximum=gd.MAX_PRESETS),
+    return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=2, maximum=gd.MAX_PRESETS),
                                  "revision": T("integer", minimum=0, maximum=gd.PRESET_REVISION_MAX),
                                  "list": lst(item)}, "preset slots (core/README.md \"Presets\")")
 

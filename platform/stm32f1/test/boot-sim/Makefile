@@ -19,7 +19,7 @@ BOARD ?= m-audio-code61
 include $(ROOT)/platform/board-profile.mk
 CFLAGS += -I$(BOARD_GEN)
 
-SRCS := boot_sim.c $(PLAT)/src/crc32.c $(ROOT)/core/src/gsx.c
+SRCS := boot_sim.c $(ROOT)/core/src/crc32.c $(ROOT)/core/src/gsx.c
 
 .PHONY: test clean
 test: $(BUILD)/boot_sim

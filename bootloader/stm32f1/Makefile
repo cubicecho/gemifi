@@ -24,7 +24,7 @@ SRCS := main.c \
         $(PLAT)/src/startup.c \
         $(PLAT)/src/sys.c \
         $(PLAT)/src/flash.c \
-        $(PLAT)/src/crc32.c \
+        $(CORE)/src/crc32.c \
         $(PLAT)/src/recovery.c \
         $(PLAT)/src/usbd.c \
         $(PLAT)/src/usb_midi.c \

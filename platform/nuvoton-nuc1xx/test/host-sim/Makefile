@@ -48,7 +48,7 @@ hello-led:
 $(BUILD):
 	mkdir -p $@
 
-BOOT_SRCS := harness.c $(ROOT)/core/src/gsx.c $(PLAT)/src/crc32.c
+BOOT_SRCS := harness.c $(ROOT)/core/src/gsx.c $(ROOT)/core/src/crc32.c
 BOOT_DEPS := $(BOOT_SRCS) $(ROOT)/bootloader/nuvoton-nuc1xx/main.c $(wildcard stub/*.h $(PLAT)/include/*.h)
 
 $(BUILD)/libboot.so: $(BOOT_DEPS) | $(BUILD)
@@ -85,7 +85,7 @@ GM_ROOT := $(ROOT)
 -include $(DEV_DIR)/gm_components.mk
 CTL_COMPONENT_SRCS := $(GM_COMPONENT_SRCS)
 CTL_COMPONENT_INCS := $(addprefix -I,$(GM_COMPONENT_INCS))
-CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c \
+CTL_SRCS := harness_ctl.c $(PLAT)/src/config_store.c $(ROOT)/core/src/crc32.c \
             $(addprefix $(ROOT)/core/src/,gsx.c params.c app_proto.c settings.c controller.c feedback.c monitor.c vpin.c display.c din.c midi_in.c mcu.c presets.c safety.c) \
             $(DEV_DIR)/gm_device_config.c $(CTL_COMPONENT_SRCS)
 
@@ -103,7 +103,7 @@ $(BUILD)/libctl.so: $(CTL_SRCS) $(DEV_DIR)/gm_components.mk $(wildcard $(ROOT)/c
 cs-test: $(BUILD)/cs_test
 	$(BUILD)/cs_test $(CS_ARGS)
 
-$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(PLAT)/src/crc32.c $(ROOT)/core/include/config_store.h | $(BUILD)
+$(BUILD)/cs_test: cs_test.c $(PLAT)/src/config_store.c $(ROOT)/core/src/crc32.c $(ROOT)/core/include/config_store.h | $(BUILD)
 	$(HOSTCC) -O2 $(filter-out -fPIC -O1,$(CFLAGS)) $(filter %.c,$^) -o $@
 
 clean:

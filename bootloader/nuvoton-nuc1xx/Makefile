@@ -28,7 +28,7 @@ SRCS := main.c \
         $(PLATFORM_DIR)/src/startup.c \
         $(PLATFORM_DIR)/src/sys.c \
         $(PLATFORM_DIR)/src/fmc.c \
-        $(PLATFORM_DIR)/src/crc32.c \
+        $(PLATFORM_DIR)/../../core/src/crc32.c \
         $(PLATFORM_DIR)/../../core/src/gsx.c \
         $(PLATFORM_DIR)/src/usbd.c \
         $(PLATFORM_DIR)/src/usb_midi.c

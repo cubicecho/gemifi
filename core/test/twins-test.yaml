@@ -1,0 +1,59 @@
+# Test device for core/test/test_twins.c: layer twins on a device with more
+# than 32 buttons (a 64-bit button reading), one twin's base below bit 32 and
+# one above. Buttons p0..p39 send CC 0..39 (p40 toggles the layer). Not a
+# real board; the pins only need to be distinct for the simulated HAL.
+gemifi: 2
+name: twins-test
+friendly_name: Twins Test
+board_id: 0x3F19
+platform: stm32f1
+chip: STM32F103RB
+usb: { vid: 0x1209, pid: 0x0002 }
+
+buttons:
+  - { id: p0, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 0 }
+  - { id: p1, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 1 }
+  - { id: p2, pin: { number: PC14, inverted: true }, action: cc_momentary, cc: 2 }
+  - { id: p3, pin: { number: PB3, inverted: true }, action: cc_momentary, cc: 3 }
+  - { id: p4, pin: { number: PB4, inverted: true }, action: cc_momentary, cc: 4 }
+  - { id: p5, pin: { number: PB5, inverted: true }, action: cc_momentary, cc: 5 }
+  - { id: p6, pin: { number: PB6, inverted: true }, action: cc_momentary, cc: 6 }
+  - { id: p7, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 7 }
+  - { id: p8, pin: { number: PB8, inverted: true }, action: cc_momentary, cc: 8 }
+  - { id: p9, pin: { number: PB9, inverted: true }, action: cc_momentary, cc: 9 }
+  - { id: p10, pin: { number: PB10, inverted: true }, action: cc_momentary, cc: 10 }
+  - { id: p11, pin: { number: PB11, inverted: true }, action: cc_momentary, cc: 11 }
+  - { id: p12, pin: { number: PB12, inverted: true }, action: cc_momentary, cc: 12 }
+  - { id: p13, pin: { number: PB13, inverted: true }, action: cc_momentary, cc: 13 }
+  - { id: p14, pin: { number: PB14, inverted: true }, action: cc_momentary, cc: 14 }
+  - { id: p15, pin: { number: PB15, inverted: true }, action: cc_momentary, cc: 15 }
+  - { id: p16, pin: { number: PC0, inverted: true }, action: cc_momentary, cc: 16 }
+  - { id: p17, pin: { number: PC1, inverted: true }, action: cc_momentary, cc: 17 }
+  - { id: p18, pin: { number: PC2, inverted: true }, action: cc_momentary, cc: 18 }
+  - { id: p19, pin: { number: PC3, inverted: true }, action: cc_momentary, cc: 19 }
+  - { id: p20, pin: { number: PC4, inverted: true }, action: cc_momentary, cc: 20 }
+  - { id: p21, pin: { number: PC5, inverted: true }, action: cc_momentary, cc: 21 }
+  - { id: p22, pin: { number: PC6, inverted: true }, action: cc_momentary, cc: 22 }
+  - { id: p23, pin: { number: PC7, inverted: true }, action: cc_momentary, cc: 23 }
+  - { id: p24, pin: { number: PC8, inverted: true }, action: cc_momentary, cc: 24 }
+  - { id: p25, pin: { number: PC9, inverted: true }, action: cc_momentary, cc: 25 }
+  - { id: p26, pin: { number: PC10, inverted: true }, action: cc_momentary, cc: 26 }
+  - { id: p27, pin: { number: PC11, inverted: true }, action: cc_momentary, cc: 27 }
+  - { id: p28, pin: { number: PC12, inverted: true }, action: cc_momentary, cc: 28 }
+  - { id: p29, pin: { number: PD2, inverted: true }, action: cc_momentary, cc: 29 }
+  - { id: p30, pin: { number: PA0, inverted: true }, action: cc_momentary, cc: 30 }
+  - { id: p31, pin: { number: PA1, inverted: true }, action: cc_momentary, cc: 31 }
+  - { id: p32, pin: { number: PA2, inverted: true }, action: cc_momentary, cc: 32 }
+  - { id: p33, pin: { number: PA3, inverted: true }, action: cc_momentary, cc: 33 }
+  - { id: p34, pin: { number: PA4, inverted: true }, action: cc_momentary, cc: 34 }
+  - { id: p35, pin: { number: PA5, inverted: true }, action: cc_momentary, cc: 35 }
+  - { id: p36, pin: { number: PA6, inverted: true }, action: cc_momentary, cc: 36 }
+  - { id: p37, pin: { number: PA7, inverted: true }, action: cc_momentary, cc: 37 }
+  - { id: p38, pin: { number: PA15, inverted: true }, action: cc_momentary, cc: 38 }
+  - { id: p39, pin: { number: PA9, inverted: true }, action: cc_momentary, cc: 39 }
+  - { id: p40, pin: { number: PA10, inverted: true } }   # toggles the layer
+
+modes:
+  - id: lay
+    toggle: p40
+    layer: { p3: { cc: 103 }, p35: { cc: 115 } }

@@ -267,6 +267,18 @@ int gm_scan_hw(void)
     return hw_on;
 }
 
+int gm_scan_tick_needed(void)
+{
+    if (!hw_on || has_sr_hubs)
+        return 1;
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = 0; i < NE_HW; i++)
+        if (!enc_matrix[i] && !enc_i2c[i])
+            return 1;
+#endif
+    return 0;
+}
+
 const gm_scan_plan_t *gm_scan_plan(void)
 {
 #if GM_HW_SCAN
@@ -372,6 +384,10 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
                 encoder_step(i);        /* fed by the frames */
 #endif
     }
+#if GM_HAS_MATRIX
+    if (gm_device.matrix)
+        kt0_age();                      /* by the frames' clock: the scan tick may be off */
+#endif
 #else
     (void)raw;
     (void)n;
@@ -387,10 +403,9 @@ void gm_scan_tick(void)
     if (has_sr_hubs)
         vpin_refresh();
 #if GM_HAS_MATRIX
-    if (gm_device.matrix) {
-        if (!hw_on)
-            matrix_scan();
-        kt0_age();                  /* the frames' keys too */
+    if (gm_device.matrix && !hw_on) {
+        matrix_scan();
+        kt0_age();                  /* the hardware scan's frames do both themselves */
     }
 #endif
     part_done(0, &t);

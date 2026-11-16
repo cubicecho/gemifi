@@ -51,7 +51,8 @@ extern uint32_t gm_poll_part_max[GM_POLL_PARTS];
  * it, it calls gm_scan_hw_started() and then hands each batch of finished
  * frames to gm_scan_frames(), from an interrupt below USB (like the scan
  * tick). gm_scan_tick() keeps running for anything else (shift registers,
- * encoders on MCU pins) and leaves the matrices alone.
+ * encoders on MCU pins) and leaves the matrices alone; with nothing else,
+ * gm_scan_tick_needed() says the platform may stop it.
  *
  * gm_scan_plan() returns NULL when the device has no hardware_scan: or its
  * matrices can't be described this way (it logs why). n_rows is even: an
@@ -77,6 +78,10 @@ void gm_scan_hw_started(uint32_t frame_q4);
 void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost);
 /* 1 once gm_scan_hw_started() ran. */
 int gm_scan_hw(void);
+/* 0 when the hardware scan has left gm_scan_tick() nothing to do (no
+ * shift-register hubs, no encoders off the switch matrices and I2C): the
+ * platform may then leave its timer off. 1 otherwise. */
+int gm_scan_tick_needed(void);
 
 /* ---- hardware analog scan (core/README.md "Hardware scan", analog:) ----
  * The analog inputs and pads, read without the CPU: the platform steps the

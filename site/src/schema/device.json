@@ -472,7 +472,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with `mcu:`); DAW scripts are off too. Default: true.",
+              "default": true
             },
             "script": {
               "anyOf": [
@@ -482,7 +484,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out. Default: true.",
+              "default": true
             },
             "led_owner": {
               "anyOf": [
@@ -496,7 +500,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Which state every LED shows, the host's or its own, unless the LED's `owner:` says. Default: host_then_local.",
+              "default": "host_then_local"
             },
             "led_timeout": {
               "anyOf": [
@@ -504,14 +510,26 @@
                   "$ref": "#/definitions/period"
                 },
                 {
-                  "const": "never"
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "never"
+                      ]
+                    },
+                    {
+                      "$ref": "#/definitions/substitution"
+                    }
+                  ]
                 }
-              ]
+              ],
+              "description": "With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's `timeout:` says; `never`: from the host's first message on. Default: 2s.",
+              "default": "2s"
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / `false`: as `enabled:`, the rest by default."
     },
     "mcu": {
       "anyOf": [
@@ -529,12 +547,15 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14. Default: false.",
+              "default": false
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device."
     },
     "sn74hc595": {
       "anyOf": [

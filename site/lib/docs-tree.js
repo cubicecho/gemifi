@@ -75,6 +75,11 @@ export const CORE_YAML = {
       title: "Scanning",
       summary: "How often the controls are read, and the stm32f1's scans by timers and DMA instead of the CPU.",
     },
+    {
+      file: "core/yaml/feedback.md",
+      title: "DAW feedback",
+      summary: "What the device does with the MIDI the host sends back: LED owners, DAW scripts, Mackie Control.",
+    },
   ],
 };
 

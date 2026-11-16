@@ -366,7 +366,7 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
-The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys).
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the feedback keys](yaml/feedback.md#keys).
 
 ```yaml
 gemifi: 2                      # format version
@@ -659,7 +659,7 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 What the host (a DAW) sends back reaches the controller: LEDs follow the DAW's state, toggles and encoders stay in sync with it, knobs don't jump, and a second USB port can speak Mackie Control. Plan and decisions: issue #6.
 
-The MIDI a device accepts and sends for all of this, as implemented: [`protocol/host-feedback.md`](../protocol/host-feedback.md). Per-DAW setup: the site's "DAW setup" page (`site/src/daw-setup.md`).
+The MIDI a device accepts and sends for all of this, as implemented: [`protocol/host-feedback.md`](../protocol/host-feedback.md). Per-DAW setup: the site's "DAW setup" page (`site/src/daw-setup.md`). The `feedback:` and `mcu:` keys are in [the feedback keys](yaml/feedback.md#keys).
 
 **Incoming MIDI** (`src/midi_in.c`). The platform hands over USB-MIDI event packets (`gm_midi_rx_usb`, NUC and ESP32-S2/S3 USB: the cable is kept) or a byte stream (`gm_midi_rx_byte`, serial and BLE: one port, running status handled). SysEx on the main port (cable 0) goes to the gemifi protocol exactly as before; Note On/Off, CC, pitch bend, channel pressure and realtime (clock `F8`, start `FA`, continue `FB`, stop `FC`) go to the feedback code, and on the DAW port (cable 1) to Mackie Control. `feedback: { enabled: false }` without `mcu:` compiles all of that out (SysEx only, as before).
 
@@ -679,9 +679,9 @@ Messages count on the device's MIDI channel (`midi.channel`) unless an LED names
 
 ```yaml
 feedback:                     # optional; these are the defaults
-  enabled: true               # false: ignore everything but the gemifi SysEx protocol (and MCU, if mcu: is given); also turns off DAW scripts (F3)
-  led_owner: host_then_local  # default for every LED: host_then_local | host | local
-  led_timeout: 2s             # host_then_local: how long the host's last word lasts (a period, or never)
+  enabled: true
+  led_owner: host_then_local
+  led_timeout: 2s
 
 leds:
   - id: arm_led
@@ -727,7 +727,7 @@ In the DAW: Live: Control Surface "MackieControl", input and output = the DAW po
 
 ```yaml
 mcu:
-  extender: false                 # true: answer as an MCU XT (SysEx device id 0x15 instead of 0x14)
+  extender: false
 
 buttons:
   - { id: play, pin: PB0, mcu: play, led: play_led }        # action: mcu (implied); Note On 0x5E; LED from the host
@@ -768,7 +768,7 @@ A script inside the DAW (`hosts/`, e.g. the Ableton Live Remote Script) can driv
 
 ```yaml
 feedback:
-  script: true                  # default; false leaves GET_COMPONENT and FB_* out
+  script: true                  # the default
 
 buttons:
   - { id: rec, pin: PB0, action: cc_momentary, cc: 20, led: rec_led, daw: record }

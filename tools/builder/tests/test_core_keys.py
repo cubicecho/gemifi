@@ -90,6 +90,14 @@ class EdgesAgree(unittest.TestCase):
         self.assertEqual(self.edges(gd.HW_SCAN_MATRIX_KEYS, nest="hardware_scan.matrix", more=sm,
                                     base={"row_time": "50us", "settle": "0.25us"}), 8)
 
+    def test_feedback(self):
+        self.assertEqual(self.edges(gd.FEEDBACK_KEYS, nest="feedback"), 2)
+        for short in (True, False):     # `feedback: true / false`, as the schema has it: enabled:
+            text = "".join(f"{k}: {json.dumps(x)}\n" for k, x in {**BASE, "feedback": short}.items())
+            dev, diags = gd.load_device("x.yaml", text)
+            self.assertEqual([str(d) for d in diags if d.level == "error"], [])
+            self.assertEqual((dev.feedback, dev.host_fb), (short, short))
+
 
 if __name__ == "__main__":
     unittest.main()

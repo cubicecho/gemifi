@@ -2833,5 +2833,71 @@
         }
       ]
     }
+  ],
+  "core/feedback": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "feedback",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / `false`: as `enabled:`, the rest by default.",
+          "see": "core/README.md \"DAW feedback\"",
+          "keys": [
+            {
+              "key": "enabled",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with `mcu:`); DAW scripts are off too."
+            },
+            {
+              "key": "script",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out.",
+              "see": "core/README.md \"DAW scripts (F3)\""
+            },
+            {
+              "key": "led_owner",
+              "type": "`host_then_local`, `host`, `local`",
+              "required": false,
+              "default": "`host_then_local`",
+              "doc": "Which state every LED shows, the host's or its own, unless the LED's `owner:` says.",
+              "see": "core/README.md \"LED ownership\""
+            },
+            {
+              "key": "led_timeout",
+              "type": "time 10ms..655340ms or `never`",
+              "required": false,
+              "default": "`2s`",
+              "doc": "With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's `timeout:` says; `never`: from the host's first message on.",
+              "see": "core/README.md \"LED ownership\""
+            }
+          ]
+        },
+        {
+          "key": "mcu",
+          "type": "`null` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device.",
+          "see": "core/README.md \"Second USB port and Mackie Control\"",
+          "keys": [
+            {
+              "key": "extender",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14."
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

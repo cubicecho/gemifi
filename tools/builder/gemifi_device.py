@@ -39,7 +39,7 @@ from components.buttons import MMC_COMMANDS  # noqa: E402,F401
 from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MODE_KEYS,  # noqa: E402,F401
                               STEP_KEYS)
 from components.leds import (LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES, LED_OWNERS,  # noqa: E402,F401
-                             LED_SOURCES, TIMEOUT_NEVER, validate_timeout)
+                             LED_SOURCES, TIMEOUT, TIMEOUT_NEVER, validate_timeout)
 from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, NUMBER_KEYS,  # noqa: E402,F401
                                 button_action)
 from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, TAKEOVER, TOUCH  # noqa: E402,F401
@@ -366,8 +366,6 @@ PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here. (The Core areas' keys are data: CORE_AREAS, at the end.)
 PROJECT_KEYS = ["version"]
-FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
-MCU_KEYS = ["extender"]
 COMBO_KEYS = ["combo", "hold"]        # factory_reset_combo: / unlock: as a mapping
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
@@ -1988,16 +1986,47 @@ def timers_text(dev):
     return "timers: " + ", ".join(f"TIM{t} " + names[s].format(trig=HW_ADC_TRIGGER.get(t)) for t, s in ts)
 
 
+_OWNERS_SEE = 'core/README.md "LED ownership"'
+FEEDBACK_KEYS = _Keys(
+    _Key("enabled", _Bool(), default=True,
+         doc="`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with "
+             "`mcu:`); DAW scripts are off too."),
+    _Key("script", _Bool(), default=True, see='core/README.md "DAW scripts (F3)"',
+         doc="DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out."),
+    # led_owner's message is its own ("unknown owner"), and led_timeout takes `never`: validate_feedback
+    _Key("led_owner", _Enum(LED_OWNERS), default="host_then_local", see=_OWNERS_SEE,
+         doc="Which state every LED shows, the host's or its own, unless the LED's `owner:` says."),
+    _Key("led_timeout", TIMEOUT, default=f"{DEFAULT_LED_TIMEOUT_MS // 1000}s", see=_OWNERS_SEE,
+         doc="With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's "
+             "`timeout:` says; `never`: from the host's first message on."),
+)
+MCU_KEYS = _Keys(
+    _Key("extender", _Bool(), default=False,
+         doc="Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14."),
+)
+# The "feedback" area: DAW feedback (core/yaml/feedback.md)
+FEEDBACK_AREA = _Keys(
+    _Key("feedback", _OneOf(_Bool(), _Map(FEEDBACK_KEYS)), see='core/README.md "DAW feedback"',
+         doc="What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / "
+             "`false`: as `enabled:`, the rest by default."),
+    _Key("mcu", _OneOf(_Null(), _Map(MCU_KEYS)), see='core/README.md "Second USB port and Mackie Control"',
+         doc="Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device."),
+)
+
+
 def validate_feedback(v, dev, data):
-    """feedback: { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback on the main
-    port, and (script) the DAW-script messages of sysex.md 4.6."""
+    """feedback: true | false | { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback
+    on the main port, and (script) the DAW-script messages of sysex.md 4.6."""
     if data.get("feedback") is None:
         return
-    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), FEEDBACK_KEYS)
+    if isinstance(data["feedback"], bool):      # the short form of enabled:
+        dev.feedback = dev.host_fb = data["feedback"]
+        return
+    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), FEEDBACK_KEYS.names)
     if fb is None:
         return
-    dev.feedback = v.boolean(fb, "enabled", "feedback", default=True)
-    dev.host_fb = dev.feedback and v.boolean(fb, "script", "feedback", default=True)
+    dev.feedback = FEEDBACK_KEYS.get(v, fb, "enabled", "feedback")
+    dev.host_fb = dev.feedback and FEEDBACK_KEYS.get(v, fb, "script", "feedback")
     if fb.get("led_owner") is not None:
         o = LED_OWNERS.get(fb["led_owner"])
         if o is None:
@@ -2085,9 +2114,9 @@ def validate_mcu(v, dev, data, tr, daw_port):
         if m is None:
             m = LDict()
             m.line = data.line_of("mcu")
-        m = v.mapping(m, "mcu", data.line_of("mcu"), MCU_KEYS)
+        m = v.mapping(m, "mcu", data.line_of("mcu"), MCU_KEYS.names)
         if m is not None:
-            ext = v.boolean(m, "extender", "mcu")
+            ext = MCU_KEYS.get(v, m, "extender", "mcu")
             dev.mcu = Hub(extender=ext, cable=0, line=data.line_of("mcu"))
     if daw_port is not None:
         want, line = daw_port
@@ -4306,4 +4335,5 @@ CORE_AREAS = {
     "device": DEVICE_KEYS,
     "midi": MIDI_AREA,
     "scanning": SCAN_AREA,
+    "feedback": FEEDBACK_AREA,
 }

@@ -39,7 +39,7 @@ on another machine, use the image's self-signed TLS mode or an SSH tunnel; the
 Choose **New device**, start from a preset (the Keystation, the Code 61, or one of
 the ESP examples), and edit the YAML. **Validate** shows errors next to their line
 numbers. **Save & build** streams the log and leaves the firmware image ready to
-flash. [Components]({{ '/components/' | url }}) shows what a YAML can describe.
+flash. [The docs]({{ '/docs/' | url }}) show what a YAML can describe.
 The first ESP build downloads about 6 GB of toolchains.
 
 ## 4. Flash it

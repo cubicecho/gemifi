@@ -25,7 +25,7 @@ layout: base.njk
     <li>
       <article class="card">
         <h3>Describe it in YAML</h3>
-        <p>Keys, buttons, pads, faders, knobs, encoders, LEDs, displays and expander chips, each with a pin and a default MIDI message. <a href="{{ '/components/' | url }}">What it can describe</a>, and <a href="{{ '/docs/' | url }}">a page per component</a>.</p>
+        <p>Keys, buttons, pads, faders, knobs, encoders, LEDs, displays and expander chips, each with a pin and a default MIDI message. <a href="{{ '/docs/' | url }}">A page per component</a>.</p>
       </article>
     </li>
     <li>
@@ -89,14 +89,14 @@ layout: base.njk
     </li>
     <li>
       <article class="card">
-        <h3><a class="card-link" href="{{ '/components/' | url }}">Core firmware</a></h3>
+        <h3><a class="card-link" href="{{ '/docs/core/' | url }}">Core firmware</a></h3>
         <p>The controller itself, the same on every chip: scanning, velocity, LEDs, presets, settings, DIN MIDI and DAW feedback.</p>
         <div class="card-foot"><span><code>core/</code></span><span>Runs on two keyboards</span></div>
       </article>
     </li>
     <li>
       <article class="card">
-        <h3><a class="card-link" href="{{ '/platforms/' | url }}">Platforms</a></h3>
+        <h3><a class="card-link" href="{{ '/docs/platforms/' | url }}">Platforms</a></h3>
         <p>The chip-specific layer for STM32F1, Nuvoton NUC1xx, and ESP32 / S2 / S3: start-up, USB or serial MIDI, flash and updates.</p>
         <div class="card-foot"><span><code>platform/</code></span><span>ESP32 checked on hardware</span></div>
       </article>
@@ -171,7 +171,7 @@ key_matrix:
   </div>
   <p class="more">
     <a href="{{ site.blob }}devices/keystation-mini32-mk3.yaml" rel="noopener">The full file</a> ·
-    <a href="{{ '/components/' | url }}">What a YAML can describe</a> ·
+    <a href="{{ '/docs/' | url }}">Every component</a> ·
     <a href="{{ "core/README.md#device-yaml" | repoLink }}" rel="noopener">The YAML format</a>
   </p>
 </section>

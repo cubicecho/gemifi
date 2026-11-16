@@ -67,7 +67,23 @@ test("the site was built", () => {
 
 test("the homepage links to the docs, the devices and the platforms", () => {
   const html = fs.readFileSync(path.join(OUT, "index.html"), "utf8");
-  for (const p of ["docs/", "devices/", "platforms/"]) assert.ok(html.includes(`href="${PREFIX}${p}"`), p);
+  for (const p of ["docs/", "devices/", "docs/platforms/"]) assert.ok(html.includes(`href="${PREFIX}${p}"`), p);
+});
+
+test("the pages that moved into the docs send old links, and their sections, to pages and ids that exist", () => {
+  for (const old of ["components/", "platforms/"]) {
+    const html = fs.readFileSync(servedFile(PREFIX + old), "utf8");
+    const to = html.match(/http-equiv="refresh" content="0; url=([^"]+)"/)?.[1];
+    assert.ok(to && servedFile(to), `${old}: refresh to ${to}`);
+    const hashes = JSON.parse(html.match(/const to = (\{.*\})\[/)[1]);
+    assert.ok(Object.keys(hashes).length, `${old}: no section links`);
+    for (const [hash, target] of Object.entries(hashes)) {
+      const [p, frag] = target.split("#");
+      const file = servedFile(PREFIX + p.slice(1));
+      assert.ok(file, `${old}#${hash}: no page ${p}`);
+      if (frag) assert.ok(idsOf(file).has(frag), `${old}#${hash}: no id ${frag} on ${p}`);
+    }
+  }
 });
 
 test("every component README has a docs page in a known group", () => {

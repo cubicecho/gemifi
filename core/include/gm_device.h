@@ -351,6 +351,22 @@ typedef struct {
 
 extern const gm_btn_combo_t gm_btn_combos[];       /* GM_N_COMBOS entries */
 
+/* Action lists (components/buttons/README.md "Action lists"): a button with
+ * action list (ACT_LIST) sends the messages of list button.number in order
+ * at the press, and lets go of those that hold something at the release.
+ * List k is gm_btn_items[gm_btn_lists[k] .. gm_btn_lists[k + 1]). */
+#define GM_BTN_NO_VALUE 0xFFFFu
+typedef struct {
+    uint16_t value;              /* a CC's value, sent once at the press (GM_BTN_NO_VALUE: 127 / 0 at the
+                                    press / release); a program's Bank Select (GM_BTN_NO_VALUE: none) */
+    uint8_t action;              /* ACT_CC_MOMENTARY, ACT_NOTE, ACT_PROGRAM, ACT_PANIC, ACT_MMC, ACT_SYSEX */
+    uint8_t number;              /* its CC, note, program, MMC command or SysEx index */
+    uint8_t channel;             /* 1..16; 0 = the button's */
+} gm_btn_item_t;
+
+extern const uint16_t gm_btn_lists[];              /* GM_BTN_LISTS + 1 entries */
+extern const gm_btn_item_t gm_btn_items[];         /* GM_N_BTN_ITEMS entries */
+
 /* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
  * from F0 to F7, with these placeholders (all >= 0x80, so never a data
  * byte): the value (7-bit), its top and bottom 7 bits (14-bit), the

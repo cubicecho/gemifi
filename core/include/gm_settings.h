@@ -157,6 +157,9 @@ enum {
 #ifndef GM_BTN_REPEAT
 #define GM_BTN_REPEAT 0              /* repeat: the action again while held (octave, program ...) */
 #endif
+#ifndef GM_BTN_LISTS
+#define GM_BTN_LISTS 0               /* actions: lists, gm_btn_lists[] (components/buttons/README.md "Action lists") */
+#endif
 /* Presets are on with 2 or more slots (YAML presets:). One slot (no presets:)
  * is presets off: the slot only holds the settings, and HELLO caps bit 5, the
  * PRESET_* commands, the preset.* params and the preset actions are left out. */
@@ -211,6 +214,9 @@ enum {
 /* The pads' octave, only on devices with pads (GM_N_PADS > 0). */
 #define ACT_PAD_OCTAVE_DOWN 21
 #define ACT_PAD_OCTAVE_UP   22
+/* An action list (button.number = the list, 0..GM_BTN_LISTS - 1), only on
+ * devices whose YAML has actions: lists (GM_BTN_LISTS). */
+#define ACT_LIST 23
 
 enum {
     ENC_ABSOLUTE, ENC_REL_TWOS, ENC_REL_OFFSET,

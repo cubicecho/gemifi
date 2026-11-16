@@ -18,14 +18,85 @@
 static uint8_t clock_n;             /* MIDI clocks since the last beat, 0..23 */
 
 #if GM_N_BUTTONS > 0 || GM_N_ANALOGS > 0 || GM_N_ENCODERS > 0
+/* The lookup numbers the components that take feedback in one run:
+ * buttons, then analog inputs, then encoders (twins included). */
+#define FB_ANALOG0 GM_N_BUTTONS
+#define FB_ENCODER0 (GM_N_BUTTONS + GM_N_ANALOGS)
+#define FB_N (FB_ENCODER0 + GM_N_ENCODERS)
+
+/* With more components than this, a note or CC finds the ones with its
+ * number through an index (128 + FB_N bytes) instead of walking them all
+ * (each component a load and a compare): the Code 61 (103) has it, the
+ * Keystation (8), with 4 KB of RAM, doesn't (core/performance.md).
+ * -DGM_FB_INDEX=0 or 1 overrides it (core/test builds both). */
+#define FB_INDEX_MIN 32
+#ifndef GM_FB_INDEX
+#define GM_FB_INDEX (FB_N > FB_INDEX_MIN)
+#endif
+
+#if GM_FB_INDEX
+#if FB_N < 255
+typedef uint8_t fb_id_t;
+#else
+typedef uint16_t fb_id_t;
+#endif
+#define FB_END ((fb_id_t)~0u)               /* above every component: ends each walk */
+#define FB_BUCKETS 128u                     /* one per note / CC number */
+/* Each number's components, in component order: fb_head[number] the
+ * first, fb_next[k] the one after k. A number past 127 (an (N)RPN) shares
+ * the chain of its low 7 bits; each component still checks its number. */
+static fb_id_t fb_head[FB_BUCKETS];
+static fb_id_t fb_next[FB_N];
+
+static void fb_link(uint32_t k, int32_t num)
+{
+    if (num < 0)
+        return;                             /* none (encoder.cc -1) */
+    uint32_t b = (uint32_t)num % FB_BUCKETS;
+    fb_next[k] = fb_head[b];
+    fb_head[b] = (fb_id_t)k;
+}
+
+/* Linked from the last component back, so each chain runs in component
+ * order: the components react in the same order as a walk. */
+static void fb_build(void)
+{
+    for (uint32_t b = 0; b < FB_BUCKETS; b++)
+        fb_head[b] = FB_END;
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = GM_N_ENCODERS; i-- > 0;)
+        fb_link(FB_ENCODER0 + i, gm_cfg.enc_cc[i]);
+#endif
+#if GM_N_ANALOGS > 0
+    for (uint32_t i = GM_N_ANALOGS; i-- > 0;)
+        fb_link(FB_ANALOG0 + i, gm_cfg.analog_cc[i]);
+#endif
+#if GM_N_BUTTONS > 0
+    for (uint32_t i = GM_N_BUTTONS; i-- > 0;)
+        fb_link(i, gm_cfg.btn_number[i]);
+#endif
+}
+
+/* The first component from lo on that may have number num; past the
+ * range being walked = none. */
+static inline uint32_t fb_first(uint32_t num, uint32_t lo)
+{
+    uint32_t k = fb_head[num % FB_BUCKETS];
+    while (k < lo)
+        k = fb_next[k];
+    return k;
+}
+
+static inline uint32_t fb_after(uint32_t k)
+{
+    return fb_next[k];
+}
+#else
 /* The note and CC numbers some button, analog input or encoder (a twin
  * too) has, whatever its action or mode, so a host message for any other
  * number skips the walk over all of them. It may say used when the
- * component wouldn't take the message, never unused when it would. Built
- * again when the params changed (params_gen; 0 = never set, so never
- * built: gm_init's params_defaults moves it first). */
+ * component wouldn't take the message, never unused when it would. */
 static uint32_t fb_note_used[4], fb_cc_used[4];
-static uint32_t fb_used_gen;
 
 static void fb_mark(uint32_t *map, int32_t num)
 {
@@ -33,43 +104,75 @@ static void fb_mark(uint32_t *map, int32_t num)
         map[num >> 5] |= 1u << (num & 31);
 }
 
+static void fb_build(void)
+{
+    for (uint32_t w = 0; w < 4; w++)
+        fb_note_used[w] = fb_cc_used[w] = 0;
+#if GM_N_BUTTONS > 0
+    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+        fb_mark(fb_note_used, gm_cfg.btn_number[i]);
+        fb_mark(fb_cc_used, gm_cfg.btn_number[i]);
+    }
+#endif
+#if GM_N_ANALOGS > 0
+    for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
+        fb_mark(fb_cc_used, gm_cfg.analog_cc[i]);
+#if GM_MSG_CC14
+        fb_mark(fb_cc_used, gm_cfg.analog_cc[i] + 32);     /* a cc14's LSB */
+#endif
+    }
+#endif
+#if GM_N_ENCODERS > 0
+    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+        fb_mark(fb_cc_used, gm_cfg.enc_cc[i]);
+#if GM_MSG_CC14
+        fb_mark(fb_cc_used, gm_cfg.enc_cc[i] + 32);
+#endif
+    }
+#endif
+#if GM_MSG_NRPN
+    for (int32_t n = 98; n <= 101; n++)
+        fb_mark(fb_cc_used, n);                             /* (N)RPN number */
+    fb_mark(fb_cc_used, 6);                                 /* data entry */
+    fb_mark(fb_cc_used, 38);
+#endif
+}
+
+/* Without the index, a walk goes over every component from lo on. */
+static inline uint32_t fb_first(uint32_t num, uint32_t lo)
+{
+    (void)num;
+    return lo;
+}
+
+static inline uint32_t fb_after(uint32_t k)
+{
+    return k + 1u;
+}
+#endif
+
+/* params_gen the lookup was built for: built again when the params
+ * changed (a host SET, a preset switch; 0 = never set, so never built:
+ * gm_init's params_defaults moves it first). Layers and the cycle only
+ * change which twin is live, and feedback reaches every twin. Runs in
+ * the main loop, with the message (midi_in.c). */
+static uint32_t fb_used_gen;
+
+/* 0: no component has this number, skip them all. */
 static int fb_used(uint32_t type, uint32_t num)
 {
     if (fb_used_gen != params_gen || !params_gen) {
-        for (uint32_t w = 0; w < 4; w++)
-            fb_note_used[w] = fb_cc_used[w] = 0;
-#if GM_N_BUTTONS > 0
-        for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
-            fb_mark(fb_note_used, gm_cfg.btn_number[i]);
-            fb_mark(fb_cc_used, gm_cfg.btn_number[i]);
-        }
-#endif
-#if GM_N_ANALOGS > 0
-        for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
-            fb_mark(fb_cc_used, gm_cfg.analog_cc[i]);
-#if GM_MSG_CC14
-            fb_mark(fb_cc_used, gm_cfg.analog_cc[i] + 32);     /* a cc14's LSB */
-#endif
-        }
-#endif
-#if GM_N_ENCODERS > 0
-        for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
-            fb_mark(fb_cc_used, gm_cfg.enc_cc[i]);
-#if GM_MSG_CC14
-            fb_mark(fb_cc_used, gm_cfg.enc_cc[i] + 32);
-#endif
-        }
-#endif
-#if GM_MSG_NRPN
-        for (int32_t n = 98; n <= 101; n++)
-            fb_mark(fb_cc_used, n);                             /* (N)RPN number */
-        fb_mark(fb_cc_used, 6);                                 /* data entry */
-        fb_mark(fb_cc_used, 38);
-#endif
+        fb_build();
         fb_used_gen = params_gen;
     }
+#if GM_FB_INDEX
+    (void)type;
+    (void)num;
+    return 1;                               /* the chains are the filter */
+#else
     const uint32_t *map = type == 0x90 ? fb_note_used : fb_cc_used;
     return num < 128 && ((map[num >> 5] >> (num & 31)) & 1u);
+#endif
 }
 #else
 #define fb_used(type, num) ((void)(type), (void)(num), 0)
@@ -109,7 +212,8 @@ static void leds_from(uint32_t source, uint32_t num, uint32_t ch, uint32_t value
 static void fb_value(uint32_t kind, uint32_t ch, uint32_t num, uint32_t v, uint32_t part)
 {
 #if GM_N_ANALOGS > 0
-    for (uint32_t i = 0; i < GM_N_ANALOGS; i++) {
+    for (uint32_t k = fb_first(num, FB_ANALOG0); k < FB_ENCODER0; k = fb_after(k)) {
+        uint32_t i = k - FB_ANALOG0;
 #if GM_MCU
         if (gm_analog_mcu[i] != GM_MCU_NONE)
             continue;                       /* an MCU fader follows pitch bend */
@@ -144,7 +248,8 @@ static void fb_value(uint32_t kind, uint32_t ch, uint32_t num, uint32_t v, uint3
     }
 #endif
 #if GM_N_ENCODERS > 0
-    for (uint32_t i = 0; i < GM_N_ENCODERS; i++) {
+    for (uint32_t k = fb_first(num, FB_ENCODER0); k < FB_N; k = fb_after(k)) {
+        uint32_t i = k - FB_ENCODER0;
         if ((uint32_t)gm_cfg.enc_cc[i] != num)
             continue;
 #if GM_MSG_KINDS                            /* without them, every mode and kind is K_CC */
@@ -219,7 +324,7 @@ void gm_fb_msg(const uint8_t *m, uint32_t n)
         return;
 #endif
 #if GM_N_BUTTONS > 0
-    for (uint32_t i = 0; i < GM_N_BUTTONS; i++) {
+    for (uint32_t i = fb_first(num, 0); i < GM_N_BUTTONS; i = fb_after(i)) {
         if ((uint32_t)gm_cfg.btn_number[i] != num)
             continue;
 #if GM_CTL

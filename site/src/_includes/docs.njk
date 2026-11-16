@@ -1,16 +1,20 @@
 ---
 layout: base.njk
 ---
-{#- A docs page: the tree on the left, the page, and its contents on the right (wide screens). -#}
+{#- A docs page: search and the tree on the left, the page, and its contents on the right (wide screens).
+    The page is what the search indexes (data-pagefind-body), unless it says `searchable: false`. -#}
 <div class="docs">
-  <aside class="docs-side">{% include "docs-nav.njk" %}</aside>
-  <article class="docs-main">
-    {% if crumb %}<p class="eyebrow{% if tone %} tone tone-{{ tone }}{% endif %}">{{ crumb }}</p>{% endif %}
+  <aside class="docs-side">
+    <div class="docs-search" id="docs-search" role="search"></div>
+    {% include "docs-nav.njk" %}
+  </aside>
+  <article class="docs-main"{% if searchable !== false %} data-pagefind-body{% endif %}>
+    {% if crumb %}<p class="eyebrow{% if tone %} tone tone-{{ tone }}{% endif %}" data-pagefind-ignore>{{ crumb }}</p>{% endif %}
     <h1>{{ title }}</h1>
     {% if lede %}<p class="docs-lede">{{ lede }}</p>{% endif %}
     {{ content | safe }}
     {% if source %}
-    <p class="docs-source">
+    <p class="docs-source" data-pagefind-ignore>
       This page is <a href="{{ source }}" rel="noopener"><code>{{ sourceFile }}</code></a> in the repo,
       collected when the site is built. Fix it there.
     </p>
@@ -26,3 +30,15 @@ layout: base.njk
   </nav>
   {% endif %}
 </div>
+<link rel="stylesheet" href="{{ '/pagefind/pagefind-ui.css' | url }}" />
+<script src="{{ '/pagefind/pagefind-ui.js' | url }}"></script>
+<script>
+  // Results link under the site's path prefix; the index lives in _site/pagefind/ (eleventy.config.js).
+  new PagefindUI({
+    element: "#docs-search",
+    baseUrl: {{ '/' | url | dump | safe }},
+    showSubResults: true,
+    showImages: false,
+    translations: { placeholder: "Search the docs" },
+  });
+</script>

@@ -70,6 +70,30 @@ test("the homepage links to the docs, the devices and the platforms", () => {
   for (const p of ["docs/", "devices/", "docs/platforms/"]) assert.ok(html.includes(`href="${PREFIX}${p}"`), p);
 });
 
+test("the docs menu opens the section that holds the page, and the search has its index", () => {
+  const html = fs.readFileSync(path.join(OUT, "docs/components/encoders/index.html"), "utf8");
+  const open = [...html.matchAll(/<details class="docs-nav-section"( open)?>\s*<summary[^>]*>([^<]+)</g)]
+    .filter((m) => m[1])
+    .map((m) => m[2]);
+  assert.deepEqual(open, ["Overview", "Controls"]);
+  assert.ok(html.includes("data-pagefind-body"), "the page is indexed");
+  assert.ok(!fs.readFileSync(path.join(OUT, "docs/index.html"), "utf8").includes("data-pagefind-body"), "the docs home is not");
+  for (const f of ["pagefind-ui.js", "pagefind-ui.css", "pagefind-entry.json"]) assert.ok(fs.existsSync(path.join(OUT, "pagefind", f)), f);
+});
+
+test("a link to a docs page says the page's name, not its repo path", () => {
+  const encoders = fs.readFileSync(path.join(OUT, "docs/components/encoders/index.html"), "utf8");
+  assert.ok(encoders.includes(`<a href="${PREFIX}docs/core/#controls">Device YAML › Controls</a>`));
+  const bad = [];
+  for (const file of htmlFiles()) {
+    const html = fs.readFileSync(file, "utf8");
+    for (const [, href, text] of html.matchAll(/<a href="([^"]*)">([^<]*\.md\b[^<]*)<\/a>/g)) {
+      if (href.startsWith(`${PREFIX}docs/`)) bad.push(`${path.relative(OUT, file)}: ${text}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
 test("every page names its own address, and the sitemap lists every page", () => {
   const sitemap = fs.readFileSync(path.join(OUT, "sitemap.xml"), "utf8");
   assert.ok(sitemap.startsWith("<?xml"), "sitemap.xml starts with its XML declaration");

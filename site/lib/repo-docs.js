@@ -109,10 +109,15 @@ export function markdown() {
   const rewrite = (href, env) => resolveLink(href, env);
   md.core.ruler.push("repo_links", (state) => {
     for (const tok of state.tokens) {
-      for (const child of tok.children ?? []) {
-        if (child.type === "link_open") child.attrSet("href", rewrite(child.attrGet("href"), state.env));
+      const children = tok.children ?? [];
+      children.forEach((child, i) => {
+        if (child.type === "link_open") {
+          const href = child.attrGet("href");
+          child.attrSet("href", rewrite(href, state.env));
+          retitle(children[i + 1], children[i + 2], href, state.env);
+        }
         if (child.type === "image") child.attrSet("src", rewrite(child.attrGet("src"), state.env, true));
-      }
+      });
     }
   });
 
@@ -120,6 +125,36 @@ export function markdown() {
   md.renderer.rules.table_open = () => '<div class="table-scroll"><table>\n';
   md.renderer.rules.table_close = () => "</table></div>\n";
   return highlightBlocks(md);
+}
+
+// A link whose text is the file it points at, as the READMEs write them for GitHub: `core/README.md "Controls"`,
+// `` `protocol/sysex.md` ``, `daw-scripts.md §5.9`. The path, then an optional "section" or § number.
+const PATH_TEXT = /^`?((?:\.\.\/)*[\w./-]+\.md)`?((?: "[^"]+"| §[\d.]+)?)$/;
+
+/**
+ * On the site, a link to a docs page that names the page by its repo path says the page's name instead:
+ * `core/README.md "Controls"` → `Device YAML › Controls`, `` `protocol/sysex.md` `` → `SysEx protocol`.
+ * `text` is the token after link_open, `close` the one after that (only a single-token text is changed).
+ */
+function retitle(text, close, href, env) {
+  if (!env.titles || !text || close?.type !== "link_close") return;
+  if (text.type !== "text" && text.type !== "code_inline") return;
+  const shown = text.type === "code_inline" ? `\`${text.content}\`` : text.content;
+  const m = shown.match(PATH_TEXT);
+  const file = m && linkedFile(href, env);
+  const title = file && env.titles.get(file);
+  if (!title) return;
+  const section = m[2].trim().replace(/^"(.*)"$/, "› $1");
+  text.type = "text";
+  text.content = section ? `${title} ${section}` : title;
+}
+
+/** The repo file a relative link points at, if it is a docs page (else null). */
+function linkedFile(href, env) {
+  if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("#") || href.startsWith("/")) return null;
+  const file = path.posix.normalize(path.posix.join(path.posix.dirname(env.file), href.split("#")[0])).replace(/\/$/, "");
+  if (env.pages.has(file)) return file;
+  return env.pages.has(`${file}/README.md`) ? `${file}/README.md` : null;
 }
 
 /** Where a link in a doc goes on the site. */

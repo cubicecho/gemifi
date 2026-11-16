@@ -51,6 +51,7 @@ A key's note goes out on the first main-loop pass after the scan sees it; USB th
 | LED on a `maudio_pads` strip (Code pad LEDs) | one 6-byte message per 5 ms at most, from the main loop; the UART runs by DMA or interrupt | one LED per 5 ms: all 16 pads changing take 80 ms | – | 2 B per 8 colour bits | `count`, `dma` |
 | Displays (14- and 7-segment) | formatted with the LED update (every 10 ms); only changed segments are written, through the hubs' bus budget (a 6-character change on a TM1628 is ~14 bus bytes: 2 passes; a MAX7219 digit is one frame, ~8 us a chip; a TM1637 digit ~180 us, one a pass) | ≤ 10 ms + 1-2 passes | – | small | `daw:` |
 | DIN MIDI | ~1 us per byte by interrupt (or DMA) | queue-dependent: DIN carries ~3 bytes per ms (320 us a byte) | the device's own messages copied (`midi.din_out`), thru, USB | 512 B TX + 256 B RX queues | `mode`, `dma`, `thru`, `controller_out`, `usb_to_din` (README "DIN MIDI") |
+| Host feedback (a note or CC from the host) | on the device channel, the buttons, analog inputs and encoders with its number. Up to 32 of them (Keystation: 8): a 32-byte bitmap skips unused numbers (~23 instructions), else a walk over all of them (Keystation: ~95 instructions, ~150 cycles, ~3 us). More than 32 (Code 61: 103): an index, ~46 instructions and ~63 cycles (~1 us) for a CC one encoder takes, where the walk was ~630 and ~1,090 (~15 us, ~240 us per 16-CC USB packet) (derived, #68). Rebuilt on the first message after a param changes: ~1,900 instructions (~35 us on the Code 61) | – | – | Code 61: 128 B + 1 B per button, analog input and encoder (231 B, +200 B against the bitmap) | – |
 | Presets | a switch reads the slot's record from the store and applies it (a flash read, no write); a flash write (a host's COMMIT or PRESET_*, or `write_to_flash`) can stall the CPU, and the key scan, for 20-40 ms | a switch: within the pass; the display shows the name | – | 8 B per param value (record buffer) | `write_to_flash:` (README "Writes the device makes on its own") |
 
 ## Hubs
@@ -104,7 +105,6 @@ Measured and derived on 2026-11-05 from the client code and the generated config
 ## Open work
 
 Already filed:
-- #68: an index from CC or note to component, for host feedback.
 - #69: overlap row processing with the next row's settle in the software scan.
 - #70: faster HC165/HC595 hubs.
 - #71: ESP fast GPIO paths.

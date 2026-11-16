@@ -811,6 +811,132 @@
       ]
     }
   ],
+  "key_matrix": [
+    {
+      "section": "key_matrix",
+      "list": false,
+      "keys": [
+        {
+          "key": "type",
+          "type": "`switch`, `velocity`",
+          "required": true,
+          "default": null,
+          "doc": "`switch`: one contact per key; `velocity`: two, timed for the velocity.",
+          "see": "Key matrix"
+        },
+        {
+          "key": "rows",
+          "type": "list of pin or mapping",
+          "required": true,
+          "default": null,
+          "doc": "The pins it drives, one row at a time: MCU pins, sn74hc595 pins, or a decoder's outputs.",
+          "see": "core/README.md \"Matrices behind decoders\"",
+          "keys": [
+            {
+              "key": "decoder",
+              "type": "decoder id",
+              "required": true,
+              "default": null,
+              "doc": "The decoder whose outputs drive the rows."
+            },
+            {
+              "key": "first",
+              "type": "integer 0..255",
+              "required": false,
+              "default": "`0`",
+              "doc": "Its first output used."
+            },
+            {
+              "key": "count",
+              "type": "integer 1..255",
+              "required": true,
+              "default": null,
+              "doc": "How many outputs, from `first`."
+            }
+          ]
+        },
+        {
+          "key": "columns",
+          "type": "list of pin",
+          "required": true,
+          "default": null,
+          "doc": "The pins it reads: MCU pins or sn74hc165 pins (at most 32)."
+        },
+        {
+          "key": "contacts",
+          "type": "`columns`, `rows`",
+          "required": false,
+          "default": "`columns`",
+          "doc": "With type `velocity`: a key's two contacts are two columns of a row, or two rows of a column.",
+          "see": "Key matrix options"
+        },
+        {
+          "key": "key_map",
+          "type": "list of list of integer 0..127 or `null`",
+          "required": false,
+          "default": null,
+          "doc": "Which key sits where, when the wiring doesn't follow the default numbering: a list per row (pair), a key number or `null` per column (pair).",
+          "see": "Key matrix options"
+        },
+        {
+          "key": "keys",
+          "type": "integer 1..128",
+          "required": false,
+          "default": "rows × columns (at most 128)",
+          "doc": "How many keys it has."
+        },
+        {
+          "key": "first_note",
+          "type": "integer 0..127",
+          "required": false,
+          "default": "`48`",
+          "doc": "The note of key 0, the lowest."
+        },
+        {
+          "key": "settle",
+          "type": "time 0us..255us",
+          "required": false,
+          "default": "`1us`",
+          "doc": "How long a driven row settles before the columns are read.",
+          "see": "core/README.md \"Software scan\""
+        },
+        {
+          "key": "velocity",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "With type `velocity`: the key times for velocity 127 and 1.",
+          "see": "Key matrix",
+          "keys": [
+            {
+              "key": "fast",
+              "type": "time 100us..50ms",
+              "required": false,
+              "default": "`1.2ms`",
+              "doc": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`).",
+              "live": true
+            },
+            {
+              "key": "slow",
+              "type": "time 2ms..200ms",
+              "required": false,
+              "default": "`120ms`",
+              "doc": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`.",
+              "live": true
+            }
+          ]
+        },
+        {
+          "key": "daw",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+          "see": "hosts/README.md"
+        }
+      ]
+    }
+  ],
   "leds": [
     {
       "section": "leds",

@@ -2496,7 +2496,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "`switch`: one contact per key; `velocity`: two, timed for the velocity."
             },
             "rows": {
               "anyOf": [
@@ -2511,40 +2512,47 @@
                   "properties": {
                     "decoder": {
                       "type": "string",
-                      "description": "the id of another component"
+                      "description": "The decoder whose outputs drive the rows."
                     },
                     "first": {
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": 0,
+                          "maximum": 255
                         },
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its first output used. Default: 0.",
+                      "default": 0
                     },
                     "count": {
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": 1
+                          "minimum": 1,
+                          "maximum": 255
                         },
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "How many outputs, from `first`."
                     }
                   },
                   "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "The pins it drives, one row at a time: MCU pins, sn74hc595 pins, or a decoder's outputs."
             },
             "columns": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/pin"
-              }
+              },
+              "description": "The pins it reads: MCU pins or sn74hc165 pins (at most 32)."
             },
             "contacts": {
               "anyOf": [
@@ -2557,7 +2565,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "With type `velocity`: a key's two contacts are two columns of a row, or two rows of a column. Default: columns.",
+              "default": "columns"
             },
             "key_map": {
               "type": "array",
@@ -2582,7 +2592,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "description": "Which key sits where, when the wiring doesn't follow the default numbering: a list per row (pair), a key number or `null` per column (pair)."
             },
             "keys": {
               "anyOf": [
@@ -2594,7 +2605,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How many keys it has. Default: rows × columns (at most 128)."
             },
             "first_note": {
               "anyOf": [
@@ -2606,25 +2618,47 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The note of key 0, the lowest. Default: 48.",
+              "default": 48
             },
             "settle": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long a driven row settles before the columns are read. Default: 1us.",
+              "default": "1us"
             },
             "velocity": {
               "type": "object",
               "properties": {
                 "fast": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`). Default: 1.2ms. Can be changed on the device.",
+                  "default": "1.2ms"
                 },
                 "slow": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`. Default: 120ms. Can be changed on the device.",
+                  "default": "120ms"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "With type `velocity`: the key times for velocity 127 and 1."
             },
             "daw": {
-              "type": "string"
+              "type": "string",
+              "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
             }
           },
           "additionalProperties": false

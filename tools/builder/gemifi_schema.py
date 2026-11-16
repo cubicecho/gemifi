@@ -266,11 +266,6 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "key_matrix": obj(gd.MATRIX_KEYS, {
-            "type": enum(["switch", "velocity"]), "contacts": enum(["columns", "rows"]), **matrix_lines(),
-            "key_map": lst(lst(one_of(INT7, {"type": "null"}))),
-            "keys": T("integer", minimum=1, maximum=128), "first_note": INT7,
-            "velocity": obj(gd.VELOCITY_KEYS, {"fast": PERIOD, "slow": PERIOD})}),
         "presets": presets(),
         "modes": modes(),
         "display": screen(),

@@ -10,7 +10,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import analog, buttons, encoders, leds, pads, tm1637  # noqa: E402
+from components import analog, buttons, encoders, key_matrix, leds, pads, tm1637  # noqa: E402
 from components.keys import Enum  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
@@ -119,6 +119,14 @@ class EdgesAgree(unittest.TestCase):
         n += self.edges("leds", base, "leds[0]", leds.LED["feedback"].type.keys, nest="feedback",
                         context={"channel": {"note": 1}})
         self.assertGreater(n, 15)
+
+    def test_key_matrix(self):
+        base = {"type": "switch", "rows": ["PB0", "PB1"], "columns": ["PA0", "PA1"]}
+        n = self.edges("key_matrix:", base, "key_matrix", key_matrix.KEY_MATRIX, context={
+            "keys": {"first_note": 0, "key_map": [[0, 1], [2, 3]]}, "contacts": {"type": "velocity"}})
+        n += self.edges("key_matrix:", {**base, "type": "velocity"}, "key_matrix", key_matrix.VELOCITY,
+                        nest="velocity", context={"fast": {"slow": "200ms"}, "slow": {"fast": "0.1ms"}})
+        self.assertGreater(n, 20)
 
     def test_tm1637(self):
         base = {"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}

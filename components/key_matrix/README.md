@@ -12,7 +12,9 @@ key_matrix:
   settle: 1us
 ```
 
-Its YAML (`key_matrix:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Key matrix" and "Key matrix options" below, and in core/README.md the scans ([Software scan](../../core/README.md#software-scan), [Hardware scan](../../core/README.md#hardware-scan)) and [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
+<!-- keys -->
+
+How it is scanned: core/README.md [Software scan](../../core/README.md#software-scan) and [Hardware scan](../../core/README.md#hardware-scan).
 
 ## Key matrix
 

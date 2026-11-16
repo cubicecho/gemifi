@@ -181,6 +181,14 @@ class IdRef(Type):
                                                  f"{self.kind}"}
 
 
+class Null(Type):
+    """`null` (in a list: "nothing here")."""
+    text = "`null`"
+
+    def schema(self):
+        return {"type": "null"}
+
+
 class List(Type):
     def __init__(self, item):
         self.item = item

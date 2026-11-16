@@ -3,37 +3,27 @@
 Built from the validator's own tables in gemifi_device.py (TOP_KEYS, BUTTON_KEYS, HUB_KEYS, ACTIONS,
 CURVES, ...), so a key the validator learns shows up here too. The validator stays the authority:
 the schema gives completion and catches unknown keys and wrong types, the builder checks the rest.
+A component whose keys are data (components/keys.py: encoders, tm1637) gives its own types, with each
+key's doc line and default for the editor's hover; the same data is the key table on its docs page:
 
     gemifi_build.py schema -o site/src/schema/device.json   # published at SCHEMA_URL
+    gemifi_build.py keys -o site/src/_data/component_keys.json
 
-tests/test_packages.py checks that the file in site/ is current and that the schema's keys are the
+tests/test_packages.py checks that both files in site/ are current and that the schema's keys are the
 validator's on every device in devices/.
 """
 import json
 
 import gemifi_device as gd
 import gemifi_yaml as gy
+import components
+from components import encoders
+from components.keys import Section, T, enum, lst, one_of, ref, sub as _sub
 
 SCHEMA_URL = "https://cubicecho.github.io/gemifi/schema/device.json"
 SCHEMA_FILE = "site/src/schema/device.json"     # relative to the repo
+KEYS_FILE = "site/src/_data/component_keys.json"
 REUSE_KEYS = ["substitutions", "packages", "min_version"]   # gemifi_yaml.py uses them up
-
-
-def _sub():
-    return {"$ref": "#/definitions/substitution"}
-
-
-def T(kind, **kw):
-    """A scalar type that may also be a ${substitution}."""
-    return {"anyOf": [dict({"type": kind}, **kw), _sub()]}
-
-
-def enum(values):
-    return {"anyOf": [{"enum": list(values)}, _sub()]}
-
-
-def ref(name):
-    return {"$ref": f"#/definitions/{name}"}
 
 
 def obj(keys, types=None, desc=None, extra=None):
@@ -47,16 +37,6 @@ def obj(keys, types=None, desc=None, extra=None):
         s.update(extra)
     return s
 
-
-def lst(item, desc=None):
-    s = {"type": "array", "items": item}
-    if desc:
-        s["description"] = desc
-    return s
-
-
-def one_of(*alts):
-    return {"anyOf": list(alts)}
 
 
 INT7 = T("integer", minimum=0, maximum=127)
@@ -120,6 +100,9 @@ def widest(a, b):
     """One key's type on two platforms: the wider of two integer ranges; untyped where they differ."""
     if a == b:
         return a
+    a, b = bare(a), bare(b)     # one platform's doc line doesn't hold for the others
+    if a == b:
+        return a
     ia, ib = a.get("anyOf", [{}])[0], b.get("anyOf", [{}])[0]
     if ia.get("type") == ib.get("type") == "integer":
         lo = [x["minimum"] for x in (ia, ib) if "minimum" in x]
@@ -127,6 +110,12 @@ def widest(a, b):
         return T("integer", **({"minimum": min(lo)} if len(lo) == 2 else {}),
                  **({"maximum": max(hi)} if len(hi) == 2 else {}))
     return {}
+
+
+def bare(s):
+    """A key's type without its doc line and default (Key.schema): a lone $ref unwrapped again."""
+    s = {k: x for k, x in s.items() if k not in ("description", "default")}
+    return s["anyOf"][0] if list(s) == ["anyOf"] and len(s["anyOf"]) == 1 else s
 
 
 def hub_key_types(typ):
@@ -143,6 +132,9 @@ def hub_key_types(typ):
     types["id"] = ref("id")
     if "i2c_id" in keys:
         types["i2c_id"] = ref("id")
+    spec = gd.HUB_DEFS[typ].spec
+    if spec is not None:
+        types.update(spec.types())
     return types
 
 
@@ -166,12 +158,6 @@ def matrix_lines():
     return {"rows": one_of(lst(ref("pin")), obj(gd.DECODER_ROWS_KEYS, {"decoder": ID_REF,
                                                                      "first": T("integer", minimum=0)})),
             "columns": lst(ref("pin"))}
-
-
-def accel():
-    return one_of(enum(gd.ACCEL_PRESETS), obj(gd.ACCEL_KEYS, {"slow": PERIOD, "fast": PERIOD,
-                                                               "max": T("integer", minimum=1, maximum=32),
-                                                               "curve": enum(gd.ACCEL_CURVES)}))
 
 
 def gesture():
@@ -308,10 +294,8 @@ def device_schema():
                                            "adc_min": T("integer", minimum=0, maximum=4095),
                                            "adc_max": T("integer", minimum=0, maximum=4095),
                                            "takeover": enum(gd.TAKEOVER), "touch": enum(gd.TOUCH)})),
-        "encoders": lst(obj(gd.ENCODER_KEYS, {**CTL_TYPES, "mode": enum(gd.ENC_MODES), "steps_per_detent": T("integer", minimum=1, maximum=255),
-                                              "ring": lst(ID_REF), "ring_center": ID_REF,
-                                              "acceleration": accel()})),
-        "encoder_settings": obj(gd.ENCODER_SETTINGS_KEYS, {"acceleration": accel()}),
+        "encoders": lst(encoders.ENCODER.schema()),
+        "encoder_settings": encoders.ENCODER_SETTINGS.schema(),
         "key_matrix": obj(gd.MATRIX_KEYS, {
             "type": enum(["switch", "velocity"]), "contacts": enum(["columns", "rows"]), **matrix_lines(),
             "key_map": lst(lst(one_of(INT7, {"type": "null"}))),
@@ -391,3 +375,21 @@ def device_schema():
 
 def schema_text():
     return json.dumps(device_schema(), indent=2, ensure_ascii=False) + "\n"
+
+
+def component_keys():
+    """The key tables of the components whose keys are data (components/keys.py), for their docs pages:
+    component name -> [its sections: where the keys go in the YAML, and each key's type, default, doc]. A
+    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES with a spec."""
+    out = {}
+    for name, m in components.modules().items():
+        secs = list(getattr(m, "KEY_SECTIONS", ()))
+        secs += [Section(t.domain or t.key, t.spec, platform=t.key if t.domain else None)
+                 for t in getattr(m, "HUB_TYPES", ()) if t.spec is not None]
+        if secs:
+            out[name] = [s.doc() for s in secs]
+    return out
+
+
+def keys_text():
+    return json.dumps(component_keys(), indent=2, ensure_ascii=False) + "\n"

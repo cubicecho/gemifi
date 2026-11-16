@@ -854,7 +854,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The grids (digits) it drives: pin = grid × 8 + segment. Default: 6.",
+                "default": 6
               },
               "address": {
                 "anyOf": [
@@ -2650,16 +2652,32 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin_a": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "One of its two pins: an MCU pin, a hub's or a switch matrix's (not a mux's). On an I2C hub it is read from the main loop."
               },
               "pin_b": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The other pin."
               },
               "cc": {
                 "anyOf": [
@@ -2671,7 +2689,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device."
               },
               "steps_per_detent": {
                 "anyOf": [
@@ -2683,24 +2702,29 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Quarter steps it makes per click (most encoders make 4). Default: 4.",
+                "default": 4
               },
               "mcu": {
-                "type": "string"
+                "type": "string",
+                "description": "Makes it a Mackie Control V-Pot (`vpot_1`..`vpot_8`), which sends its own messages: no `mode:`, `channel:`, `min:` or `max:` then."
               },
               "ring": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "description": "the id of another component"
-                }
+                  "description": "the id of an LED"
+                },
+                "description": "The LEDs around it, leftmost first (1..16), lit by Mackie Control or a DAW script."
               },
               "ring_center": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "The LED under it, lit by bit 6 of its Mackie Control ring value."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               },
               "acceleration": {
                 "anyOf": [
@@ -2723,10 +2747,20 @@
                     "type": "object",
                     "properties": {
                       "slow": {
-                        "$ref": "#/definitions/period"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/period"
+                          }
+                        ],
+                        "description": "Detents this far apart, or further, move 1 step each."
                       },
                       "fast": {
-                        "$ref": "#/definitions/period"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/period"
+                          }
+                        ],
+                        "description": "Detents this close together, or closer, move `max` steps each. Shorter than `slow`."
                       },
                       "max": {
                         "anyOf": [
@@ -2738,7 +2772,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The most steps a detent moves (1 is the same as `off`)."
                       },
                       "curve": {
                         "anyOf": [
@@ -2752,12 +2787,15 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "How the steps grow from `slow` to `fast`."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "How far a quick turn moves per detent: a preset, or a mapping whose keys left out come from `encoder_settings:`, else from `medium`. Default: encoder_settings:'s or off.",
+                "default": "off"
               },
               "mode": {
                 "anyOf": [
@@ -2777,7 +2815,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What a turn sends. Default: absolute. Can be changed on the device.",
+                "default": "absolute"
               },
               "nrpn": {
                 "anyOf": [
@@ -2789,7 +2829,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
               },
               "rpn": {
                 "anyOf": [
@@ -2801,7 +2842,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
               },
               "channel": {
                 "anyOf": [
@@ -2813,7 +2855,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The MIDI channel it sends on, instead of `midi.channel`."
               },
               "min": {
                 "anyOf": [
@@ -2825,7 +2868,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
               },
               "max": {
                 "anyOf": [
@@ -2837,7 +2881,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the top of its range (default: the mode's top)."
               }
             },
             "additionalProperties": false
@@ -2875,10 +2920,20 @@
                   "type": "object",
                   "properties": {
                     "slow": {
-                      "$ref": "#/definitions/period"
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/period"
+                        }
+                      ],
+                      "description": "Detents this far apart, or further, move 1 step each."
                     },
                     "fast": {
-                      "$ref": "#/definitions/period"
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/period"
+                        }
+                      ],
+                      "description": "Detents this close together, or closer, move `max` steps each. Shorter than `slow`."
                     },
                     "max": {
                       "anyOf": [
@@ -2890,7 +2945,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The most steps a detent moves (1 is the same as `off`)."
                     },
                     "curve": {
                       "anyOf": [
@@ -2904,12 +2960,15 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "How the steps grow from `slow` to `fast`."
                     }
                   },
                   "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "The acceleration of every encoder that doesn't set its own. Default: off.",
+              "default": "off"
             }
           },
           "additionalProperties": false

@@ -23,6 +23,9 @@ class HubType:
     enum = ""                   # gm_device.h GM_HUB_*
     num = 0                     # ... its value
     keys = ("id",)              # a hub's YAML keys
+    # Its keys as data (components/keys.py Keys: type, default, doc), for a type that has them: then
+    # `keys` is its names, and the JSON schema and the docs take each key's type from it.
+    spec = None
     lines = {}                  # control-pin keys: the line kind, for allow_other_uses (same kind on each)
     roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
     ram = False                 # its pins are in the hub RAM (GM_HUB_RAM): ram_bytes of it

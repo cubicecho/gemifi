@@ -1,0 +1,262 @@
+{
+  "encoders": [
+    {
+      "section": "encoders",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
+        },
+        {
+          "key": "name",
+          "type": "text",
+          "required": false,
+          "default": "from the id",
+          "doc": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`)."
+        },
+        {
+          "key": "pin_a",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "One of its two pins: an MCU pin, a hub's or a switch matrix's (not a mux's). On an I2C hub it is read from the main loop."
+        },
+        {
+          "key": "pin_b",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The other pin."
+        },
+        {
+          "key": "cc",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`.",
+          "live": true
+        },
+        {
+          "key": "steps_per_detent",
+          "type": "integer 1..255",
+          "required": false,
+          "default": "`4`",
+          "doc": "Quarter steps it makes per click (most encoders make 4)."
+        },
+        {
+          "key": "mcu",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a Mackie Control V-Pot (`vpot_1`..`vpot_8`), which sends its own messages: no `mode:`, `channel:`, `min:` or `max:` then.",
+          "see": "core/README.md \"Second USB port and Mackie Control\""
+        },
+        {
+          "key": "ring",
+          "type": "list of LED id",
+          "required": false,
+          "default": null,
+          "doc": "The LEDs around it, leftmost first (1..16), lit by Mackie Control or a DAW script."
+        },
+        {
+          "key": "ring_center",
+          "type": "LED id",
+          "required": false,
+          "default": null,
+          "doc": "The LED under it, lit by bit 6 of its Mackie Control ring value."
+        },
+        {
+          "key": "daw",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+          "see": "hosts/README.md"
+        },
+        {
+          "key": "acceleration",
+          "type": "`off`, `low`, `medium`, `high` or mapping",
+          "required": false,
+          "default": "`encoder_settings:`'s or `off`",
+          "doc": "How far a quick turn moves per detent: a preset, or a mapping whose keys left out come from `encoder_settings:`, else from `medium`.",
+          "see": "Encoder acceleration",
+          "keys": [
+            {
+              "key": "slow",
+              "type": "time 2ms..1s",
+              "required": false,
+              "default": null,
+              "doc": "Detents this far apart, or further, move 1 step each."
+            },
+            {
+              "key": "fast",
+              "type": "time 1ms..999ms",
+              "required": false,
+              "default": null,
+              "doc": "Detents this close together, or closer, move `max` steps each. Shorter than `slow`."
+            },
+            {
+              "key": "max",
+              "type": "integer 1..32",
+              "required": false,
+              "default": null,
+              "doc": "The most steps a detent moves (1 is the same as `off`)."
+            },
+            {
+              "key": "curve",
+              "type": "`linear`, `quadratic`, `cubic`",
+              "required": false,
+              "default": null,
+              "doc": "How the steps grow from `slow` to `fast`."
+            }
+          ]
+        },
+        {
+          "key": "mode",
+          "type": "`absolute`, `relative_twos`, `relative_offset`, `relative_sign`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`",
+          "required": false,
+          "default": "`absolute`",
+          "doc": "What a turn sends.",
+          "see": "Encoder modes",
+          "live": true
+        },
+        {
+          "key": "nrpn",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+          "live": true
+        },
+        {
+          "key": "rpn",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+          "live": true
+        },
+        {
+          "key": "channel",
+          "type": "integer 1..16",
+          "required": false,
+          "default": null,
+          "doc": "The MIDI channel it sends on, instead of `midi.channel`."
+        },
+        {
+          "key": "min",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
+        },
+        {
+          "key": "max",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the top of its range (default: the mode's top)."
+        }
+      ]
+    },
+    {
+      "section": "encoder_settings",
+      "list": false,
+      "keys": [
+        {
+          "key": "acceleration",
+          "type": "`off`, `low`, `medium`, `high` or mapping",
+          "required": false,
+          "default": "`off`",
+          "doc": "The acceleration of every encoder that doesn't set its own.",
+          "see": "Encoder acceleration",
+          "keys": [
+            {
+              "key": "slow",
+              "type": "time 2ms..1s",
+              "required": false,
+              "default": null,
+              "doc": "Detents this far apart, or further, move 1 step each."
+            },
+            {
+              "key": "fast",
+              "type": "time 1ms..999ms",
+              "required": false,
+              "default": null,
+              "doc": "Detents this close together, or closer, move `max` steps each. Shorter than `slow`."
+            },
+            {
+              "key": "max",
+              "type": "integer 1..32",
+              "required": false,
+              "default": null,
+              "doc": "The most steps a detent moves (1 is the same as `off`)."
+            },
+            {
+              "key": "curve",
+              "type": "`linear`, `quadratic`, `cubic`",
+              "required": false,
+              "default": null,
+              "doc": "How the steps grow from `slow` to `fast`."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "tm1637": [
+    {
+      "section": "led_driver",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_driver: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`tm1637`",
+          "required": true,
+          "default": null,
+          "doc": "This chip."
+        },
+        {
+          "key": "clk_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The clock pin (CLK). It can't be shared with another chip."
+        },
+        {
+          "key": "dio_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The data pin (DIO), push-pull or open drain with a pull-up. It can't be shared with another chip."
+        },
+        {
+          "key": "intensity",
+          "type": "integer 0..7",
+          "required": false,
+          "default": "`7`",
+          "doc": "The brightness."
+        },
+        {
+          "key": "length",
+          "type": "integer 1..6",
+          "required": false,
+          "default": "`6`",
+          "doc": "The grids (digits) it drives: pin = grid × 8 + segment."
+        }
+      ],
+      "platform": "tm1637"
+    }
+  ]
+}

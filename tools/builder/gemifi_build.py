@@ -7,6 +7,7 @@
   gemifi_build.py presets
   gemifi_build.py new <name> --preset <preset> [--dir ~/gemifi-devices] [--copy]
   gemifi_build.py schema [-o <file>] [--check <file>]   (JSON schema of the device YAML)
+  gemifi_build.py keys [-o <file>] [--check <file>]   (the components' key tables, for the docs site)
   gemifi_build.py migrate <device.yaml> [...] [--write]   (old component keys to the current form)
   gemifi_build.py dashboard [--host H] [--port 6055] [--web DIR] [--config-dir DIR] [--build-dir DIR]
                             [--allowed-host H ...] [--tls-cert F --tls-key F]
@@ -433,6 +434,10 @@ def main(argv=None):
     s = sub.add_parser("schema", help="print the JSON schema of the device YAML (for editors)")
     s.add_argument("-o", "--out", help="write it to this file instead")
     s.add_argument("--check", metavar="FILE", help="exit 1 if FILE isn't the current schema")
+    s = sub.add_parser("keys", help="print the key tables of the components whose keys are data (for the "
+                       "docs site: site/src/_data/component_keys.json)")
+    s.add_argument("-o", "--out", help="write them to this file instead")
+    s.add_argument("--check", metavar="FILE", help="exit 1 if FILE isn't current")
     env = os.environ.get
     s = sub.add_parser("dashboard", help="web dashboard (default 127.0.0.1:6055)",
                        description="Web dashboard. Every flag has a GEMIFI_* env var; GEMIFI_PASSWORD "
@@ -471,8 +476,8 @@ def main(argv=None):
         return do_build(a.device, a.out, subs=subs)
     if a.cmd == "migrate":
         return do_migrate(a.device, a.write)
-    if a.cmd == "schema":
-        text = gs.schema_text()
+    if a.cmd in ("schema", "keys"):
+        text = gs.schema_text() if a.cmd == "schema" else gs.keys_text()
         if a.check:
             try:
                 with open(a.check, encoding="utf-8") as f:
@@ -480,7 +485,7 @@ def main(argv=None):
             except OSError:
                 same = False
             if not same:
-                print(f"{a.check} is out of date: run `python3 tools/builder/gemifi_build.py schema -o "
+                print(f"{a.check} is out of date: run `python3 tools/builder/gemifi_build.py {a.cmd} -o "
                       f"{a.check}`", file=sys.stderr)
                 return 1
             print(f"{a.check}: up to date")

@@ -8,7 +8,7 @@ encoders:
   - { id: pan, pin_a: PB8, pin_b: PB9, cc: 21, mode: relative_twos, acceleration: medium }
 ```
 
-Its YAML (`encoders:`, `encoder_settings:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Encoder modes" and "Encoder acceleration" below, and the message kinds in [core/README.md "MIDI messages"](../../core/README.md#midi-messages). An encoder's LED ring is the LEDs' ([leds](../leds/README.md)).
+<!-- keys -->
 
 ## Encoder modes
 
@@ -38,7 +38,7 @@ encoders:
 | `medium` | 80ms | 10ms | 8 | quadratic | 174 | 78 | 132 | 71 |
 | `high` | 100ms | 8ms | 16 | quadratic | 343 | 151 | 263 | 157 |
 
-  (absolute values stop at 127). A mapping takes `slow` (2ms..1000ms), `fast` (1ms, shorter than slow), `max` (1..32; 1 is the same as off) and `curve` (`linear`, `quadratic`, `cubic`); keys left out come from `encoder_settings:`'s acceleration, else from `medium`. Bare `off` works with or without quotes.
+  (absolute values stop at 127). Bare `off` works with or without quotes.
 - **Build time only, for now:** the settings are in the device tables (flash), not params, so a preset or the web app can't change them yet; a preset's `acceleration:` and a twin's are refused with where to set it.
 - **Generated:** `GM_ENC_ACCEL` in `gm_device_config.h`; with 1, `gm_enc_accel[]` (`gm_enc_accel_t`: slow ms, fast ms, max, curve) has one entry per scanned encoder (off: `{ 0, 0, 1, GM_ACCEL_LINEAR }`). With every encoder off it is 0 and the code compiles to nothing (the same image as before acceleration). RAM with it: 8 bytes per scanned encoder; the divides run only when an encoder moves.
 

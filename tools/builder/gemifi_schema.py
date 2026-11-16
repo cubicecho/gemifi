@@ -17,7 +17,6 @@ import json
 import gemifi_device as gd
 import gemifi_yaml as gy
 import components
-from components import encoders
 from components.keys import Section, T, enum, lst, one_of, ref, sub as _sub
 
 SCHEMA_URL = "https://cubicecho.github.io/gemifi/schema/device.json"
@@ -284,12 +283,6 @@ def device_schema():
         "leds": lst(obj(gd.LED_KEYS, {
             "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),
             "owner": enum(gd.LED_OWNERS), "timeout": one_of(PERIOD, {"const": "never"})})),
-        "analog": lst(obj(gd.ANALOG_KEYS, {**CTL_TYPES, "mode": enum(gd.ANALOG_MODES),
-                                           "adc_min": T("integer", minimum=0, maximum=4095),
-                                           "adc_max": T("integer", minimum=0, maximum=4095),
-                                           "takeover": enum(gd.TAKEOVER), "touch": enum(gd.TOUCH)})),
-        "encoders": lst(encoders.ENCODER.schema()),
-        "encoder_settings": encoders.ENCODER_SETTINGS.schema(),
         "key_matrix": obj(gd.MATRIX_KEYS, {
             "type": enum(["switch", "velocity"]), "contacts": enum(["columns", "rows"]), **matrix_lines(),
             "key_map": lst(lst(one_of(INT7, {"type": "null"}))),
@@ -329,6 +322,10 @@ def device_schema():
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),
     }
+    # the sections of the components whose keys are data (KEY_SECTIONS: components/keys.py)
+    for s in key_sections():
+        assert s.yaml_key not in top_types, f"{s.yaml_key}: in KEY_SECTIONS and written here too"
+        top_types[s.yaml_key] = lst(s.keys.schema()) if s.is_list else s.keys.schema()
     # the keys gemifi_yaml.py uses up before validation
     reuse = {
         "substitutions": {"type": "object", "description": "name: value, used as ${name} in string values",
@@ -369,6 +366,11 @@ def device_schema():
 
 def schema_text():
     return json.dumps(device_schema(), indent=2, ensure_ascii=False) + "\n"
+
+
+def key_sections():
+    """Every component's KEY_SECTIONS (the top-level YAML keys whose items' keys are data)."""
+    return [s for m in components.modules().values() for s in getattr(m, "KEY_SECTIONS", ())]
 
 
 def component_keys():

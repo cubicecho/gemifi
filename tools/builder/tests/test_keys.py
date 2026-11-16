@@ -10,8 +10,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import encoders, tm1637  # noqa: E402
-from components.keys import Map, OneOf  # noqa: E402
+from components import analog, encoders, tm1637  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
         "usb: { vid: 0x1209, pid: 0x0002 }\n")
@@ -66,6 +65,15 @@ class EdgesAgree(unittest.TestCase):
                        context={"slow": {"fast": "1ms"}, "fast": {"slow": "1000ms"}})
         self.assertGreater(n, 10)
 
+    def test_analog(self):
+        base = {"id": "a", "pin": "PA0", "cc": 7}
+        n = self.edges("analog", base, "analog[0]", analog.ANALOG, context={
+            "nrpn": {"mode": "nrpn", "-": ["cc"]}, "rpn": {"mode": "rpn", "-": ["cc"]},
+            "min": {"mode": "nrpn14", "nrpn": 1, "max": 5, "-": ["cc"]},
+            "max": {"mode": "nrpn14", "nrpn": 1, "min": 5, "-": ["cc"]},
+            "adc_min": {"adc_max": 100}, "adc_max": {"adc_min": 100}})
+        self.assertGreater(n, 25)
+
     def test_tm1637(self):
         base = {"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}
         self.assertGreater(self.edges("led_driver", base, "led_driver[0]", tm1637.SPEC.without("platform")), 6)
@@ -78,17 +86,14 @@ class KeyData(unittest.TestCase):
                                                        f"{gs.KEYS_FILE}`")
 
     def test_every_key_says_what_it_does(self):
-        def walk(keys, where):
-            for k in keys:
-                self.assertTrue(k.doc.strip(), f"{where}.{k.name} has no doc=")
-                sub = k.type.keys if isinstance(k.type, Map) else k.type.keys() if isinstance(k.type, OneOf) else None
-                if sub:
-                    walk(sub, f"{where}.{k.name}")
+        def walk(rows, where):
+            for r in rows:
+                self.assertTrue(r["doc"].strip(), f"{where}.{r['key']} has no doc=")
+                walk(r.get("keys", []), f"{where}.{r['key']}")
         for name, sections in gs.component_keys().items():
             self.assertTrue(sections, name)
-        walk(encoders.ENCODER, "encoders")
-        walk(encoders.ENCODER_SETTINGS, "encoder_settings")
-        walk(tm1637.SPEC, "tm1637")
+            for s in sections:
+                walk(s["keys"], f"{name}: {s['section']}")
 
     def test_the_validator_lists_the_spec_keys(self):
         self.assertEqual(encoders.ENCODER_KEYS, encoders.ENCODER.names)

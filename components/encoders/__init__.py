@@ -8,8 +8,8 @@ import difflib
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
-from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_OUT, Enum, IdRef, Int, Key, Keys, List,
-                             Map, OneOf, Period, Pin, Section, Str)
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_NRPN, CONTROL_OUT, CONTROL_RPN, Enum,
+                             IdRef, Int, Key, Keys, List, Map, OneOf, Period, Pin, Section, Str)
 
 # encoder.mode (gm_settings.h ENC_*): from cc14 on they need a message kind (core/README.md "MIDI messages").
 ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
@@ -59,9 +59,7 @@ ENCODER = Keys(
         doc="How far a quick turn moves per detent: a preset, or a mapping whose keys left out come from "
             "`encoder_settings:`, else from `medium`."),
     Key("mode", Enum(ENC_MODES), default="absolute", doc="What a turn sends.", see="Encoder modes", live=True),
-    Key("nrpn", Int(0, 16383), doc="The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.", live=True),
-    Key("rpn", Int(0, 16383), doc="The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.", live=True),
-    *CONTROL_OUT,
+    CONTROL_NRPN, CONTROL_RPN, *CONTROL_OUT,
 )
 ENCODER_KEYS = ENCODER.names
 ENCODER_SETTINGS = Keys(

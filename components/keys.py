@@ -336,6 +336,11 @@ CONTROL_NAME = Key("name", Str(), doc="Its name on the web page and in the CLI. 
                                       "(`oct_down` -> `Oct down`).", shown_default="from the id")
 CONTROL_DAW = Key("daw", Str(), doc="A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
                   see="hosts/README.md")
+# The number an analog input or encoder sends in the NRPN / RPN modes (gemifi_device.py mode_number).
+CONTROL_NRPN = Key("nrpn", Int(0, 16383), doc="The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+                   see='core/README.md "MIDI messages"', live=True)
+CONTROL_RPN = Key("rpn", Int(0, 16383), doc="The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+                  see='core/README.md "MIDI messages"', live=True)
 # channel:, min:, max: (gemifi_device.py control_out): build time only, the same in every preset.
 CONTROL_OUT = Keys(
     Key("channel", Int(1, 16), doc="The MIDI channel it sends on, instead of `midi.channel`."),

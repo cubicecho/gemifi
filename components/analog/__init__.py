@@ -5,16 +5,45 @@ where gm_device_config.c has them.
 """
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, f1_off_why, f1_on, mode_wide
 from components.hub import c_comment
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_NRPN, CONTROL_OUT, CONTROL_RPN, Enum,
+                             IdRef, Int, Key, Keys, Pin, Section, Str)
 from components.xy_pad import XYPad
 
 # analog.mode (gm_settings.h AN_MODE_*): from cc14 on they need a message kind (core/README.md "MIDI messages").
 ANALOG_MODES = ["cc", "pitch_bend", "channel_pressure", "cc14", "nrpn", "nrpn14", "rpn", "rpn14", "sysex"]
-ANALOG_KEYS = ["id", "name", "pin", "cc", "mode", "adc_min", "adc_max", "takeover", "touch", "mcu", "daw", "nrpn",
-               "rpn", "sysex", "channel", "min", "max"]
 ANALOG_NUMBER_KEYS = ("cc", "nrpn", "rpn", "sysex")     # the keys that give analog.cc, by mode
 RENAMED_ANALOG = dict(RENAMED_ID, raw_min="renamed: use `adc_min:`", raw_max="renamed: use `adc_max:`")
 TAKEOVER = ["none", "pickup"]
 TOUCH = {"none": 0, "movement": 2}  # analog touch: -> gm_device.h GM_TOUCH_* (1 = a sensor, reserved)
+
+# One analog input's keys (core/README.md "Controls" has what the controls share), checked by validate().
+ANALOG = Keys(
+    CONTROL_ID, CONTROL_NAME,
+    Key("pin", Pin(), required=True, doc="What it reads: an ADC pin, a multiplexer channel or an XY pad axis."),
+    Key("cc", Int(0, 127), doc="The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is "
+                               "set.", see='core/README.md "MIDI messages"', live=True),
+    Key("mode", Enum(ANALOG_MODES), default="cc", live=True, see="Pitch wheels and aftertouch",
+        doc="What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string "
+            "(core/README.md \"MIDI messages\")."),
+    Key("adc_min", Int(0, 4095), default=0, doc="The raw reading at the bottom of its travel. Greater than "
+                                                "`adc_max` turns it around."),
+    Key("adc_max", Int(0, 4095), default=4095, doc="The raw reading at the top of its travel."),
+    Key("takeover", Enum(TAKEOVER), default="none", shown_default="`none`; `pickup` with `mcu:`",
+        see='core/README.md "Plain feedback (F1, every DAW)"',
+        doc="`pickup`: after the host sets a value, it stays silent until it reaches or crosses it. Needs DAW "
+            "feedback."),
+    Key("touch", Enum(TOUCH), default="none", see='core/README.md "DAW scripts (F3)"',
+        doc="`movement`: it tells a DAW script when it is touched (moving) and let go."),
+    Key("mcu", Str(), doc="Makes it a Mackie Control fader (`fader_1`..`fader_8`, `master`), which sends its own "
+                          "messages: no `mode:`, `channel:`, `min:` or `max:` then.",
+        see='core/README.md "Second USB port and Mackie Control"'),
+    CONTROL_DAW, CONTROL_NRPN, CONTROL_RPN,
+    Key("sysex", IdRef("SysEx string"), live=True, see='core/README.md "MIDI messages"',
+        doc="The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`."),
+    *CONTROL_OUT,
+)
+ANALOG_KEYS = ANALOG.names
+KEY_SECTIONS = (Section("analog", ANALOG),)
 
 
 def in_device(dev):
@@ -50,8 +79,8 @@ def validate(v, dev, data):
                     v.err(f"{p}.{k}", d.line_of(k), "a Mackie Control fader (mcu:) sends its own messages: "
                                                     f"drop {k}: or mcu:")
         ctl = v.control_out(d, p, 16383 if mode_wide(dev, ANALOG_MODES[mode], cc) else 127)
-        lo = v.integer(d, "adc_min", p, 0, 4095, default=0)
-        hi = v.integer(d, "adc_max", p, 0, 4095, default=4095)
+        lo = ANALOG.get(v, d, "adc_min", p)
+        hi = ANALOG.get(v, d, "adc_max", p)
         if lo == hi:
             v.err(p, d.line, f"adc_min and adc_max are both {lo}")
         pickup = validate_takeover(v, dev, d, p, fader)

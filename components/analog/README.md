@@ -8,7 +8,7 @@ analog:
   - { id: pot_2, pin: PA1, cc: 10 }
 ```
 
-Its YAML (`analog:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Pitch wheels and aftertouch" below, and in core/README.md [MIDI messages](../../core/README.md#midi-messages) (the message kinds) and [DAW feedback](../../core/README.md#daw-feedback) (pick-up, `touch:`).
+<!-- keys -->
 
 ## Pitch wheels and aftertouch
 

@@ -1862,13 +1862,24 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "What it reads: an ADC pin, a multiplexer channel or an XY pad axis."
               },
               "cc": {
                 "anyOf": [
@@ -1880,7 +1891,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device."
               },
               "mode": {
                 "anyOf": [
@@ -1900,7 +1912,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device.",
+                "default": "cc"
               },
               "adc_min": {
                 "anyOf": [
@@ -1912,7 +1926,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The raw reading at the bottom of its travel. Greater than `adc_max` turns it around. Default: 0.",
+                "default": 0
               },
               "adc_max": {
                 "anyOf": [
@@ -1924,7 +1940,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The raw reading at the top of its travel. Default: 4095.",
+                "default": 4095
               },
               "takeover": {
                 "anyOf": [
@@ -1937,7 +1955,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "`pickup`: after the host sets a value, it stays silent until it reaches or crosses it. Needs DAW feedback. Default: none; pickup with mcu:.",
+                "default": "none"
               },
               "touch": {
                 "anyOf": [
@@ -1950,13 +1970,17 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "`movement`: it tells a DAW script when it is touched (moving) and let go. Default: none.",
+                "default": "none"
               },
               "mcu": {
-                "type": "string"
+                "type": "string",
+                "description": "Makes it a Mackie Control fader (`fader_1`..`fader_8`, `master`), which sends its own messages: no `mode:`, `channel:`, `min:` or `max:` then."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               },
               "nrpn": {
                 "anyOf": [
@@ -1968,7 +1992,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
               },
               "rpn": {
                 "anyOf": [
@@ -1980,11 +2005,12 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
               },
               "sysex": {
                 "type": "string",
-                "description": "the id of a midi_messages.sysex string"
+                "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device."
               },
               "channel": {
                 "anyOf": [
@@ -1996,7 +2022,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The MIDI channel it sends on, instead of `midi.channel`."
               },
               "min": {
                 "anyOf": [
@@ -2008,7 +2035,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
               },
               "max": {
                 "anyOf": [
@@ -2020,7 +2048,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the top of its range (default: the mode's top)."
               }
             },
             "additionalProperties": false

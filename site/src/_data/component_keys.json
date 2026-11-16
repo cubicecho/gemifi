@@ -1,4 +1,145 @@
 {
+  "analog": [
+    {
+      "section": "analog",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
+        },
+        {
+          "key": "name",
+          "type": "text",
+          "required": false,
+          "default": "from the id",
+          "doc": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`)."
+        },
+        {
+          "key": "pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "What it reads: an ADC pin, a multiplexer channel or an XY pad axis."
+        },
+        {
+          "key": "cc",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "mode",
+          "type": "`cc`, `pitch_bend`, `channel_pressure`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`, `sysex`",
+          "required": false,
+          "default": "`cc`",
+          "doc": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\").",
+          "see": "Pitch wheels and aftertouch",
+          "live": true
+        },
+        {
+          "key": "adc_min",
+          "type": "integer 0..4095",
+          "required": false,
+          "default": "`0`",
+          "doc": "The raw reading at the bottom of its travel. Greater than `adc_max` turns it around."
+        },
+        {
+          "key": "adc_max",
+          "type": "integer 0..4095",
+          "required": false,
+          "default": "`4095`",
+          "doc": "The raw reading at the top of its travel."
+        },
+        {
+          "key": "takeover",
+          "type": "`none`, `pickup`",
+          "required": false,
+          "default": "`none`; `pickup` with `mcu:`",
+          "doc": "`pickup`: after the host sets a value, it stays silent until it reaches or crosses it. Needs DAW feedback.",
+          "see": "core/README.md \"Plain feedback (F1, every DAW)\""
+        },
+        {
+          "key": "touch",
+          "type": "`none`, `movement`",
+          "required": false,
+          "default": "`none`",
+          "doc": "`movement`: it tells a DAW script when it is touched (moving) and let go.",
+          "see": "core/README.md \"DAW scripts (F3)\""
+        },
+        {
+          "key": "mcu",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a Mackie Control fader (`fader_1`..`fader_8`, `master`), which sends its own messages: no `mode:`, `channel:`, `min:` or `max:` then.",
+          "see": "core/README.md \"Second USB port and Mackie Control\""
+        },
+        {
+          "key": "daw",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+          "see": "hosts/README.md"
+        },
+        {
+          "key": "nrpn",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "rpn",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "sysex",
+          "type": "SysEx string id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "channel",
+          "type": "integer 1..16",
+          "required": false,
+          "default": null,
+          "doc": "The MIDI channel it sends on, instead of `midi.channel`."
+        },
+        {
+          "key": "min",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
+        },
+        {
+          "key": "max",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the top of its range (default: the mode's top)."
+        }
+      ]
+    }
+  ],
   "encoders": [
     {
       "section": "encoders",
@@ -130,6 +271,7 @@
           "required": false,
           "default": null,
           "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+          "see": "core/README.md \"MIDI messages\"",
           "live": true
         },
         {
@@ -138,6 +280,7 @@
           "required": false,
           "default": null,
           "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+          "see": "core/README.md \"MIDI messages\"",
           "live": true
         },
         {

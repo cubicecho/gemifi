@@ -20,7 +20,10 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel": (10, "channel"), "velocity_curve": (11, "curve"),
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
-MODE_KEYS = ["id", "toggle", "hold", "parent", "cycle", "led", "preset_blink", "keys", "buttons", "layer", "steps"]
+MODE_KEYS = ["id", "toggle", "hold", "one_shot", "parent", "cycle", "led", "preset_blink", "keys", "buttons", "layer",
+             "steps"]
+# gm_mode_t.hold (gm_device.h): 1 a hold mode, GM_HOLD_ONE_SHOT a one-shot (components/modes/README.md "One-shot layers")
+HOLD_ONE_SHOT = 2
 STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (components/modes/README.md "Cycles")
 MAX_STEPS = 8
 MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
@@ -77,7 +80,8 @@ def validate(v, dev, data):
     def new_mode(mid, p, d):
         m = Hub(id=mid, path=p, line=d.line, d=d, index=len(modes), toggle=None, hold=False, parent=None,
                 root=None, led=None, blink=False, show=None, keys=[], buttons=[], with_=None, twins=0,
-                cycle=0, colour=0, rgb=None, name=None, enabled=True, step=False, modifier=False)
+                cycle=0, colour=0, rgb=None, name=None, enabled=True, step=False, modifier=False,
+                one_shot=False)
         modes.append(m)
         by_id[mid] = m
         return m
@@ -90,24 +94,26 @@ def validate(v, dev, data):
         mid = new_id(d, p, "edit; keys go to a sub-mode by its id")
         if mid is None:
             continue
-        given = [k for k in ("toggle", "hold", "parent", "cycle") if d.get(k) is not None]
+        given = [k for k in ("toggle", "hold", "one_shot", "parent", "cycle") if d.get(k) is not None]
         if "cycle" in given or d.get("steps") is not None:
             mode_cycle(v, dev, d, p, mid, given, cycles, new_id, new_mode)
             continue
         m = new_mode(mid, p, d)
         if len(given) != 1:
             v.err(p, d.line, f"mode '{mid}' needs " + (
-                f"one of toggle:, hold: or parent:, not {' and '.join(given)}" if given else
+                f"one of toggle:, hold:, one_shot: or parent:, not {' and '.join(given)}" if given else
                 "toggle: { button: <id> } (the button that enters and leaves it), hold: { button: <id> } "
-                "(active while that button is held), cycle: { button: <id> } with steps: (layers in turn) "
+                "(active while that button is held), one_shot: { button: <id> } (its layer for the next press), "
+                "cycle: { button: <id> } with steps: (layers in turn) "
                 "or parent: <mode id> (a sub-mode, entered from a key of another mode)"))
         elif given[0] != "parent":
-            m.hold = given[0] == "hold"
+            m.hold = given[0] in ("hold", "one_shot")
+            m.one_shot = given[0] == "one_shot"
             mode_toggle(v, dev, m, d, p, given[0])
     dev.n_cycles = len(cycles)
     for m in modes:
         d = m.d
-        if d.get("parent") is None or d.get("toggle") is not None or d.get("hold") is not None:
+        if d.get("parent") is None or any(d.get(k) is not None for k in ("toggle", "hold", "one_shot")):
             continue
         pid, pl = d["parent"], d.line_of("parent")
         if pid not in by_id:
@@ -129,8 +135,8 @@ def validate(v, dev, data):
                   " -> ".join(modes[i].id for i in seen + [x.parent]))
         m.root = x.index
         if x.parent is None and x.hold and m is not x:
-            v.err(f"{m.path}.parent", m.d.line_of("parent"), f"mode '{x.id}' is a hold mode (active while its "
-                                                            "button is held): it can't have sub-modes")
+            what = "a one-shot mode (for one press)" if x.one_shot else "a hold mode (active while its button is held)"
+            v.err(f"{m.path}.parent", m.d.line_of("parent"), f"mode '{x.id}' is {what}: it can't have sub-modes")
     # pass 2: LEDs, keys and buttons (a key may name a sub-mode further down the file)
     for m in modes:
         d, p = m.d, m.path
@@ -388,7 +394,7 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
     if idx is None:
         return
     b = dev.buttons[idx]
-    verb = {"toggle": "toggles", "hold": "holds", "cycle": "cycles"}[key]
+    verb = {"toggle": "toggles", "hold": "holds", "one_shot": "arms", "cycle": "cycles"}[key]
     if holder.get("with") is not None:
         # toggle: { button, with }: the mode only with `with` held; a plain press keeps the button's action
         w = v.ref(holder, "with", f"{p}.{key}.with", holder.line_of("with"), "button", "buttons")
@@ -411,6 +417,9 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
     if idx in v.mode_toggles or idx in v.mode_with_toggles or idx in v.mode_modifiers:
         v.err(f"{p}.{key}", tl, f"button '{b.id}' already enters mode "
                                 f"'{v.mode_toggles.get(idx) or v.mode_with_toggles.get(idx) or v.mode_modifiers[idx]}'")
+    elif key == "one_shot" and (d.get("layer") is None or d.get("keys") is not None or d.get("buttons") is not None):
+        v.err(f"{p}.{key}", tl, "a one-shot mode has a layer: and nothing else (no keys: or buttons:): the layer's "
+                                "twins take the next press (components/modes/README.md \"One-shot layers\")")
     elif key == "hold" and d.get("layer") is not None and d.get("keys") is None and d.get("buttons") is None:
         # a hold mode with only a layer: is a modifier (Shift): its button keeps its own action, and
         # while it is held the layer's twins take their buttons' presses (components/modes/README.md "Button layers")
@@ -741,14 +750,16 @@ def c_layer_defines(dev):
 
 
 def c_defines(dev):
-    """GM_MODES_ENABLED (each mode's layer.enabled default) and GM_N_CYCLES (the cycle: groups), when there
-    are any."""
+    """GM_MODES_ENABLED (each mode's layer.enabled default), GM_N_CYCLES (the cycle: groups) and
+    GM_MODE_ONE_SHOT (a one_shot: mode), when there are any."""
     h = []
     if dev.modes:
         h.append(f"#define GM_MODES_ENABLED {', '.join(str(int(m.enabled)) for m in dev.modes)} "
                  "/* layer.enabled defaults, per mode */")
     if getattr(dev, "n_cycles", 0):
         h.append(f"#define GM_N_CYCLES {dev.n_cycles} /* modes: cycle: groups (components/modes/README.md \"Cycles\") */")
+    if any(getattr(m, "one_shot", False) for m in dev.modes):
+        h.append("#define GM_MODE_ONE_SHOT 1 /* a one_shot: mode (components/modes/README.md \"One-shot layers\") */")
     return h
 
 
@@ -775,8 +786,9 @@ def c_tables(dev):
         show = m.show or (-1, -1)
         toggle = "GM_MODE_NONE" if m.toggle is None else m.toggle
         parent = "GM_MODE_NONE" if m.parent is None else m.parent
+        hold = HOLD_ONE_SHOT if m.one_shot else int(m.hold)
         rows.append(f"    {{ {toggle}, {parent}, {m.root}, {-1 if m.led is None else m.led}, {int(m.blink)}, "
-                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {int(m.hold)}, {len(m.buttons)}, {barr}"
+                    f"{show[0]}, {show[1]}, {len(m.keys)}, {arr}, {hold}, {len(m.buttons)}, {barr}"
                     f", {0 if m.with_ is None else m.with_ + 1}, {m.cycle}, 0x{m.colour:02X}, "
                     f"{c_str(m.name if m.name is not None else m.id)}, {int(m.modifier)} }}, "
                     f"/* {c_comment(m.id)} */")

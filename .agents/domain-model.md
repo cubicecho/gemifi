@@ -84,6 +84,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 | Text displays on one screen never overlap | builder, `validate_text_display` |
 | No heap, no floating point, no libc beyond `<stdint.h>` in core | convention (`core/README.md`), the NUC120's 4 KB RAM / 32 KB flash |
 | A param id never changes meaning | convention, `core/src/settings.c` id list |
+| A button without a gesture runs its action at the press; whatever a gesture or combo has down is let go at its button's release or at a preset switch | `components/buttons/buttons.c` (`gesture_input`, `gestures_off`, `gesture_forget`), `core/test/test_gestures.c` |
 
 ## Glossary
 
@@ -192,10 +193,16 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 ### Behaviour
 
 - **Action:** what a button does when pressed. Owner: `button.action` param values.
+- **Gesture:** a second action of one button, told apart from its own by timing: held (`hold:`), pressed
+  twice (`double_tap:`), or run again while held (`repeat:`, auto-repeat); and a **combo**, buttons pressed
+  together running an action of their own. A **tap** is a press let go before it became a gesture. They
+  are the same in every preset; their timing is global params. Owner: `gm_btn_gesture_t`,
+  `gm_btn_combo_t`; the `buttons` component's gesture layer (`gesture_input`, `gestures_ms`,
+  `repeats_ms` in `components/buttons/buttons.c`), the `button.*_time` / `button.repeat_*` params.
 - **MIDI message (kind):** what a control sends (CC, note, NRPN, SysEx string ...). Owner:
   `controller.c` "MIDI messages", `gm_ctl_t`, `gm_sysex_t`.
 - **Mode / layer / cycle:** a held or toggled state that changes what controls do (Shift, a button
-  layer, a cycle of values). Owner: `gm_mode_t`, `gm_mode_key_t`; the `modes` component (`components/modes`).
+  layer, a cycle of values, a one-shot: a layer for the next press). Owner: `gm_mode_t`, `gm_mode_key_t`; the `modes` component (`components/modes`).
 - **Param:** a setting a host can read and change at run time (`button.action`, `midi.channel` ...).
   Owner: `core/src/params.c`, `core/src/settings.c`.
 - **Preset:** a stored set of param values, in slots, switched by buttons, modes or a host. A device

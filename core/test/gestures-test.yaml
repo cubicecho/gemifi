@@ -1,0 +1,64 @@
+# Test device for core/test/test_gestures.c: button gestures
+# (components/buttons/README.md "Gestures"). Not a real board; the pins only
+# need to be distinct for the simulated HAL.
+gemifi: 2
+name: gestures-test
+friendly_name: Gestures Test
+board_id: 0x3F17
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+presets:
+  slots: 4
+  list: [{ name: One }, { name: Two }, { name: Three }, { name: Four }]
+
+buttons:
+  # no gesture: CC 10 at the press, no waiting
+  - { id: plain, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 10 }
+  # tap: CC 20; held: CC 21 (the button's cc_momentary with another number)
+  - { id: tap_hold, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 20, hold: { cc: 21 } }
+  # tap: note 60; held: the next preset
+  - { id: note_hold, pin: { number: PB2, inverted: true }, action: note, note: 60, hold: preset_next }
+  # tap: note 62; pressed twice: note 63
+  - { id: dbl, pin: { number: PB3, inverted: true }, action: note, note: 62, double_tap: { note: 63 } }
+  # tap: CC 30; pressed twice: CC 31; held: CC 32
+  - id: both
+    pin: { number: PB4, inverted: true }
+    action: cc_momentary
+    cc: 30
+    double_tap: { cc: 31 }
+    hold: { cc: 32 }
+  # combo buttons: CC 40, 41, 43 alone
+  - { id: c1, pin: { number: PB5, inverted: true }, action: cc_momentary, cc: 40 }
+  - { id: c2, pin: { number: PB6, inverted: true }, action: cc_momentary, cc: 41 }
+  - { id: c3, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 43 }
+  # the one-shot's button: no action of its own; its LED is lit while the layer is on
+  - { id: fn, pin: { number: PB8, inverted: true }, led: fn_led }
+  # auto-repeat while held
+  - { id: oct, pin: { number: PB9, inverted: true }, action: octave_up, repeat: true }
+  - { id: prg, pin: { number: PB10, inverted: true }, action: program_next, repeat: true }
+  - { id: pnext, pin: { number: PB11, inverted: true }, action: preset_next, repeat: true }
+  # a second one-shot's button
+  - { id: fn2, pin: { number: PB12, inverted: true } }
+
+leds:
+  - { id: fn_led, pin: PD0 }
+
+modes:
+  # fn tapped: plain is CC 11 for its next press; fn held: for every press while held
+  - { id: fn_layer, one_shot: fn, layer: { plain: { cc: 11 } } }
+  # fn2: plain is CC 12
+  - { id: fn2_layer, one_shot: fn2, layer: { plain: { cc: 12 } } }
+
+combos:
+  - { buttons: [c1, c2], action: cc_momentary, cc: 42 }      # c1 + c2: CC 42
+  - { buttons: [c1, c2, c3], action: note, note: 70 }        # all three: note 70
+
+button_settings:
+  tap_time: 200ms
+  hold_time: 300ms
+  combo_time: 50ms
+  repeat_delay: 500ms
+  repeat_rate: 100ms

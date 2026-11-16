@@ -139,6 +139,12 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("config.hash", 39, VOLATILE, lambda d: 1),     # read-only: the resolved YAML's hash (gemifi_yaml.py)
     # MIDI messages (core/README.md "MIDI messages"): ids 41-59
     ("preset.bank", 41, PRESET, lambda d: 1 if d.has_presets and "program" in getattr(d, "msg", ()) else 0),
+    # button gestures (components/buttons/README.md "Gestures"): ids 75-79, global, each only with its gesture
+    ("button.tap_time", 75, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "double_tap") else 0),
+    ("button.hold_time", 76, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "hold") else 0),
+    ("button.combo_time", 77, GLOBAL, lambda d: 1 if getattr(d, "combos", []) else 0),
+    *((n, i, GLOBAL, (lambda d: 1 if buttons.repeat_mask(d) else 0)) for n, i in (
+        ("button.repeat_delay", 78), ("button.repeat_rate", 79))),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, maudio_pads, din_midi dma:) may not share one.
@@ -169,7 +175,9 @@ DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # value fits a byte. The packed stm32f1 record (platform/stm32f1/src/config_store.c) sizes its groups
 # from this, so keep it in step with settings.c (test_builder checks it).
 WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
-               "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank"}
+               "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank",
+               "button.tap_time", "button.hold_time", "button.combo_time", "button.repeat_delay",
+               "button.repeat_rate"}
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
@@ -216,7 +224,8 @@ PRESET_NOT_HERE = {
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu", "program", "mmc", "sysex"],
-                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank"]),
+                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank", *buttons.GESTURES,
+                 "repeat"]),
     "analog": ("analog input", "analog inputs", ["cc", "mode", "nrpn", "rpn", "sysex"],
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw", "channel", "min", "max"]),
     "encoders": ("encoder", "encoders", ["cc", "mode", "nrpn", "rpn"],
@@ -347,7 +356,7 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
             "status_led", "feedback", "mcu", *HUB_LISTS,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
+            "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
@@ -906,6 +915,8 @@ class Device:
         self.n_cycles = 0            # modes: cycle: groups
         self.pads = []               # Hub per pad (pads.validate), in YAML order
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
+        self.btn_set = {}            # button_settings: the gesture timing params' defaults (buttons.button_settings)
+        self.combos = []             # Hub per combo (buttons.validate_combos), in YAML order
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
         self.layout = None           # (width, height, [Hub item]) from layout: (validate_layout)
@@ -1688,6 +1699,7 @@ def validate(data, file=None):
 
     validate_safety(v, dev, data)
     modes.validate(v, dev, data)
+    buttons.validate_gestures(v, dev, data)
     validate_presets(v, dev, data)
     validate_layout(v, dev, data)
     validate_write_to_flash(v, dev, data)
@@ -3005,6 +3017,9 @@ def preset_values(v, dev, d, p):
             if sec == "buttons":
                 b = dev.buttons[idx]
                 act, num = button_action(v, dev, o, cp, base=(b.action_name, b.number))
+                why = buttons.held_action_problem(dev, idx, act)
+                if why:
+                    v.err(f"{cp}.action", line("action"), why)
                 if "action" in o or act != b.action_name:
                     put("button.action", idx, ACTION_IDS[act], b.action, f"{cp}.action", line("action"),
                         f"button.action[{cid}]", act)

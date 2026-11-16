@@ -231,7 +231,7 @@ A **preset** is a named set of values for what the controls do: which CC or note
 - PRESET_RESET 0 (every slot) also puts the YAML's list back in use.
 - A store written before `preset.count` existed keeps every slot with stored edits in use: at power-up the count is raised to the highest stored slot.
 
-**Scope.** Every param is either *per preset* (schema flag PRESET, §4.4) or *global*. The firmware fixes which. The rule: the mapping is per preset (CC and note numbers, channel, velocity curve, encoder mode, glide and ramp times, Program Change). The hardware calibration (velocity `fast`/`slow`) and the device settings (`debug.*`) are global.
+**Scope.** Every param is either *per preset* (schema flag PRESET, §4.4) or *global*. The firmware fixes which. The rule: the mapping is per preset (CC and note numbers, channel, velocity curve, encoder mode, glide and ramp times, Program Change). The hardware calibration (velocity `fast`/`slow`), the device settings (`debug.*`) and the timing of the button gestures (`button.tap_time`, `button.hold_time`, `button.combo_time`, `button.repeat_delay`, `button.repeat_rate`: ids 75-79, only on a device whose YAML has those gestures, `components/buttons/README.md` "Gestures") are global.
 
 **The active preset.**
 - Only one preset is live at a time. GET_PARAM, SET_PARAM, GET_PARAMS and SET_PARAMS on a per-preset param address the active preset. Globals work as before.

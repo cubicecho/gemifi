@@ -84,7 +84,7 @@ modes:
 - **Ranges.** `keys:` may also hold one range, `white_from: <key>` (white keys only) or `from: <key>` (every key), with `action: preset_select` or `channel` and an optional `count:` (default: every slot, or 16 channels). The keys are numbered 1, 2, ... in order. Single keys can sit beside a range in the same mapping.
 - **What it sends.** A preset switch from a mode is the same as from a button: Note Offs, PRESET_CHANGED and PARAM_CHANGED `preset.active`, and the preset's Program Change. Octave/transpose keys send PARAM_CHANGED like the octave buttons. `channel`, `channel_up`, `channel_down` and `velocity_curve` send PARAM_CHANGED and make the preset dirty, like a host edit: COMMIT keeps the change, a preset switch drops it. A display shows the preset's name or `CH <n>` ([core/README.md "Displays"](../../core/README.md#displays)).
 - **`layer.enabled`** (one per mode, in the "Layers" group, global) is there on a device with layer twins or a cycle. 0: the mode can't be entered (its button is as if it weren't there, so a `with:` press is the button's own action; a mode that is on can still be left), and a cycle skips that step. Defaults are true, a step's `enabled:` aside.
-- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that `keys:` and sub-modes have a key matrix to use, that keys are on the keyboard and bound once per mode, and the actions' numbers.
+- **The builder checks** that ids are unique (mode, cycle and step ids together), that every mode has exactly one of `toggle:`, `hold:`, `one_shot:`, `parent:` or `cycle:`, that bound buttons exist and don't enter a mode, that parents exist and don't loop, that every sub-mode is reachable from a key, that `keys:` and sub-modes have a key matrix to use, that keys are on the keyboard and bound once per mode, and the actions' numbers.
 
 **Generated code** (`gm_device.h` `gm_mode_t`, only with `modes:`): `GM_N_MODES` in `gm_device_config.h` (0 without modes: the mode code is then left out; without a key matrix, `GM_HAS_MATRIX 0`, the key half of it is: the key table lookups and the Note Offs for held keys), and `gm_modes[GM_N_MODES]`, with one key table per mode sorted by key, `{ key index, GM_MK_* op, arg }`, and one button table per mode with `buttons:`, `{ button index, op, arg }` (`hold`, `n_buttons`, `buttons` are the struct's last fields, so a config generated before them still builds), then `with`, `cycle`, `colour`, `name` ("Cycles"; `name` is the step's name, else the mode's id, the label of `layer.enabled`) and `modifier` (1: a modifier). `GM_MODES_ENABLED` lists the `layer.enabled` defaults. The runtime keeps 2 bytes for the active and held modes, 8 for the buttons pressed in a mode and 6 for the preset blink; with layers or cycles 24 more (the layer-only toggles, what EVENT 8 last said) and one per cycle.
 
@@ -167,6 +167,29 @@ modes:
 
 **Generated code:** each step is a `gm_modes[]` row with the cycle's button as `toggle` / `with`, `cycle` = the cycle's number + 1, `colour` = 0x80 | the LED pins to light (bit 0 pin, 1 pin2, 2 pin3; 0 = the active look) and `name`; `GM_N_CYCLES` in `gm_device_config.h`. A step with a full colour on an LED that can show it also has `gm_mode_rgb[]` (`GM_LED_RGB(0xRRGGBB)`, 0 for the others; `GM_MODE_RGB 1`), and `colour` is its nearest on/off colour. The runtime keeps one byte per cycle (its current step).
 
+## One-shot layers
+
+A **one-shot** mode is a layer for the next press: tap its button, and the next press of another button goes to that button's twin in the layer; then the layer is off again. Held, it works as a hold mode: the layer is on for every press while the button is down.
+
+```yaml
+modes:
+  - id: fn_layer
+    one_shot: fn                 # or one_shot: { button: fn }
+    layer:
+      b1: { action: program_next }     # fn, then b1: the next program; b1 again: its own action
+      b2: { cc: 52 }
+```
+
+- **`one_shot: <button>`** instead of `toggle:` / `hold:` / `cycle:` / `parent:`. Its button has no action of its own (leave `action:` out), like a toggle's. The mode has a `layer:` and nothing else: no `keys:` or `buttons:`, and no sub-modes.
+- **Tapped** (let go before another button is pressed): the layer stays on, its LED lit, until the next press of any other button. That press goes to the layer (its twin, if it has one in the layer), and the layer goes off; its release still goes to whoever took the press. Pressing the one-shot's button again before that turns it off.
+- **Held while other buttons are pressed:** the layer is on for each of those presses, and goes off with the button, as a hold mode's does.
+- **Which presses take it:** any other button's press, whether or not it has a twin in the layer, and the presses of mode buttons too. Encoders and pads with twins in the layer turn and hit as the layer's while it is on, but don't end it; keys of the key matrix aren't in layers.
+- **With the others:** it is a hold mode while on (the held hold mode and an armed one-shot rank first, "Button layers"), so pressing another hold mode's button takes the one-shot as a press would. EVENT 8 says when its layer goes on and off. `layer.enabled` 0: it can't be armed, and can still be turned off.
+- **Several one-shots** each keep their own state: a one-shot arms when its button is let go with no other button pressed since its own press, so one held while another one-shot's button was pressed doesn't arm. One layer is on at a time: the last one-shot (or hold mode) pressed. With one held, a tap of another arms that one for the next press, and the held one's layer is back after it.
+- **One-shot, modifier or gesture?** A modifier (`hold:` with only a layer) is Shift: its button keeps its own action and the layer lasts while it is held. A one-shot gives the layer for one press without holding, and its button does nothing else. A button gesture ([buttons "Gestures"](../buttons/README.md#gestures)) is a second action on the same button; a layer twin is a second action on another button, chosen by a mode's button.
+
+**Generated code:** the mode's `gm_mode_t.hold` is `GM_HOLD_ONE_SHOT` (2), and `GM_MODE_ONE_SHOT 1` in `gm_device_config.h` compiles the one-shot code in (`one_shot_button`, and `mode_one_shot_press`, which `buttons_sample` calls for each press before the modes see it). The runtime keeps 9 bytes more (one bit per mode, and whether the one-shot that is on is armed).
+
 ## Files
 
 - `modes.c`: which modes are on, their key and button bindings, the layers and cycles, and the LEDs that show them. Built when the device has modes.
@@ -175,7 +198,7 @@ modes:
 ## How it runs
 
 The modes have no loop of their own. The other controls hand them their input:
-- **Buttons** (`buttons_sample`): a mode's toggle, hold or cycle button goes to `mode_toggle_button`, and a button the active mode binds goes to `mode_function_button`. A hold mode whose button was held through a preset switch still ends with it (`mode_late_release`).
+- **Buttons** (`buttons_sample`): a mode's toggle, hold or cycle button goes to `mode_toggle_button`, and a button the active mode binds goes to `mode_function_button`. A hold mode whose button was held through a preset switch still ends with it (`mode_late_release`). Every press goes to `mode_one_shot_press` first, on a device with a one-shot ("One-shot layers").
 - **Keys** (the key matrix's `keys_poll`): while a mode with `keys:` is on (`keys_mode`), a key runs its binding (`mode_key`) instead of playing.
 - **LEDs** (`leds_update`): `mode_led` says what a mode's LEDs show: lit or blinking while it's on, a cycle step's colour, and the preset number's blink after a preset switch from a mode.
 

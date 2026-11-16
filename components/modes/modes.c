@@ -23,7 +23,27 @@
  * layer-only toggle mode has its own on/off (solo_on) and each cycle its
  * current step (cyc_cur), so any of them can be on together. */
 static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled key mode; GM_MODE_NONE = none */
-static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
+static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held (or a one-shot) */
+#if GM_MODE_ONE_SHOT
+/* One-shots (components/modes/README.md "One-shot layers"), per mode: bit m of
+ * shot_fresh, one-shot m's button is down and no other button has been
+ * pressed since (let go now, it arms). shot_armed: hold_cur is a one-shot
+ * whose button was let go fresh, on until the next press of another
+ * button (every press goes to mode_one_shot_press first, so hold_cur
+ * can't move on while it is armed). */
+static uint64_t shot_fresh;
+static uint8_t shot_armed;
+
+/* The one-shot modes button i arms, one bit each. */
+static uint64_t one_shots_of(uint32_t i)
+{
+    uint64_t of = 0;
+    for (uint32_t m = 0; m < GM_N_MODES; m++)
+        if (gm_modes[m].hold == GM_HOLD_ONE_SHOT && gm_modes[m].toggle == i)
+            of |= 1ull << m;
+    return of;
+}
+#endif
 #if GM_LAYER_PARAMS
 static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), modes_init */
 /* LEDs a cycle step or a layer-only toggle lights (bit = LED), modes_init:
@@ -155,6 +175,49 @@ static uint8_t hold_still_held(uint32_t except)
     return GM_MODE_NONE;
 }
 
+#if GM_MODE_ONE_SHOT
+/* The button of one-shot mode m: held, the mode is on as a hold mode is;
+ * let go before another button was pressed, it stays on for that press
+ * (mode_one_shot_press ends it); pressed again first, it is off. */
+static int one_shot_button(uint32_t m, uint32_t i, int down)
+{
+    uint64_t bit = 1ull << m;
+    int is_on = hold_cur == m;
+    int was_fresh = (shot_fresh & bit) != 0;
+    if (!down)
+        shot_fresh &= ~bit;
+    if (down && is_on && shot_armed) {
+        shot_armed = 0;             /* pressed again: off */
+        hold_cur = hold_still_held(m);
+    } else if (down) {
+        hold_cur = (uint8_t)m;
+        shot_fresh |= bit;
+    } else if (is_on && was_fresh) {
+        shot_armed = 1;             /* let go alone: on for the next press */
+        app_log(LOG_DEBUG, gm_device.buttons[i].name, ": one shot");
+        return 1;
+    } else if (is_on) {
+        hold_cur = hold_still_held(m);   /* used while held: off with its button */
+    } else {
+        return 1;                   /* another mode took over, or the press that turned it off */
+    }
+    layers_update();
+    app_log(LOG_DEBUG, gm_device.buttons[i].name, hold_cur == m ? ": mode on" : ": mode off");
+    return 1;
+}
+
+void mode_one_shot_press(uint32_t i)
+{
+    shot_fresh &= one_shots_of(i);  /* the others' buttons are held while another is pressed */
+    int takes_the_layer = shot_armed && gm_modes[hold_cur].toggle != i;
+    if (takes_the_layer) {
+        shot_armed = 0;             /* this press took the layer: back */
+        hold_cur = hold_still_held(hold_cur);
+        layers_update();
+    }
+}
+#endif
+
 /* The toggle or hold button of a root mode. Toggle: enters the mode (held
  * keys get their Note Off first, if it has keys), or leaves it from the
  * mode or any of its sub-modes. Hold: the mode is active while the button
@@ -200,6 +263,10 @@ int mode_toggle_button(uint32_t i, int down)
                 cycle_press(md->cycle);
             return 1;
         }
+#endif
+#if GM_MODE_ONE_SHOT
+        if (md->hold == GM_HOLD_ONE_SHOT)
+            return one_shot_button(m, i, down);
 #endif
         if (md->hold) {
             if (down) {
@@ -394,6 +461,9 @@ uint32_t mode_led(uint32_t li, uint32_t level, uint32_t now)
 
 void mode_late_release(uint32_t i)
 {
+#if GM_MODE_ONE_SHOT
+    shot_fresh &= ~one_shots_of(i); /* held through a preset switch: it ends, unarmed */
+#endif
     if (hold_cur != GM_MODE_NONE && gm_modes[hold_cur].toggle == i) {
         hold_cur = hold_still_held(hold_cur);  /* a hold mode still ends with its button */
         layers_update();
@@ -453,6 +523,7 @@ void layers_update(void)
     for (uint32_t i = 0; i < GM_N_OWN_BUTTONS && i < 64; i++)
         live |= 1ull << bl[i];
     btn_live = live;
+#if GM_N_LEDS > 0                       /* no LEDs: nothing changes hands */
     uint8_t lr[GM_ARR(GM_N_LEDS)], ll[GM_ARR(GM_N_LEDS)];
     for (uint32_t i = 0; i < GM_N_LEDS; i++) {
         lr[i] = 0;
@@ -474,6 +545,7 @@ void layers_update(void)
             led_redraw(i);              /* drawn again once it is live */
         }
     }
+#endif
 #undef RANK
 #endif
     uint64_t on = 0;
@@ -513,6 +585,10 @@ void modes_init(void)
     mode_cur = hold_cur = GM_MODE_NONE;
     show_n = 0;
     btn_in_mode = 0;
+#if GM_MODE_ONE_SHOT
+    shot_fresh = 0;
+    shot_armed = 0;
+#endif
 #if GM_LAYER_PARAMS
     /* layer-only toggles: no keys or buttons (so no sub-modes either) */
     solo_mask = solo_on = 0;

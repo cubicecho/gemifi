@@ -333,6 +333,30 @@ void gm_scan_hw_started(uint32_t frame_q4)
 #endif
 }
 
+#if GM_HW_SCAN
+/* Bit k: frame word k differs from hw_prev[k], which takes it. Word k holds
+ * rows 2k and 2k+1 (a key pair on a row-pair keybed); only the column bits
+ * count (the rest of the port may be anything). Nothing moved since the
+ * last frame (nearly always): one pass that only ORs the differences. */
+static uint32_t frame_changes(const u32_alias *w, uint32_t words)
+{
+    uint32_t diff = 0;
+    for (uint32_t k = 0; k < words; k++)
+        diff |= (w[k] & hw_mask) ^ hw_prev[k];
+    if (!diff)
+        return 0;
+    uint32_t chg = 0;
+    for (uint32_t k = 0; k < words; k++) {
+        uint32_t x = w[k] & hw_mask;
+        if (x != hw_prev[k]) {
+            chg |= 1u << k;
+            hw_prev[k] = x;
+        }
+    }
+    return chg;
+}
+#endif
+
 void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
 {
 #if GM_HW_SCAN
@@ -343,18 +367,7 @@ void gm_scan_frames(const uint16_t *raw, uint32_t n, uint32_t lost)
     scan_ticks += lost;
     for (uint32_t f = 0; f < n; f++, raw += plan.n_rows) {
         scan_ticks++;
-        /* Word k holds rows 2k and 2k+1 (a key pair on a row-pair keybed);
-         * only the column bits count (the rest of the port may be anything).
-         * Nothing moved since the last frame (nearly always): nothing to do. */
-        const u32_alias *w = (const u32_alias *)(const void *)raw;
-        uint32_t chg = 0;
-        for (uint32_t k = 0; k < words; k++) {
-            uint32_t x = w[k] & hw_mask;
-            if (x != hw_prev[k]) {
-                chg |= 1u << k;
-                hw_prev[k] = x;
-            }
-        }
+        uint32_t chg = frame_changes((const u32_alias *)(const void *)raw, words);
 #if GM_HAS_MATRIX
         chg |= matrix_retry(key_rows);  /* a key change didn't fit: every key row again */
 #endif

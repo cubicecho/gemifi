@@ -474,19 +474,44 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ sn74hc595: <id>, number: n }`."
               },
               "data_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The serial data in (SER)."
               },
               "clock_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The shift clock (SRCLK)."
               },
               "latch_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The latch (RCLK): a pulse puts the shifted bits on the outputs."
               },
               "oe_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The output enable (/OE), driven low. Leave it out when /OE is tied low."
               },
               "sr_count": {
                 "anyOf": [
@@ -498,7 +523,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 8 outputs each (8..15 on the second). Default: 1.",
+                "default": 1
               }
             },
             "additionalProperties": false
@@ -519,16 +546,36 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ sn74hc165: <id>, number: n }`."
               },
               "data_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The serial out (QH) of the chip nearest the MCU."
               },
               "clock_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The shift clock (CLK)."
               },
               "load_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The load pin (SH/LD): the inputs are loaded while it is low."
               },
               "sr_count": {
                 "anyOf": [
@@ -540,7 +587,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 8 inputs each (8..15 on the second). Default: 1.",
+                "default": 1
               }
             },
             "additionalProperties": false

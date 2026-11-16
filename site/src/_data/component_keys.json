@@ -208,6 +208,99 @@
       ]
     }
   ],
+  "sn74hc165": [
+    {
+      "section": "sn74hc165",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ sn74hc165: <id>, number: n }`."
+        },
+        {
+          "key": "data_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The serial out (QH) of the chip nearest the MCU."
+        },
+        {
+          "key": "clock_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The shift clock (CLK)."
+        },
+        {
+          "key": "load_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The load pin (SH/LD): the inputs are loaded while it is low."
+        },
+        {
+          "key": "sr_count",
+          "type": "integer 1..4",
+          "required": false,
+          "default": "`1`",
+          "doc": "The chips in the chain, 8 inputs each (8..15 on the second)."
+        }
+      ]
+    }
+  ],
+  "sn74hc595": [
+    {
+      "section": "sn74hc595",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ sn74hc595: <id>, number: n }`."
+        },
+        {
+          "key": "data_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The serial data in (SER)."
+        },
+        {
+          "key": "clock_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The shift clock (SRCLK)."
+        },
+        {
+          "key": "latch_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The latch (RCLK): a pulse puts the shifted bits on the outputs."
+        },
+        {
+          "key": "oe_pin",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "The output enable (/OE), driven low. Leave it out when /OE is tied low."
+        },
+        {
+          "key": "sr_count",
+          "type": "integer 1..4",
+          "required": false,
+          "default": "`1`",
+          "doc": "The chips in the chain, 8 outputs each (8..15 on the second)."
+        }
+      ]
+    }
+  ],
   "tm1637": [
     {
       "section": "led_driver",

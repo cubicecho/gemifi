@@ -8,6 +8,8 @@ The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; README.md here.
 """
 import re
 
+from components.keys import Id, Int, Key, Keys, Pin
+
 # The core's pin dispatch (core/src/vpin.c) is always built, so this is too.
 REQUIRED = True
 
@@ -100,12 +102,31 @@ class ShiftRegister(HubType):
 
     def __init__(self, key, enum, num, out, c_ops=None):
         self.key, self.enum, self.num, self.out, self.c_ops = key, enum, num, out, c_ops
-        self.keys = ("id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count") if out else \
-            ("id", "data_pin", "clock_pin", "load_pin", "sr_count")
+        own = f"What its pins name: `{{ {key}: <id>, number: n }}`."
+        count = Key("sr_count", Int(1, 4), default=1,       # the drivers: at most 4 chips (32 pins)
+                    doc=f"The chips in the chain, 8 {'outputs' if out else 'inputs'} each (8..15 on the second).")
+        if out:
+            self.spec = Keys(
+                Key("id", Id(), required=True, doc=own),
+                Key("data_pin", Pin(), required=True, doc="The serial data in (SER)."),
+                Key("clock_pin", Pin(), required=True, doc="The shift clock (SRCLK)."),
+                Key("latch_pin", Pin(), required=True, doc="The latch (RCLK): a pulse puts the shifted bits on "
+                                                           "the outputs."),
+                Key("oe_pin", Pin(), doc="The output enable (/OE), driven low. Leave it out when /OE is tied low."),
+                count)
+        else:
+            self.spec = Keys(
+                Key("id", Id(), required=True, doc=own),
+                Key("data_pin", Pin(), required=True, doc="The serial out (QH) of the chip nearest the MCU."),
+                Key("clock_pin", Pin(), required=True, doc="The shift clock (CLK)."),
+                Key("load_pin", Pin(), required=True, doc="The load pin (SH/LD): the inputs are loaded while it "
+                                                          "is low."),
+                count)
+        self.keys = tuple(self.spec.names)
         self.roles = frozenset({"out"} if out else {"in"})
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # the drivers: at most 4 chips (32 pins)
+        hub.chain = self.spec.get(v, h, "sr_count", p)
         hub.n_pins = 8 * hub.chain
         hub.data = ctl("data_pin", "out" if self.out else "in")
         hub.clock = ctl("clock_pin", "out")

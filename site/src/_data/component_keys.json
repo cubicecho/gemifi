@@ -1,4 +1,125 @@
 {
+  "cd74hc4067": [
+    {
+      "section": "cd74hc4051",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its channels name: `{ cd74hc4051: <id>, number: n }`."
+        },
+        {
+          "key": "pin_s0",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S0: bit 0 of the channel."
+        },
+        {
+          "key": "pin_s1",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S1: bit 1 of the channel."
+        },
+        {
+          "key": "pin_s2",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S2: bit 2 of the channel."
+        },
+        {
+          "key": "common_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
+        },
+        {
+          "key": "enable_pin",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "The enable pin (/E), driven low. Leave it out when /E is tied low."
+        },
+        {
+          "key": "delay",
+          "type": "time 0us..65535us",
+          "required": false,
+          "default": "`2us`",
+          "doc": "How long it waits after switching channel before a read (`0us` is the default too).",
+          "see": "Shared select lines"
+        }
+      ]
+    },
+    {
+      "section": "cd74hc4067",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its channels name: `{ cd74hc4067: <id>, number: n }`."
+        },
+        {
+          "key": "pin_s0",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S0: bit 0 of the channel."
+        },
+        {
+          "key": "pin_s1",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S1: bit 1 of the channel."
+        },
+        {
+          "key": "pin_s2",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S2: bit 2 of the channel."
+        },
+        {
+          "key": "pin_s3",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Select line S3: bit 3 of the channel."
+        },
+        {
+          "key": "common_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
+        },
+        {
+          "key": "enable_pin",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "The enable pin (/E), driven low. Leave it out when /E is tied low."
+        },
+        {
+          "key": "delay",
+          "type": "time 0us..65535us",
+          "required": false,
+          "default": "`2us`",
+          "doc": "How long it waits after switching channel before a read (`0us` is the default too).",
+          "see": "Shared select lines"
+        }
+      ]
+    }
+  ],
   "encoders": [
     {
       "section": "encoders",

@@ -640,25 +640,60 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its channels name: `{ cd74hc4051: <id>, number: n }`."
               },
               "pin_s0": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S0: bit 0 of the channel."
               },
               "pin_s1": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S1: bit 1 of the channel."
               },
               "pin_s2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S2: bit 2 of the channel."
               },
               "common_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
               },
               "enable_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The enable pin (/E), driven low. Leave it out when /E is tied low."
               },
               "delay": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after switching channel before a read (`0us` is the default too). Default: 2us."
               }
             },
             "additionalProperties": false
@@ -679,28 +714,68 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its channels name: `{ cd74hc4067: <id>, number: n }`."
               },
               "pin_s0": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S0: bit 0 of the channel."
               },
               "pin_s1": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S1: bit 1 of the channel."
               },
               "pin_s2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S2: bit 2 of the channel."
               },
               "pin_s3": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S3: bit 3 of the channel."
               },
               "common_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
               },
               "enable_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The enable pin (/E), driven low. Leave it out when /E is tied low."
               },
               "delay": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after switching channel before a read (`0us` is the default too). Default: 2us."
               }
             },
             "additionalProperties": false

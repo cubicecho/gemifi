@@ -70,6 +70,11 @@ class EdgesAgree(unittest.TestCase):
         self.hub("mcp23017", {"id": "h"}, 4)
         self.hub("pcf8574", {"id": "h"}, 4)
 
+    def test_muxes(self):
+        sel = {"pin_s0": "PB6", "pin_s1": "PB7", "pin_s2": "PB8", "common_pin": "PA0"}
+        self.hub("cd74hc4051", {"id": "h", **sel}, 4)
+        self.hub("cd74hc4067", {"id": "h", **sel, "pin_s3": "PB9"}, 4)
+
 
 class Specs(unittest.TestCase):
     def test_the_validator_lists_the_spec_keys(self):

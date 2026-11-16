@@ -3341,7 +3341,9 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                          "default": "none"
                         },
                         "cc": {
                           "anyOf": [
@@ -3353,26 +3355,21 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device."
                         },
                         "note": {
                           "anyOf": [
                             {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 127
-                                },
-                                {
-                                  "$ref": "#/definitions/substitution"
-                                }
-                              ]
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 127
                             },
                             {
-                              "type": "string"
+                              "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The note, with action `note`. Can be changed on the device."
                         },
                         "preset": {
                           "anyOf": [
@@ -3383,10 +3380,12 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
                         },
                         "mcu": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device."
                         },
                         "program": {
                           "anyOf": [
@@ -3398,7 +3397,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The Program Change it sends, with action `program`. Can be changed on the device."
                         },
                         "mmc": {
                           "anyOf": [
@@ -3437,11 +3437,12 @@
                                 }
                               ]
                             }
-                          ]
+                          ],
+                          "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "the id of a midi_messages.sysex string"
+                          "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
                         }
                       },
                       "additionalProperties": false
@@ -3463,7 +3464,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device."
                         },
                         "mode": {
                           "anyOf": [
@@ -3483,7 +3485,9 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device.",
+                          "default": "cc"
                         },
                         "nrpn": {
                           "anyOf": [
@@ -3495,7 +3499,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3507,11 +3512,12 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "the id of a midi_messages.sysex string"
+                          "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device."
                         }
                       },
                       "additionalProperties": false
@@ -3533,7 +3539,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device."
                         },
                         "mode": {
                           "anyOf": [
@@ -3553,7 +3560,9 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What a turn sends. Default: absolute. Can be changed on the device.",
+                          "default": "absolute"
                         },
                         "nrpn": {
                           "anyOf": [
@@ -3565,7 +3574,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3577,7 +3587,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
                         }
                       },
                       "additionalProperties": false
@@ -3592,21 +3603,15 @@
                         "note": {
                           "anyOf": [
                             {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 127
-                                },
-                                {
-                                  "$ref": "#/definitions/substitution"
-                                }
-                              ]
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 127
                             },
                             {
-                              "type": "string"
+                              "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The note it plays. Can be changed on the device."
                         }
                       },
                       "additionalProperties": false
@@ -3776,14 +3781,16 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                      "default": "none"
                     },
                     "active": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What it shows while on. Default: on, or led_defaults:'s."
                     },
                     "cc": {
                       "anyOf": [
@@ -3805,14 +3812,15 @@
                       ]
                     },
                     "daw": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
                     },
                     "idle": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What it shows while off. Default: off, or led_defaults:'s."
                     },
                     "mmc": {
                       "anyOf": [
@@ -3851,29 +3859,25 @@
                             }
                           ]
                         }
-                      ]
+                      ],
+                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
                     },
                     "note": {
                       "anyOf": [
                         {
-                          "anyOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 127
-                            },
-                            {
-                              "$ref": "#/definitions/substitution"
-                            }
-                          ]
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
                         },
                         {
-                          "type": "string"
+                          "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The note, with action `note`. Can be changed on the device."
                     },
                     "preset": {
                       "anyOf": [
@@ -3884,7 +3888,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
                     },
                     "program": {
                       "anyOf": [
@@ -3896,11 +3901,12 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The Program Change it sends, with action `program`. Can be changed on the device."
                     },
                     "sysex": {
                       "type": "string",
-                      "description": "the id of a midi_messages.sysex string"
+                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
                     }
                   },
                   "additionalProperties": false
@@ -3971,14 +3977,16 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device.",
+                            "default": "none"
                           },
                           "active": {
                             "type": [
                               "string",
                               "boolean"
                             ],
-                            "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                            "description": "What it shows while on. Default: on, or led_defaults:'s."
                           },
                           "cc": {
                             "anyOf": [
@@ -4000,14 +4008,15 @@
                             ]
                           },
                           "daw": {
-                            "type": "string"
+                            "type": "string",
+                            "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
                           },
                           "idle": {
                             "type": [
                               "string",
                               "boolean"
                             ],
-                            "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                            "description": "What it shows while off. Default: off, or led_defaults:'s."
                           },
                           "mmc": {
                             "anyOf": [
@@ -4046,29 +4055,25 @@
                                   }
                                 ]
                               }
-                            ]
+                            ],
+                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device."
                           },
                           "name": {
-                            "type": "string"
+                            "type": "string",
+                            "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
                           },
                           "note": {
                             "anyOf": [
                               {
-                                "anyOf": [
-                                  {
-                                    "type": "integer",
-                                    "minimum": 0,
-                                    "maximum": 127
-                                  },
-                                  {
-                                    "$ref": "#/definitions/substitution"
-                                  }
-                                ]
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
                               },
                               {
-                                "type": "string"
+                                "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The note, with action `note`. Can be changed on the device."
                           },
                           "preset": {
                             "anyOf": [
@@ -4079,7 +4084,8 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device."
                           },
                           "program": {
                             "anyOf": [
@@ -4091,11 +4097,12 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The Program Change it sends, with action `program`. Can be changed on the device."
                           },
                           "sysex": {
                             "type": "string",
-                            "description": "the id of a midi_messages.sysex string"
+                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device."
                           }
                         },
                         "additionalProperties": false

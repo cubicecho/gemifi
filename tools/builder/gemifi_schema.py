@@ -153,12 +153,17 @@ def matrix_lines():
             "columns": lst(ref("pin"))}
 
 
+def section_keys(yaml_key):
+    """The Keys of a component's section (KEY_SECTIONS), by its YAML key."""
+    return next(s.keys for s in key_sections() if s.yaml_key == yaml_key)
+
+
 def presets():
     comps = {}
     for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
-        types = {"mode": enum(gd.ENC_MODES if sec == "encoders" else gd.ANALOG_MODES)}
+        spec = section_keys(sec)
         comps[sec] = {"type": "object", "description": f"per {sec[:-1] if sec.endswith('s') else sec} id",
-                      "additionalProperties": obj(allowed, types)}
+                      "additionalProperties": obj(allowed, {k: spec[k].schema() for k in allowed})}
     globs = {}
     for sec, keys in gd.PRESET_GLOBALS.items():
         types = {}
@@ -174,8 +179,12 @@ def presets():
 
 def modes():
     toggle = one_of(ID_REF, obj(["button", "with"], {"button": ID_REF, "with": ID_REF}))
-    layer_entry = obj(sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS)),
-                      {"name": STR, "cc": one_of(INT7, {"const": "none"}), "preset": T("integer", minimum=1)})
+    # a layer entry takes keys of a button, a pad or an encoder (components/modes), typed as theirs
+    layer_keys = sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS))
+    specs = [section_keys(s) for s in ("buttons", "pads", "encoders", "leds")]   # idle:/active: are an LED's
+    layer_types = {k: next(sp[k].schema() for sp in specs if k in sp.by_name) for k in layer_keys
+                   if any(k in sp.by_name for sp in specs)}
+    layer_entry = obj(layer_keys, {**layer_types, "cc": one_of(INT7, {"const": "none"})})
     step = obj(gd.STEP_KEYS, {"enabled": BOOL, "colour": LOOK, "layer": {"type": "object",
                                                                           "additionalProperties": layer_entry}})
     item = obj(gd.MODE_KEYS, {

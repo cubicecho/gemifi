@@ -264,6 +264,10 @@ static void button_changed(uint32_t i, int down)
     run_action(i, act, num, down);
 }
 
+#if GM_BTN_GESTURES || GM_BTN_REPEAT
+#define HAS(mask, i) (((btn_bits_t)(mask) >> (i)) & 1u)   /* button i is in mask */
+#endif
+
 #if GM_BTN_REPEAT
 /* Auto-repeat (components/buttons/README.md "Auto-repeat"): a button with
  * repeat: whose own action is one of these runs it again every
@@ -296,8 +300,7 @@ static int is_repeatable(int32_t act)
  * does. */
 static void repeat_start(uint32_t i, uint32_t pressed_at)
 {
-    int has_repeat = ((btn_bits_t)GM_BTN_REPEAT >> i) & 1u;
-    int repeats = has_repeat && is_repeatable(gm_cfg.btn_action[i]);
+    int repeats = HAS(GM_BTN_REPEAT, i) && is_repeatable(gm_cfg.btn_action[i]);
     if (!repeats)
         return;
     repeating |= (btn_bits_t)1 << i;
@@ -332,7 +335,6 @@ static void repeats_ms(uint32_t now)
  * its presses and releases, and gestures_ms (every sample) times them. The
  * other buttons never wait. */
 #define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD | GM_BTN_DOUBLE | GM_COMBO_BUTTONS))
-#define HAS(mask, i) (((btn_bits_t)(mask) >> (i)) & 1u)
 #if GM_BTN_HOLD
 #define HOLD_MS ((uint32_t)gm_cfg.btn_hold_time)
 #else

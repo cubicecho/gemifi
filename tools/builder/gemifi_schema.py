@@ -153,12 +153,6 @@ def matrix_lines():
             "columns": lst(ref("pin"))}
 
 
-def gesture():
-    """A button's hold: (components/buttons/README.md "Gestures"): an action's name, or the keys of an action."""
-    return one_of(enum(a for a in gd.ACTIONS if a not in gd.buttons.NOT_GESTURE_ACTIONS),
-                  obj(gd.buttons.GESTURE_KEYS))
-
-
 def presets():
     comps = {}
     for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
@@ -272,13 +266,6 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES},
-                                            "repeat": BOOL})),
-        "combos": lst(obj(gd.buttons.COMBO_KEYS, {"buttons": lst(ID_REF)}),
-                      "buttons pressed together that run an action of their own (components/buttons/README.md "
-                      "\"Combos\")"),
-        "button_settings": obj(gd.buttons.BUTTON_SETTINGS_KEYS, {k: PERIOD for k in gd.buttons.BUTTON_SETTINGS_KEYS},
-                               "the gestures' timing (components/buttons/README.md \"Gestures\")"),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
         "leds": lst(obj(gd.LED_KEYS, {
             "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),
@@ -319,7 +306,7 @@ def device_schema():
     # the sections of the components whose keys are data (KEY_SECTIONS: components/keys.py)
     for s in key_sections():
         assert s.yaml_key not in top_types, f"{s.yaml_key}: in KEY_SECTIONS and written here too"
-        top_types[s.yaml_key] = lst(s.keys.schema()) if s.is_list else s.keys.schema()
+        top_types[s.yaml_key] = lst(s.keys.schema(), s.desc) if s.is_list else s.keys.schema(s.desc)
     # the keys gemifi_yaml.py uses up before validation
     reuse = {
         "substitutions": {"type": "object", "description": "name: value, used as ${name} in string values",

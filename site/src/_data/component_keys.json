@@ -140,6 +140,466 @@
       ]
     }
   ],
+  "buttons": [
+    {
+      "section": "buttons",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
+        },
+        {
+          "key": "name",
+          "type": "text",
+          "required": false,
+          "default": "from the id",
+          "doc": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`)."
+        },
+        {
+          "key": "pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Its input pin: an MCU pin, a hub's or a switch matrix's."
+        },
+        {
+          "key": "action",
+          "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+          "required": false,
+          "default": "`none`; `mcu` with `mcu:`",
+          "doc": "What a press does.",
+          "see": "Button actions",
+          "live": true
+        },
+        {
+          "key": "cc",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+          "live": true
+        },
+        {
+          "key": "note",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The note, with action `note`.",
+          "live": true
+        },
+        {
+          "key": "preset",
+          "type": "integer from 1",
+          "required": false,
+          "default": null,
+          "doc": "The preset slot (1..slots), with action `preset_select`.",
+          "see": "core/README.md \"Presets\"",
+          "live": true
+        },
+        {
+          "key": "led",
+          "type": "LED id",
+          "required": false,
+          "default": null,
+          "doc": "An LED that shows its state (on while held, or the toggle's state)."
+        },
+        {
+          "key": "mcu",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+          "see": "core/README.md \"Second USB port and Mackie Control\"",
+          "live": true
+        },
+        {
+          "key": "daw",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+          "see": "hosts/README.md"
+        },
+        {
+          "key": "program",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The Program Change it sends, with action `program`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "mmc",
+          "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+          "required": false,
+          "default": null,
+          "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "sysex",
+          "type": "SysEx string id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "bank",
+          "type": "integer 0..16383 or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Bank Select sent before the Program Change, with the program actions: 0..16383 or `{ msb, lsb }`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "keys": [
+            {
+              "key": "msb",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "`0`",
+              "doc": "CC 0's value."
+            },
+            {
+              "key": "lsb",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "`0`",
+              "doc": "CC 32's value."
+            }
+          ]
+        },
+        {
+          "key": "channel",
+          "type": "integer 1..16",
+          "required": false,
+          "default": null,
+          "doc": "The MIDI channel it sends on, instead of `midi.channel`."
+        },
+        {
+          "key": "min",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
+        },
+        {
+          "key": "max",
+          "type": "integer 0..16383",
+          "required": false,
+          "default": null,
+          "doc": "The value it sends at the top of its range (default: the mode's top)."
+        },
+        {
+          "key": "hold",
+          "type": "`none`, `cc_momentary`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "What it does when held instead: an action, or a mapping of the action keys (what it leaves out is the button's).",
+          "see": "Gestures",
+          "keys": [
+            {
+              "key": "action",
+              "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+              "required": false,
+              "default": "`none`; `mcu` with `mcu:`",
+              "doc": "What a press does.",
+              "see": "Button actions",
+              "live": true
+            },
+            {
+              "key": "cc",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+              "live": true
+            },
+            {
+              "key": "note",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The note, with action `note`.",
+              "live": true
+            },
+            {
+              "key": "preset",
+              "type": "integer from 1",
+              "required": false,
+              "default": null,
+              "doc": "The preset slot (1..slots), with action `preset_select`.",
+              "see": "core/README.md \"Presets\"",
+              "live": true
+            },
+            {
+              "key": "program",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The Program Change it sends, with action `program`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "mmc",
+              "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+              "required": false,
+              "default": null,
+              "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "sysex",
+              "type": "SysEx string id",
+              "required": false,
+              "default": null,
+              "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "mcu",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+              "see": "core/README.md \"Second USB port and Mackie Control\"",
+              "live": true
+            }
+          ]
+        },
+        {
+          "key": "double_tap",
+          "type": "`none`, `cc_momentary`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "What it does when pressed twice instead, as `hold:`.",
+          "see": "Gestures",
+          "keys": [
+            {
+              "key": "action",
+              "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+              "required": false,
+              "default": "`none`; `mcu` with `mcu:`",
+              "doc": "What a press does.",
+              "see": "Button actions",
+              "live": true
+            },
+            {
+              "key": "cc",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+              "live": true
+            },
+            {
+              "key": "note",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The note, with action `note`.",
+              "live": true
+            },
+            {
+              "key": "preset",
+              "type": "integer from 1",
+              "required": false,
+              "default": null,
+              "doc": "The preset slot (1..slots), with action `preset_select`.",
+              "see": "core/README.md \"Presets\"",
+              "live": true
+            },
+            {
+              "key": "program",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "The Program Change it sends, with action `program`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "mmc",
+              "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+              "required": false,
+              "default": null,
+              "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "sysex",
+              "type": "SysEx string id",
+              "required": false,
+              "default": null,
+              "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "live": true
+            },
+            {
+              "key": "mcu",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+              "see": "core/README.md \"Second USB port and Mackie Control\"",
+              "live": true
+            }
+          ]
+        },
+        {
+          "key": "repeat",
+          "type": "`true` or `false`",
+          "required": false,
+          "default": "`false`",
+          "doc": "Runs a stepping action (octave, transpose, program, preset) again while it is held.",
+          "see": "Auto-repeat"
+        }
+      ]
+    },
+    {
+      "section": "combos",
+      "list": true,
+      "keys": [
+        {
+          "key": "buttons",
+          "type": "list of button id",
+          "required": true,
+          "default": null,
+          "doc": "The buttons pressed together: 2 or more of the YAML's own, each once."
+        },
+        {
+          "key": "action",
+          "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+          "required": true,
+          "default": null,
+          "doc": "What it does: an action from the list, with its number key.",
+          "see": "Button actions"
+        },
+        {
+          "key": "cc",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+          "live": true
+        },
+        {
+          "key": "note",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The note, with action `note`.",
+          "live": true
+        },
+        {
+          "key": "preset",
+          "type": "integer from 1",
+          "required": false,
+          "default": null,
+          "doc": "The preset slot (1..slots), with action `preset_select`.",
+          "see": "core/README.md \"Presets\"",
+          "live": true
+        },
+        {
+          "key": "program",
+          "type": "integer 0..127",
+          "required": false,
+          "default": null,
+          "doc": "The Program Change it sends, with action `program`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "mmc",
+          "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+          "required": false,
+          "default": null,
+          "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "sysex",
+          "type": "SysEx string id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+          "see": "core/README.md \"MIDI messages\"",
+          "live": true
+        },
+        {
+          "key": "mcu",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+          "see": "core/README.md \"Second USB port and Mackie Control\"",
+          "live": true
+        }
+      ]
+    },
+    {
+      "section": "button_settings",
+      "list": false,
+      "keys": [
+        {
+          "key": "tap_time",
+          "type": "time 50ms..1s",
+          "required": false,
+          "default": "`200ms`",
+          "doc": "A second press within this long is a double tap (`button.tap_time`).",
+          "see": "Gestures",
+          "live": true
+        },
+        {
+          "key": "hold_time",
+          "type": "time 100ms..5s",
+          "required": false,
+          "default": "`200ms`",
+          "doc": "Held this long, a press is a hold (`button.hold_time`).",
+          "see": "Gestures",
+          "live": true
+        },
+        {
+          "key": "combo_time",
+          "type": "time 10ms..500ms",
+          "required": false,
+          "default": "`50ms`",
+          "doc": "Buttons pressed within this long of the first are pressed together (`button.combo_time`).",
+          "see": "Combos",
+          "live": true
+        },
+        {
+          "key": "repeat_delay",
+          "type": "time 100ms..2s",
+          "required": false,
+          "default": "`500ms`",
+          "doc": "How long a button is held before it repeats (`button.repeat_delay`).",
+          "see": "Auto-repeat",
+          "live": true
+        },
+        {
+          "key": "repeat_rate",
+          "type": "time 20ms..1s",
+          "required": false,
+          "default": "`50ms`",
+          "doc": "The time between repeats (`button.repeat_rate`).",
+          "see": "Auto-repeat",
+          "live": true
+        }
+      ]
+    }
+  ],
   "encoders": [
     {
       "section": "encoders",

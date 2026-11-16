@@ -8,6 +8,8 @@ import difflib
 
 from components.api import NO_PIN, PRESETS_OFF, RENAMED_ID, Hub, LDict, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_OUT, Bool, Enum, IdRef, Int, Key, Keys,
+                             List, Map, OneOf, Period, Pin, Section, Str)
 from components.leds import led_ref
 
 # components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
@@ -30,12 +32,9 @@ NUMBER_KEYS = ("cc", "note", "preset", "program", "mmc", "sysex")
 MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "rewind": 5, "record": 6,
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
-BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
-               "bank", "channel", "min", "max", "hold", "double_tap", "repeat"]
 # Gestures (README.md "Gestures"): a button's hold: and double_tap: take the keys of its action; what they
 # leave out is the button's.
 GESTURES = ("hold", "double_tap")
-GESTURE_KEYS = ["action", "cc", "note", "preset", "program", "mmc", "sysex", "mcu"]
 # Actions that work for as long as the button is held: a gesture can't run them, and a button with one can't
 # have a gesture (its press would wait to be told apart).
 HELD_ACTIONS = {"cc_ramp", "bend_down", "bend_up"}
@@ -44,15 +43,78 @@ NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
 # repeat: true (README.md "Auto-repeat"): the actions that repeat while the button is held.
 REPEAT_ACTIONS = {"octave_down", "octave_up", "transpose_down", "transpose_up", "program_next", "program_prev",
                   "preset_next", "preset_prev", "pad_octave_down", "pad_octave_up"}
-# combos: (README.md "Combos"): a combo's buttons and its action, with the keys of a gesture.
-COMBO_KEYS = ["buttons", *GESTURE_KEYS]
 MAX_COMBOS = 32                 # buttons.c combo_down: one bit each
 # button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
 # key -> (default, lo, hi, the gesture that uses it: a button key, or combos).
 BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold"),
                    "combo_time": (50, 10, 500, "combos"), "repeat_delay": (500, 100, 2000, "repeat"),
                    "repeat_rate": (50, 20, 1000, "repeat")}
-BUTTON_SETTINGS_KEYS = list(BUTTON_SETTINGS)
+
+# The keys of an action and its number: a button's, a gesture's (what it leaves out is the button's) and a
+# combo's. Checked by button_action() and button_number(), whose ranges depend on the action and the device.
+MIDI = 'core/README.md "MIDI messages"'
+ACTION = Key("action", Enum(ACTIONS), default="none", shown_default="`none`; `mcu` with `mcu:`", live=True,
+             see="Button actions", doc="What a press does.")
+CC = Key("cc", Int(0, 127), live=True, doc="The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.")
+NOTE = Key("note", Int(0, 127), live=True, doc="The note, with action `note`.")
+PRESET = Key("preset", Int(1, None), live=True, see='core/README.md "Presets"',
+             doc="The preset slot (1..slots), with action `preset_select`.")
+PROGRAM = Key("program", Int(0, 127), live=True, see=MIDI, doc="The Program Change it sends, with action `program`.")
+MMC = Key("mmc", OneOf(Enum(MMC_COMMANDS), Int(1, 127)), live=True, see=MIDI,
+          doc="The MMC command it sends, with action `mmc`: a name or 1..127.")
+SYSEX = Key("sysex", IdRef("SysEx string"), live=True, see=MIDI,
+            doc="The id of the `midi_messages.sysex` string it sends, with action `sysex`.")
+MCU = Key("mcu", Str(), live=True, see='core/README.md "Second USB port and Mackie Control"',
+          doc="The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).")
+GESTURE = Keys(ACTION, CC, NOTE, PRESET, PROGRAM, MMC, SYSEX, MCU)
+GESTURE_KEYS = GESTURE.names
+GESTURE_TYPE = OneOf(Enum([a for a in ACTIONS if a not in NOT_GESTURE_ACTIONS]), Map(GESTURE))
+
+# One button's keys (core/README.md "Controls" has what the controls share).
+BUTTON = Keys(
+    CONTROL_ID, CONTROL_NAME,
+    Key("pin", Pin(), required=True, doc="Its input pin: an MCU pin, a hub's or a switch matrix's."),
+    ACTION, CC, NOTE, PRESET,
+    Key("led", IdRef("LED"), doc="An LED that shows its state (on while held, or the toggle's state)."),
+    MCU, CONTROL_DAW, PROGRAM, MMC, SYSEX,
+    Key("bank", OneOf(Int(0, 16383), Map(Keys(Key("msb", Int(0, 127), default=0, doc="CC 0's value."),
+                                              Key("lsb", Int(0, 127), default=0, doc="CC 32's value.")))),
+        see=MIDI, doc="Bank Select sent before the Program Change, with the program actions: 0..16383 or "
+                      "`{ msb, lsb }`."),
+    *CONTROL_OUT,
+    Key("hold", GESTURE_TYPE, see="Gestures",
+        doc="What it does when held instead: an action, or a mapping of the action keys (what it leaves out is "
+            "the button's)."),
+    Key("double_tap", GESTURE_TYPE, see="Gestures", doc="What it does when pressed twice instead, as `hold:`."),
+    Key("repeat", Bool(), default=False, see="Auto-repeat",
+        doc="Runs a stepping action (octave, transpose, program, preset) again while it is held."),
+)
+BUTTON_KEYS = BUTTON.names
+COMBO = Keys(Key("buttons", List(IdRef("button")), required=True,
+                 doc="The buttons pressed together: 2 or more of the YAML's own, each once."),
+             Key("action", ACTION.type, required=True, see="Button actions",
+                 doc="What it does: an action from the list, with its number key."),
+             *GESTURE.without("action"))
+COMBO_KEYS = COMBO.names
+# button_settings: the timing params (global, only on a device with that gesture), from BUTTON_SETTINGS.
+_SETTING_DOCS = {
+    "tap_time": ("Gestures", "A second press within this long is a double tap (`button.tap_time`)."),
+    "hold_time": ("Gestures", "Held this long, a press is a hold (`button.hold_time`)."),
+    "combo_time": ("Combos", "Buttons pressed within this long of the first are pressed together "
+                             "(`button.combo_time`)."),
+    "repeat_delay": ("Auto-repeat", "How long a button is held before it repeats (`button.repeat_delay`)."),
+    "repeat_rate": ("Auto-repeat", "The time between repeats (`button.repeat_rate`)."),
+}
+BUTTON_SETTINGS_SPEC = Keys(*(
+    Key(k, Period(lo * 1000, hi * 1000, step_us=1000, example=f"{d}ms"), default=f"{d}ms", live=True,
+        see=_SETTING_DOCS[k][0], doc=_SETTING_DOCS[k][1])
+    for k, (d, lo, hi, _) in BUTTON_SETTINGS.items()))
+BUTTON_SETTINGS_KEYS = BUTTON_SETTINGS_SPEC.names
+KEY_SECTIONS = (Section("buttons", BUTTON),
+                Section("combos", COMBO, desc="buttons pressed together that run an action of their own "
+                                              "(components/buttons/README.md \"Combos\")"),
+                Section("button_settings", BUTTON_SETTINGS_SPEC, is_list=False,
+                        desc="the gestures' timing (components/buttons/README.md \"Gestures\")"))
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
 
@@ -90,7 +152,7 @@ def button_repeat(v, d, p, act, gestures):
     """repeat: true (README.md "Auto-repeat"): the button's action again while it is held. Not with a
     gesture, which waits to tell a press apart; an action that doesn't repeat is a warning (a preset or
     the host may give it one that does)."""
-    if not v.boolean(d, "repeat", p):
+    if not BUTTON.get(v, d, "repeat", p):
         return False
     if gestures:
         v.err(f"{p}.repeat", d.line_of("repeat"), f"repeat: runs the action again while the button is held, and "
@@ -393,8 +455,8 @@ def button_settings(v, dev, data):
         return
     used = (gestures_used(dev) | ({"combos"} if dev.combos else set()) |
             ({"repeat"} if repeat_mask(dev) else set()))
-    for k, (default, lo, hi, gesture) in BUTTON_SETTINGS.items():
-        ms = v.period(s, k, p, lo * 1000, hi * 1000, step_us=1000, example=f"{default}ms")
+    for k, (_, _, _, gesture) in BUTTON_SETTINGS.items():
+        ms = BUTTON_SETTINGS_SPEC.get(v, s, k, p, default=None)
         if ms is None:
             continue
         dev.btn_set[k] = ms

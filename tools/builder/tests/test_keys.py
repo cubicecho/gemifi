@@ -10,7 +10,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import analog, encoders, pads, tm1637  # noqa: E402
+from components import analog, buttons, encoders, pads, tm1637  # noqa: E402
 from components.keys import Enum  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
@@ -85,6 +85,33 @@ class EdgesAgree(unittest.TestCase):
                             "threshold": {"release": 0, "full": 4095}, "release": {"threshold": 4094, "full": 4095},
                             "full": {"release": 0, "threshold": 1}})
         self.assertGreater(n, 25)
+
+    # what the action keys' edges need: their action (and presets on, a 14-bit SysEx string for min/max)
+    ACTION_CONTEXT = {"note": {"action": "note", "-": ["cc"]}, "preset": {"action": "preset_select", "-": ["cc"]},
+                      "program": {"action": "program", "-": ["cc"]},
+                      "min": {"action": "sysex", "sysex": "s", "max": 5, "-": ["cc"]},
+                      "max": {"action": "sysex", "sysex": "s", "min": 5, "-": ["cc"]}}
+    BUTTONS_MORE = ("presets: { slots: 2 }\n"
+                    "midi_messages: { sysex: [{ id: s, data: \"F0 43 msb lsb F7\" }] }\n")
+
+    def test_buttons(self):
+        base = {"id": "b", "pin": "PB0", "action": "cc_momentary", "cc": 20}
+        n = self.edges("buttons", base, "buttons[0]", buttons.BUTTON, context=self.ACTION_CONTEXT,
+                       more=self.BUTTONS_MORE)
+        n += self.edges("buttons", base, "buttons[0]", buttons.GESTURE.without("action"), nest="hold",
+                        context={**self.ACTION_CONTEXT, "cc": {"action": "cc_momentary"}}, more=self.BUTTONS_MORE)
+        self.assertGreater(n, 30)
+
+    def test_combos(self):
+        more = self.BUTTONS_MORE + "buttons:\n  - { id: a, pin: PB0 }\n  - { id: c, pin: PB1 }\n"
+        n = self.edges("combos", {"buttons": ["a", "c"], "action": "cc_momentary", "cc": 20}, "combos[0]",
+                       buttons.COMBO.without("min", "max"), context=self.ACTION_CONTEXT, more=more)
+        self.assertGreater(n, 10)
+
+    def test_button_settings(self):
+        n = self.edges("button_settings:", {}, "button_settings", buttons.BUTTON_SETTINGS_SPEC,
+                       more="buttons:\n  - { id: a, pin: PB0, action: panic }\n")
+        self.assertEqual(n, 20)
 
     def test_tm1637(self):
         base = {"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}

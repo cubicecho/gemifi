@@ -77,17 +77,21 @@ class Type:
 
 
 class Int(Type):
+    """An integer lo..hi; hi None: no top here (the component's code knows it, e.g. the preset slots)."""
+
     def __init__(self, lo, hi):
         self.lo, self.hi = lo, hi
-        self.text = f"integer {lo}..{hi}"
+        self.text = f"integer {lo}..{hi}" if hi is not None else f"integer from {lo}"
 
     def schema(self):
-        return T("integer", minimum=self.lo, maximum=self.hi)
+        return T("integer", minimum=self.lo, **({} if self.hi is None else {"maximum": self.hi}))
 
     def check(self, v, d, key, path, default, required):
         return v.integer(d, key, path, self.lo, self.hi, default=default, required=required)
 
     def bad_values(self):
+        if self.hi is None:
+            return [(self.lo, True), (self.lo - 1, False)]
         return [(self.lo, True), (self.hi, True), (self.lo - 1, False), (self.hi + 1, False)]
 
 
@@ -309,8 +313,9 @@ class Section:
     """Where a component's keys go in the device YAML: a top-level key (a list of items, or one mapping),
     and for a platform of a base (led_driver: [{ platform: tm1637, ... }]) its platform name."""
 
-    def __init__(self, yaml_key, keys, is_list=True, platform=None):
-        self.yaml_key, self.keys, self.is_list, self.platform = yaml_key, keys, is_list, platform
+    def __init__(self, yaml_key, keys, is_list=True, platform=None, desc=None):
+        """desc: what the section is, for the editor's hover on its key."""
+        self.yaml_key, self.keys, self.is_list, self.platform, self.desc = yaml_key, keys, is_list, platform, desc
 
     def doc(self):
         s = {"section": self.yaml_key, "list": self.is_list, "keys": self.keys.doc_rows()}

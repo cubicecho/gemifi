@@ -11,18 +11,9 @@ displays:
   - { id: oled_channel, display: oled, line: 6, shows: channel }              # 21 small ones
 ```
 
-Its keys are below; the text displays on it (`displays:`, `display: <id>`) are in [core/README.md "Displays"](../../core/README.md#displays), and the screen base in [display](../display/README.md).
+<!-- keys -->
 
-| Key | |
-|---|---|
-| `i2c_id` | its [`i2c:`](../i2c/README.md) bus (may be left out with one bus) |
-| `address` | the 7-bit I2C address, default 0x3C. 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning |
-| `model` | `ssd1306` (the default) or `sh1106` |
-| `width` × `height` | 128 × 64 (the default); an SSD1306 also 128 × 32, 96 × 16, 64 × 48, 64 × 32 |
-| `contrast` | 0–255, default 207 |
-| `rotate` | 0 or 180 |
-
-The display base keeps its framebuffer (1 KB for 128 × 64, and as much again for what the panel was sent).
+The text displays on it (`displays:`, `display: <id>`) are in [core/README.md "Displays"](../../core/README.md#displays), and the screen base in [display](../display/README.md). The display base keeps its framebuffer (1 KB for 128 × 64, and as much again for what the panel was sent).
 
 - **The first write** sets the panel up with the display off (clock, multiplex = height − 1, offset 0, start line 0; on an SSD1306 the charge pump on and page addressing, on an SH1106 its DC-DC on; segment remap and COM scan direction, reversed with `rotate: 180`; COM pins, `contrast`, pre-charge, VCOMH), writes every page (blank), then turns the display on, so nothing random shows.
 - **After that**, each pass sends one run of changed bytes: its page and column (three commands, each after a 0x80 control byte), then 0x40 and up to 16 data bytes, one write of at most 23 bytes (~0.55 ms at 400 kHz; the ESP Wire buffer is 128). A run is bigger than the shared 4-byte budget, so a pass sends one and nothing else on the bus, and not on the LED update's pass. A whole new line of 10 characters at scale 2 (240 bytes) takes 15 passes. Only changed bytes go out, so a CC value changing on a big display rewrites a few characters' columns.

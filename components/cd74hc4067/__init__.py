@@ -4,6 +4,7 @@ README.md here.
 """
 from components.api import NO_PIN
 from components.hub import HubType
+from components.keys import Id, Key, Keys, Period, Pin
 
 
 class Mux(HubType):
@@ -19,7 +20,16 @@ class Mux(HubType):
 
     def __init__(self, key, n_sel):
         self.key, self.n_sel = key, n_sel
-        self.keys = ("id", *(f"pin_s{i}" for i in range(n_sel)), "common_pin", "enable_pin", "delay")
+        self.spec = Keys(
+            Key("id", Id(), required=True, doc=f"What its channels name: `{{ {key}: <id>, number: n }}`."),
+            *(Key(f"pin_s{i}", Pin(), required=True, doc=f"Select line S{i}: bit {i} of the channel.")
+              for i in range(n_sel)),
+            Key("common_pin", Pin(), required=True, doc="The common pin (SIG): on an ADC pin the channels read "
+                                                        "analog, on another MCU pin digital."),
+            Key("enable_pin", Pin(), doc="The enable pin (/E), driven low. Leave it out when /E is tied low."),
+            Key("delay", Period(0, 0xFFFF, example="5us"), shown_default="`2us`", see="Shared select lines",
+                doc="How long it waits after switching channel before a read (`0us` is the default too)."))
+        self.keys = tuple(self.spec.names)
 
     def validate(self, v, dev, hub, h, p, line, ctl):
         hub.n_sel = self.n_sel
@@ -31,7 +41,7 @@ class Mux(HubType):
         else:
             hub.common = None
         hub.enable = ctl("enable_pin", "out", required=False)
-        hub.settle_us = v.period(h, "delay", p, 0, 0xFFFF, default=0, example="5us")   # 0: vpin.c waits 2us
+        hub.settle_us = self.spec.get(v, h, "delay", p, default=0)   # 0: vpin.c waits 2us
         if "delay" in h and hub.settle_us == 0:
             v.warn(f"{p}.delay", h.line_of("delay"), "0us means the default, 2us (vpin.c)")
 

@@ -9,9 +9,11 @@ leds:
   - { id: fs_1_led, pin: { sn74hc595: leds, number: 0 } }
 ```
 
-Its keys are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-`sn74hc595` is a chain of 74HC595s: `data_pin` (SER), `clock_pin` (SRCLK), `latch_pin` (RCLK), optional `oe_pin` (/OE, driven low); `sr_count` chips (1–4), 8 outputs each (8–15 on the second chip). LEDs and key-matrix rows. The outputs are written once per scan, from the scan tick, and only when one changed: the highest pin first, so the first bit shifted ends up in the last chip, then a latch pulse. So a whole key matrix can live on shift registers.
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+
+Pins 0–7 are the outputs of the chip on `data_pin`, 8–15 those of the next. They are written once per scan, from the scan tick, and only when one changed: the highest pin first, so the first bit shifted ends up in the last chip, then a latch pulse. So a whole key matrix can live on shift registers.
 
 ## Files
 

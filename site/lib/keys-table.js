@@ -39,6 +39,7 @@ function rows(keys, file, prefix = "") {
 
 function heading(s) {
   if (s.platform) return `\`${s.section}:\` items with \`platform: ${s.platform}\``;
+  if (s.list === "either") return `\`${s.section}:\`, or each item of it as a list`;
   return s.list ? `Each \`${s.section}:\` item` : `\`${s.section}:\``;
 }
 

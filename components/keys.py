@@ -100,6 +100,28 @@ class Int(Type):
         return [(self.lo, True), (self.hi, True), (self.lo - 1, False), (self.hi + 1, False)]
 
 
+class Hex(Int):
+    """An integer usually written in hex (an I2C address): the docs give its range so."""
+
+    def __init__(self, lo, hi):
+        super().__init__(lo, hi)
+        self.text = f"integer 0x{lo:02X}..0x{hi:02X}"
+
+
+class Number(Type):
+    """A number, not only a whole one (gamma: 2.2)."""
+
+    def __init__(self, lo, hi):
+        self.lo, self.hi = lo, hi
+        self.text = f"number {lo:g}..{hi:g}"
+
+    def schema(self):
+        return T("number", minimum=self.lo, maximum=self.hi)
+
+    def bad_values(self):
+        return [(self.lo, True), (self.hi, True), (self.lo - 0.1, False), (self.hi + 0.1, False)]
+
+
 class Enum(Type):
     """One of a list of names; checked to its index (as the C tables count them)."""
 
@@ -119,7 +141,7 @@ class Enum(Type):
         return default if i is None else i
 
     def bad_values(self):
-        return [(self.values[0], True), ("not_" + self.values[0], False)]
+        return [(self.values[0], True), (f"not_{self.values[0]}", False)]
 
 
 class Bool(Type):
@@ -352,7 +374,8 @@ class Section:
     and for a platform of a base (led_driver: [{ platform: tm1637, ... }]) its platform name."""
 
     def __init__(self, yaml_key, keys, is_list=True, platform=None, desc=None):
-        """desc: what the section is, for the editor's hover on its key."""
+        """is_list: True (a list of items), False (one mapping) or "either" (one mapping, or a list of them:
+        i2c:). desc: what the section is, for the editor's hover on its key."""
         self.yaml_key, self.keys, self.is_list, self.platform, self.desc = yaml_key, keys, is_list, platform, desc
 
     def doc(self):

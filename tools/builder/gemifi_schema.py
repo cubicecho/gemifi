@@ -3,8 +3,9 @@
 Built from the validator's own tables in gemifi_device.py (TOP_KEYS, BUTTON_KEYS, HUB_KEYS, ACTIONS,
 CURVES, ...), so a key the validator learns shows up here too. The validator stays the authority:
 the schema gives completion and catches unknown keys and wrong types, the builder checks the rest.
-A component whose keys are data (components/keys.py: encoders, tm1637) gives its own types, with each
-key's doc line and default for the editor's hover; the same data is the key table on its docs page:
+A component whose keys are data (components/keys.py: encoders, the hub types, the display platforms, the
+i2c: buses) gives its own types, with each key's doc line and default for the editor's hover; the same data
+is the key table on its docs page:
 
     gemifi_build.py schema -o site/src/schema/device.json   # published at SCHEMA_URL
     gemifi_build.py keys -o site/src/_data/component_keys.json
@@ -67,14 +68,6 @@ KEY_TYPES["actions"] = ref("action_list")
 # channel:, min: and max: on a button, analog input or encoder (build time only)
 CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
 
-# hub keys: pins are `*_pin` and `pin_s*`
-HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("integer", minimum=1),
-             "intensity": T("integer", minimum=0, maximum=7), "grids": T("integer", minimum=4, maximum=7),
-             "fade": BOOL,
-             "touch_min": T("integer", minimum=0, maximum=4095), "touch_max": T("integer", minimum=0, maximum=4095),
-             "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
-
-
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
 
@@ -115,36 +108,20 @@ def bare(s):
 
 
 def hub_key_types(typ):
-    """The JSON schema types of a hub type's keys, by key."""
-    keys = gd.HUB_KEYS[typ]
-    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
-    types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
-    types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in gd.HUB_DEFS[typ].schema.items()})
-    types.update({k: v for k, v in matrix_lines().items() if k in keys})
-    if typ in gd.ROW_HUBS:
-        types["address"] = lst(ref("pin"), "the address pins, A0 first")
-    elif "address" in keys:
-        types["address"] = T("integer", minimum=0x08, maximum=0x77)
-    types["id"] = ref("id")
-    if "i2c_id" in keys:
-        types["i2c_id"] = ref("id")
-    spec = gd.HUB_DEFS[typ].spec
-    if spec is not None:
-        types.update(spec.types())
-    return types
+    """The JSON schema types of a hub type's keys, by key: its spec's (every hub type has one)."""
+    return gd.HUB_DEFS[typ].spec.types()
 
 
 def screen():
-    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys)."""
+    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys: their types
+    from its spec, the wider where platforms share a key)."""
     plats = list(gd.DISPLAY_PLATFORMS.values())
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
-    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS), "i2c_id": ref("id")}
+    types = {}
     for t in plats:
-        types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in t.schema.items()})
-        types.update({k: enum(vals) for k, vals in t.enums.items()})
-        if t.i2c:
-            # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
-            types["address"] = T("integer", minimum=0x08, maximum=0x7A)
+        for k, s in t.spec.types().items():
+            types[k] = widest(types[k], s) if k in types else s
+    types["platform"] = enum(gd.DISPLAY_PLATFORMS)
     return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
                ", ... } (components/display/README.md); text displays name one with display: <id>")
 
@@ -262,10 +239,6 @@ def device_schema():
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
-        "i2c": one_of(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")},
-                          "one I2C bus (its id optional)"),
-                      lst(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")}),
-                          "I2C buses, each with an id that I2C components name with i2c_id:")),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
             "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),
@@ -317,7 +290,8 @@ def device_schema():
     # the sections of the components whose keys are data (KEY_SECTIONS: components/keys.py)
     for s in key_sections():
         assert s.yaml_key not in top_types, f"{s.yaml_key}: in KEY_SECTIONS and written here too"
-        top_types[s.yaml_key] = lst(s.keys.schema(), s.desc) if s.is_list else s.keys.schema(s.desc)
+        one, many = s.keys.schema(s.desc), lst(s.keys.schema(), s.desc)
+        top_types[s.yaml_key] = one_of(one, many) if s.is_list == "either" else many if s.is_list else one
     # the keys gemifi_yaml.py uses up before validation
     reuse = {
         "substitutions": {"type": "object", "description": "name: value, used as ${name} in string values",
@@ -369,12 +343,15 @@ def key_sections():
 def component_keys():
     """The key tables of the components whose keys are data (components/keys.py), for their docs pages:
     component name -> [its sections: where the keys go in the YAML, and each key's type, default, doc]. A
-    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES with a spec."""
+    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES and display platform of
+    its DISPLAY_PLATFORMS with a spec."""
     out = {}
     for name, m in components.modules().items():
         secs = list(getattr(m, "KEY_SECTIONS", ()))
         secs += [Section(t.domain or t.key, t.spec, platform=t.key if t.domain else None)
                  for t in getattr(m, "HUB_TYPES", ()) if t.spec is not None]
+        secs += [Section("display", t.spec, platform=t.platform)
+                 for t in getattr(m, "DISPLAY_PLATFORMS", ()) if t.spec is not None]
         if secs:
             out[name] = [s.doc() for s in secs]
     return out

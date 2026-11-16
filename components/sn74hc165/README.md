@@ -9,9 +9,11 @@ buttons:
   - { id: fs_1, pin: { sn74hc165: switches, number: 0, inverted: true }, action: cc_momentary, cc: 21 }
 ```
 
-Its keys are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-`sn74hc165` is a chain of 74HC165s: `data_pin` (QH), `clock_pin` (CLK), `load_pin` (SH/LD, loads when low); `sr_count` chips (1–4), 8 inputs each, numbered as ESPHome does: 0–7 on the chip whose QH goes to the MCU (0 = its A), 8–15 on the next. Buttons and key-matrix columns. The inputs are read once per scan into a cache, from the scan tick, so a whole key matrix can live on shift registers.
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+
+The inputs are numbered as ESPHome does: 0–7 on the chip whose QH goes to the MCU (0 = its A), 8–15 on the next. They are read once per scan into a cache, from the scan tick, so a whole key matrix can live on shift registers.
 
 ## Files
 

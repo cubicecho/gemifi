@@ -10,7 +10,11 @@ analog:
   - { id: xy_y, pin: { xy_pad: xy, number: y }, cc: 17, adc_min: 592, adc_max: 3408 }
 ```
 
-Its keys and how it reads are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components); the axes' inputs: [analog](../analog/README.md).
+<!-- keys -->
+
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components); the axes' inputs: [analog](../analog/README.md).
+
+## How it reads
 
 A 4-wire resistive XY pad is two plates that touch where pressed. To read X, the core drives `x_plus_pin` high and `x_minus_pin` low, and reads the voltage of the floating Y plate. That reading is the touch position. Y is read the other way round. Each axis is read on the other plate's minus pin if that pin has an ADC, otherwise on its plus pin. The other plate is always released before a plate is driven, so a touch never joins two driven pins.
 

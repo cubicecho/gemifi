@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.63.0](https://github.com/cubicecho/gemifi/compare/v0.62.0...v0.63.0) (2026-11-16)
+
+
+### Features
+
+* **site:** Devices and Changelog in the docs layout ([aac8a99](https://github.com/cubicecho/gemifi/commit/aac8a99a788ba3766185426207e9967f7ab7357a))
+
 # [0.62.0](https://github.com/cubicecho/gemifi/compare/v0.61.0...v0.62.0) (2026-11-16)
 
 

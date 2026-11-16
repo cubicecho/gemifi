@@ -101,8 +101,7 @@ test("every docs page in the menu links its menu neighbours as previous and next
   const bad = [];
   for (const [i, href] of menu.entries()) {
     const html = read(href);
-    // /devices/ is in the menu but isn't a docs page: no menu, so no pager.
-    if (!html.includes('class="docs-nav"')) continue;
+    assert.ok(html.includes('class="docs-nav"'), `${href}: a page in the docs menu has the docs layout`);
     assert.ok(!html.includes(MARKER), `${href}: the marker is replaced`);
     const prev = html.match(/<a class="pager-prev" href="([^"]+)"/)?.[1];
     const next = html.match(/<a class="pager-next" href="([^"]+)"/)?.[1];

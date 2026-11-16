@@ -52,19 +52,20 @@
       "enum": [
         2
       ],
-      "description": "the format version"
+      "description": "The format version of the file: 2."
     },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?$",
-      "description": "node name: lowercase letters, digits and -, at most 31"
+      "description": "The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."
     },
     "friendly_name": {
       "type": "string",
-      "description": "display name (USB product string, HELLO)"
+      "description": "Its display name: the USB product string, HELLO and the web page. Default: name."
     },
     "description": {
-      "type": "string"
+      "type": "string",
+      "description": "A line about it, for people reading the file."
     },
     "project": {
       "anyOf": [
@@ -80,10 +81,12 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The firmware version it reports (HELLO), major.minor.patch. Default: the build's."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "The firmware project: its version."
         },
         {
           "type": "string",
@@ -101,7 +104,8 @@
         {
           "$ref": "#/definitions/substitution"
         }
-      ]
+      ],
+      "description": "The id a firmware image is checked against before it is flashed: a board profile's fixed one, or your own for a DIY board."
     },
     "platform": {
       "anyOf": [
@@ -117,10 +121,12 @@
         {
           "$ref": "#/definitions/substitution"
         }
-      ]
+      ],
+      "description": "The MCU family it builds for (the docs' Platforms)."
     },
     "chip": {
-      "type": "string"
+      "type": "string",
+      "description": "The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."
     },
     "board": {
       "enum": [
@@ -128,7 +134,7 @@
         "generic-stm32f103c8",
         "keystation-mini32-mk3"
       ],
-      "description": "the board profile (platform/<platform>/boards/<board>.json: layout and board pins; stm32f1: m-audio-code61, nuvoton-nuc1xx: keystation-mini32-mk3 when left out)"
+      "description": "The board profile (platform/<platform>/boards/<board>.json): its layout and board pins. Default: the platform's: m-audio-code61 (stm32f1), keystation-mini32-mk3 (nuvoton-nuc1xx)."
     },
     "usb": {
       "anyOf": [
@@ -145,7 +151,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The USB vendor id (`0x1209`: pid.codes)."
             },
             "pid": {
               "anyOf": [
@@ -157,7 +164,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The USB product id."
             },
             "daw_port": {
               "anyOf": [
@@ -167,10 +175,12 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI. Default: true with mcu:."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "The USB ids, on platforms with native USB (ignored with another `midi.transport`). Default: the pid.codes test ids 1209:0002, for development only."
         },
         {
           "type": "string",
@@ -195,10 +205,12 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How the device talks MIDI: `usb` (native USB, ESP32-S2/S3), `serial` (a UART) or `ble` (ESP32, ESP32-S3). Only the ESPs have a choice. Default: usb; serial on esp32."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "How the device talks MIDI."
         },
         {
           "type": "string",
@@ -276,7 +288,13 @@
       ]
     },
     "scan_interval": {
-      "$ref": "#/definitions/period"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/period"
+        }
+      ],
+      "description": "The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and shift-register hubs are read every tick. Default: 125us.",
+      "default": "125us"
     },
     "hardware_scan": {
       "anyOf": [
@@ -287,10 +305,20 @@
               "type": "object",
               "properties": {
                 "row_time": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time per row: a frame is every row once (an odd row count gets its last row twice)."
                 },
                 "settle": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "From the row's select to the columns' read; at least 0.5us with `precharge`."
                 },
                 "precharge": {
                   "anyOf": [
@@ -300,11 +328,17 @@
                     {
                       "$ref": "#/definitions/substitution"
                     }
-                  ]
+                  ],
+                  "description": "The columns are driven to their idle level before each row, so the read waits less: needs diodes or tolerant drivers. Default: false.",
+                  "default": false
                 },
-                "timer": {}
+                "timer": {
+                  "description": "The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free. Default: auto.",
+                  "default": "auto"
+                }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "The key matrix and every switch matrix, scanned row by row by a timer and DMA."
             },
             "analog": {
               "anyOf": [
@@ -321,14 +355,20 @@
                 {
                   "type": "object",
                   "properties": {
-                    "timer": {}
+                    "timer": {
+                      "description": "The timer that steps the muxes and starts ADC1 (not TIM1). Default: auto.",
+                      "default": "auto"
+                    }
                   },
                   "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; `true`, or a mapping to pick the timer. Default: false.",
+              "default": false
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU."
         },
         {
           "type": "string",
@@ -342,8 +382,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "description": "the id of another component"
-          }
+            "description": "the id of a button"
+          },
+          "description": "Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). The first 32 buttons only."
         },
         {
           "type": "string",
@@ -357,9 +398,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "description": "the id of another component"
-          },
-          "description": "buttons held at power-up to wipe the settings (5 s)"
+            "description": "the id of a button"
+          }
         },
         {
           "type": "object",
@@ -368,23 +408,36 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "description": "the id of another component"
-              }
+                "description": "the id of a button"
+              },
+              "description": "The buttons, at most 8."
             },
             "hold": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long they're held before the settings are wiped. Default: 5s.",
+              "default": "5s"
             }
           },
-          "additionalProperties": false,
-          "description": "combo, and hold: 1s..30s (default 5s)"
+          "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Buttons held at power-up to wipe the settings (every preset, its name and the globals), for 5 s; or a mapping with the hold time."
     },
     "unlock": {
       "anyOf": [
         {
-          "type": "boolean",
-          "description": "true: the boot_combo buttons, 2 s; false/left out: off"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/substitution"
+            }
+          ]
         },
         {
           "type": "object",
@@ -393,21 +446,29 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "description": "the id of another component"
-              }
+                "description": "the id of a button"
+              },
+              "description": "The buttons, at most 8. Default: boot_combo."
             },
             "hold": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long they're held to unlock; `0s`: a press. Default: 2s.",
+              "default": "2s"
             }
           },
-          "additionalProperties": false,
-          "description": "opt-in physical unlock: combo (default boot_combo), hold: 0s..10s (default 2s)"
+          "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the user to hold a combo on the device. `true`: the `boot_combo` buttons, 2 s. Default: false.",
+      "default": false
     },
     "status_led": {
       "type": "string",
-      "description": "the id of another component"
+      "description": "The LED that shows the blink codes; without it there are none."
     },
     "feedback": {
       "anyOf": [
@@ -432,7 +493,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with `mcu:`); DAW scripts are off too. Default: true.",
+              "default": true
             },
             "script": {
               "anyOf": [
@@ -442,7 +505,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out. Default: true.",
+              "default": true
             },
             "led_owner": {
               "anyOf": [
@@ -456,7 +521,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Which state every LED shows, the host's or its own, unless the LED's `owner:` says. Default: host_then_local.",
+              "default": "host_then_local"
             },
             "led_timeout": {
               "anyOf": [
@@ -464,14 +531,26 @@
                   "$ref": "#/definitions/period"
                 },
                 {
-                  "const": "never"
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "never"
+                      ]
+                    },
+                    {
+                      "$ref": "#/definitions/substitution"
+                    }
+                  ]
                 }
-              ]
+              ],
+              "description": "With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's `timeout:` says; `never`: from the host's first message on. Default: 2s.",
+              "default": "2s"
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / `false`: as `enabled:`, the rest by default."
     },
     "mcu": {
       "anyOf": [
@@ -489,12 +568,15 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14. Default: false.",
+              "default": false
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device."
     },
     "sn74hc595": {
       "anyOf": [
@@ -3956,7 +4038,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The preset slots, at least the number listed: the ones not listed start as copies of slot 1. Default: the number listed."
             },
             "revision": {
               "anyOf": [
@@ -3968,7 +4051,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Bump it when the YAML's presets change: the updater then offers to load them. Default: 0.",
+              "default": 0
             },
             "list": {
               "type": "array",
@@ -3976,7 +4061,8 @@
                 "type": "object",
                 "properties": {
                   "name": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Its name: up to 16 printable ASCII characters, unique. Default: Default (slot 1), Preset N."
                   },
                   "program": {
                     "anyOf": [
@@ -3988,7 +4074,8 @@
                       {
                         "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "The Program Change sent when it is selected. Can be changed on the device (preset.program)."
                   },
                   "bank": {
                     "anyOf": [
@@ -4038,7 +4125,8 @@
                         },
                         "additionalProperties": false
                       }
-                    ]
+                    ],
+                    "description": "With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`. Can be changed on the device (preset.bank)."
                   },
                   "midi": {
                     "type": "object",
@@ -4053,7 +4141,9 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The MIDI channel the device plays on. Default: 1. Can be changed on the device (midi.channel).",
+                        "default": 1
                       },
                       "transpose": {
                         "anyOf": [
@@ -4065,7 +4155,9 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Semitones the keys' notes are moved by (the transpose buttons step it). Default: 0. Can be changed on the device (midi.transpose).",
+                        "default": 0
                       },
                       "octave": {
                         "anyOf": [
@@ -4077,10 +4169,13 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Octaves the keys' notes are moved by (the octave buttons step it). Default: 0. Can be changed on the device (midi.octave).",
+                        "default": 0
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "What it changes of the per-preset `midi` settings. Not in slot 1, which is the rest of the file."
                   },
                   "velocity": {
                     "type": "object",
@@ -4098,7 +4193,9 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only. Default: normal. Can be changed on the device (velocity.curve).",
+                        "default": "normal"
                       },
                       "fixed": {
                         "anyOf": [
@@ -4110,28 +4207,45 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The velocity of curve `fixed`, and of the `note` buttons. Default: 100. Can be changed on the device (velocity.fixed).",
+                        "default": 100
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "What it changes of the per-preset `velocity` settings. Not in slot 1, which is the rest of the file."
                   },
                   "bend": {
                     "type": "object",
                     "properties": {
                       "glide": {
-                        "$ref": "#/definitions/period"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/period"
+                          }
+                        ],
+                        "description": "How long the pitch-bend buttons take to glide to full bend and back. Default: 80ms. Can be changed on the device (bend.glide).",
+                        "default": "80ms"
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "What it changes of the per-preset `bend` settings. Not in slot 1, which is the rest of the file."
                   },
                   "ramp": {
                     "type": "object",
                     "properties": {
                       "time": {
-                        "$ref": "#/definitions/period"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/period"
+                          }
+                        ],
+                        "description": "How long a `cc_ramp` button takes to glide from 0 to 127 and back. Default: 300ms. Can be changed on the device (ramp.time).",
+                        "default": "300ms"
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "What it changes of the per-preset `ramp` settings. Not in slot 1, which is the rest of the file."
                   },
                   "pad_settings": {
                     "type": "object",
@@ -4146,7 +4260,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The MIDI channel the pads play on (0: `midi.channel`). Per preset. Default: pad_settings:'s. Can be changed on the device (pad.channel)."
                       },
                       "curve": {
                         "anyOf": [
@@ -4161,7 +4276,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset. Default: pad_settings:'s. Can be changed on the device (pad.curve)."
                       },
                       "aftertouch": {
                         "anyOf": [
@@ -4171,7 +4287,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Polyphonic aftertouch while a pad is held. Per preset. Default: pad_settings:'s. Can be changed on the device (pad.aftertouch)."
                       },
                       "octave": {
                         "anyOf": [
@@ -4183,14 +4300,17 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Octaves the pads' notes are moved by (the pad octave buttons step it). Default: 0. Can be changed on the device (pad.octave).",
+                        "default": 0
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "What it changes of the per-preset `pad_settings` settings. Not in slot 1, which is the rest of the file."
                   },
                   "buttons": {
                     "type": "object",
-                    "description": "per button id",
+                    "description": "By button id, what differs from the button's own keys. Not in slot 1, which is the rest of the file.",
                     "additionalProperties": {
                       "type": "object",
                       "properties": {
@@ -4227,8 +4347,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
-                          "default": "none"
+                          "description": "What a press does. Can be changed on the device (button.action)."
                         },
                         "actions": {
                           "anyOf": [
@@ -4343,7 +4462,7 @@
                   },
                   "analog": {
                     "type": "object",
-                    "description": "per analog id",
+                    "description": "By analog input id, what differs from the analog input's own keys. Not in slot 1, which is the rest of the file.",
                     "additionalProperties": {
                       "type": "object",
                       "properties": {
@@ -4379,8 +4498,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device (analog.mode).",
-                          "default": "cc"
+                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Can be changed on the device (analog.mode)."
                         },
                         "nrpn": {
                           "anyOf": [
@@ -4418,7 +4536,7 @@
                   },
                   "encoders": {
                     "type": "object",
-                    "description": "per encoder id",
+                    "description": "By encoder id, what differs from the encoder's own keys. Not in slot 1, which is the rest of the file.",
                     "additionalProperties": {
                       "type": "object",
                       "properties": {
@@ -4454,8 +4572,7 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ],
-                          "description": "What a turn sends. Default: absolute. Can be changed on the device (encoder.mode).",
-                          "default": "absolute"
+                          "description": "What a turn sends. Can be changed on the device (encoder.mode)."
                         },
                         "nrpn": {
                           "anyOf": [
@@ -4489,7 +4606,7 @@
                   },
                   "pads": {
                     "type": "object",
-                    "description": "per pad id",
+                    "description": "By pad id, what differs from the pad's own keys. Not in slot 1, which is the rest of the file.",
                     "additionalProperties": {
                       "type": "object",
                       "properties": {
@@ -4512,11 +4629,12 @@
                   }
                 },
                 "additionalProperties": false
-              }
+              },
+              "description": "The presets, slot 1 first: its values are the rest of the file."
             }
           },
           "additionalProperties": false,
-          "description": "preset slots (core/README.md \"Presets\")"
+          "description": "Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets are off (one slot)."
         },
         {
           "type": "string",
@@ -4532,116 +4650,134 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What `parent:` and a key's `{ mode: <id> }` call it; unique among the modes, cycles and steps."
               },
               "toggle": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       },
                       "with": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "A button held with it (Shift): a plain press is the button's own action."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button that enters the mode and, pressed again, leaves it (from a sub-mode too)."
               },
               "hold": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button that keeps the mode on while it is held."
               },
               "one_shot": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The button whose tap arms the layer for the next press."
               },
               "parent": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "Makes it a sub-mode of that mode: entered from one of its keys, back to it after one action."
               },
               "cycle": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of a button"
                   },
                   {
                     "type": "object",
                     "properties": {
                       "button": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The button."
                       },
                       "with": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "A button held with it (Shift): a plain press is the button's own action."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "Makes it a cycle: the button that moves to the next enabled step."
               },
               "led": {
                 "anyOf": [
                   {
                     "type": "string",
-                    "description": "the id of another component"
+                    "description": "the id of an LED"
                   },
                   {
                     "type": "object",
                     "description": "{ <LED id>: blink }"
                   }
-                ]
+                ],
+                "description": "The LED lit while it is on (a cycle's shows the step's colour). Default: the toggle button's LED; a sub-mode's: its parent's, blinking."
               },
-              "preset_blink": {},
-              "keys": {},
+              "preset_blink": {
+                "description": "After a preset switch from the mode, the first blinks the slot number, then both flash once. Default: its parent's."
+              },
+              "keys": {
+                "description": "What the keys do while it is on, by the key's note at octave 0 (C4 = 60) or MIDI note number: an action, `{ action, ... }`, `{ mode: <sub-mode id> }`, or one range. Needs a key matrix."
+              },
               "buttons": {
                 "type": "object",
-                "description": "button id: what it does in the mode"
+                "description": "What buttons do instead of their own action while it is on: an action or `{ action, ... }`."
               },
               "layer": {
                 "type": "object",
-                "description": "component id: what it does on the layer",
+                "description": "By button, pad or encoder id, what that control's twin is while the mode is on. A root mode only.",
                 "additionalProperties": {
                   "type": "object",
                   "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The twin's name on the web page and in the CLI. Default: <its name> <mode id>."
+                    },
                     "action": {
                       "anyOf": [
                         {
@@ -4675,8 +4811,7 @@
                           "$ref": "#/definitions/substitution"
                         }
                       ],
-                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
-                      "default": "none"
+                      "description": "A button twin's action. Default: the button's. Can be changed on the device (layer.button.action)."
                     },
                     "actions": {
                       "anyOf": [
@@ -4684,14 +4819,7 @@
                           "$ref": "#/definitions/action_list"
                         }
                       ],
-                      "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
-                    },
-                    "active": {
-                      "type": [
-                        "string",
-                        "boolean"
-                      ],
-                      "description": "What it shows while on. Default: on, or led_defaults:'s."
+                      "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Default: the button's. Can be changed on the device (layer.button.action)."
                     },
                     "cc": {
                       "anyOf": [
@@ -4710,18 +4838,46 @@
                         {
                           "const": "none"
                         }
-                      ]
-                    },
-                    "daw": {
-                      "type": "string",
-                      "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
-                    },
-                    "idle": {
-                      "type": [
-                        "string",
-                        "boolean"
                       ],
-                      "description": "What it shows while off. Default: off, or led_defaults:'s."
+                      "description": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs. Default: its base's."
+                    },
+                    "note": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The note, with action `note`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "preset": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The preset slot (1..slots), with action `preset_select`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "program": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The Program Change it sends, with action `program`. Default: the button's. Can be changed on the device (layer.button.number)."
                     },
                     "mmc": {
                       "anyOf": [
@@ -4761,53 +4917,29 @@
                           ]
                         }
                       ],
-                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
-                    },
-                    "name": {
-                      "type": "string",
-                      "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
-                    },
-                    "note": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 127
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The note, with action `note`. Can be changed on the device (button.number)."
-                    },
-                    "preset": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
-                    },
-                    "program": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 127
-                        },
-                        {
-                          "$ref": "#/definitions/substitution"
-                        }
-                      ],
-                      "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
+                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Default: the button's. Can be changed on the device (layer.button.number)."
                     },
                     "sysex": {
                       "type": "string",
-                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
+                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Default: the button's. Can be changed on the device (layer.button.number)."
+                    },
+                    "daw": {
+                      "type": "string",
+                      "description": "The twin's own role for the DAW scripts (left out: none)."
+                    },
+                    "idle": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ],
+                      "description": "What the twin's LED shows while off (a button's or pad's twin). Default: the LED's."
+                    },
+                    "active": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ],
+                      "description": "What the twin's LED shows while on. Default: the LED's."
                     }
                   },
                   "additionalProperties": false
@@ -4819,17 +4951,23 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "$ref": "#/definitions/id"
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "Its mode id, unique among the modes, cycles and steps."
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Its name, up to 16 ASCII characters: the display shows it when the step is switched to. Default: the id."
                     },
                     "colour": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What the cycle's LED shows on this step: a look of that LED, or a full colour (`\"#ff8000\"`, `blue 20%`). Default: the LED's active look."
                     },
                     "enabled": {
                       "anyOf": [
@@ -4839,13 +4977,20 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Whether a press of the cycle's button stops at it. Default: true. Can be changed on the device (layer.enabled).",
+                      "default": true
                     },
                     "layer": {
                       "type": "object",
+                      "description": "By button, pad or encoder id, what that control's twin is while the mode is on.",
                       "additionalProperties": {
                         "type": "object",
                         "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "The twin's name on the web page and in the CLI. Default: <its name> <mode id>."
+                          },
                           "action": {
                             "anyOf": [
                               {
@@ -4879,8 +5024,7 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ],
-                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
-                            "default": "none"
+                            "description": "A button twin's action. Default: the button's. Can be changed on the device (layer.button.action)."
                           },
                           "actions": {
                             "anyOf": [
@@ -4888,14 +5032,7 @@
                                 "$ref": "#/definitions/action_list"
                               }
                             ],
-                            "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
-                          },
-                          "active": {
-                            "type": [
-                              "string",
-                              "boolean"
-                            ],
-                            "description": "What it shows while on. Default: on, or led_defaults:'s."
+                            "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Default: the button's. Can be changed on the device (layer.button.action)."
                           },
                           "cc": {
                             "anyOf": [
@@ -4914,18 +5051,46 @@
                               {
                                 "const": "none"
                               }
-                            ]
-                          },
-                          "daw": {
-                            "type": "string",
-                            "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
-                          },
-                          "idle": {
-                            "type": [
-                              "string",
-                              "boolean"
                             ],
-                            "description": "What it shows while off. Default: off, or led_defaults:'s."
+                            "description": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs. Default: its base's."
+                          },
+                          "note": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The note, with action `note`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "preset": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The preset slot (1..slots), with action `preset_select`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "program": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ],
+                            "description": "The Program Change it sends, with action `program`. Default: the button's. Can be changed on the device (layer.button.number)."
                           },
                           "mmc": {
                             "anyOf": [
@@ -4965,53 +5130,29 @@
                                 ]
                               }
                             ],
-                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
-                          },
-                          "name": {
-                            "type": "string",
-                            "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
-                          },
-                          "note": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The note, with action `note`. Can be changed on the device (button.number)."
-                          },
-                          "preset": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 1
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
-                          },
-                          "program": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ],
-                            "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
+                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Default: the button's. Can be changed on the device (layer.button.number)."
                           },
                           "sysex": {
                             "type": "string",
-                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
+                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Default: the button's. Can be changed on the device (layer.button.number)."
+                          },
+                          "daw": {
+                            "type": "string",
+                            "description": "The twin's own role for the DAW scripts (left out: none)."
+                          },
+                          "idle": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "description": "What the twin's LED shows while off (a button's or pad's twin). Default: the LED's."
+                          },
+                          "active": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "description": "What the twin's LED shows while on. Default: the LED's."
                           }
                         },
                         "additionalProperties": false
@@ -5019,7 +5160,8 @@
                     }
                   },
                   "additionalProperties": false
-                }
+                },
+                "description": "A cycle's steps, 2 to 8, taken in turn."
               }
             },
             "additionalProperties": false
@@ -5286,7 +5428,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file and a host's FB_TEXT call it."
               },
               "type": {
                 "anyOf": [
@@ -5300,7 +5447,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its characters: 14 or 7 segments on hub pins, or text on a screen. Default: text with display:, else segment14."
               },
               "chars": {
                 "type": "array",
@@ -5317,7 +5465,7 @@
                     }
                   ]
                 },
-                "description": "each character's first pin, or its segments' pins"
+                "description": "Each character's first pin, or its segments' pins, left to right (hub pins). A segment display's."
               },
               "segment_step": {
                 "anyOf": [
@@ -5329,7 +5477,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Segment k of a character is this many pins times k after its first pin. A segment display's. Default: 1.",
+                "default": 1
               },
               "segment_order": {
                 "type": "array",
@@ -5361,7 +5511,7 @@
                     }
                   ]
                 },
-                "description": "the segments in pin order"
+                "description": "The segments in pin order from each first pin; ones left out aren't wired. A segment display's. Default: a, b, ... in gm_display.h order."
               },
               "shows": {
                 "anyOf": [
@@ -5377,13 +5527,20 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What it shows of its own while no host writes to it. Default: last_message on the first display, else none."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "What a DAW script shows on it (`time`, `track_name`, `param`, `status`)."
               },
               "display": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "The screen it is on: a `display:` item's id. A text display's."
               },
               "line": {
                 "anyOf": [
@@ -5395,7 +5552,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen). A text display's. Default: 0.",
+                "default": 0
               },
               "x": {
                 "anyOf": [
@@ -5407,7 +5566,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The pixel column it starts at. A text display's. Default: 0.",
+                "default": 0
               },
               "scale": {
                 "anyOf": [
@@ -5419,7 +5580,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall. A text display's. Default: 1.",
+                "default": 1
               },
               "length": {
                 "anyOf": [
@@ -5431,11 +5594,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "How many characters it has. A text display's. Default: as many as fit."
               }
             },
             "additionalProperties": false
-          }
+          },
+          "description": "The displays, up to 4: a row of segment characters on hub pins, or a row of text on a screen."
         },
         {
           "type": "string",
@@ -5449,10 +5614,20 @@
           "type": "object",
           "properties": {
             "tx_pin": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The UART's TX pin: MIDI Out (stm32f1: PA9, USART1)."
             },
             "rx_pin": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The UART's RX pin: MIDI In (stm32f1: PA10). Without it, MIDI Out only."
             },
             "mode": {
               "anyOf": [
@@ -5466,10 +5641,13 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How the jacks reach USB: on the device's own port (`usb_merge`), on a second USB-MIDI port (`separate_port`), or not at all (`din_only`). Default: usb_merge.",
+              "default": "usb_merge"
             },
             "port_name": {
-              "type": "string"
+              "type": "string",
+              "description": "The second port's name, with `separate_port`; at most 31 characters. Default: <friendly_name> MIDI."
             },
             "thru": {
               "anyOf": [
@@ -5479,7 +5657,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "DIN In is copied to DIN Out. Default: false. Can be changed on the device (midi.thru).",
+              "default": false
             },
             "controller_out": {
               "anyOf": [
@@ -5489,7 +5669,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The device's own messages (keys, pads, CCs, program changes) also go to DIN Out. Default: true. Can be changed on the device (midi.din_out).",
+              "default": true
             },
             "usb_to_din": {
               "anyOf": [
@@ -5499,7 +5681,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "With `usb_merge`: the host's channel and realtime messages on the device's port go to DIN Out. Default: false. Can be changed on the device (midi.usb_to_din).",
+              "default": false
             },
             "dma": {
               "anyOf": [
@@ -5509,10 +5693,13 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "stm32f1: the UART's bytes move by DMA (channels 4 and 5) instead of by interrupt. Default: false.",
+              "default": false
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now)."
         },
         {
           "type": "string",
@@ -5543,18 +5730,34 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Store the selected preset (`preset.active`) after a switch, so the device powers up on the preset used last. Default: false.",
+              "default": false
             },
             "delay": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "A write waits this long after the last change. Default: 10s.",
+              "default": "10s"
             },
             "idle": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "... and until nothing has been played or touched for this long. Default: 3s.",
+              "default": "3s"
             }
           },
           "additionalProperties": false
         }
-      ]
+      ],
+      "description": "What the device writes to its flash on its own (host saves always work); `true` / `false`: every item on or off, with the default timings. Default: false.",
+      "default": false
     },
     "midi_messages": {
       "anyOf": [
@@ -5580,7 +5783,8 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ]
-              }
+              },
+              "description": "Kinds to compile in even if no control uses them yet, for the web page (each kind is in anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s."
             },
             "null_rpn": {
               "anyOf": [
@@ -5590,7 +5794,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "After each NRPN or RPN message, the null RPN (101 / 100 = 127). Default: false.",
+              "default": false
             },
             "mmc_device_id": {
               "anyOf": [
@@ -5602,7 +5808,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The device id MMC commands are sent to. Default: 0x7F (all devices).",
+              "default": 127
             },
             "sysex": {
               "type": "array",
@@ -5610,19 +5818,25 @@
                 "type": "object",
                 "properties": {
                   "id": {
-                    "$ref": "#/definitions/id"
+                    "anyOf": [
+                      {
+                        "$ref": "#/definitions/id"
+                      }
+                    ],
+                    "description": "What a control's `sysex:` calls it."
                   },
                   "data": {
                     "type": "string",
-                    "description": "hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders"
+                    "description": "Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders."
                   }
                 },
                 "additionalProperties": false
-              }
+              },
+              "description": "SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and `mode: sysex` analog inputs."
             }
           },
           "additionalProperties": false,
-          "description": "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"
+          "description": "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx."
         },
         {
           "type": "string",
@@ -5644,7 +5858,7 @@
               },
               "minItems": 2,
               "maxItems": 2,
-              "description": "[w, h]: the drawing's size in units"
+              "description": "[w, h]: the drawing's size in units, 1..255, at least what is placed. Default: just big enough."
             },
             "keys": {
               "anyOf": [
@@ -5681,7 +5895,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its left edge, in units from the left."
                     },
                     "y": {
                       "anyOf": [
@@ -5693,7 +5908,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its top edge, in units from the top."
                     },
                     "w": {
                       "anyOf": [
@@ -5705,7 +5921,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its width, in units. Default: its shape's."
                     },
                     "h": {
                       "anyOf": [
@@ -5717,7 +5934,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its height, in units. Default: its shape's."
                     },
                     "shape": {
                       "anyOf": [
@@ -5729,7 +5947,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Always `keys`."
                     }
                   },
                   "additionalProperties": false,
@@ -5738,14 +5957,12 @@
                     "y"
                   ]
                 }
-              ]
+              ],
+              "description": "Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }. Default: under the controls."
             },
             "controls": {
               "type": "object",
-              "description": "control id -> [x, y], [x, y, w, h] or { x, y, w, h, shape }",
-              "propertyNames": {
-                "pattern": "^[a-z][a-z0-9_]*$"
-              },
+              "description": "Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }.",
               "additionalProperties": {
                 "anyOf": [
                   {
@@ -5781,7 +5998,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its left edge, in units from the left."
                       },
                       "y": {
                         "anyOf": [
@@ -5793,7 +6011,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its top edge, in units from the top."
                       },
                       "w": {
                         "anyOf": [
@@ -5805,7 +6024,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its width, in units. Default: its shape's."
                       },
                       "h": {
                         "anyOf": [
@@ -5817,7 +6037,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its height, in units. Default: its shape's."
                       },
                       "shape": {
                         "anyOf": [
@@ -5837,7 +6058,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "How it is drawn (the shapes its kind can be)."
                       }
                     },
                     "additionalProperties": false,
@@ -5847,11 +6069,14 @@
                     ]
                   }
                 ]
+              },
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
               }
             }
           },
           "additionalProperties": false,
-          "description": "where the controls are, in units of about 5 mm from the top left, for drawing the device (core/README.md \"Layout\")"
+          "description": "Where the controls are, in units of about 5 mm from the top left, for drawing the device."
         },
         {
           "type": "string",

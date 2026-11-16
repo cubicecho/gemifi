@@ -110,7 +110,7 @@ buttons:
 
 A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `in_device(dev)` (whether a device has it, so whether it's built), `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`). Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them. Its keys are data (`components/keys.py`; every control, hub type, display platform and the I2C buses has them, the modes not yet): a `Keys(Key(name, type, default=, doc=, see=, param=), ...)` that `validate` checks values with (`KEYS.get(v, d, "length", p)`), and that the JSON schema and the key table on its docs page are made from. `param=` names the device param a key starts (`encoder.cc`): the web page can change it, and a preset can set the per-preset ones. A control lists where its keys go in `KEY_SECTIONS`, a hub type or screen platform sets `spec`; `tools/builder/tests/test_keys.py` and `test_keys_hubs.py` check the validator takes what each type says.
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `in_device(dev)` (whether a device has it, so whether it's built), `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`). Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them. Its keys are data (`components/keys.py`; every component has them, and the device's own keys do too, by area: `gemifi_device.py` `CORE_AREAS`, the docs' Core pages, `core/yaml/<area>.md`): a `Keys(Key(name, type, default=, doc=, see=, param=), ...)` that `validate` checks values with (`KEYS.get(v, d, "length", p)`), and that the JSON schema and the key table on its docs page are made from. `param=` names the device param a key starts (`encoder.cc`): the web page can change it, and a preset can set the per-preset ones. A control lists where its keys go in `KEY_SECTIONS`, a hub type or screen platform sets `spec`; `tools/builder/tests/test_keys.py` and `test_keys_hubs.py` check the validator takes what each type says.
 2. **Its C** (`<name>.c`, and `<name>.h` if others need its types), compiled only into devices that use it. Its folder is an include dir when it has headers.
 3. **`README.md`**: in this order, as the others do: a first paragraph that says what it is (it opens `A control (…):`, `A hub type ([hub](../hub/README.md)):`, `The base component of …` or names its base with a link, which is how the site's docs group it), a short YAML example, where its keys are described (with keys as data, `<!-- keys -->` on a line of its own: the docs site puts the key table there, and the README doesn't list them again); then the longer explanations, pins and behaviour; then `## Files`, how it runs and its tests.
 4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).
@@ -143,14 +143,14 @@ Global params (always present): `midi.channel`, `midi.transpose`, `midi.octave`,
 
 ### MIDI messages
 
-Besides notes, 7-bit CCs, pitch bend, pressure and program changes, a control can send 14-bit CCs, NRPN and RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it (or lists it in `midi_messages.enable`), so a device that uses none of them gets the same image as before.
+Besides notes, 7-bit CCs, pitch bend, pressure and program changes, a control can send 14-bit CCs, NRPN and RPN, bank select with a program change, panic, MMC transport commands and SysEx strings of your own. Each kind is compiled in only when the YAML uses it (or lists it in `midi_messages.enable`), so a device that uses none of them gets the same image as before. The `midi_messages:` keys are in [the MIDI keys](yaml/midi.md#keys).
 
 ```yaml
-midi_messages:                 # all optional
-  enable: [cc14, nrpn, program, panic, mmc]   # compile these in for the web page, even if nothing uses them yet
-  null_rpn: true               # after each NRPN / RPN message, the null RPN (101 / 100 = 127); default false
-  mmc_device_id: 0x7F          # the MMC target, 0..0x7F; default 0x7F (all devices)
-  sysex:                       # strings in hex, F0 to F7, with placeholders
+midi_messages:
+  enable: [cc14, nrpn, program, panic, mmc]
+  null_rpn: true
+  mmc_device_id: 0x7F
+  sysex:
     - { id: gs_volume, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }   # Roland GS master volume
     - { id: cutoff, data: "F0 43 ch 7F msb lsb F7" }
 
@@ -195,17 +195,16 @@ When every row is such a pin, every column is on one input register, nothing is 
 
 ## Hardware scan
 
-On a platform whose timers and DMA can do it (stm32f1 for now), `hardware_scan:` takes the matrix scan off the CPU: the key matrix and every switch matrix are scanned row by row by the hardware, and the core only looks at finished frames.
+On a platform whose timers and DMA can do it (stm32f1 for now), `hardware_scan:` takes the matrix scan off the CPU: the key matrix and every switch matrix are scanned row by row by the hardware, and the core only looks at finished frames. Its keys are in [the scanning keys](yaml/scanning.md#keys).
 
 ```yaml
 hardware_scan:
-  matrix:                      # the key matrix and switch matrices
-    row_time: 3.5us            # time per row; a frame is every row once (23 rows on the Code 61, padded to 24)
-    settle: 3us                # row selected -> columns read; at least 0.25us (0.5us with precharge)
-    precharge: false           # drive the columns to their idle level between rows (below)
-    timer: auto                # stm32f1: the timer that paces it, auto or tim1..tim4 ("DMA channels")
-  analog: true                 # analog inputs and pads: mux steps + ADC by timer + DMA (below);
-                               # or `analog: { timer: tim3 }` (auto, tim2..tim4)
+  matrix:
+    row_time: 3.5us            # 23 rows on the Code 61, padded to 24
+    settle: 3us
+    precharge: false
+    timer: auto
+  analog: true                 # or `analog: { timer: tim3 }`
 ```
 
 - **What it needs.** Every row (key matrix and switch matrices) is selected by one store (decoder rows on one port with a set/reset register, `hal_pin_bsrr`), and every column is a bit of one input register. The Code 61 fits: PB3–PB7 select, PB8–PB15 read. If a device doesn't fit, the firmware logs a WARN at boot and scans in software as before. A frame is one reading of each row; an odd row count gets its last row twice, so frames are whole 32-bit words.
@@ -255,7 +254,7 @@ The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and 
 A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...), or a row of text on a screen (`display:`, an OLED). Up to 4 displays, of up to 16 characters each (a text display up to 21), one row each.
 
 - **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. `text`: 5 × 7 characters on a screen (below). Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
-- **Text displays** (`type: text`, the default when `display:` is given): `display:` the id of the screen it is on, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), `line:` the text line its top is on (8 pixels a line from the top: 0–7 on a 64-pixel panel, 0–3 on a 32-pixel one), `x:` the pixel column it starts at (default 0), `scale:` 1–4 (default 1: each character 6 × 8 pixels with its gap, so 21 a row on 128 pixels; scale 2: 12 × 16 pixels, 2 lines tall, 10 a row), `length:` the characters (default as many as fit). Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap. `chars:`, `segment_step:` and `segment_order:` are for segment displays only.
+- **Text displays** (`type: text`) are on a screen, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), placed by text line (8 pixels a line from the top) and pixel column ([the display keys](yaml/displays.md#keys)). At scale 1 a character is 6 × 8 pixels with its gap, so 21 fit a row on 128 pixels; at scale 2 it is 12 × 16 pixels, 2 lines tall, 10 a row. Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap.
 - **Pins.** Each item of `chars:` is a character, left to right:
   - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
   - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
@@ -282,8 +281,8 @@ A display is a row of segment characters on output pins of hubs (a TM1628, MAX72
 ```yaml
 displays:
   - id: display
-    type: segment14            # the default
-    daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
+    type: segment14
+    daw: param                 # what a DAW script shows on it
     chars:                     # left to right: each character's segment a
       - { led_driver: leds_a, number: 48 }
       - { led_driver: leds_a, number: 64 }
@@ -295,6 +294,8 @@ displays:
     chars: [{ led_driver: leds_b, number: 0 }, { led_driver: leds_b, number: 1 }]
 ```
 
+Each key, its range and default: [the display keys](yaml/displays.md#keys).
+
 Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one display a line), graphics, and the TM1640. See #120.
 
 ## Layout
@@ -303,8 +304,8 @@ Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one
 
 ```yaml
 layout:
-  size: [80, 30]               # optional: the drawing's size; default: just big enough
-  keys: [0, 12, 76, 14]        # optional: where key_matrix goes; default: under the controls
+  size: [80, 30]
+  keys: [0, 12, 76, 14]        # where key_matrix goes
   controls:
     volume: { x: 1, y: 1, w: 4, h: 4 }        # by id
     fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }
@@ -312,6 +313,8 @@ layout:
     stop: [11, 4, 3, 2]        # [x, y, w, h]
     xy_x: { x: 20, y: 1, w: 10, h: 10, shape: xy }   # one axis of an xy_pad draws the pad for both
 ```
+
+Each key, its range and default: [the layout keys](yaml/layout.md#keys).
 
 - **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
 - **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. An id that names no control is a warning and isn't drawn, so a device built on a package can `!remove` a control the package's layout places. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
@@ -326,7 +329,7 @@ For calibrating and porting, a host can ask for the readings as the scan sees th
 
 ## DIN MIDI
 
-The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). `din_midi.mode` sets how they reach USB:
+The 5-pin MIDI jacks are a UART at 31250 baud (stm32f1: USART1, TX PA9, RX PA10). The `din_midi:` keys are in [the MIDI keys](yaml/midi.md#keys). `din_midi.mode` sets how they reach USB:
 
 | `mode` | The computer sees | DIN In goes to | DIN Out gets |
 |---|---|---|---|
@@ -344,13 +347,13 @@ In every mode, two settings (MIDI group, stored with the globals) decide the res
 ```yaml
 din_midi:
   tx_pin: PA9
-  rx_pin: PA10                 # optional: without it, MIDI Out only
-  mode: usb_merge              # usb_merge | separate_port | din_only
-  port_name: Code 61 MIDI      # separate_port only
-  thru: false                  # start values of the settings
+  rx_pin: PA10
+  mode: usb_merge
+  port_name: Code 61 MIDI
+  thru: false
   controller_out: true
-  usb_to_din: false            # usb_merge only
-  dma: false                   # stm32f1: DMA channels 4 and 5 ("DMA channels")
+  usb_to_din: false
+  dma: false
 ```
 
 - **Whole messages.** DIN Out mixes three sources: the device, the thru, and USB. Each message goes out whole. While one source's SysEx is going out, the others' messages wait (up to 16: 8 for the thru's and USB's, 4 kept for the device's Note Offs) and follow its F7; a device Note Off that finds no room ends the SysEx there with F7 and drops its rest, since a stuck note is worse. Realtime bytes such as clock go straight through, which MIDI allows. A SysEx from a second source meanwhile is dropped, and one that stalls for 500 ms is ended with F7.
@@ -367,6 +370,8 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the preset keys](yaml/presets.md#keys), [the feedback keys](yaml/feedback.md#keys), [the text display keys](yaml/displays.md#keys), [the layout keys](yaml/layout.md#keys), [the safety keys](yaml/safety.md#keys). A component's are on its own page.
+
 ```yaml
 gemifi: 2                      # format version
 name: keystation-mini32        # node name: lowercase letters, digits and -, at most 31; names the built images
@@ -377,18 +382,18 @@ board_id: 0x0001               # protocol/sysex.md section 7; 0x3F00-0x3FFF = DI
 platform: nuvoton-nuc1xx       # nuvoton-nuc1xx | stm32f1 | esp32 | esp32s2 | esp32s3
 chip: NUC120LC1BN              # NUC: part; ESP: PlatformIO board id (e.g. esp32-s3-devkitc-1)
 board: keystation-mini32-mk3   # stm32f1 / nuvoton-nuc1xx: the board profile ("Board profiles"); default per platform
-usb: { vid: 0x1209, pid: 0x0002 }   # native-USB platforms
-midi: { transport: usb }       # ESP only: usb (S2/S3) | serial | ble (ESP32)
+usb: { vid: 0x1209, pid: 0x0002 }
+midi: { transport: usb }
 i2c: { sda: GPIO8, scl: GPIO9 }     # only if an I2C hub or display is used (several: components/i2c)
-scan_interval: 125us           # matrix/encoder scan period
-hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # stm32f1: timer + DMA scanning ("Hardware scan")
-din_midi: { tx_pin: PA9, rx_pin: PA10 }  # stm32f1: 5-pin MIDI ("DIN MIDI"), on the main USB port
-midi_messages: { enable: [cc14] }   # 14-bit CC, NRPN, bank select, panic, MMC, SysEx ("MIDI messages")
-boot_combo: [pitch_down, pitch_up]  # button ids
-factory_reset_combo: [oct_down, oct_up]   # held at power-up for 5 s: wipe the settings ("Factory-reset combo")
-unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # opt-in: uploads etc. need the user's OK ("Physical unlock")
-status_led: edit_led           # blink codes ("Status LED")
-write_to_flash: false          # what the device stores on its own (below); host saves always work
+scan_interval: 125us
+hardware_scan: { matrix: { row_time: 3.5us, settle: 3us } }   # "Hardware scan"
+din_midi: { tx_pin: PA9, rx_pin: PA10 }  # "DIN MIDI"
+midi_messages: { enable: [cc14] }   # "MIDI messages"
+boot_combo: [pitch_down, pitch_up]
+factory_reset_combo: [oct_down, oct_up]   # "Factory-reset combo"
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # "Physical unlock"
+status_led: edit_led           # "Status LED"
+write_to_flash: false          # "Writes the device makes on its own"
 layout: { controls: { volume: [1, 1] } }   # where the controls are, for drawing the device ("Layout")
 
 cd74hc4051:
@@ -486,16 +491,15 @@ A vendor board has its own `board_id`, and the YAML's must match it when `board:
 
 ### Writes the device makes on its own
 
-`write_to_flash:` says what the device may write to its flash **on its own**, without a host asking. A flash write can need a page erase, which stops the CPU, and with it the key scan, for 20-40 ms: one that lands while you play can lose notes or get a velocity wrong. So these writes are off unless the YAML turns them on, and the ones that are on wait until the controller has been left alone.
+`write_to_flash:` says what the device may write to its flash **on its own**, without a host asking. A flash write can need a page erase, which stops the CPU, and with it the key scan, for 20-40 ms: one that lands while you play can lose notes or get a velocity wrong. So these writes are off unless the YAML turns them on, and the ones that are on wait until the controller has been left alone. The keys are in [the safety keys](yaml/safety.md#keys).
 
 ```yaml
 write_to_flash:
-  last_preset: true   # remember the selected preset across power cycles (default false)
-  delay: 10s          # wait this long after the last change (default 10s, 1s..1h)
-  idle: 3s            # and until nothing has been played or touched for this long (default 3s, 100ms..10min)
+  last_preset: true
+  delay: 10s
+  idle: 3s
 ```
 
-- **`write_to_flash: true` / `false`** is the short form: every item (today only `last_preset`) on or off, with the default timings. Leaving the key out is `false`.
 - **`last_preset`**: store `preset.active` after a preset switch, so the device powers up on the preset used last. The write waits until both hold: `delay` has passed since the last switch, and for `idle` no key or button has been held and nothing has been played (keys, buttons, encoders, pads, or an analog input moving enough to send; ADC noise doesn't count). Until then it stays pending, and goes in the next quiet moment. Off (the default): a switch on the device never writes, and the device always powers up on preset 1, whatever an older firmware stored.
 - **Host saves always work.** The host's commands write whenever they are sent, whatever this says: COMMIT, PRESET_SAVE, PRESET_NAME, PRESET_DELETE, PRESET_MOVE, PRESET_RESET and FACTORY_RESET (protocol/sysex.md §4.5). They store `preset.count` too. A COMMIT also stores `preset.active` (and clears a pending `last_preset` write), but with `last_preset` off the power-up ignores it.
 - `delay` or `idle` with nothing turned on is a warning; so is `last_preset` on a device with presets off (there is nothing to remember, so it stays off).
@@ -504,15 +508,15 @@ write_to_flash:
 
 ### Recovery and safety
 
-Three keys, each left out of the firmware when it isn't used.
+Three keys, each left out of the firmware when it isn't used; they are in [the safety keys](yaml/safety.md#keys), with `boot_combo`.
 
 #### Factory-reset combo
 
 `factory_reset_combo:` lists buttons that, held at power-up, wipe the stored settings: every preset, its name and the globals, as FACTORY_RESET over SysEx does. The firmware and the device ID stay.
 
 ```yaml
-factory_reset_combo: [oct_down, oct_up]                    # held 5 s (the default)
-factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
+factory_reset_combo: [oct_down, oct_up]
+factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }
 ```
 
 - The combo counts if every button of it is down within 1.5 s of the start, and stays down for `hold`. Letting go earlier cancels it: nothing is wiped.
@@ -526,21 +530,21 @@ factory_reset_combo: { combo: [oct_down, oct_up], hold: 8s }   # hold: 1s..30s
 Opt-in: a device that sets `unlock:` refuses firmware uploads (FW_BEGIN, on A/B platforms), REBOOT to the bootloader and FACTORY_RESET over SysEx with LOCKED until the user OKs them on the device: the device opens a 30 s unlock window, and the user holds the unlock combo for `hold` (protocol/sysex.md §4.9). Chrome asks for SysEx permission once per site, so without this any page that was allowed once could flash or wipe the device.
 
 ```yaml
-unlock: { combo: [pitch_down, pitch_up], hold: 2s }   # hold: 0s (a press) .. 10s, default 2s
-unlock: { hold: 3s }       # the combo defaults to boot_combo
-unlock: true               # boot_combo, 2 s
-unlock: false              # off, the same as leaving it out
+unlock: { combo: [pitch_down, pitch_up], hold: 2s }
+unlock: { hold: 3s }
+unlock: true
+unlock: false
 ```
 
 - **Off unless the YAML sets it**, even on a device with a `boot_combo`; it is then compiled out (`GM_UNLOCK 0`). `unlock: true` and `unlock: { hold }` take the `boot_combo` buttons, and are an error on a device without one. The shipped Keystation and Code 61 YAMLs leave it off, with a commented-out `# unlock: { combo: [...] }` line to turn it on.
 - While the window is open, the status LED blinks at 4 Hz and a display shows `HOLD` and the buttons (scrolling). The combo's buttons do nothing else then: no MIDI, no action, and their release is silent too. Outside the window they are ordinary buttons.
 - Once unlocked (the status LED lit for 1 s, `UNLOCKED` on a display), the device stays unlocked until it reboots or no request has come for 5 minutes.
 - The bootloader has no lock: entering it takes the boot combo, an unlocked REBOOT, or the boot-loop guard, which only trips when the app keeps failing.
-- At most 8 buttons. Generated code: `GM_UNLOCK` (0/1), `GM_UNLOCK_COMBO`, `GM_UNLOCK_N`, `GM_UNLOCK_HOLD_MS` and `GM_UNLOCK_REPLY` (the UNLOCK reply's size, which sizes the reply buffer).
+- Generated code: `GM_UNLOCK` (0/1), `GM_UNLOCK_COMBO`, `GM_UNLOCK_N`, `GM_UNLOCK_HOLD_MS` and `GM_UNLOCK_REPLY` (the UNLOCK reply's size, which sizes the reply buffer).
 
 #### Status LED
 
-`status_led: <led id>` picks the LED that shows the blink codes. Without it there are none. While a code shows, it takes over the LED; then the LED goes back to what it showed.
+`status_led:` names the LED that shows the blink codes. While a code shows, it takes over the LED; then the LED goes back to what it showed.
 
 | Pattern | Meaning |
 |---|---|
@@ -611,28 +615,30 @@ A preset is a named set of *behaviours*: what the controls send, not how they ar
 
 ```yaml
 presets:
-  slots: 8                 # optional, 2..64, at least the number listed; default: the number listed
-  revision: 1              # optional, 0..16383: bump it when the YAML presets change (the updater asks then)
+  slots: 8
+  revision: 1
   list:
     - name: Default        # slot 1: the components' own values (above); only name: and program:
-    - name: Drums          # <= 16 printable ASCII, unique; default "Preset N"
-      program: 9           # optional 0..127: the Program Change sent when it is selected
+    - name: Drums
+      program: 9
       midi: { channel: 10, transpose: 0, octave: 0 }   # start values (the octave buttons still move them)
-      velocity: { curve: hard, fixed: 100 }            # curve: normal | soft | hard | fixed
-      bend: { glide: 50ms }                            # 0..2s
-      ramp: { time: 300ms }                            # 0..5s
+      velocity: { curve: hard, fixed: 100 }
+      bend: { glide: 50ms }
+      ramp: { time: 300ms }
       buttons:                                         # by id, with the button's own keys
         sustain: { action: note, note: 36 }
         edit:    { note: 38 }                          # action left out: keeps the button's
       analog:   { volume: { cc: 11 } }
-      encoders: { encoder_1: { cc: 21, mode: relative_offset } }   # absolute | relative_twos | relative_offset
-      pads: { kick: { note: 35 } }                     # pads: only note:
+      encoders: { encoder_1: { cc: 21, mode: relative_offset } }
+      pads: { kick: { note: 35 } }
       pad_settings: { channel: 10, curve: soft, aftertouch: true }
 ```
 
+Each key, its range and default: [the preset keys](yaml/presets.md#keys).
+
 - **Slot 1** is the first list entry (or "Default" when the list is empty, with `slots:`); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (with one in use, they only reload it). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
-- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `actions`, `cc`, `note`, `preset`, `mcu`, `program`, `mmc`, `sysex`; `actions:` gives the button another action list, written as its `button.number`, components/buttons/README.md "Action lists"), `analog.cc`/`analog.mode` (`cc`, `mode`, `nrpn`, `rpn`, `sysex`), `encoder.cc`/`encoder.mode` (`cc`, `mode`, `nrpn`, `rpn`), `bank` (`preset.bank`, with `program`: "MIDI messages"), `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.octave`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
+- **What a preset can set** is the mapping: the keys that start a per-preset param ([the preset keys](yaml/presets.md#keys) lists them with their params; `actions:` gives a button another action list, written as its `button.number`, components/buttons/README.md "Action lists"). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
 - **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
 - **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its 3 config pages of 1 KB: there the Code 61 fits up to 5 slots.
 
@@ -658,7 +664,7 @@ const gm_preset_def_t gm_presets[GM_N_PRESETS] = {
 
 What the host (a DAW) sends back reaches the controller: LEDs follow the DAW's state, toggles and encoders stay in sync with it, knobs don't jump, and a second USB port can speak Mackie Control. Plan and decisions: issue #6.
 
-The MIDI a device accepts and sends for all of this, as implemented: [`protocol/host-feedback.md`](../protocol/host-feedback.md). Per-DAW setup: the site's "DAW setup" page (`site/src/daw-setup.md`).
+The MIDI a device accepts and sends for all of this, as implemented: [`protocol/host-feedback.md`](../protocol/host-feedback.md). Per-DAW setup: the site's "DAW setup" page (`site/src/daw-setup.md`). The `feedback:` and `mcu:` keys are in [the feedback keys](yaml/feedback.md#keys).
 
 **Incoming MIDI** (`src/midi_in.c`). The platform hands over USB-MIDI event packets (`gm_midi_rx_usb`, NUC and ESP32-S2/S3 USB: the cable is kept) or a byte stream (`gm_midi_rx_byte`, serial and BLE: one port, running status handled). SysEx on the main port (cable 0) goes to the gemifi protocol exactly as before; Note On/Off, CC, pitch bend, channel pressure and realtime (clock `F8`, start `FA`, continue `FB`, stop `FC`) go to the feedback code, and on the DAW port (cable 1) to Mackie Control. `feedback: { enabled: false }` without `mcu:` compiles all of that out (SysEx only, as before).
 
@@ -678,9 +684,9 @@ Messages count on the device's MIDI channel (`midi.channel`) unless an LED names
 
 ```yaml
 feedback:                     # optional; these are the defaults
-  enabled: true               # false: ignore everything but the gemifi SysEx protocol (and MCU, if mcu: is given); also turns off DAW scripts (F3)
-  led_owner: host_then_local  # default for every LED: host_then_local | host | local
-  led_timeout: 2s             # host_then_local: how long the host's last word lasts (a period, or never)
+  enabled: true
+  led_owner: host_then_local
+  led_timeout: 2s
 
 leds:
   - id: arm_led
@@ -726,7 +732,7 @@ In the DAW: Live: Control Surface "MackieControl", input and output = the DAW po
 
 ```yaml
 mcu:
-  extender: false                 # true: answer as an MCU XT (SysEx device id 0x15 instead of 0x14)
+  extender: false
 
 buttons:
   - { id: play, pin: PB0, mcu: play, led: play_led }        # action: mcu (implied); Note On 0x5E; LED from the host
@@ -767,7 +773,7 @@ A script inside the DAW (`hosts/`, e.g. the Ableton Live Remote Script) can driv
 
 ```yaml
 feedback:
-  script: true                  # default; false leaves GET_COMPONENT and FB_* out
+  script: true                  # the default
 
 buttons:
   - { id: rec, pin: PB0, action: cc_momentary, cc: 20, led: rec_led, daw: record }

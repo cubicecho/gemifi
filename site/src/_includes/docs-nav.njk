@@ -18,7 +18,7 @@
         {{ item("DAW setup", "/daw-setup/") }}
       </ul>
     </details>
-    {% for g in [docs.base].concat(docs.groups) %}
+    {% for g in [docs.coreYaml, docs.base].concat(docs.groups) %}
     <details class="docs-nav-section"{% if g.items | holds(page.url) %} open{% endif %}>
       {{ head(g.title, g.key) }}
       <ul>

@@ -27,6 +27,10 @@ import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
+from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, Id as _Id,  # noqa: E402
+                             IdRef as _IdRef, Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map,
+                             Null as _Null, OneOf as _OneOf, Period as _Period, Pin as _Pin, Raw as _Raw, Ref as _Ref,
+                             Str as _Str, ById as _ById, CONTROL_DAW as _CONTROL_DAW)
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -35,7 +39,7 @@ from components.buttons import MMC_COMMANDS  # noqa: E402,F401
 from components.modes import (LAYER_ENCODER_KEYS, LAYER_KEYS, LAYER_PAD_KEYS, MODE_KEYS,  # noqa: E402,F401
                               STEP_KEYS)
 from components.leds import (LED_DEFAULTS_KEYS, LED_KEYS, LED_LOOK_NAMES, LED_OWNERS,  # noqa: E402,F401
-                             LED_SOURCES, TIMEOUT_NEVER, validate_timeout)
+                             LED_SOURCES, TIMEOUT, TIMEOUT_NEVER, validate_timeout)
 from components.buttons import (ACTION_IDS, ACTIONS, BUTTON_KEYS, NUMBER_KEYS,  # noqa: E402,F401
                                 button_action)
 from components.analog import ANALOG_KEYS, ANALOG_MODES, ANALOG_NUMBER_KEYS, TAKEOVER, TOUCH  # noqa: E402,F401
@@ -191,27 +195,50 @@ def stored_counts(dev):
     return out[PRESET], out[GLOBAL]
 
 
-# The per-preset globals a preset may set (§10.2): YAML section -> key -> (param, default, kind, lo, hi).
-# Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
-# enum's YAML names in value order.
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
+# The per-preset globals a preset may set (§10.2), as data (components/keys.py): YAML section -> its keys,
+# each starting a per-preset param. Defaults and ranges as in core/src/settings.c; a time is whole ms. A
+# key without a default (pad_settings') starts at the device's own value (the top-level pad_settings:).
 PRESET_GLOBALS = {
-    "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
-             "transpose": ("midi.transpose", 0, "int", -24, 24),
-             "octave": ("midi.octave", 0, "int", -4, 4)},
-    "velocity": {"curve": ("velocity.curve", 0, CURVES, 0, 3),
-                 "fixed": ("velocity.fixed", 100, "int", 1, 127)},
-    "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
-    "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
-    # default: the device's own pad_settings: (a function of the device)
-    "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
-                     "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
-                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1),
-                     "octave": ("pad.octave", 0, "int", -4, 4)},
+    "midi": _Keys(
+        _Key("channel", _Int(1, 16), default=1, param="midi.channel", doc="The MIDI channel the device plays on."),
+        _Key("transpose", _Int(-24, 24), default=0, param="midi.transpose",
+             doc="Semitones the keys' notes are moved by (the transpose buttons step it)."),
+        _Key("octave", _Int(-4, 4), default=0, param="midi.octave",
+             doc="Octaves the keys' notes are moved by (the octave buttons step it)."),
+    ),
+    "velocity": _Keys(
+        _Key("curve", _Enum(CURVES), default="normal", param="velocity.curve",
+             doc="How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only."),
+        _Key("fixed", _Int(1, 127), default=100, param="velocity.fixed",
+             doc="The velocity of curve `fixed`, and of the `note` buttons."),
+    ),
+    "bend": _Keys(_Key("glide", _Period(0, 2_000_000, step_us=1000, example="80ms"), default="80ms",
+                       param="bend.glide", doc="How long the pitch-bend buttons take to glide to full bend and back.")),
+    "ramp": _Keys(_Key("time", _Period(0, 5_000_000, step_us=1000, example="80ms"), default="300ms",
+                       param="ramp.time", doc="How long a `cc_ramp` button takes to glide from 0 to 127 and back.")),
+    "pad_settings": _Keys(
+        *(pads.PAD_SETTINGS[k].but(default=None, shown_default="`pad_settings:`'s").elsewhere(
+            "components/pads/README.md") for k in
+          ("channel", "curve", "aftertouch")),
+        _Key("octave", _Int(-4, 4), default=0, param="pad.octave",
+             doc="Octaves the pads' notes are moved by (the pad octave buttons step it)."),
+    ),
 }
+
+
+def preset_base(dev, key):
+    """Slot 1's value of a per-preset global (an override equal to it is dropped), in its param's units."""
+    if key.default is None:                     # pad_settings': the device's own
+        return dev.pad_set[key.name]
+    if isinstance(key.type, _Enum):
+        return key.type.values.index(key.default)
+    if isinstance(key.type, _Period):
+        return int(key.default.removesuffix("ms"))
+    return key.default
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
     "midi": {"transport": "the MIDI transport is the device's (the same in every preset): set it in the "
@@ -228,17 +255,52 @@ def _preset_keys(spec):
     return [k.name for k in spec if k.param], [k.name for k in spec if not k.param]
 
 
+PRESET_SPECS = {"buttons": buttons.BUTTON, "analog": analog.ANALOG, "encoders": encoders.ENCODER, "pads": pads.PAD}
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", *_preset_keys(buttons.BUTTON)),
     "analog": ("analog input", "analog inputs", *_preset_keys(analog.ANALOG)),
     "encoders": ("encoder", "encoders", *_preset_keys(encoders.ENCODER)),
     "pads": ("pad", "pads", *_preset_keys(pads.PAD)),
 }
-PRESET_KEYS = ["name", "program", "bank", *PRESET_GLOBALS, *PRESET_COMPONENTS]
-PRESETS_KEYS = ["slots", "revision", "list"]
 MAX_PRESETS = 64
 PRESET_NAME_LEN = 16           # config_store.h CS_NAME_LEN
 PRESET_REVISION_MAX = 0x3FFF
+_SLOT_1 = " Not in slot 1, which is the rest of the file."
+
+
+def _override(k, sec):
+    """A component's key as a preset sets it: left out, the component's own value."""
+    return k.elsewhere(f"components/{sec}/README.md").but(required=False, default=None, shown_default=None)
+
+
+# One presets.list item (core/README.md "Presets"), checked by validate_presets(): its name, its Program
+# Change, and what differs from slot 1: the per-preset globals and, by component id, the component keys that
+# start a per-preset param (each the component's own Key).
+PRESET_ITEM = _Keys(
+    _Key("name", _Str(), shown_default="`Default` (slot 1), `Preset N`",
+         doc=f"Its name: up to {PRESET_NAME_LEN} printable ASCII characters, unique."),
+    _Key("program", _Int(0, 127), param="preset.program", doc="The Program Change sent when it is selected."),
+    _Key("bank", buttons.BANK, param="preset.bank", see='core/README.md "MIDI messages"',
+         doc="With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`."),
+    *(_Key(sec, _Map(keys), doc=f"What it changes of the per-preset `{sec}` settings.{_SLOT_1}")
+      for sec, keys in PRESET_GLOBALS.items()),
+    *(_Key(sec, _ById(kind, _Map(_Keys(*(_override(k, sec) for k in PRESET_SPECS[sec] if k.name in allowed)))),
+           doc=f"By {kind} id, what differs from the {kind}'s own keys.{_SLOT_1}")
+      for sec, (kind, _pl, allowed, _hw) in PRESET_COMPONENTS.items()),
+)
+PRESET_KEYS = PRESET_ITEM.names
+PRESETS_SPEC = _Keys(
+    _Key("slots", _Int(2, MAX_PRESETS), shown_default="the number listed",
+         doc="The preset slots, at least the number listed: the ones not listed start as copies of slot 1."),
+    _Key("revision", _Int(0, PRESET_REVISION_MAX), default=0,
+         doc="Bump it when the YAML's presets change: the updater then offers to load them."),
+    _Key("list", _List(_Map(PRESET_ITEM)), doc="The presets, slot 1 first: its values are the rest of the file."),
+)
+PRESETS_KEYS = PRESETS_SPEC.names
+# The Core area (core/yaml/presets.md)
+PRESETS_AREA = _Keys(_Key("presets", _Map(PRESETS_SPEC), see='core/README.md "Presets"',
+                          doc="Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets "
+                              "are off (one slot)."))
 
 # ---- storage budget (§10.5) ----
 # Worst-case record, in 32-bit words: header (magic, seq, slot|flags|revision, count) + a name + 2 per
@@ -360,17 +422,8 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
-# these lists, so a new key goes here.
-MIDI_KEYS = ["transport"]
-USB_KEYS = ["vid", "pid", "daw_port"]
+# these lists, so a new key goes here. (The Core areas' keys are data: CORE_AREAS, at the end.)
 PROJECT_KEYS = ["version"]
-FEEDBACK_KEYS = ["enabled", "script", "led_owner", "led_timeout"]
-MCU_KEYS = ["extender"]
-DIN_KEYS = ["tx_pin", "rx_pin", "mode", "port_name", "thru", "controller_out", "usb_to_din", "dma"]
-HW_SCAN_KEYS = ["matrix", "analog"]
-HW_SCAN_MATRIX_KEYS = ["row_time", "settle", "precharge", "timer"]
-HW_SCAN_ANALOG_KEYS = ["timer"]
-COMBO_KEYS = ["combo", "hold"]        # factory_reset_combo: / unlock: as a mapping
 DECODER_ROWS_KEYS = ["decoder", "first", "count"]
 NODE_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?")
 
@@ -1425,12 +1478,46 @@ class _V:
 HW_SCAN_PLATFORMS = {"stm32f1"}
 HW_SCAN_GAP_NS = 250
 
+_HW_SCAN_SEE = 'core/README.md "Hardware scan"'
+_HW_TIMERS_SEE = 'core/README.md "DMA channels (stm32f1)"'
+# row_time and settle in us, to 1 ns (validate_hw_scan checks them against each other and the gaps)
+HW_SCAN_MATRIX_KEYS = _Keys(
+    _Key("row_time", _Period(0.5, 50, step_us=0.001, example="3.5us"), required=True, see=_HW_SCAN_SEE,
+         doc="The time per row: a frame is every row once (an odd row count gets its last row twice)."),
+    _Key("settle", _Period(0.25, 49.5, step_us=0.001, example="3us"), required=True, see=_HW_SCAN_SEE,
+         doc="From the row's select to the columns' read; at least 0.5us with `precharge`."),
+    _Key("precharge", _Bool(), default=False, see=_HW_SCAN_SEE,
+         doc="The columns are driven to their idle level before each row, so the read waits less: needs "
+             "diodes or tolerant drivers."),
+    _Key("timer", _Raw({}, "`auto`, `tim1`..`tim4`"), default="auto", see=_HW_TIMERS_SEE,
+         doc="The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free."),
+)
+HW_SCAN_ANALOG_KEYS = _Keys(
+    _Key("timer", _Raw({}, "`auto`, `tim2`..`tim4`"), default="auto", see=_HW_TIMERS_SEE,
+         doc="The timer that steps the muxes and starts ADC1 (not TIM1)."),
+)
+HW_SCAN_KEYS = _Keys(
+    _Key("matrix", _Map(HW_SCAN_MATRIX_KEYS), see=_HW_SCAN_SEE,
+         doc="The key matrix and every switch matrix, scanned row by row by a timer and DMA."),
+    _Key("analog", _OneOf(_Bool(), _Map(HW_SCAN_ANALOG_KEYS)), default=False, see=_HW_SCAN_SEE,
+         doc="The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; "
+             "`true`, or a mapping to pick the timer."),
+)
+# The "scanning" area (core/yaml/scanning.md)
+SCAN_AREA = _Keys(
+    _Key("scan_interval", _Period(1, 0xFFFF), default="125us", see='core/README.md "Software scan"',
+         doc="The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and "
+             "shift-register hubs are read every tick."),
+    _Key("hardware_scan", _Map(HW_SCAN_KEYS), see=_HW_SCAN_SEE,
+         doc="stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU."),
+)
+
 
 def validate_hw_scan(v, dev, data, plat):
     if "hardware_scan" not in data:
         return
     line = data.line_of("hardware_scan")
-    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, HW_SCAN_KEYS)
+    hs = v.mapping(data["hardware_scan"], "hardware_scan", line, HW_SCAN_KEYS.names)
     if hs is None:
         return
     if plat.name not in HW_SCAN_PLATFORMS:
@@ -1440,7 +1527,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "analog" in hs:
         a = hs["analog"]
         if isinstance(a, dict):         # `analog: { timer: tim3 }`
-            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), HW_SCAN_ANALOG_KEYS) is not None:
+            if v.mapping(a, "hardware_scan.analog", hs.line_of("analog"), HW_SCAN_ANALOG_KEYS.names) is not None:
                 dev.hw_adc = True
                 hw_timer(v, dev, a, "analog")
         else:
@@ -1451,7 +1538,7 @@ def validate_hw_scan(v, dev, data, plat):
     if "matrix" not in hs:
         return
     path, mline = "hardware_scan.matrix", hs.line_of("matrix")
-    mx = v.mapping(hs["matrix"], path, mline, HW_SCAN_MATRIX_KEYS)
+    mx = v.mapping(hs["matrix"], path, mline, HW_SCAN_MATRIX_KEYS.names)
     if mx is None:
         return
     hw_timer(v, dev, mx, "matrix")
@@ -1462,9 +1549,9 @@ def validate_hw_scan(v, dev, data, plat):
         if k not in mx:
             v.err(f"{path}.{k}", mx.line, f"is required (e.g. `{k}: "
                                           f"{'3.5us' if k == 'row_time' else '3us'}`)")
-    row = v.period(mx, "row_time", path, 0.5, 50, step_us=0.001, example="3.5us")
-    settle = v.period(mx, "settle", path, 0.25, 49.5, step_us=0.001, example="3us")
-    pre = v.boolean(mx, "precharge", path)
+    row = HW_SCAN_MATRIX_KEYS.get(v, mx, "row_time", path)
+    settle = HW_SCAN_MATRIX_KEYS.get(v, mx, "settle", path)
+    pre = HW_SCAN_MATRIX_KEYS.get(v, mx, "precharge", path)
     if row is None or settle is None:
         return
     lo = HW_SCAN_GAP_NS * (2 if pre else 1)
@@ -1567,6 +1654,50 @@ def humanize(ident):
 
 
 # ---------------------------------------------------------------------------------------------
+# The device's own top-level keys as data (components/keys.py), by area: each area is a page of the docs'
+# "Core" section (core/yaml/<area>.md, its key table where `<!-- keys -->` is), and the JSON schema types
+# those keys from it (gemifi_schema.py). The components' keys are their own (KEY_SECTIONS, spec).
+
+DEVICE_KEYS = _Keys(
+    _Key("gemifi", _Raw({"enum": [FORMAT_VERSION]}, f"`{FORMAT_VERSION}`"), required=True,
+         doc=f"The format version of the file: {FORMAT_VERSION}."),
+    _Key("name", _Str(NODE_NAME_RE.pattern, "node name"), required=True,
+         doc="The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."),
+    _Key("friendly_name", _Str(), shown_default="`name`",
+         doc="Its display name: the USB product string, HELLO and the web page."),
+    _Key("description", _Str(), doc="A line about it, for people reading the file."),
+    _Key("project", _Map(_Keys(
+        _Key("version", _Raw(_T("string", pattern=r"^\d+\.\d+\.\d+$"), "major.minor.patch"),
+             shown_default="the build's", doc="The firmware version it reports (HELLO), major.minor.patch."))),
+         doc="The firmware project: its version."),
+    _Key("board_id", _Hex(0, 0x3FFF), required=True, see='core/README.md "Board profiles"',
+         doc="The id a firmware image is checked against before it is flashed: a board profile's fixed one, or "
+             "your own for a DIY board."),
+    _Key("platform", _Enum(PLATFORMS), required=True, doc="The MCU family it builds for (the docs' Platforms)."),
+    _Key("chip", _Str(), required=True, doc="The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."),
+    _Key("board", _Raw({"enum": [b for p in gbd.PLATFORMS for b in gbd.boards(p)]}, "board profile name"),
+         shown_default="the platform's: " + ", ".join(f"`{b}` ({p})" for p, b in gbd.DEFAULT_BOARD.items()),
+         see='core/README.md "Board profiles"',
+         doc="The board profile (platform/<platform>/boards/<board>.json): its layout and board pins."),
+)
+
+
+# MIDI and USB (the "midi" area, with din_midi: and midi_messages:, below)
+USB_KEYS = _Keys(
+    _Key("vid", _Hex(0, 0xFFFF), required=True, doc="The USB vendor id (`0x1209`: pid.codes)."),
+    _Key("pid", _Hex(0, 0xFFFF), required=True, doc="The USB product id."),
+    _Key("daw_port", _Bool(), shown_default="`true` with `mcu:`",
+         see='core/README.md "Second USB port and Mackie Control"',
+         doc="A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI."),
+)
+MIDI_KEYS = _Keys(
+    _Key("transport", _Enum(MIDI_TRANSPORT_MACRO),
+         shown_default="`usb`; " + ", ".join(f"`{p.default_transport}` on {n}" for n, p in PLATFORMS.items()
+                                             if p.default_transport != "usb"),
+         doc="How the device talks MIDI: `usb` (native USB, ESP32-S2/S3), `serial` (a UART) or `ble` (ESP32, "
+             "ESP32-S3). Only the ESPs have a choice."),
+)
+
 
 def validate(data, file=None):
     """data: the loaded YAML (LDict). Returns (Device or None, [Diag])."""
@@ -1589,7 +1720,7 @@ def validate(data, file=None):
                                                  f"reads version {FORMAT_VERSION})")
     validate_names(v, dev, data)
     dev.description = v.string(data, "description", "")
-    dev.board_id = v.integer(data, "board_id", "", 0, 0x3FFF, required=True) or 0
+    dev.board_id = DEVICE_KEYS.get(v, data, "board_id", "") or 0
     dev.version = validate_version(v, data)
     pname = data.get("platform")
     if pname is None:
@@ -1614,7 +1745,7 @@ def validate(data, file=None):
 
     # midi
     midi = data.get("midi") or LDict()
-    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), MIDI_KEYS) is None:
+    if "midi" in data and v.mapping(midi, "midi", data.line_of("midi"), MIDI_KEYS.names) is None:
         midi = LDict()
     tr = midi.get("transport", plat.default_transport)
     if tr not in plat.transports:
@@ -1627,12 +1758,11 @@ def validate(data, file=None):
     dev.usb = (0, 0)
     daw_port = None
     if "usb" in data:
-        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), USB_KEYS)
+        usb = v.mapping(data["usb"], "usb", data.line_of("usb"), USB_KEYS.names)
         if usb is not None:
-            dev.usb = (v.integer(usb, "vid", "usb", 0, 0xFFFF, required=True) or 0,
-                       v.integer(usb, "pid", "usb", 0, 0xFFFF, required=True) or 0)
+            dev.usb = (USB_KEYS.get(v, usb, "vid", "usb") or 0, USB_KEYS.get(v, usb, "pid", "usb") or 0)
             if "daw_port" in usb:
-                daw_port = (v.boolean(usb, "daw_port", "usb"), usb.line_of("daw_port"))
+                daw_port = (USB_KEYS.get(v, usb, "daw_port", "usb"), usb.line_of("daw_port"))
             if tr != "usb":
                 v.warn("usb", data.line_of("usb"), f"ignored: midi.transport is {tr}")
     elif tr == "usb":
@@ -1642,7 +1772,7 @@ def validate(data, file=None):
     validate_mcu(v, dev, data, tr, daw_port)
     validate_din(v, dev, data, tr, plat)
 
-    dev.scan_us = v.period(data, "scan_interval", "", 1, 0xFFFF, default=125)
+    dev.scan_us = SCAN_AREA.get(v, data, "scan_interval", "", default=125)
     validate_hw_scan(v, dev, data, plat)
 
     # hubs (before anything that refers to them), in file order
@@ -1913,16 +2043,47 @@ def timers_text(dev):
     return "timers: " + ", ".join(f"TIM{t} " + names[s].format(trig=HW_ADC_TRIGGER.get(t)) for t, s in ts)
 
 
+_OWNERS_SEE = 'core/README.md "LED ownership"'
+FEEDBACK_KEYS = _Keys(
+    _Key("enabled", _Bool(), default=True,
+         doc="`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with "
+             "`mcu:`); DAW scripts are off too."),
+    _Key("script", _Bool(), default=True, see='core/README.md "DAW scripts (F3)"',
+         doc="DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out."),
+    # led_owner's message is its own ("unknown owner"), and led_timeout takes `never`: validate_feedback
+    _Key("led_owner", _Enum(LED_OWNERS), default="host_then_local", see=_OWNERS_SEE,
+         doc="Which state every LED shows, the host's or its own, unless the LED's `owner:` says."),
+    _Key("led_timeout", TIMEOUT, default=f"{DEFAULT_LED_TIMEOUT_MS // 1000}s", see=_OWNERS_SEE,
+         doc="With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's "
+             "`timeout:` says; `never`: from the host's first message on."),
+)
+MCU_KEYS = _Keys(
+    _Key("extender", _Bool(), default=False,
+         doc="Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14."),
+)
+# The "feedback" area: DAW feedback (core/yaml/feedback.md)
+FEEDBACK_AREA = _Keys(
+    _Key("feedback", _OneOf(_Bool(), _Map(FEEDBACK_KEYS)), see='core/README.md "DAW feedback"',
+         doc="What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / "
+             "`false`: as `enabled:`, the rest by default."),
+    _Key("mcu", _OneOf(_Null(), _Map(MCU_KEYS)), see='core/README.md "Second USB port and Mackie Control"',
+         doc="Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device."),
+)
+
+
 def validate_feedback(v, dev, data):
-    """feedback: { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback on the main
-    port, and (script) the DAW-script messages of sysex.md 4.6."""
+    """feedback: true | false | { enabled, script, led_owner, led_timeout } (all optional): F1 host feedback
+    on the main port, and (script) the DAW-script messages of sysex.md 4.6."""
     if data.get("feedback") is None:
         return
-    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), FEEDBACK_KEYS)
+    if isinstance(data["feedback"], bool):      # the short form of enabled:
+        dev.feedback = dev.host_fb = data["feedback"]
+        return
+    fb = v.mapping(data["feedback"], "feedback", data.line_of("feedback"), FEEDBACK_KEYS.names)
     if fb is None:
         return
-    dev.feedback = v.boolean(fb, "enabled", "feedback", default=True)
-    dev.host_fb = dev.feedback and v.boolean(fb, "script", "feedback", default=True)
+    dev.feedback = FEEDBACK_KEYS.get(v, fb, "enabled", "feedback")
+    dev.host_fb = dev.feedback and FEEDBACK_KEYS.get(v, fb, "script", "feedback")
     if fb.get("led_owner") is not None:
         o = LED_OWNERS.get(fb["led_owner"])
         if o is None:
@@ -1936,15 +2097,31 @@ def validate_feedback(v, dev, data):
                                                      "matter for the MCU port")
 
 
+DIN_KEYS = _Keys(
+    _Key("tx_pin", _Pin(), required=True, doc="The UART's TX pin: MIDI Out (stm32f1: PA9, USART1)."),
+    _Key("rx_pin", _Pin(), doc="The UART's RX pin: MIDI In (stm32f1: PA10). Without it, MIDI Out only."),
+    _Key("mode", _Enum(DIN_MODES), default="usb_merge", see='core/README.md "DIN MIDI"',
+         doc="How the jacks reach USB: on the device's own port (`usb_merge`), on a second USB-MIDI port "
+             "(`separate_port`), or not at all (`din_only`)."),
+    _Key("port_name", _Str(), shown_default="`<friendly_name> MIDI`",
+         doc=f"The second port's name, with `separate_port`; at most {COMP_STR_MAX} characters."),
+    _Key("thru", _Bool(), default=False, param="midi.thru", doc="DIN In is copied to DIN Out."),
+    _Key("controller_out", _Bool(), default=True, param="midi.din_out",
+         doc="The device's own messages (keys, pads, CCs, program changes) also go to DIN Out."),
+    _Key("usb_to_din", _Bool(), default=False, param="midi.usb_to_din",
+         doc="With `usb_merge`: the host's channel and realtime messages on the device's port go to DIN Out."),
+    _Key("dma", _Bool(), default=False, see='core/README.md "DMA channels (stm32f1)"',
+         doc="stm32f1: the UART's bytes move by DMA (channels 4 and 5) instead of by interrupt."),
+)
+
+
 def validate_din(v, dev, data, tr, plat):
     """din_midi: 5-pin DIN MIDI In / Out on a UART (core/README.md "DIN MIDI"). mode: how the jacks reach
-    USB: usb_merge (on the main port, the default), separate_port (a second USB-MIDI port: hangs Chrome's
-    Web MIDI on Windows for now, see core/README.md) or din_only. thru,
-    controller_out and usb_to_din are the start values of midi.thru, midi.din_out, midi.usb_to_din."""
+    USB (DIN_KEYS: separate_port hangs Chrome's Web MIDI on Windows for now, see core/README.md)."""
     if "din_midi" not in data:
         return
     line = data.line_of("din_midi")
-    d = v.mapping(data["din_midi"], "din_midi", line, DIN_KEYS)
+    d = v.mapping(data["din_midi"], "din_midi", line, DIN_KEYS.names)
     if d is None:
         return
     tx = v.pin(d.get("tx_pin"), "din_midi.tx_pin", d.line_of("tx_pin") if "tx_pin" in d else d.line, "out",
@@ -1952,11 +2129,9 @@ def validate_din(v, dev, data, tr, plat):
     rx = None
     if d.get("rx_pin") is not None:
         rx = v.pin(d["rx_pin"], "din_midi.rx_pin", d.line_of("rx_pin"), "in", allow_hub=False)
-    mode = DIN_MODES.index("usb_merge")
+    mode = DIN_KEYS.get(v, d, "mode", "din_midi", default=DIN_MODES.index("usb_merge"))     # wrong: the default
     if "mode" in d:
-        m = v.enum_value(d, "mode", "din_midi.mode", DIN_MODES)
-        mode = mode if m is None else m
-        if m == DIN_MODES.index("separate_port"):
+        if mode == DIN_MODES.index("separate_port"):
             v.warn("din_midi.mode", d.line_of("mode"),
                    "separate_port: on Windows, Chrome's Web MIDI (the web updater) can hang for good when "
                    "a device with two USB-MIDI ports leaves or comes back; usb_merge has no such problem")
@@ -1971,22 +2146,21 @@ def validate_din(v, dev, data, tr, plat):
         v.err("din_midi.mode", d.line_of("mode") if "mode" in d else line,
               "separate_port needs the second USB port, which the DAW port (mcu:) already uses: "
               "use usb_merge or din_only, or usb.daw_port: false")
-    name = v.string(d, "port_name", "din_midi")
+    name = DIN_KEYS.get(v, d, "port_name", "din_midi")
     if name is not None and mode != DIN_MODES.index("separate_port"):
         v.warn("din_midi.port_name", d.line_of("port_name"), f"ignored: only separate_port has its own port "
                                                               f"(mode is {DIN_MODES[mode]})")
     if name is not None and len(name) > COMP_STR_MAX:
         v.err("din_midi.port_name", d.line_of("port_name"), f"{len(name)} characters: at most {COMP_STR_MAX}")
-    usb = v.boolean(d, "usb_to_din", "din_midi", default=False)
+    usb = DIN_KEYS.get(v, d, "usb_to_din", "din_midi")
     if "usb_to_din" in d and mode != DIN_MODES.index("usb_merge"):
         v.warn("din_midi.usb_to_din", d.line_of("usb_to_din"),
                "ignored: only usb_merge has it (separate_port always sends its port's messages to DIN Out)")
     if rx is None and d.get("rx_pin") is None and "thru" in d:
         v.warn("din_midi.thru", d.line_of("thru"), "there is no rx_pin (MIDI In) to pass through")
     dev.din = Hub(tx=tx or NO_PIN, rx=rx, mode=mode, port_name=name,
-                  thru=v.boolean(d, "thru", "din_midi", default=False),
-                  out=v.boolean(d, "controller_out", "din_midi", default=True), usb=usb,
-                  dma=v.boolean(d, "dma", "din_midi", default=False))
+                  thru=DIN_KEYS.get(v, d, "thru", "din_midi"), out=DIN_KEYS.get(v, d, "controller_out", "din_midi"),
+                  usb=usb, dma=DIN_KEYS.get(v, d, "dma", "din_midi"))
 
 
 def validate_mcu(v, dev, data, tr, daw_port):
@@ -1997,9 +2171,9 @@ def validate_mcu(v, dev, data, tr, daw_port):
         if m is None:
             m = LDict()
             m.line = data.line_of("mcu")
-        m = v.mapping(m, "mcu", data.line_of("mcu"), MCU_KEYS)
+        m = v.mapping(m, "mcu", data.line_of("mcu"), MCU_KEYS.names)
         if m is not None:
-            ext = v.boolean(m, "extender", "mcu")
+            ext = MCU_KEYS.get(v, m, "extender", "mcu")
             dev.mcu = Hub(extender=ext, cable=0, line=data.line_of("mcu"))
     if daw_port is not None:
         want, line = daw_port
@@ -2322,8 +2496,6 @@ def validate_version(v, data):
 # ---------------------------------------------------------------------------------------------
 # displays (core/README.md "Displays")
 
-DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
-                "display", "line", "x", "scale", "length"]
 TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
 RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
                               "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)" + MIGRATE_HINT}
@@ -2344,6 +2516,38 @@ MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, p
 DISPLAY_SHOWS = {"last_message": 0, "preset_number": 1, "preset_name": 2, "channel": 3, "none": 4}
 DISPLAY_SHOWS_C = {0: "GM_SHOWS_LAST_MESSAGE", 1: "GM_SHOWS_PRESET_NUMBER", 2: "GM_SHOWS_PRESET_NAME",
                    3: "GM_SHOWS_CHANNEL", 4: "GM_SHOWS_NONE"}
+_SEG = " A segment display's."
+_TEXT = " A text display's."
+# One displays: item, checked by validate_displays(): the segment types' keys, then the text type's. The
+# ranges of line: and x: (the screen's size), and the type and shows names (their messages), stay as code.
+DISPLAY = _Keys(
+    _Key("id", _Ref("id", "id"), required=True, doc="What the rest of the file and a host's FB_TEXT call it."),
+    _Key("type", _Enum(DISPLAY_TYPES), shown_default="`text` with `display:`, else `segment14`",
+         doc="Its characters: 14 or 7 segments on hub pins, or text on a screen."),
+    _Key("chars", _List(_OneOf(_Pin(), _List(_Pin()))),
+         doc="Each character's first pin, or its segments' pins, left to right (hub pins)." + _SEG),
+    _Key("segment_step", _Int(1, 64), default=1,
+         doc="Segment k of a character is this many pins times k after its first pin." + _SEG),
+    _Key("segment_order", _List(_Enum(sorted({n for ns in SEG_NAMES.values() for n in ns}))),
+         shown_default="a, b, ... in gm_display.h order",
+         doc="The segments in pin order from each first pin; ones left out aren't wired." + _SEG),
+    _Key("shows", _Enum(DISPLAY_SHOWS), shown_default="`last_message` on the first display, else `none`",
+         doc="What it shows of its own while no host writes to it."),
+    _CONTROL_DAW.but(doc="What a DAW script shows on it (`time`, `track_name`, `param`, `status`)."),
+    _Key("display", _Ref("id", "display id"), doc="The screen it is on: a `display:` item's id." + _TEXT),
+    _Key("line", _Int(0, 7), default=0,
+         doc="The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen)." + _TEXT),
+    _Key("x", _Int(0, 127), default=0, doc="The pixel column it starts at." + _TEXT),
+    _Key("scale", _Int(1, 4), default=1,
+         doc="Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall." + _TEXT),
+    _Key("length", _Int(1, MAX_TEXT_CHARS), shown_default="as many as fit",
+         doc="How many characters it has." + _TEXT),
+)
+DISPLAY_KEYS = DISPLAY.names
+# The Core area (core/yaml/displays.md)
+DISPLAYS_AREA = _Keys(_Key("displays", _List(_Map(DISPLAY)), see='core/README.md "Displays"',
+                           doc=f"The displays, up to {MAX_DISPLAYS}: a row of segment characters on hub pins, or a "
+                               "row of text on a screen."))
 
 
 def validate_displays(v, dev, data):
@@ -2387,7 +2591,7 @@ def validate_displays(v, dev, data):
                 dev.displays.append(Hub(**x))
             continue
         nseg, what = DISPLAY_SEGS[t]
-        step = v.integer(d, "segment_step", p, 1, 64, default=1)
+        step = DISPLAY.get(v, d, "segment_step", p)
         order = segment_order(v, d, p, t)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
         if not chars:
@@ -2463,7 +2667,7 @@ def validate_text_display(v, dev, d, p):
         return None
     scr.used = True
     lines = scr.height // TEXT_H
-    scale = v.integer(d, "scale", p, 1, 4, default=1)
+    scale = DISPLAY.get(v, d, "scale", p)
     line = v.integer(d, "line", p, 0, lines - 1, default=0)
     x = v.integer(d, "x", p, 0, scr.width - 1, default=0)
     if line + scale > lines:
@@ -2476,7 +2680,7 @@ def validate_text_display(v, dev, d, p):
         v.err(f"{p}.x", d.line_of("x"), f"no room for a character from x {x} at scale {scale} "
                                         f"({TEXT_W * scale} pixels; '{scr.id}' is {scr.width} wide)")
         return None
-    n = v.integer(d, "length", p, 1, MAX_TEXT_CHARS, default=min(room, MAX_TEXT_CHARS))
+    n = DISPLAY.get(v, d, "length", p, default=min(room, MAX_TEXT_CHARS))
     if n > room:
         v.err(f"{p}.length", d.line_of("length"), f"{n} characters at scale {scale} from x {x} are "
                                                   f"{n * TEXT_W * scale} pixels: '{scr.id}' has room for {room}")
@@ -2613,11 +2817,49 @@ def display_tables(dev):
 # layout: where the controls are, for drawing the device (sysex.md 4.7, core/README.md "Layout")
 
 LAYOUT_VERSION = 1
-LAYOUT_KEYS = ["size", "keys", "controls"]
-LAYOUT_ITEM_KEYS = ["x", "y", "w", "h", "shape"]
 LAYOUT_MAX = 255                     # units: the blob's u8 fields
 LAYOUT_SHAPES = {"button": 0, "round_button": 1, "knob": 2, "encoder": 3, "fader": 4, "wheel": 5, "pad": 6,
                  "display": 7, "keys": 8, "xy": 9}
+
+
+def _units(n, lo=0):
+    """[x, y] / [x, y, w, h] / [w, h]: n whole units."""
+    return {"type": "array", "items": {"type": "integer", "minimum": lo, "maximum": LAYOUT_MAX}, "minItems": n,
+            "maxItems": n}
+
+
+def _place(shapes, shape_doc):
+    """A place as a mapping (layout_rect()), x and y required: its Keys, and its type (the lists, or it)."""
+    keys = _Keys(
+        _Key("x", _Int(0, LAYOUT_MAX), required=True, doc="Its left edge, in units from the left."),
+        _Key("y", _Int(0, LAYOUT_MAX), required=True, doc="Its top edge, in units from the top."),
+        _Key("w", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its width, in units."),
+        _Key("h", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its height, in units."),
+        _Key("shape", _Enum(shapes), doc=shape_doc),
+    )
+    as_map = _Raw({**keys.schema(), "required": ["x", "y"]}, "mapping", keys=keys)
+    return keys, _OneOf(_Raw(_units(2), "`[x, y]`"), _Raw(_units(4), "`[x, y, w, h]`"), as_map)
+
+
+# layout:, checked by validate_layout(): a control's place is checked by layout_rect(), its shape (the kind's)
+# and the size: (what is placed) as code.
+LAYOUT_PLACE, _PLACE = _place([x for x in LAYOUT_SHAPES if x != "keys"],
+                              "How it is drawn (the shapes its kind can be).")
+_KEYS_PLACE = _place(["keys"], "Always `keys`.")[1]
+LAYOUT = _Keys(
+    _Key("size", _Raw(_units(2, 1), "`[w, h]`"), shown_default="just big enough",
+         doc=f"[w, h]: the drawing's size in units, 1..{LAYOUT_MAX}, at least what is placed."),
+    _Key("keys", _KEYS_PLACE, shown_default="under the controls",
+         doc="Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }."),
+    _Key("controls", _ById("control", _PLACE, names=ID_RE.pattern),
+         doc="Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }."),
+)
+LAYOUT_KEYS = LAYOUT.names
+LAYOUT_ITEM_KEYS = LAYOUT_PLACE.names
+# The Core area (core/yaml/layout.md)
+LAYOUT_AREA = _Keys(_Key("layout", _Map(LAYOUT), see='core/README.md "Layout"',
+                         doc="Where the controls are, in units of about 5 mm from the top left, for drawing the "
+                             "device."))
 LAYOUT_SIZES = {"button": (3, 2), "round_button": (2, 2), "knob": (3, 3), "encoder": (3, 3), "fader": (2, 8),
                 "wheel": (2, 7), "pad": (4, 4), "display": (10, 3), "xy": (8, 8)}
 LAYOUT_KINDS = {"button": 1, "keys": 2, "analog input": 3, "encoder": 4, "display": 6, "pad": 7}   # GET_COMPONENT
@@ -2648,8 +2890,8 @@ def layout_rect(v, x, p, line, default_wh):
         d = v.mapping(x, p, line, LAYOUT_ITEM_KEYS)
         if d is None:
             return None
-        got = [v.integer(d, k, p, 0, LAYOUT_MAX, required=True) for k in "xy"]
-        got += [v.integer(d, k, p, 1, LAYOUT_MAX, default=dflt) for k, dflt in zip("wh", default_wh)]
+        got = [LAYOUT_PLACE.get(v, d, k, p) for k in "xy"]
+        got += [LAYOUT_PLACE.get(v, d, k, p, default=dflt) for k, dflt in zip("wh", default_wh)]
         if None in got:
             return None
         vals = got
@@ -2872,7 +3114,7 @@ def preset_slots(v, dev, data):
     # isn't reported as well; the build stops on the error anyway.
     dev.slots_invalid = is_slots_bad or is_one_slot
     dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
-    dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
+    dev.presets_revision = PRESETS_SPEC.get(v, ps, "revision", "presets")
 
 
 def validate_presets(v, dev, data):
@@ -2906,7 +3148,7 @@ def validate_presets(v, dev, data):
             v.err(f"{p}.name" if "name" in d else p, d.line_of("name"),
                   f"'{name}' is already the name of {pth} (line {ln}): preset names are unique")
         names.setdefault(name.lower(), (p, d.line_of("name")))
-        program = v.integer(d, "program", p, 0, 127, default=-1)
+        program = PRESET_ITEM.get(v, d, "program", p, default=-1)
         vals = preset_bank(v, dev, d, p, program)
         if slot == 1:
             for k in d:
@@ -2957,10 +3199,11 @@ def preset_values(v, dev, d, p):
         if sec not in d:
             continue
         sp, sl = f"{p}.{sec}", d.line_of(sec)
-        g = v.mapping(d[sec], sp, sl, list(keys), renamed=PRESET_NOT_HERE.get(sec))
+        g = v.mapping(d[sec], sp, sl, keys.names, renamed=PRESET_NOT_HERE.get(sec))
         if g is None:
             continue
-        for k, (param, default, kind, lo, hi) in keys.items():
+        for key in keys:
+            k, param, typ = key.name, key.param, key.type
             if k not in g:
                 continue
             kp, kl = f"{sp}.{k}", g.line_of(k)
@@ -2970,20 +3213,14 @@ def preset_values(v, dev, d, p):
                        if param.startswith("pad.") else "the device has no buttons")
                 v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
                 continue
-            if callable(default):
-                default = default(dev)
-            if kind == "int":
-                val, shown = v.integer(g, k, sp, lo, hi), None
-            elif kind == "bool":
+            if isinstance(typ, _Bool):         # (Bool's check reads a wrong value as false)
                 val = v.boolean(g, k, sp, default=None)
                 val, shown = (None, None) if val is None else (int(val), str(val).lower())
-            elif kind == "ms":
-                val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
-                shown = f"{val} ms"
             else:
-                val = v.enum_value(g, k, kp, kind)
-                shown = None if val is None else kind[val]
-            put(param, 0, val, default, kp, kl, param, shown)
+                val = keys.get(v, g, k, sp, default=None)
+                shown = (None if val is None or isinstance(typ, _Int) else f"{val} ms" if isinstance(typ, _Period)
+                         else typ.values[val])
+            put(param, 0, val, preset_base(dev, key), kp, kl, param, shown)
 
     for sec, (kind, plural, allowed, hw) in PRESET_COMPONENTS.items():
         if sec not in d:
@@ -3063,8 +3300,35 @@ def preset_values(v, dev, d, p):
 # ---------------------------------------------------------------------------------------------
 # MIDI messages (core/README.md "MIDI messages")
 
-MIDI_MESSAGES_KEYS = ["enable", "null_rpn", "mmc_device_id", "sysex"]
-SYSEX_KEYS = ["id", "data"]
+_MSG_SEE = 'core/README.md "MIDI messages"'
+SYSEX_KEYS = _Keys(
+    _Key("id", _Id(), required=True, doc="What a control's `sysex:` calls it."),
+    _Key("data", _Str(), required=True, see=_MSG_SEE,
+         doc="Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders."),
+)
+# enable: and sysex: are checked by validate_midi_messages (aliases, names, the strings)
+MIDI_MESSAGES_KEYS = _Keys(
+    _Key("enable", _List(_Enum([*MSG_FEATURES, *MSG_ALIASES])), see=_MSG_SEE,
+         doc="Kinds to compile in even if no control uses them yet, for the web page (each kind is in "
+             "anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s."),
+    _Key("null_rpn", _Bool(), default=False, see=_MSG_SEE,
+         doc="After each NRPN or RPN message, the null RPN (101 / 100 = 127)."),
+    _Key("mmc_device_id", _Hex(0, 0x7F), default=0x7F, shown_default="`0x7F` (all devices)",
+         doc="The device id MMC commands are sent to."),
+    _Key("sysex", _List(_Map(SYSEX_KEYS)), see=_MSG_SEE,
+         doc="SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and "
+             "`mode: sysex` analog inputs."),
+)
+# The "midi" area: MIDI and USB (core/yaml/midi.md)
+MIDI_AREA = _Keys(
+    _Key("usb", _Map(USB_KEYS), shown_default="the pid.codes test ids 1209:0002, for development only",
+         doc="The USB ids, on platforms with native USB (ignored with another `midi.transport`)."),
+    _Key("midi", _Map(MIDI_KEYS), doc="How the device talks MIDI."),
+    _Key("din_midi", _Map(DIN_KEYS), see='core/README.md "DIN MIDI"',
+         doc="5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now)."),
+    _Key("midi_messages", _Map(MIDI_MESSAGES_KEYS), see=_MSG_SEE,
+         doc="MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx."),
+)
 BANK_KEYS = ["msb", "lsb"]
 
 
@@ -3073,7 +3337,7 @@ def validate_midi_messages(v, dev, data):
     SysEx strings by id)."""
     if data.get("midi_messages") is None:
         return
-    mm = v.mapping(data["midi_messages"], "midi_messages", data.line_of("midi_messages"), MIDI_MESSAGES_KEYS)
+    mm = v.mapping(data["midi_messages"], "midi_messages", data.line_of("midi_messages"), MIDI_MESSAGES_KEYS.names)
     if mm is None:
         return
     if mm.get("enable") is not None:
@@ -3092,17 +3356,16 @@ def validate_midi_messages(v, dev, data):
                 v.warn(p, ln, f"'{x}' is listed twice")
             dev.msg_enable.add(f)
     if "null_rpn" in mm:
-        dev.null_rpn = bool(v.boolean(mm, "null_rpn", "midi_messages"))
+        dev.null_rpn = MIDI_MESSAGES_KEYS.get(v, mm, "null_rpn", "midi_messages")
         dev.null_rpn_line = mm.line_of("null_rpn")
     if "mmc_device_id" in mm:
-        x = v.integer(mm, "mmc_device_id", "midi_messages", 0, 0x7F, default=0x7F)
-        dev.mmc_id = 0x7F if x is None else x
+        dev.mmc_id = MIDI_MESSAGES_KEYS.get(v, mm, "mmc_device_id", "midi_messages")
         dev.mmc_line = mm.line_of("mmc_device_id")
     if mm.get("sysex") is not None:
         lst = v.seq(mm["sysex"], "midi_messages.sysex", mm.line_of("sysex"))
         for i, d in enumerate(lst):
             p = f"midi_messages.sysex[{i}]"
-            d = v.mapping(d, p, lst.line_of(i), SYSEX_KEYS)
+            d = v.mapping(d, p, lst.line_of(i), SYSEX_KEYS.names)
             if d is None:
                 continue
             ident = v.ident(d, p, "SysEx string", len(dev.sysex), allow_name=False)
@@ -3370,11 +3633,23 @@ def msg_tables(dev):
 # ---------------------------------------------------------------------------------------------
 # write_to_flash: what the device stores on its own (core/README.md "Writes the device makes on its own")
 
-# item -> its default (all off). A new item goes here, in WTF_KEYS, and in write_to_flash_defines.
+# item -> its default (all off). A new item goes here, in WTF_DOCS, and in write_to_flash_defines.
 WTF_ITEMS = {"last_preset": False}
-WTF_KEYS = [*WTF_ITEMS, "delay", "idle"]
+WTF_DOCS = {"last_preset": "Store the selected preset (`preset.active`) after a switch, so the device powers up on "
+                           "the preset used last."}
 WTF_DELAY = (10_000, 1_000, 3_600_000, "1s..1h")    # ms: default, min, max, range text
 WTF_IDLE = (3_000, 100, 600_000, "100ms..10min")
+_WTF_SEE = 'core/README.md "Writes the device makes on its own"'
+# delay and idle: their ranges are checked by validate_write_to_flash, which words them (1h, 10min) its own way
+WTF_KEYS = _Keys(
+    *(_Key(k, _Bool(), default=d, see=_WTF_SEE, doc=WTF_DOCS[k]) for k, d in WTF_ITEMS.items()),
+    _Key("delay", _Period(WTF_DELAY[1] * 1000, WTF_DELAY[2] * 1000, step_us=1000, example="10s"),
+         default=f"{WTF_DELAY[0] // 1000}s",
+         doc="A write waits this long after the last change."),
+    _Key("idle", _Period(WTF_IDLE[1] * 1000, WTF_IDLE[2] * 1000, step_us=1000, example="3s"),
+         default=f"{WTF_IDLE[0] // 1000}s",
+         doc="... and until nothing has been played or touched for this long."),
+)
 
 
 def validate_write_to_flash(v, dev, data):
@@ -3394,10 +3669,10 @@ def validate_write_to_flash(v, dev, data):
             v.err("write_to_flash", line, f"must be true, false or a mapping like `{{ last_preset: true }}` "
                                           f"(got {got})")
             return
-        if v.mapping(x, "write_to_flash", line, WTF_KEYS) is None:
+        if v.mapping(x, "write_to_flash", line, WTF_KEYS.names) is None:
             return
-        for k, dflt in WTF_ITEMS.items():
-            w[k] = v.boolean(x, k, "write_to_flash", default=dflt)
+        for k in WTF_ITEMS:
+            w[k] = WTF_KEYS.get(v, x, k, "write_to_flash")
         for key, (dflt, lo, hi, rng) in (("delay", WTF_DELAY), ("idle", WTF_IDLE)):
             ms = v.period(x, key, "write_to_flash", 0, 0xFFFFFFFF * 1000, step_us=1000, example="10s")
             if ms is not None and not lo <= ms <= hi:
@@ -3442,6 +3717,17 @@ def preset_ref(v, cid, path, line, kind, plural):
 RESET_HOLD_DEFAULT_MS = 5000
 UNLOCK_HOLD_DEFAULT_MS = 2000
 COMBO_MAX = 8            # buttons in a combo (sysex.md 4.9 UNLOCK `n`)
+# factory_reset_combo: / unlock: as a mapping (the button ids are checked by combo_buttons)
+RESET_COMBO_KEYS = _Keys(
+    _Key("combo", _List(_IdRef("button")), required=True, doc=f"The buttons, at most {COMBO_MAX}."),
+    _Key("hold", _Period(1_000_000, 30_000_000, step_us=1000, example="5s"),
+         default=f"{RESET_HOLD_DEFAULT_MS // 1000}s", doc="How long they're held before the settings are wiped."),
+)
+UNLOCK_KEYS = _Keys(
+    _Key("combo", _List(_IdRef("button")), shown_default="`boot_combo`", doc=f"The buttons, at most {COMBO_MAX}."),
+    _Key("hold", _Period(0, 10_000_000, step_us=1000, example="2s"), default=f"{UNLOCK_HOLD_DEFAULT_MS // 1000}s",
+         doc="How long they're held to unlock; `0s`: a press."),
+)
 
 
 def combo_buttons(v, dev, seq, path, line):
@@ -3464,17 +3750,16 @@ def combo_buttons(v, dev, seq, path, line):
     return sorted(out)
 
 
-def combo_and_hold(v, dev, data, key, lo_ms, hi_ms, default_ms, example):
-    """`key: [ids]` or `key: { combo: [ids], hold: 2s }` -> (indices or None if not given, hold ms,
-    combo given). combo may be left out of the mapping (None then)."""
+def combo_and_hold(v, dev, data, key, keys, default_ms):
+    """`key: [ids]` or `key: { combo: [ids], hold: 2s }` (keys: RESET_COMBO_KEYS or UNLOCK_KEYS) -> (indices
+    or None if not given, hold ms, combo given). combo may be left out of the mapping (None then)."""
     x, line = data[key], data.line_of(key)
     if isinstance(x, list):
         return combo_buttons(v, dev, x, key, line), default_ms, True
-    d = v.mapping(x, key, line, COMBO_KEYS)
+    d = v.mapping(x, key, line, keys.names)
     if d is None:
         return [], default_ms, True
-    hold = v.period(d, "hold", key, lo_ms * 1000, hi_ms * 1000, step_us=1000, example=example)
-    hold = default_ms if hold is None else hold
+    hold = keys.get(v, d, "hold", key, default=default_ms)
     if d.get("combo") is None:
         return None, hold, False
     return combo_buttons(v, dev, d["combo"], f"{key}.combo", d.line_of("combo")), hold, True
@@ -3485,8 +3770,8 @@ def validate_safety(v, dev, data):
     boot = set(dev.boot_combo)
     if data.get("factory_reset_combo") is not None:
         line = data.line_of("factory_reset_combo")
-        combo, dev.reset_hold_ms, given = combo_and_hold(v, dev, data, "factory_reset_combo", 1000, 30000,
-                                                          RESET_HOLD_DEFAULT_MS, "5s")
+        combo, dev.reset_hold_ms, given = combo_and_hold(v, dev, data, "factory_reset_combo", RESET_COMBO_KEYS,
+                                                          RESET_HOLD_DEFAULT_MS)
         if not given:
             v.err("factory_reset_combo", line, "needs `combo:` (the button ids, e.g. `[oct_down, oct_up]`)")
         combo = combo or []
@@ -3508,8 +3793,8 @@ def validate_safety(v, dev, data):
                 v.err("unlock", line, "unlock: true needs a combo: set `unlock: { combo: [...] }` or "
                                       "boot_combo (or `unlock: false`)")
         else:
-            combo, dev.unlock_hold_ms, given = combo_and_hold(v, dev, data, "unlock", 0, 10000,
-                                                             UNLOCK_HOLD_DEFAULT_MS, "2s")
+            combo, dev.unlock_hold_ms, given = combo_and_hold(v, dev, data, "unlock", UNLOCK_KEYS,
+                                                             UNLOCK_HOLD_DEFAULT_MS)
             if not given:
                 combo = sorted(boot)
                 if not boot:
@@ -3520,6 +3805,28 @@ def validate_safety(v, dev, data):
         idx = v.ref(data, "status_led", "status_led", data.line_of("status_led"), "LED", "LEDs")
         if idx is not None:
             dev.status_led = idx
+
+
+# The "safety" area: safety and storage (core/yaml/safety.md). boot_combo, the combos' buttons and status_led
+# are ids, checked by validate() and validate_safety.
+SAFETY_AREA = _Keys(
+    _Key("boot_combo", _List(_IdRef("button")), see='core/README.md "Recovery and safety"',
+         doc="Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). "
+             "The first 32 buttons only."),
+    _Key("factory_reset_combo", _OneOf(_List(_IdRef("button")), _Map(RESET_COMBO_KEYS)),
+         see='core/README.md "Factory-reset combo"',
+         doc=f"Buttons held at power-up to wipe the settings (every preset, its name and the globals), for "
+             f"{RESET_HOLD_DEFAULT_MS // 1000} s; or a mapping with the hold time."),
+    _Key("unlock", _OneOf(_Bool(), _Map(UNLOCK_KEYS)), default=False, see='core/README.md "Physical unlock"',
+         doc="Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the "
+             f"user to hold a combo on the device. `true`: the `boot_combo` buttons, "
+             f"{UNLOCK_HOLD_DEFAULT_MS // 1000} s."),
+    _Key("status_led", _IdRef("LED"), see='core/README.md "Status LED"',
+         doc="The LED that shows the blink codes; without it there are none."),
+    _Key("write_to_flash", _OneOf(_Bool(), _Map(WTF_KEYS)), default=False, see=_WTF_SEE,
+         doc="What the device writes to its flash on its own (host saves always work); `true` / `false`: every "
+             "item on or off, with the default timings."),
+)
 
 
 def combo_mask(ix):
@@ -4183,3 +4490,18 @@ def write_generated(dev, out_dir, source):
             f.write(text)
         os.replace(tmp, p)
     return [os.path.join(out_dir, n) for n in files]
+
+
+# The device's top-level keys by area (the docs' Core pages, core/yaml/<area>.md): each a Keys of top-level
+# keys, which the JSON schema types and the docs table lists. Every top-level key is in an area or is a
+# component's (KEY_SECTIONS, a hub list); tests/test_core_keys.py checks.
+CORE_AREAS = {
+    "device": DEVICE_KEYS,
+    "midi": MIDI_AREA,
+    "scanning": SCAN_AREA,
+    "presets": PRESETS_AREA,
+    "feedback": FEEDBACK_AREA,
+    "displays": DISPLAYS_AREA,
+    "layout": LAYOUT_AREA,
+    "safety": SAFETY_AREA,
+}

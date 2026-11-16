@@ -33,11 +33,12 @@ function rows(keys, file, prefix = "") {
     const dflt = k.required ? "**required**" : (k.default ?? ""); // empty: the CSS shows a dash, or drops it on a phone
     const type = k.type.replace(/^(integer|time) /, "$1 "); // "integer 0..7" on one line
     const own = `| \`${name}\` | ${cell(type)} | ${cell(dflt)} | ${cell(what)} |`;
-    return [own, ...(k.keys ? rows(k.keys, file, `${name}.`) : [])];
+    return [own, ...(k.keys ? rows(k.keys, file, `${name}${k.sub ?? ""}.`) : [])];
   });
 }
 
 function heading(s) {
+  if (!s.section) return "Top-level keys"; // a Core page (core/yaml/<area>.md): keys of the file itself
   if (s.platform) return `\`${s.section}:\` items with \`platform: ${s.platform}\``;
   if (s.list === "either") return `\`${s.section}:\`, or each item of it as a list`;
   return s.list ? `Each \`${s.section}:\` item` : `\`${s.section}:\``;
@@ -58,8 +59,18 @@ export function keysMarkdown(sections, file) {
 
 /** A README's text with its key tables in place of the marker. Throws when the marker and the data disagree. */
 export function withKeys(text, file, all = componentKeys()) {
-  const m = file.match(/^components\/([^/]+)\/README\.md$/);
-  const sections = m && all[m[1]];
+  return withKeysOf(text, file, all[keysEntry(file)]);
+}
+
+/** Which entry of the key data a doc shows: a component's README its component's, core/yaml/<area>.md "core/<area>". */
+export function keysEntry(file) {
+  const c = file.match(/^components\/([^/]+)\/README\.md$/);
+  if (c) return c[1];
+  const a = file.match(/^core\/yaml\/([\w-]+)\.md$/);
+  return a ? `core/${a[1]}` : null;
+}
+
+function withKeysOf(text, file, sections) {
   const marker = new RegExp(`^${KEYS_MARKER}$`, "m");    // on a line of its own (not in a mention of it)
   const marked = marker.test(text);
   if (sections && !marked) throw new Error(`${file}: its keys are data; put ${KEYS_MARKER} where the table goes`);

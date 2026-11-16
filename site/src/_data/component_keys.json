@@ -1857,6 +1857,386 @@
       ]
     }
   ],
+  "modes": [
+    {
+      "section": "modes",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What `parent:` and a key's `{ mode: <id> }` call it; unique among the modes, cycles and steps."
+        },
+        {
+          "key": "toggle",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button that enters the mode and, pressed again, leaves it (from a sub-mode too).",
+          "see": "Modes",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            },
+            {
+              "key": "with",
+              "type": "button id",
+              "required": false,
+              "default": null,
+              "doc": "A button held with it (Shift): a plain press is the button's own action."
+            }
+          ]
+        },
+        {
+          "key": "hold",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button that keeps the mode on while it is held.",
+          "see": "Modes",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            }
+          ]
+        },
+        {
+          "key": "one_shot",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "The button whose tap arms the layer for the next press.",
+          "see": "One-shot layers",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            }
+          ]
+        },
+        {
+          "key": "parent",
+          "type": "mode id",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a sub-mode of that mode: entered from one of its keys, back to it after one action.",
+          "see": "Modes"
+        },
+        {
+          "key": "cycle",
+          "type": "button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Makes it a cycle: the button that moves to the next enabled step.",
+          "see": "Cycles",
+          "keys": [
+            {
+              "key": "button",
+              "type": "button id",
+              "required": true,
+              "default": null,
+              "doc": "The button."
+            },
+            {
+              "key": "with",
+              "type": "button id",
+              "required": false,
+              "default": null,
+              "doc": "A button held with it (Shift): a plain press is the button's own action."
+            }
+          ]
+        },
+        {
+          "key": "led",
+          "type": "LED id or `{ <LED id>: blink }`",
+          "required": false,
+          "default": "the toggle button's LED; a sub-mode's: its parent's, blinking",
+          "doc": "The LED lit while it is on (a cycle's shows the step's colour)."
+        },
+        {
+          "key": "preset_blink",
+          "type": "list of 1 or 2 LED ids",
+          "required": false,
+          "default": "its parent's",
+          "doc": "After a preset switch from the mode, the first blinks the slot number, then both flash once."
+        },
+        {
+          "key": "keys",
+          "type": "key → action",
+          "required": false,
+          "default": null,
+          "doc": "What the keys do while it is on, by the key's note at octave 0 (C4 = 60) or MIDI note number: an action, `{ action, ... }`, `{ mode: <sub-mode id> }`, or one range. Needs a key matrix.",
+          "see": "Modes"
+        },
+        {
+          "key": "buttons",
+          "type": "button id → action",
+          "required": false,
+          "default": null,
+          "doc": "What buttons do instead of their own action while it is on: an action or `{ action, ... }`.",
+          "see": "Modes"
+        },
+        {
+          "key": "layer",
+          "type": "button, pad or encoder id → mapping",
+          "required": false,
+          "default": null,
+          "doc": "By button, pad or encoder id, what that control's twin is while the mode is on. A root mode only.",
+          "see": "Button layers",
+          "keys": [
+            {
+              "key": "name",
+              "type": "text",
+              "required": false,
+              "default": "`<its name> <mode id>`",
+              "doc": "The twin's name on the web page and in the CLI."
+            },
+            {
+              "key": "action",
+              "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+              "required": false,
+              "default": "the button's",
+              "doc": "A button twin's action.",
+              "see": "components/buttons/README.md \"Button actions\"",
+              "param": "layer.button.action"
+            },
+            {
+              "key": "actions",
+              "type": "action list: items (an action's name, or a mapping)",
+              "required": false,
+              "default": "the button's",
+              "doc": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping.",
+              "see": "components/buttons/README.md \"Action lists\"",
+              "param": "layer.button.action",
+              "keys": [
+                {
+                  "key": "action",
+                  "type": "`cc_momentary`, `note`, `program`, `panic`, `mmc`, `sysex`",
+                  "required": false,
+                  "default": null,
+                  "doc": "The item's action; left out, its number key says it (`cc:` is `cc_momentary`)."
+                },
+                {
+                  "key": "cc",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A CC: 127 at the press and 0 at the release, or `value:` once."
+                },
+                {
+                  "key": "value",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `cc:`: the value it sends once, at the press."
+                },
+                {
+                  "key": "note",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A note, held while the button is."
+                },
+                {
+                  "key": "program",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "A Program Change.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "bank",
+                  "type": "integer 0..16383 or mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `program:`: the Bank Select sent first.",
+                  "see": "core/README.md \"MIDI messages\"",
+                  "keys": [
+                    {
+                      "key": "msb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 0's value."
+                    },
+                    {
+                      "key": "lsb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 32's value."
+                    }
+                  ]
+                },
+                {
+                  "key": "mmc",
+                  "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "An MMC command: a name or 1..127.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "sysex",
+                  "type": "SysEx string id",
+                  "required": false,
+                  "default": null,
+                  "doc": "The id of a `midi_messages.sysex` string.",
+                  "see": "core/README.md \"MIDI messages\""
+                },
+                {
+                  "key": "channel",
+                  "type": "integer 1..16",
+                  "required": false,
+                  "default": null,
+                  "doc": "Its channel, instead of the button's."
+                }
+              ]
+            },
+            {
+              "key": "cc",
+              "type": "integer 0..127 or `none`",
+              "required": false,
+              "default": "its base's",
+              "doc": "A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, only its EVENTs."
+            },
+            {
+              "key": "note",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The note, with action `note`.",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "preset",
+              "type": "integer from 1",
+              "required": false,
+              "default": "the button's",
+              "doc": "The preset slot (1..slots), with action `preset_select`.",
+              "see": "core/README.md \"Presets\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "program",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The Program Change it sends, with action `program`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "mmc",
+              "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+              "required": false,
+              "default": "the button's",
+              "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "sysex",
+              "type": "SysEx string id",
+              "required": false,
+              "default": "the button's",
+              "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+              "see": "core/README.md \"MIDI messages\"",
+              "param": "layer.button.number"
+            },
+            {
+              "key": "daw",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "The twin's own role for the DAW scripts (left out: none).",
+              "see": "hosts/README.md"
+            },
+            {
+              "key": "idle",
+              "type": "look",
+              "required": false,
+              "default": "the LED's",
+              "doc": "What the twin's LED shows while off (a button's or pad's twin).",
+              "see": "components/leds/README.md \"LED looks (idle and active)\""
+            },
+            {
+              "key": "active",
+              "type": "look",
+              "required": false,
+              "default": "the LED's",
+              "doc": "What the twin's LED shows while on.",
+              "see": "components/leds/README.md \"LED looks (idle and active)\""
+            }
+          ],
+          "sub": ".<id>"
+        },
+        {
+          "key": "steps",
+          "type": "list of mapping",
+          "required": false,
+          "default": null,
+          "doc": "A cycle's steps, 2 to 8, taken in turn.",
+          "see": "Cycles",
+          "keys": [
+            {
+              "key": "id",
+              "type": "id",
+              "required": true,
+              "default": null,
+              "doc": "Its mode id, unique among the modes, cycles and steps."
+            },
+            {
+              "key": "name",
+              "type": "text",
+              "required": false,
+              "default": "the id",
+              "doc": "Its name, up to 16 ASCII characters: the display shows it when the step is switched to."
+            },
+            {
+              "key": "colour",
+              "type": "look",
+              "required": false,
+              "default": "the LED's active look",
+              "doc": "What the cycle's LED shows on this step: a look of that LED, or a full colour (`\"#ff8000\"`, `blue 20%`).",
+              "see": "Cycles"
+            },
+            {
+              "key": "enabled",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "Whether a press of the cycle's button stops at it.",
+              "param": "layer.enabled"
+            },
+            {
+              "key": "layer",
+              "type": "button, pad or encoder id → mapping, as `layer.<id>`",
+              "required": false,
+              "default": null,
+              "doc": "By button, pad or encoder id, what that control's twin is while the mode is on.",
+              "see": "Button layers"
+            }
+          ],
+          "sub": "[]"
+        }
+      ]
+    }
+  ],
   "pads": [
     {
       "section": "pads",
@@ -2477,6 +2857,1254 @@
           "default": "`3430`",
           "doc": "The highest reading that counts as a touch.",
           "see": "How it reads"
+        }
+      ]
+    }
+  ],
+  "core/device": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "gemifi",
+          "type": "`2`",
+          "required": true,
+          "default": null,
+          "doc": "The format version of the file: 2."
+        },
+        {
+          "key": "name",
+          "type": "node name",
+          "required": true,
+          "default": null,
+          "doc": "The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."
+        },
+        {
+          "key": "friendly_name",
+          "type": "text",
+          "required": false,
+          "default": "`name`",
+          "doc": "Its display name: the USB product string, HELLO and the web page."
+        },
+        {
+          "key": "description",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A line about it, for people reading the file."
+        },
+        {
+          "key": "project",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "The firmware project: its version.",
+          "keys": [
+            {
+              "key": "version",
+              "type": "major.minor.patch",
+              "required": false,
+              "default": "the build's",
+              "doc": "The firmware version it reports (HELLO), major.minor.patch."
+            }
+          ]
+        },
+        {
+          "key": "board_id",
+          "type": "integer 0x00..0x3FFF",
+          "required": true,
+          "default": null,
+          "doc": "The id a firmware image is checked against before it is flashed: a board profile's fixed one, or your own for a DIY board.",
+          "see": "core/README.md \"Board profiles\""
+        },
+        {
+          "key": "platform",
+          "type": "`nuvoton-nuc1xx`, `stm32f1`, `esp32`, `esp32s2`, `esp32s3`",
+          "required": true,
+          "default": null,
+          "doc": "The MCU family it builds for (the docs' Platforms)."
+        },
+        {
+          "key": "chip",
+          "type": "text",
+          "required": true,
+          "default": null,
+          "doc": "The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."
+        },
+        {
+          "key": "board",
+          "type": "board profile name",
+          "required": false,
+          "default": "the platform's: `m-audio-code61` (stm32f1), `keystation-mini32-mk3` (nuvoton-nuc1xx)",
+          "doc": "The board profile (platform/<platform>/boards/<board>.json): its layout and board pins.",
+          "see": "core/README.md \"Board profiles\""
+        }
+      ]
+    }
+  ],
+  "core/midi": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "usb",
+          "type": "mapping",
+          "required": false,
+          "default": "the pid.codes test ids 1209:0002, for development only",
+          "doc": "The USB ids, on platforms with native USB (ignored with another `midi.transport`).",
+          "keys": [
+            {
+              "key": "vid",
+              "type": "integer 0x00..0xFFFF",
+              "required": true,
+              "default": null,
+              "doc": "The USB vendor id (`0x1209`: pid.codes)."
+            },
+            {
+              "key": "pid",
+              "type": "integer 0x00..0xFFFF",
+              "required": true,
+              "default": null,
+              "doc": "The USB product id."
+            },
+            {
+              "key": "daw_port",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true` with `mcu:`",
+              "doc": "A second USB-MIDI port, `<friendly_name> DAW`, for Mackie Control: needs `mcu:` and USB MIDI.",
+              "see": "core/README.md \"Second USB port and Mackie Control\""
+            }
+          ]
+        },
+        {
+          "key": "midi",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "How the device talks MIDI.",
+          "keys": [
+            {
+              "key": "transport",
+              "type": "`usb`, `serial`, `ble`",
+              "required": false,
+              "default": "`usb`; `serial` on esp32",
+              "doc": "How the device talks MIDI: `usb` (native USB, ESP32-S2/S3), `serial` (a UART) or `ble` (ESP32, ESP32-S3). Only the ESPs have a choice."
+            }
+          ]
+        },
+        {
+          "key": "din_midi",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "5-pin DIN MIDI In and Out on a UART, at 31250 baud (stm32f1 for now).",
+          "see": "core/README.md \"DIN MIDI\"",
+          "keys": [
+            {
+              "key": "tx_pin",
+              "type": "pin",
+              "required": true,
+              "default": null,
+              "doc": "The UART's TX pin: MIDI Out (stm32f1: PA9, USART1)."
+            },
+            {
+              "key": "rx_pin",
+              "type": "pin",
+              "required": false,
+              "default": null,
+              "doc": "The UART's RX pin: MIDI In (stm32f1: PA10). Without it, MIDI Out only."
+            },
+            {
+              "key": "mode",
+              "type": "`din_only`, `separate_port`, `usb_merge`",
+              "required": false,
+              "default": "`usb_merge`",
+              "doc": "How the jacks reach USB: on the device's own port (`usb_merge`), on a second USB-MIDI port (`separate_port`), or not at all (`din_only`).",
+              "see": "core/README.md \"DIN MIDI\""
+            },
+            {
+              "key": "port_name",
+              "type": "text",
+              "required": false,
+              "default": "`<friendly_name> MIDI`",
+              "doc": "The second port's name, with `separate_port`; at most 31 characters."
+            },
+            {
+              "key": "thru",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "DIN In is copied to DIN Out.",
+              "param": "midi.thru"
+            },
+            {
+              "key": "controller_out",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "The device's own messages (keys, pads, CCs, program changes) also go to DIN Out.",
+              "param": "midi.din_out"
+            },
+            {
+              "key": "usb_to_din",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "With `usb_merge`: the host's channel and realtime messages on the device's port go to DIN Out.",
+              "param": "midi.usb_to_din"
+            },
+            {
+              "key": "dma",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "stm32f1: the UART's bytes move by DMA (channels 4 and 5) instead of by interrupt.",
+              "see": "core/README.md \"DMA channels (stm32f1)\""
+            }
+          ]
+        },
+        {
+          "key": "midi_messages",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx.",
+          "see": "core/README.md \"MIDI messages\"",
+          "keys": [
+            {
+              "key": "enable",
+              "type": "list of `cc14`, `nrpn`, `program`, `panic`, `mmc`, `rpn`, `bank_select`",
+              "required": false,
+              "default": null,
+              "doc": "Kinds to compile in even if no control uses them yet, for the web page (each kind is in anyway when one does). `rpn` is `nrpn`'s, `bank_select` `program`'s.",
+              "see": "core/README.md \"MIDI messages\""
+            },
+            {
+              "key": "null_rpn",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "After each NRPN or RPN message, the null RPN (101 / 100 = 127).",
+              "see": "core/README.md \"MIDI messages\""
+            },
+            {
+              "key": "mmc_device_id",
+              "type": "integer 0x00..0x7F",
+              "required": false,
+              "default": "`0x7F` (all devices)",
+              "doc": "The device id MMC commands are sent to."
+            },
+            {
+              "key": "sysex",
+              "type": "list of mapping",
+              "required": false,
+              "default": null,
+              "doc": "SysEx strings of your own, fixed at build time (at most 127), for `action: sysex` buttons and `mode: sysex` analog inputs.",
+              "see": "core/README.md \"MIDI messages\"",
+              "keys": [
+                {
+                  "key": "id",
+                  "type": "id",
+                  "required": true,
+                  "default": null,
+                  "doc": "What a control's `sysex:` calls it."
+                },
+                {
+                  "key": "data",
+                  "type": "text",
+                  "required": true,
+                  "default": null,
+                  "doc": "Hex bytes F0 .. F7, with v, msb, lsb, ch and [ ... ] cs placeholders.",
+                  "see": "core/README.md \"MIDI messages\""
+                }
+              ],
+              "sub": "[]"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "core/scanning": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "scan_interval",
+          "type": "time 1us..65535us",
+          "required": false,
+          "default": "`125us`",
+          "doc": "The scan tick's period: the key matrix (without `hardware_scan`), encoders on MCU pins and shift-register hubs are read every tick.",
+          "see": "core/README.md \"Software scan\""
+        },
+        {
+          "key": "hardware_scan",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "stm32f1: the matrices and the analog inputs scanned by timers and DMA instead of the CPU.",
+          "see": "core/README.md \"Hardware scan\"",
+          "keys": [
+            {
+              "key": "matrix",
+              "type": "mapping",
+              "required": false,
+              "default": null,
+              "doc": "The key matrix and every switch matrix, scanned row by row by a timer and DMA.",
+              "see": "core/README.md \"Hardware scan\"",
+              "keys": [
+                {
+                  "key": "row_time",
+                  "type": "time 0.5us..50us",
+                  "required": true,
+                  "default": null,
+                  "doc": "The time per row: a frame is every row once (an odd row count gets its last row twice).",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "settle",
+                  "type": "time 0.25us..49.5us",
+                  "required": true,
+                  "default": null,
+                  "doc": "From the row's select to the columns' read; at least 0.5us with `precharge`.",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "precharge",
+                  "type": "`true` or `false`",
+                  "required": false,
+                  "default": "`false`",
+                  "doc": "The columns are driven to their idle level before each row, so the read waits less: needs diodes or tolerant drivers.",
+                  "see": "core/README.md \"Hardware scan\""
+                },
+                {
+                  "key": "timer",
+                  "type": "`auto`, `tim1`..`tim4`",
+                  "required": false,
+                  "default": "`auto`",
+                  "doc": "The timer that paces the scan; `auto` takes the first that leaves the UARTs' DMA channels free.",
+                  "see": "core/README.md \"DMA channels (stm32f1)\""
+                }
+              ]
+            },
+            {
+              "key": "analog",
+              "type": "`true` or `false` or mapping",
+              "required": false,
+              "default": "`false`",
+              "doc": "The analog inputs and pads, read in sweeps of mux steps and ADC conversions by a timer and DMA; `true`, or a mapping to pick the timer.",
+              "see": "core/README.md \"Hardware scan\"",
+              "keys": [
+                {
+                  "key": "timer",
+                  "type": "`auto`, `tim2`..`tim4`",
+                  "required": false,
+                  "default": "`auto`",
+                  "doc": "The timer that steps the muxes and starts ADC1 (not TIM1).",
+                  "see": "core/README.md \"DMA channels (stm32f1)\""
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "core/presets": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "presets",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets are off (one slot).",
+          "see": "core/README.md \"Presets\"",
+          "keys": [
+            {
+              "key": "slots",
+              "type": "integer 2..64",
+              "required": false,
+              "default": "the number listed",
+              "doc": "The preset slots, at least the number listed: the ones not listed start as copies of slot 1."
+            },
+            {
+              "key": "revision",
+              "type": "integer 0..16383",
+              "required": false,
+              "default": "`0`",
+              "doc": "Bump it when the YAML's presets change: the updater then offers to load them."
+            },
+            {
+              "key": "list",
+              "type": "list of mapping",
+              "required": false,
+              "default": null,
+              "doc": "The presets, slot 1 first: its values are the rest of the file.",
+              "keys": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "required": false,
+                  "default": "`Default` (slot 1), `Preset N`",
+                  "doc": "Its name: up to 16 printable ASCII characters, unique."
+                },
+                {
+                  "key": "program",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "The Program Change sent when it is selected.",
+                  "param": "preset.program"
+                },
+                {
+                  "key": "bank",
+                  "type": "integer 0..16383 or mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`.",
+                  "see": "core/README.md \"MIDI messages\"",
+                  "param": "preset.bank",
+                  "keys": [
+                    {
+                      "key": "msb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 0's value."
+                    },
+                    {
+                      "key": "lsb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 32's value."
+                    }
+                  ]
+                },
+                {
+                  "key": "midi",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `midi` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "channel",
+                      "type": "integer 1..16",
+                      "required": false,
+                      "default": "`1`",
+                      "doc": "The MIDI channel the device plays on.",
+                      "param": "midi.channel"
+                    },
+                    {
+                      "key": "transpose",
+                      "type": "integer -24..24",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Semitones the keys' notes are moved by (the transpose buttons step it).",
+                      "param": "midi.transpose"
+                    },
+                    {
+                      "key": "octave",
+                      "type": "integer -4..4",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Octaves the keys' notes are moved by (the octave buttons step it).",
+                      "param": "midi.octave"
+                    }
+                  ]
+                },
+                {
+                  "key": "velocity",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `velocity` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "curve",
+                      "type": "`normal`, `soft`, `hard`, `fixed`",
+                      "required": false,
+                      "default": "`normal`",
+                      "doc": "How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only.",
+                      "param": "velocity.curve"
+                    },
+                    {
+                      "key": "fixed",
+                      "type": "integer 1..127",
+                      "required": false,
+                      "default": "`100`",
+                      "doc": "The velocity of curve `fixed`, and of the `note` buttons.",
+                      "param": "velocity.fixed"
+                    }
+                  ]
+                },
+                {
+                  "key": "bend",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `bend` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "glide",
+                      "type": "time 0us..2s",
+                      "required": false,
+                      "default": "`80ms`",
+                      "doc": "How long the pitch-bend buttons take to glide to full bend and back.",
+                      "param": "bend.glide"
+                    }
+                  ]
+                },
+                {
+                  "key": "ramp",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `ramp` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "time",
+                      "type": "time 0us..5s",
+                      "required": false,
+                      "default": "`300ms`",
+                      "doc": "How long a `cc_ramp` button takes to glide from 0 to 127 and back.",
+                      "param": "ramp.time"
+                    }
+                  ]
+                },
+                {
+                  "key": "pad_settings",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `pad_settings` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "channel",
+                      "type": "integer 0..16",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "The MIDI channel the pads play on (0: `midi.channel`). Per preset.",
+                      "param": "pad.channel"
+                    },
+                    {
+                      "key": "curve",
+                      "type": "`normal`, `soft`, `hard`, `fixed`",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset.",
+                      "param": "pad.curve"
+                    },
+                    {
+                      "key": "aftertouch",
+                      "type": "`true` or `false`",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "Polyphonic aftertouch while a pad is held. Per preset.",
+                      "param": "pad.aftertouch"
+                    },
+                    {
+                      "key": "octave",
+                      "type": "integer -4..4",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Octaves the pads' notes are moved by (the pad octave buttons step it).",
+                      "param": "pad.octave"
+                    }
+                  ]
+                },
+                {
+                  "key": "buttons",
+                  "type": "button id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By button id, what differs from the button's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "action",
+                      "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What a press does.",
+                      "see": "components/buttons/README.md \"Button actions\"",
+                      "param": "button.action"
+                    },
+                    {
+                      "key": "actions",
+                      "type": "action list: items (an action's name, or a mapping)",
+                      "required": false,
+                      "default": null,
+                      "doc": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping.",
+                      "see": "components/buttons/README.md \"Action lists\"",
+                      "param": "button.action",
+                      "keys": [
+                        {
+                          "key": "action",
+                          "type": "`cc_momentary`, `note`, `program`, `panic`, `mmc`, `sysex`",
+                          "required": false,
+                          "default": null,
+                          "doc": "The item's action; left out, its number key says it (`cc:` is `cc_momentary`)."
+                        },
+                        {
+                          "key": "cc",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A CC: 127 at the press and 0 at the release, or `value:` once."
+                        },
+                        {
+                          "key": "value",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "With `cc:`: the value it sends once, at the press."
+                        },
+                        {
+                          "key": "note",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A note, held while the button is."
+                        },
+                        {
+                          "key": "program",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A Program Change.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "bank",
+                          "type": "integer 0..16383 or mapping",
+                          "required": false,
+                          "default": null,
+                          "doc": "With `program:`: the Bank Select sent first.",
+                          "see": "core/README.md \"MIDI messages\"",
+                          "keys": [
+                            {
+                              "key": "msb",
+                              "type": "integer 0..127",
+                              "required": false,
+                              "default": "`0`",
+                              "doc": "CC 0's value."
+                            },
+                            {
+                              "key": "lsb",
+                              "type": "integer 0..127",
+                              "required": false,
+                              "default": "`0`",
+                              "doc": "CC 32's value."
+                            }
+                          ]
+                        },
+                        {
+                          "key": "mmc",
+                          "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "An MMC command: a name or 1..127.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "sysex",
+                          "type": "SysEx string id",
+                          "required": false,
+                          "default": null,
+                          "doc": "The id of a `midi_messages.sysex` string.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "channel",
+                          "type": "integer 1..16",
+                          "required": false,
+                          "default": null,
+                          "doc": "Its channel, instead of the button's."
+                        }
+                      ]
+                    },
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "note",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The note, with action `note`.",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "preset",
+                      "type": "integer from 1",
+                      "required": false,
+                      "default": null,
+                      "doc": "The preset slot (1..slots), with action `preset_select`.",
+                      "see": "core/README.md \"Presets\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "mcu",
+                      "type": "text",
+                      "required": false,
+                      "default": null,
+                      "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+                      "see": "core/README.md \"Second USB port and Mackie Control\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "program",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The Program Change it sends, with action `program`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "mmc",
+                      "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "sysex",
+                      "type": "SysEx string id",
+                      "required": false,
+                      "default": null,
+                      "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "analog",
+                  "type": "analog input id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By analog input id, what differs from the analog input's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "mode",
+                      "type": "`cc`, `pitch_bend`, `channel_pressure`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`, `sysex`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\").",
+                      "see": "components/analog/README.md \"Pitch wheels and aftertouch\"",
+                      "param": "analog.mode"
+                    },
+                    {
+                      "key": "nrpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "rpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "sysex",
+                      "type": "SysEx string id",
+                      "required": false,
+                      "default": null,
+                      "doc": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "encoders",
+                  "type": "encoder id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By encoder id, what differs from the encoder's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`.",
+                      "param": "encoder.cc"
+                    },
+                    {
+                      "key": "mode",
+                      "type": "`absolute`, `relative_twos`, `relative_offset`, `relative_sign`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What a turn sends.",
+                      "see": "components/encoders/README.md \"Encoder modes\"",
+                      "param": "encoder.mode"
+                    },
+                    {
+                      "key": "nrpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "encoder.cc"
+                    },
+                    {
+                      "key": "rpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "encoder.cc"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "pads",
+                  "type": "pad id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By pad id, what differs from the pad's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "note",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The note it plays.",
+                      "param": "pad.note"
+                    }
+                  ],
+                  "sub": ".<id>"
+                }
+              ],
+              "sub": "[]"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "core/feedback": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "feedback",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "What the device does with the MIDI the host sends back (F1) and DAW scripts (F3); `true` / `false`: as `enabled:`, the rest by default.",
+          "see": "core/README.md \"DAW feedback\"",
+          "keys": [
+            {
+              "key": "enabled",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "`false`: ignore everything the host sends but the gemifi SysEx protocol (and Mackie Control, with `mcu:`); DAW scripts are off too."
+            },
+            {
+              "key": "script",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`true`",
+              "doc": "DAW scripts (F3): GET_COMPONENT, EVENT, BOOTED and the FB_* messages; `false` leaves them out.",
+              "see": "core/README.md \"DAW scripts (F3)\""
+            },
+            {
+              "key": "led_owner",
+              "type": "`host_then_local`, `host`, `local`",
+              "required": false,
+              "default": "`host_then_local`",
+              "doc": "Which state every LED shows, the host's or its own, unless the LED's `owner:` says.",
+              "see": "core/README.md \"LED ownership\""
+            },
+            {
+              "key": "led_timeout",
+              "type": "time 10ms..655340ms or `never`",
+              "required": false,
+              "default": "`2s`",
+              "doc": "With `host_then_local`: how long the host's last word for an LED lasts, unless the LED's `timeout:` says; `never`: from the host's first message on.",
+              "see": "core/README.md \"LED ownership\""
+            }
+          ]
+        },
+        {
+          "key": "mcu",
+          "type": "`null` or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Mackie Control: on USB on a second MIDI port (`usb.daw_port`), on serial or BLE the whole device.",
+          "see": "core/README.md \"Second USB port and Mackie Control\"",
+          "keys": [
+            {
+              "key": "extender",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "Answer as an MCU XT (extender): SysEx device id 0x15 instead of 0x14."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "core/displays": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "displays",
+          "type": "list of mapping",
+          "required": false,
+          "default": null,
+          "doc": "The displays, up to 4: a row of segment characters on hub pins, or a row of text on a screen.",
+          "see": "core/README.md \"Displays\"",
+          "keys": [
+            {
+              "key": "id",
+              "type": "id",
+              "required": true,
+              "default": null,
+              "doc": "What the rest of the file and a host's FB_TEXT call it."
+            },
+            {
+              "key": "type",
+              "type": "`segment14`, `segment7`, `text`",
+              "required": false,
+              "default": "`text` with `display:`, else `segment14`",
+              "doc": "Its characters: 14 or 7 segments on hub pins, or text on a screen."
+            },
+            {
+              "key": "chars",
+              "type": "list of pin or list of pin",
+              "required": false,
+              "default": null,
+              "doc": "Each character's first pin, or its segments' pins, left to right (hub pins). A segment display's."
+            },
+            {
+              "key": "segment_step",
+              "type": "integer 1..64",
+              "required": false,
+              "default": "`1`",
+              "doc": "Segment k of a character is this many pins times k after its first pin. A segment display's."
+            },
+            {
+              "key": "segment_order",
+              "type": "list of `a`, `b`, `c`, `d`, `dot`, `dp`, `e`, `f`, `g`, `g1`, `g2`, `h`, `i`, `j`, `k`, `l`, `m`",
+              "required": false,
+              "default": "a, b, ... in gm_display.h order",
+              "doc": "The segments in pin order from each first pin; ones left out aren't wired. A segment display's."
+            },
+            {
+              "key": "shows",
+              "type": "`last_message`, `preset_number`, `preset_name`, `channel`, `none`",
+              "required": false,
+              "default": "`last_message` on the first display, else `none`",
+              "doc": "What it shows of its own while no host writes to it."
+            },
+            {
+              "key": "daw",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "What a DAW script shows on it (`time`, `track_name`, `param`, `status`).",
+              "see": "hosts/README.md"
+            },
+            {
+              "key": "display",
+              "type": "display id",
+              "required": false,
+              "default": null,
+              "doc": "The screen it is on: a `display:` item's id. A text display's."
+            },
+            {
+              "key": "line",
+              "type": "integer 0..7",
+              "required": false,
+              "default": "`0`",
+              "doc": "The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen). A text display's."
+            },
+            {
+              "key": "x",
+              "type": "integer 0..127",
+              "required": false,
+              "default": "`0`",
+              "doc": "The pixel column it starts at. A text display's."
+            },
+            {
+              "key": "scale",
+              "type": "integer 1..4",
+              "required": false,
+              "default": "`1`",
+              "doc": "Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall. A text display's."
+            },
+            {
+              "key": "length",
+              "type": "integer 1..21",
+              "required": false,
+              "default": "as many as fit",
+              "doc": "How many characters it has. A text display's."
+            }
+          ],
+          "sub": "[]"
+        }
+      ]
+    }
+  ],
+  "core/layout": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "layout",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "Where the controls are, in units of about 5 mm from the top left, for drawing the device.",
+          "see": "core/README.md \"Layout\"",
+          "keys": [
+            {
+              "key": "size",
+              "type": "`[w, h]`",
+              "required": false,
+              "default": "just big enough",
+              "doc": "[w, h]: the drawing's size in units, 1..255, at least what is placed."
+            },
+            {
+              "key": "keys",
+              "type": "`[x, y]` or `[x, y, w, h]` or mapping",
+              "required": false,
+              "default": "under the controls",
+              "doc": "Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }.",
+              "keys": [
+                {
+                  "key": "x",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its left edge, in units from the left."
+                },
+                {
+                  "key": "y",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its top edge, in units from the top."
+                },
+                {
+                  "key": "w",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its width, in units."
+                },
+                {
+                  "key": "h",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its height, in units."
+                },
+                {
+                  "key": "shape",
+                  "type": "`keys`",
+                  "required": false,
+                  "default": null,
+                  "doc": "Always `keys`."
+                }
+              ]
+            },
+            {
+              "key": "controls",
+              "type": "control id → `[x, y]` or `[x, y, w, h]` or mapping",
+              "required": false,
+              "default": null,
+              "doc": "Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }.",
+              "keys": [
+                {
+                  "key": "x",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its left edge, in units from the left."
+                },
+                {
+                  "key": "y",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its top edge, in units from the top."
+                },
+                {
+                  "key": "w",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its width, in units."
+                },
+                {
+                  "key": "h",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its height, in units."
+                },
+                {
+                  "key": "shape",
+                  "type": "`button`, `round_button`, `knob`, `encoder`, `fader`, `wheel`, `pad`, `display`, `xy`",
+                  "required": false,
+                  "default": null,
+                  "doc": "How it is drawn (the shapes its kind can be)."
+                }
+              ],
+              "sub": ".<id>"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "core/safety": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "boot_combo",
+          "type": "list of button id",
+          "required": false,
+          "default": null,
+          "doc": "Buttons held at reset: the NUC stays in its bootloader, an ESP starts in safe mode (default settings). The first 32 buttons only.",
+          "see": "core/README.md \"Recovery and safety\""
+        },
+        {
+          "key": "factory_reset_combo",
+          "type": "list of button id or mapping",
+          "required": false,
+          "default": null,
+          "doc": "Buttons held at power-up to wipe the settings (every preset, its name and the globals), for 5 s; or a mapping with the hold time.",
+          "see": "core/README.md \"Factory-reset combo\"",
+          "keys": [
+            {
+              "key": "combo",
+              "type": "list of button id",
+              "required": true,
+              "default": null,
+              "doc": "The buttons, at most 8."
+            },
+            {
+              "key": "hold",
+              "type": "time 1s..30s",
+              "required": false,
+              "default": "`5s`",
+              "doc": "How long they're held before the settings are wiped."
+            }
+          ]
+        },
+        {
+          "key": "unlock",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": "`false`",
+          "doc": "Opt-in physical unlock: uploads, REBOOT to the bootloader and FACTORY_RESET over SysEx wait for the user to hold a combo on the device. `true`: the `boot_combo` buttons, 2 s.",
+          "see": "core/README.md \"Physical unlock\"",
+          "keys": [
+            {
+              "key": "combo",
+              "type": "list of button id",
+              "required": false,
+              "default": "`boot_combo`",
+              "doc": "The buttons, at most 8."
+            },
+            {
+              "key": "hold",
+              "type": "time 0us..10s",
+              "required": false,
+              "default": "`2s`",
+              "doc": "How long they're held to unlock; `0s`: a press."
+            }
+          ]
+        },
+        {
+          "key": "status_led",
+          "type": "LED id",
+          "required": false,
+          "default": null,
+          "doc": "The LED that shows the blink codes; without it there are none.",
+          "see": "core/README.md \"Status LED\""
+        },
+        {
+          "key": "write_to_flash",
+          "type": "`true` or `false` or mapping",
+          "required": false,
+          "default": "`false`",
+          "doc": "What the device writes to its flash on its own (host saves always work); `true` / `false`: every item on or off, with the default timings.",
+          "see": "core/README.md \"Writes the device makes on its own\"",
+          "keys": [
+            {
+              "key": "last_preset",
+              "type": "`true` or `false`",
+              "required": false,
+              "default": "`false`",
+              "doc": "Store the selected preset (`preset.active`) after a switch, so the device powers up on the preset used last.",
+              "see": "core/README.md \"Writes the device makes on its own\""
+            },
+            {
+              "key": "delay",
+              "type": "time 1s..3600s",
+              "required": false,
+              "default": "`10s`",
+              "doc": "A write waits this long after the last change."
+            },
+            {
+              "key": "idle",
+              "type": "time 100ms..600s",
+              "required": false,
+              "default": "`3s`",
+              "doc": "... and until nothing has been played or touched for this long."
+            }
+          ]
         }
       ]
     }

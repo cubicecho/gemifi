@@ -394,6 +394,7 @@ summary.docs-nav-head:hover {
 }
 .tone-overview { --tone-h: 250; }
 .tone-base { --tone-h: 300; }
+.tone-core { --tone-h: 322; }
 .tone-controls { --tone-h: 150; }
 .tone-i2c { --tone-h: 185; }
 .tone-hub { --tone-h: 55; }

@@ -3,7 +3,7 @@
 # config, so a firmware project's main only calls gm_esp_begin() and gm_poll().
 #
 # firmware/esp/gemifi_esp.py (PlatformIO's pre: script) sets, before CMake runs:
-#   GM_CORE        all: core/src/*.c, the device config and its components (gm_components.cmake); gsx (default): core/src/gsx.c
+#   GM_CORE        all: core/src/*.c, the device config and its components (gm_components.cmake); gsx (default): core/src/gsx.c, crc32.c
 #   GM_DEVICE_DIR  the generated gm_device_config.h/.c (GM_CORE=all)
 #
 # SPDX-License-Identifier: MIT
@@ -27,7 +27,7 @@ if("$ENV{GM_CORE}" STREQUAL "all")
     list(APPEND srcs ${GM_COMPONENT_SRCS})
     list(APPEND incs ${GM_COMPONENT_INCS})
 else()
-    list(APPEND srcs ${gm_root}/core/src/gsx.c)
+    list(APPEND srcs ${gm_root}/core/src/gsx.c ${gm_root}/core/src/crc32.c)
 endif()
 
 # Native USB (TinyUSB) on the S2 / S3, Bluetooth (NimBLE) on the ESP32 / S3: required here, only

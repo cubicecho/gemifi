@@ -21,6 +21,7 @@
 #include "gm_esp.h"
 #include "nvs.h"
 #include "config_store.h"
+#include "crc32.h"
 #include "gsx.h"
 
 #define V2_HDR     4u
@@ -47,7 +48,7 @@ static uint32_t rec_words(const uint32_t *w, uint32_t avail)
     if (count > avail)
         return 0;
     n += 2u * count + 1u;
-    if (n > avail || gm_crc32(0, (const uint8_t *)w, 4u * (n - 1u)) != w[n - 1u])
+    if (n > avail || ~crc32_update(CRC32_INIT, (const uint8_t *)w, 4u * (n - 1u)) != w[n - 1u])
         return 0;
     return n;
 }
@@ -103,7 +104,7 @@ static uint32_t build(uint32_t *w, uint8_t slot, uint16_t revision, const char *
         w[k++] = raw ? raw[2 * i] : (uint32_t)e[i].id | (uint32_t)e[i].index << 16;
         w[k++] = raw ? raw[2 * i + 1] : (uint32_t)e[i].value;
     }
-    w[k] = gm_crc32(0, (const uint8_t *)w, 4u * k);
+    w[k] = ~crc32_update(CRC32_INIT, (const uint8_t *)w, 4u * k);
     return k + 1u;
 }
 

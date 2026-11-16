@@ -52,6 +52,10 @@ jobs:
       - name: Device YAML schema up to date
         run: python tools/builder/gemifi_build.py schema --check site/src/schema/device.json
 
+      # ... and so are the key tables on the docs site (components/keys.py: the components whose keys are data).
+      - name: Docs key tables up to date
+        run: python tools/builder/gemifi_build.py keys --check site/src/_data/component_keys.json
+
       - name: Core
         run: make -C core/test test
 

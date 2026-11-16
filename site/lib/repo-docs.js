@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import MarkdownIt from "markdown-it";
 import { highlightBlocks } from "./highlight.js";
+import { withKeys } from "./keys-table.js";
 
 export const REPO = path.resolve(import.meta.dirname, "../..");
 
@@ -179,6 +180,7 @@ export function renderDoc(md, file, env, { url, title } = {}) {
   let text = readRepo(file).replace(/^<!--[\s\S]*?-->\s*/, "");
   const h1 = text.match(/^# (.*)\n/);
   if (h1) text = text.slice(h1[0].length);
+  text = withKeys(text, file);
   const pageEnv = { ...env, file };
   const html = md.render(text, pageEnv);
   return {

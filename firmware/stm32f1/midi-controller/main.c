@@ -98,7 +98,8 @@ static const usbd_desc_t usb_desc = {
  * DWT cycle counter from the handler's entry, so a late start (the main loop
  * stalled, e.g. by a flash erase) isn't counted: those count as "late". The
  * period is raised when a scan takes more than 80% of it, which would starve
- * the main loop and with it USB. */
+ * the main loop and with it USB. Not started at all when the hardware scans
+ * leave it nothing to do (gm_scan_tick_needed: the Code 61). */
 #define SCAN_TIM TIM_BASE_N(GM_SCAN_TICK_TIM)
 #define SCAN_IRQ IRQ_TIM(GM_SCAN_TICK_TIM)
 _Static_assert(GM_SCAN_TICK_TIM >= 2 && GM_SCAN_TICK_TIM <= 4, "the scan tick: TIM2..TIM4");
@@ -112,6 +113,7 @@ static volatile uint32_t scan_max, scan_sum, scan_n, scan_late;
  * it ("usb in longest": the slowest such packet, e.g. a schema window). */
 static uint32_t loop_max, loop_over1, loop_over2;
 static volatile uint8_t scan_slowed;
+static uint8_t tick_on;                 /* the scan tick's timer runs (gm_scan_tick_needed) */
 /* hal.c: MIDI sends that waited over 100 us for the host, and the longest. */
 extern volatile uint32_t hal_midi_waits, hal_midi_wait_max_us;
 /* hal.c: the longest handling of one USB OUT packet (host requests). */
@@ -177,13 +179,17 @@ static void report_scan(void)
     char a[32], b[32];
     uint32_t period = TIM_ARR(SCAN_TIM) + 1u;
     uint32_t avg = scan_n ? scan_sum / scan_n : 0;
-    app_log(LOG_INFO, fmt_num(a, "scan avg ", avg, " us"), fmt_num(b, ", max ", scan_max, " us"));
-    app_log(LOG_INFO, fmt_num(a, "scan period ", period, " us"), fmt_num(b, ", late starts ", scan_late, ""));
     uint32_t mhz = sys_hclk_hz / 1000000u;
-    app_log(LOG_INFO, fmt_num(a, "scan keys ", gm_scan_part_max[0] / mhz, " us"),
-            fmt_num(b, ", panel ", gm_scan_part_max[1] / mhz, " us"));
-    app_log(LOG_INFO, fmt_num(a, "scan encoders ", gm_scan_part_max[2] / mhz, " us"),
-            fmt_num(b, ", clock ", mhz, " MHz"));
+    if (tick_on) {
+        app_log(LOG_INFO, fmt_num(a, "scan avg ", avg, " us"), fmt_num(b, ", max ", scan_max, " us"));
+        app_log(LOG_INFO, fmt_num(a, "scan period ", period, " us"), fmt_num(b, ", late starts ", scan_late, ""));
+        app_log(LOG_INFO, fmt_num(a, "scan keys ", gm_scan_part_max[0] / mhz, " us"),
+                fmt_num(b, ", panel ", gm_scan_part_max[1] / mhz, " us"));
+        app_log(LOG_INFO, fmt_num(a, "scan encoders ", gm_scan_part_max[2] / mhz, " us"),
+                fmt_num(b, ", clock ", mhz, " MHz"));
+    } else {
+        app_log(LOG_INFO, "scan tick off: the hardware scans do it all", fmt_num(b, ", clock ", mhz, " MHz"));
+    }
     app_log(LOG_INFO, fmt_num(a, "main loop max ", loop_max, " us"),
             fmt_num(b, ", over 1 ms ", loop_over1, ""));
     app_log(LOG_INFO, fmt_num(a, "main loop over 2 ms ", loop_over2, ""), "");
@@ -252,7 +258,6 @@ static void scan_timer_start(uint32_t period_us)
     NVIC_IPR8(SCAN_IRQ) = 0x80;         /* below USB (0x40): USB may interrupt a scan */
     TIM_CR1(SCAN_TIM) = TIM_CR1_URS | TIM_CR1_CEN;
     NVIC_ISER(SCAN_IRQ / 32) = 1u << (SCAN_IRQ % 32);
-    irq_enable_all();
 }
 
 int main(void)
@@ -281,7 +286,7 @@ int main(void)
 
     /* The hardware matrix scan, when the YAML asks for one: frames from the
      * DMA replace the scan tick's matrix work. Started while interrupts are
-     * still off (scan_timer_start turns them on), so no frame comes before
+     * still off (turned on after the scan tick's timer), so no frame comes before
      * gm_scan_hw_started(). */
     const gm_scan_plan_t *plan = gm_scan_plan();
     if (plan && scan_dma_start(plan)) {
@@ -295,7 +300,11 @@ int main(void)
         gm_adc_hw_started();
     else if (aplan)
         hw_adc_failed = 1;
-    scan_timer_start(gm_device.scan_us);
+    /* The scan tick, unless the hardware scans left it nothing to do. */
+    tick_on = (uint8_t)gm_scan_tick_needed();
+    if (tick_on)
+        scan_timer_start(gm_device.scan_us);
+    irq_enable_all();
     /* USB from its interrupt, above the scan: a long main-loop pass (the
      * pads, an LED refresh, a flash write) can't miss the host's deadlines
      * (2 ms after SET_ADDRESS). The millisecond count from SysTick's. */

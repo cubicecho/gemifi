@@ -621,15 +621,33 @@ static void decoder_select(const gm_hub_t *h, uint32_t i, uint32_t n)
 #define ADC_STEPS GM_ADC_MAX_STEPS
 #endif
 #define ADC_CELLS (ADC_STEPS * ADC_PINS)
+/* The plan's pins the pads are on (the builder's GM_HW_ADC_PEAK_PINS):
+ * only their cells keep peaks. */
+#ifdef GM_HW_ADC_PEAK_PINS
+#define ADC_PEAK_PINS GM_HW_ADC_PEAK_PINS
+#elif GM_N_PADS > 0
+#define ADC_PEAK_PINS ADC_PINS
+#else
+#define ADC_PEAK_PINS 0
+#endif
 static gm_adc_plan_t aplan;
 static uint8_t adc_on;
 static volatile uint8_t adc_swept;     /* a whole sweep is in adc_last[] since the start */
 static uint16_t adc_last[ADC_CELLS];
-/* Per cell, the highest and lowest reading of the sweeps since the pads'
- * last look, in two generations: the interrupt fills adc_gen while the main
- * loop reads the other (vpin_analog_peaks flips them). The interrupt can't
- * be interrupted by the main loop, so a flip never lands mid-sweep. */
-static uint16_t adc_hi[2][ADC_CELLS], adc_lo[2][ADC_CELLS];
+#if ADC_PEAK_PINS > 0
+#define PEAK_CELLS (ADC_STEPS * ADC_PEAK_PINS)
+_Static_assert(ADC_CELLS <= 256u, "peak_src holds cell numbers in a byte");
+/* Peak cells, step-major like a sweep: cell s * n_peak_pins + j is pad pin j
+ * at step s, adc_last[peak_src[cell]]. peak_pin[k]: plan pin k's j + 1, 0
+ * if no pad is on it. Set by gm_adc_plan. */
+static uint8_t peak_src[PEAK_CELLS], peak_pin[ADC_PINS];
+static uint8_t n_peak_pins, n_peak_cells;
+/* Per peak cell, the highest and lowest reading of the sweeps since the
+ * pads' last look, in two generations: the interrupt fills adc_gen while the
+ * main loop reads the other (vpin_analog_peaks flips them). The interrupt
+ * can't be interrupted by the main loop, so a flip never lands mid-sweep. */
+static uint16_t adc_hi[2][PEAK_CELLS], adc_lo[2][PEAK_CELLS];
+#endif
 static volatile uint32_t adc_n[2];
 static volatile uint8_t adc_gen;
 static uint8_t adc_read_gen;
@@ -702,6 +720,50 @@ static int on_mux(gm_pin_t p)
     const gm_hub_t *h = p.hub ? hub_of(p) : 0;
     return h && h->type == GM_HUB_MUX;
 }
+
+/* Cell lookup for p: its pin index k and step (-1 = an ADC pin: every step). */
+static int adc_cell(gm_pin_t p, int *k, int *step)
+{
+    if (p.hub == 0) {
+        *k = adc_pin_index(p.num);
+        *step = -1;
+    } else {
+        const gm_hub_t *h = hub_of(p);
+        if (!h || h->type != GM_HUB_MUX || p.num >= aplan.n_steps)
+            return 0;
+        *k = adc_pin_index(h->mux.common.num);
+        *step = (int)p.num;
+    }
+    return *k >= 0;
+}
+
+#if ADC_PEAK_PINS > 0
+/* The peak cells of the finished plan: every step of each pin a pad is on. */
+static int adc_plan_peaks(void)
+{
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < aplan.n_pins; k++)
+        peak_pin[k] = 0;
+    for (uint32_t i = 0; i < GM_N_PADS; i++) {
+        int k, step;
+        if (adc_cell(gm_pads[i].pin, &k, &step))
+            peak_pin[k] = 1;
+    }
+    for (uint32_t k = 0; k < aplan.n_pins; k++)
+        if (peak_pin[k]) {
+            if (n >= ADC_PEAK_PINS)
+                return 0;
+            peak_pin[k] = (uint8_t)++n;
+        }
+    for (uint32_t s = 0; s < aplan.n_steps; s++)
+        for (uint32_t k = 0; k < aplan.n_pins; k++)
+            if (peak_pin[k])
+                peak_src[s * n + peak_pin[k] - 1u] = (uint8_t)(s * aplan.n_pins + k);
+    n_peak_pins = (uint8_t)n;
+    n_peak_cells = (uint8_t)(aplan.n_steps * n);
+    return 1;
+}
+#endif
 #endif
 
 static void adc_off(void)
@@ -746,6 +808,9 @@ const gm_adc_plan_t *gm_adc_plan(void)
         ok = !on_mux(gm_device.buttons[i].pin);
     for (uint32_t i = 0; ok && i < gm_device.n_encoders; i++)
         ok = !on_mux(gm_device.encoders[i].a) && !on_mux(gm_device.encoders[i].b);
+#if ADC_PEAK_PINS > 0
+    ok = ok && adc_plan_peaks();
+#endif
     if (!ok || !aplan.n_pins) {
         app_log(LOG_WARN, "hardware analog scan: inputs on muxes with different select lines, a mux ",
                 "read digitally, or too many ADC pins; reading in software");
@@ -771,16 +836,24 @@ void gm_adc_hw_started(void)
 void gm_adc_sweep(const uint16_t *v)
 {
 #if GM_HW_ADC
-    uint32_t g = adc_gen, n = aplan.n_steps * aplan.n_pins, first = adc_n[g] == 0;
+    uint32_t g = adc_gen, n = aplan.n_steps * aplan.n_pins;
+    for (uint32_t i = 0; i < n; i++)
+        adc_last[i] = (uint16_t)(v[i] & 0xFFFu);
+#if ADC_PEAK_PINS > 0
     uint16_t *hi = adc_hi[g], *lo = adc_lo[g];
-    for (uint32_t i = 0; i < n; i++) {
-        uint16_t x = (uint16_t)(v[i] & 0xFFFu);
-        adc_last[i] = x;
-        if (first || x > hi[i])
-            hi[i] = x;
-        if (first || x < lo[i])
-            lo[i] = x;
+    if (adc_n[g] == 0) {
+        for (uint32_t c = 0; c < n_peak_cells; c++)
+            hi[c] = lo[c] = adc_last[peak_src[c]];      /* the generation's first sweep */
+    } else {
+        for (uint32_t c = 0; c < n_peak_cells; c++) {
+            uint16_t x = adc_last[peak_src[c]];
+            if (x > hi[c])
+                hi[c] = x;
+            if (x < lo[c])
+                lo[c] = x;
+        }
     }
+#endif
     adc_n[g]++;
     adc_swept = 1;
 #else
@@ -800,34 +873,16 @@ void vpin_analog_peaks(void)
 #endif
 }
 
-/* Cell lookup for p: its pin index k and step (-1 = an ADC pin: every step). */
-#if GM_HW_ADC
-static int adc_cell(gm_pin_t p, int *k, int *step)
-{
-    if (p.hub == 0) {
-        *k = adc_pin_index(p.num);
-        *step = -1;
-    } else {
-        const gm_hub_t *h = hub_of(p);
-        if (!h || h->type != GM_HUB_MUX || p.num >= aplan.n_steps)
-            return 0;
-        *k = adc_pin_index(h->mux.common.num);
-        *step = (int)p.num;
-    }
-    return *k >= 0;
-}
-#endif
-
 int32_t vpin_analog_peak(gm_pin_t p)
 {
-#if GM_HW_ADC
+#if GM_HW_ADC && ADC_PEAK_PINS > 0
     int k, step;
     uint32_t g = adc_read_gen;
-    if (adc_on && adc_n[g] && adc_cell(p, &k, &step)) {
+    if (adc_on && adc_n[g] && adc_cell(p, &k, &step) && peak_pin[k]) {
         int inv = (p.flags & GM_PIN_INVERT) != 0;
         int32_t best = -1;
         for (uint32_t s = step < 0 ? 0u : (uint32_t)step; s < aplan.n_steps; s++) {
-            uint32_t c = s * aplan.n_pins + (uint32_t)k;
+            uint32_t c = s * n_peak_pins + peak_pin[k] - 1u;
             int32_t v = inv ? 4095 - adc_lo[g][c] : adc_hi[g][c];
             if (v > best)
                 best = v;

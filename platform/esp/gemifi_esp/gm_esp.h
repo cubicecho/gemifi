@@ -102,7 +102,6 @@ void gm_esp_app_confirm(void);
 
 /* internal */
 void gm_esp_midi_begin(void);
-uint32_t gm_crc32(uint32_t crc, const uint8_t *p, uint32_t n);   /* zlib */
 
 #ifdef __cplusplus
 }

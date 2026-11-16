@@ -22,11 +22,12 @@
 #include "gm_esp.h"
 #include "gm_hal.h"
 #include "gsx.h"
+#include "crc32.h"
 #include "esp_ota_ops.h"
 
 static struct {
     uint8_t active;
-    uint32_t size, crc, next, run;
+    uint32_t size, crc, next, run;      /* run: crc32_update's running form */
     const esp_partition_t *part;
     esp_ota_handle_t h;
 } fw;
@@ -69,7 +70,7 @@ static int fw_begin(uint32_t size, uint32_t crc32, uint16_t board_id, uint32_t f
     fw.size = size;
     fw.crc = crc32;
     fw.next = 0;
-    fw.run = 0;
+    fw.run = CRC32_INIT;
     return GSX_OK;
 }
 
@@ -89,7 +90,7 @@ static int fw_data(uint32_t offset, const uint8_t *p, uint32_t n)
         fw_abort();
         return e == ESP_ERR_OTA_VALIDATE_FAILED ? GSX_BAD_IMAGE : GSX_FLASH_ERR;
     }
-    fw.run = gm_crc32(fw.run, p, n);
+    fw.run = crc32_update(fw.run, p, n);
     fw.next += n;
     return GSX_OK;
 }
@@ -98,7 +99,7 @@ static int fw_end(void)
 {
     if (!fw.active)
         return GSX_BAD_STATE;
-    if (fw.next != fw.size || fw.run != fw.crc) {
+    if (fw.next != fw.size || ~fw.run != fw.crc) {
         fw_abort();
         return GSX_BAD_IMAGE;
     }
@@ -115,21 +116,4 @@ static const hal_fw_ops_t ops = {
 const hal_fw_ops_t *hal_fw_ops(void)
 {
     return &ops;
-}
-
-/* CRC-32/ISO-HDLC (zlib), nibble table. */
-uint32_t gm_crc32(uint32_t crc, const uint8_t *p, uint32_t n)
-{
-    static const uint32_t t[16] = {
-        0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC, 0x76DC4190, 0x6B6B51F4,
-        0x4DB26158, 0x5005713C, 0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
-        0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
-    };
-    crc = ~crc;
-    while (n--) {
-        crc ^= *p++;
-        crc = (crc >> 4) ^ t[crc & 15];
-        crc = (crc >> 4) ^ t[crc & 15];
-    }
-    return ~crc;
 }

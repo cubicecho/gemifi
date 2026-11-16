@@ -381,8 +381,10 @@ int main(void)
           "plan timing from hardware_scan:");
     tick_ns = plan->n_rows * plan->row_ns;
     CHECK(!gm_scan_hw(), "not on before the platform says so");
+    CHECK(gm_scan_tick_needed(), "the scan tick: needed before the hardware scan");
     gm_scan_hw_started(tick_ns * 16u / 1000u);
     CHECK(gm_scan_hw(), "on");
+    CHECK(!gm_scan_tick_needed(), "the scan tick: nothing left for it (switch-matrix encoder, no shift registers)");
 #endif
     run_ms(2000);
     int d1, d2;
@@ -405,6 +407,15 @@ int main(void)
     int slow = last_msg(0x90, &d1, &d2) ? d2 : -1;
     release(1, 1);
     CHECK(fast > slow && slow > 0 && fast == 127, "velocity: 0.5 ms = %d (127), 60 ms = %d (lower)", fast, slow);
+    /* held half-way for 65536 + 3 ticks (frames): the 16-bit start time
+     * doesn't wrap into a fast key (kt0_age; the frames do it themselves) */
+    out_n = 0;
+    closed[2][1] = 1;
+    ticks(65536u + 3u);
+    closed[3][1] = 1;
+    run_ms(2);
+    CHECK(last_msg(0x90, &d1, &d2) && d1 == 38 && d2 == 1, "long half press: note 38 vel 1 (got %d %d)", d1, d2);
+    release(1, 1);
 
     /* one contact alone plays nothing */
     out_n = 0;

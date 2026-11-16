@@ -18,6 +18,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 #include "gm_presets.h"
+#include "gm_controls.h"                /* btn_toggled, enc_value, midi_chan: host feedback */
 #include "app_proto.h"
 #include "params.h"
 #include "gsx.h"
@@ -204,6 +205,13 @@ static void host_set(uint16_t id, uint16_t index, int32_t v)
     for (int k = 0; k < 5; k++)
         q[4 + k] = (uint8_t)((u >> (7 * k)) & 0x7F);
     host_sysex(GSX_CMD_SET_PARAM, q, 9);
+}
+
+/* A CC from the host on the device's channel (cable 0): host feedback. */
+static void host_cc(int num, int v)
+{
+    uint8_t ev[4] = { 0x0B, (uint8_t)(0xB0 | midi_chan()), (uint8_t)num, (uint8_t)v };
+    gm_midi_rx_usb(ev);
 }
 
 /* GET_COMPONENT kind / index: the reply status; *r = the payload after it, *rn its length. */
@@ -783,6 +791,105 @@ int main(void)
         host_set(P_EVENTS, 0, 0);
         run_ms(2);
     }
+
+#if GM_FEEDBACK
+    /* Host feedback (feedback.c) reaches every component with the CC's
+     * number, live or not, while the numbers and layers change. Buttons:
+     * mute 5 (CC 24; preset 2: 44), its twins 7 (arm, 25) and 9 (DEV, 41
+     * since the host set it); encoders: enc 0 (30), its twins 1 (arm, 31)
+     * and 4 (PAN, 34). Built with -DGM_FB_INDEX=1 too (test_matrix_fbi). */
+    {
+#define TOGGLED(i) ((int)((btn_toggled >> (i)) & 1u))
+        CHECK(!strcmp(shown, "PLAIN") && level[35] == 0, "feedback: from PLAIN, arm off");
+        host_cc(24, 127);
+        run_ms(20);
+        CHECK(TOGGLED(5) && !TOGGLED(7) && !TOGGLED(9), "CC 24 on: mute's toggle only");
+        CHECK(level[33] == 1 && level[34] == 0, "and mute's LED: colour 1");
+        host_cc(24, 0);
+        host_cc(25, 127);
+        host_cc(41, 127);
+        CHECK(!TOGGLED(5) && TOGGLED(7) && TOGGLED(9), "CC 24 off; CC 25 / 41: the twins, though not live");
+        host_cc(25, 0);
+        host_cc(41, 0);
+        host_cc(30, 64);
+        host_cc(31, 20);
+        host_cc(34, 90);
+        CHECK(enc_value[0] == 64 && enc_value[1] == 20 && enc_value[4] == 90,
+              "CC 30 / 31 / 34: the encoder and its twins (%d %d %d)", enc_value[0], enc_value[1], enc_value[4]);
+
+        /* a host SET of a number: the new number reaches it, the old one doesn't */
+        host_set(P_BTN_NUMBER, 5, 50);
+        host_set(P_ENC_CC, 0, 60);
+        run_ms(2);
+        host_cc(24, 127);
+        host_cc(30, 10);
+        CHECK(!TOGGLED(5) && enc_value[0] == 64, "SET: the old numbers reach nothing");
+        host_cc(50, 127);
+        host_cc(60, 10);
+        CHECK(TOGGLED(5) && enc_value[0] == 10, "SET: the new numbers reach mute and the encoder");
+        host_cc(50, 0);
+        /* two buttons on one number: both */
+        host_set(P_LAYER_BTN_NUMBER, 0, 50);
+        run_ms(2);
+        host_cc(50, 127);
+        CHECK(TOGGLED(5) && TOGGLED(7), "CC 50, mute's and its arm twin's number: both");
+        host_cc(50, 0);
+        CHECK(!TOGGLED(5) && !TOGGLED(7), "and both off");
+        host_set(P_LAYER_BTN_NUMBER, 0, 25);
+        host_set(P_BTN_NUMBER, 5, 24);
+        host_set(P_ENC_CC, 0, 30);
+        run_ms(2);
+
+        /* a preset switch: preset 2 has mute on CC 44 */
+        presets_select(2);
+        run_ms(50);
+        host_cc(24, 127);
+        CHECK(!TOGGLED(5), "preset 2: CC 24 isn't mute's");
+        host_cc(44, 127);
+        CHECK(TOGGLED(5), "preset 2: CC 44 is");
+        presets_select(1);
+        run_ms(50);
+        host_cc(44, 127);
+        CHECK(!TOGGLED(5), "preset 1 again: CC 44 isn't mute's");
+        host_cc(24, 127);
+        run_ms(20);
+        CHECK(TOGGLED(5) && level[33] == 1, "preset 1 again: CC 24 is, and lights its LED");
+        host_cc(24, 0);
+
+        /* a layer: arm on; feedback reaches the live twin and the base */
+        ARM();
+        CHECK(level[35] == 1, "arm on");
+        host_cc(25, 127);
+        host_cc(24, 127);
+        run_ms(20);
+        CHECK(TOGGLED(7) && TOGGLED(5), "arm: CC 25 the live twin, CC 24 the base");
+        CHECK(level[33] == 0 && level[34] == 1, "mute's LED shows the twin: colour 2");
+        host_cc(25, 0);
+        host_cc(24, 0);
+        host_cc(31, 77);
+        turn();
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 31 && d2 == 78,
+              "arm: the encoder's twin carries on from the host's 77 (got %d %d)", d1, d2);
+        ARM();
+        CHECK(level[35] == 0, "arm off");
+
+        /* the encoder cycle: PAN, the encoder's twin 4 on CC 34 */
+        CYCLE();
+        CYCLE();
+        CHECK(!strcmp(shown, "PAN"), "PAN (got '%s')", shown);
+        host_cc(34, 50);
+        host_cc(30, 5);
+        turn();
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 34 && d2 == 51,
+              "PAN: the twin carries on from the host's 50 (got %d %d)", d1, d2);
+        CYCLE();
+        CHECK(!strcmp(shown, "PLAIN"), "PLAIN again (got '%s')", shown);
+        turn();
+        CHECK(last_msg(0xB0, &d1, &d2) && d1 == 30 && d2 == 6,
+              "PLAIN: the base carries on from the host's 5, sent while PAN was on (got %d %d)", d1, d2);
+#undef TOGGLED
+    }
+#endif
 #undef TAP
 #endif
 

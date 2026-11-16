@@ -3,12 +3,13 @@
  * README.md "Gestures") with core/test/gestures-test.yaml, on fake time: a
  * button without one fires at the press; tap vs hold and the hold time;
  * double taps, and a single tap that waits for the double-tap window;
- * combos, and combo buttons pressed too far apart. Nothing a gesture sends is left hanging, a preset switch included.
+ * combos, and combo buttons pressed too far apart; a one-shot layer. Nothing a gesture sends is left hanging, a preset switch included.
  *
  * Buttons (PB0.., inverted): 0 plain CC 10, 1 tap_hold CC 20 / held CC 21,
  * 2 note_hold note 60 / held preset_next, 3 dbl note 62 / twice note 63,
  * 4 both CC 30 / twice CC 31 / held CC 32, 5..7 c1 CC 40, c2 CC 41, c3
- * CC 43. Combos: c1 + c2 CC 42, c1 + c2 + c3 note 70. button_settings:
+ * CC 43, 8 fn: the one-shot fn_layer, plain's twin CC 11. Combos: c1 + c2
+ * CC 42, c1 + c2 + c3 note 70. button_settings:
  * tap_time 200 ms, hold_time 300 ms, combo_time 50 ms.
  *
  * SPDX-License-Identifier: MIT
@@ -20,7 +21,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_N_BUTTONS != 8 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2
+#if GM_N_BUTTONS != 10 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2 || !GM_MODE_ONE_SHOT
 #error "test_gestures.c needs the gestures-test.yaml config"
 #endif
 
@@ -61,8 +62,9 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
-enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3 };
+enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
+#define PIN_FN_LED 48               /* PD0 */
 /* A release counts once the contact has read open for BTN_STABLE (16)
  * samples: let go, then this long until it is seen. */
 #define RELEASE_MS 20u
@@ -370,6 +372,68 @@ static void test_combos(void)
     gm_cfg.btn_combo_time = COMBO_MS;
 }
 
+/* Plain pressed and let go: its CC, 10 (its own) or 11 (its twin in
+ * fn_layer), on and off. */
+static int plain_cc(void)
+{
+    out_n = 0;
+    press(PLAIN);
+    release(PLAIN);
+    int is_own = !strcmp(cc_values(10), "10") && !*cc_values(11);
+    int is_twin = !strcmp(cc_values(11), "10") && !*cc_values(10);
+    return is_own ? 10 : is_twin ? 11 : -1;
+}
+
+static void test_one_shot(void)
+{
+    CHECK(plain_cc() == 10, "plain: its own CC 10");
+
+    /* fn tapped: the layer for the next press only */
+    out_n = 0;
+    press(FN);
+    release(FN);
+    run_ms(20);
+    CHECK(count(0xB0, -1, 0) == 0, "fn sends nothing");
+    CHECK(level[PIN_FN_LED] == 1, "fn tapped: its LED lit, the layer waits for the next press");
+    CHECK(plain_cc() == 11, "after fn: plain's twin, CC 11");
+    run_ms(20);
+    CHECK(level[PIN_FN_LED] == 0, "used: the LED off");
+    CHECK(plain_cc() == 10, "and back: CC 10");
+
+    /* fn held: the layer for every press while it is held, and off with it */
+    press(FN);
+    CHECK(plain_cc() == 11, "fn held: CC 11");
+    CHECK(plain_cc() == 11, "still held: CC 11 again");
+    release(FN);
+    CHECK(plain_cc() == 10, "fn let go after a press: CC 10");
+
+    /* fn tapped twice: on, then off */
+    press(FN);
+    release(FN);
+    press(FN);
+    release(FN);
+    CHECK(plain_cc() == 10, "fn tapped twice: off, CC 10");
+
+    /* another button's press takes it */
+    press(FN);
+    release(FN);
+    out_n = 0;
+    press(TAP_HOLD);
+    release(TAP_HOLD);
+    CHECK(!strcmp(cc_values(20), "10"), "after fn: tap_hold is its own");
+    CHECK(plain_cc() == 10, "and it took the one-shot: plain is CC 10");
+
+    /* a twin's release goes to the twin, even after the layer dropped */
+    press(FN);
+    release(FN);
+    out_n = 0;
+    press(PLAIN);
+    press(TAP_HOLD);
+    release(PLAIN);
+    release(TAP_HOLD);
+    CHECK(!strcmp(cc_values(11), "10") && !*cc_values(10), "plain's twin let go as CC 11 (got %s)", cc_values(11));
+}
+
 /* A preset switch from a hold lets go of the other hold's CC; nothing
  * hangs and nothing more comes at the releases. */
 static void test_nothing_hangs(void)
@@ -434,6 +498,7 @@ int main(void)
     test_hold();
     test_double_tap();
     test_combos();
+    test_one_shot();
     test_nothing_hangs();
 
     printf("test_gestures: %d checks, %d failed\n", checks, fails);

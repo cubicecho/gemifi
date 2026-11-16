@@ -23,7 +23,15 @@
  * layer-only toggle mode has its own on/off (solo_on) and each cycle its
  * current step (cyc_cur), so any of them can be on together. */
 static uint8_t mode_cur = GM_MODE_NONE;     /* the active toggled key mode; GM_MODE_NONE = none */
-static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held */
+static uint8_t hold_cur = GM_MODE_NONE;     /* the hold mode whose button is held (or a one-shot) */
+#if GM_MODE_ONE_SHOT
+/* A one-shot in hold_cur (components/modes/README.md "One-shot layers"): its button is
+ * held (SHOT_HELD), held while another was pressed (SHOT_USED: its
+ * release ends it), or was let go first (SHOT_ARMED: on until the next
+ * press of another button). */
+enum { SHOT_NONE, SHOT_HELD, SHOT_USED, SHOT_ARMED };
+static uint8_t shot;
+#endif
 #if GM_LAYER_PARAMS
 static uint64_t solo_mask;          /* layer-only toggle modes (bit = mode index), modes_init */
 /* LEDs a cycle step or a layer-only toggle lights (bit = LED), modes_init:
@@ -155,6 +163,49 @@ static uint8_t hold_still_held(uint32_t except)
     return GM_MODE_NONE;
 }
 
+#if GM_MODE_ONE_SHOT
+/* The button of one-shot mode m: held, the mode is on as a hold mode is;
+ * let go before another button was pressed, it stays on for that press
+ * (mode_one_shot_press ends it); pressed again first, it is off. */
+static int one_shot_button(uint32_t m, uint32_t i, int down)
+{
+    int is_on = hold_cur == m;
+    if (down && is_on && shot == SHOT_ARMED) {
+        shot = SHOT_NONE;           /* pressed again: off */
+        hold_cur = hold_still_held(m);
+    } else if (down) {
+        hold_cur = (uint8_t)m;
+        shot = SHOT_HELD;
+    } else if (is_on && shot == SHOT_HELD) {
+        shot = SHOT_ARMED;          /* let go alone: on for the next press */
+        app_log(LOG_DEBUG, gm_device.buttons[i].name, ": one shot");
+        return 1;
+    } else if (is_on) {
+        shot = SHOT_NONE;           /* used while held: off with its button */
+        hold_cur = hold_still_held(m);
+    } else {
+        return 1;                   /* the release of the press that turned it off */
+    }
+    layers_update();
+    app_log(LOG_DEBUG, gm_device.buttons[i].name, hold_cur == m ? ": mode on" : ": mode off");
+    return 1;
+}
+
+void mode_one_shot_press(uint32_t i)
+{
+    int is_one_shot_on = hold_cur != GM_MODE_NONE && gm_modes[hold_cur].hold == GM_HOLD_ONE_SHOT;
+    if (!is_one_shot_on || gm_modes[hold_cur].toggle == i)
+        return;
+    if (shot == SHOT_HELD) {
+        shot = SHOT_USED;
+    } else if (shot == SHOT_ARMED) {
+        shot = SHOT_NONE;           /* this press took the layer: back */
+        hold_cur = hold_still_held(hold_cur);
+        layers_update();
+    }
+}
+#endif
+
 /* The toggle or hold button of a root mode. Toggle: enters the mode (held
  * keys get their Note Off first, if it has keys), or leaves it from the
  * mode or any of its sub-modes. Hold: the mode is active while the button
@@ -200,6 +251,10 @@ int mode_toggle_button(uint32_t i, int down)
                 cycle_press(md->cycle);
             return 1;
         }
+#endif
+#if GM_MODE_ONE_SHOT
+        if (md->hold == GM_HOLD_ONE_SHOT)
+            return one_shot_button(m, i, down);
 #endif
         if (md->hold) {
             if (down) {

@@ -3099,7 +3099,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes(ROOT + "    C3: octave_reset\n- { id: menu, parent: menu }"), r"mode 'menu' is already modes\[0\]")
         self.assertError(modes("- { id: x }"), r"needs toggle: \{ button: <id> \}.*or parent:")
         self.assertError(modes("- { id: x, toggle: { button: menu }, parent: y }"),
-                         r"one of toggle:, hold: or parent:, not toggle and parent")
+                         r"one of toggle:, hold:, one_shot: or parent:, not toggle and parent")
         self.assertError(modes("- { id: x, toggle: menu, hold: menu }"), r"not toggle and hold")
         self.assertError(modes(ROOT + "    C3: octave_reset", base=MINIMAL_NUC), r"no key_matrix")
         self.assertTrue(any("has no keys" in w for w in self.warns(modes("- { id: x, toggle: { button: menu } }"))))

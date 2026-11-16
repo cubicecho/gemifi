@@ -162,6 +162,42 @@ class TestCombos(unittest.TestCase):
         self.assertError(presets, "has a combo, so its presses wait")
 
 
+ONE_SHOT = BASE + "  - { id: fn, pin: PA4 }\nmodes:\n"
+
+
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestOneShot(unittest.TestCase):
+    errs = tb.TestValidation.errs
+    assertError = tb.TestValidation.assertError
+    assertClean = tb.TestValidation.assertClean
+    gen = TestHold.gen
+
+    def test_generates(self):
+        dev, h, c = self.gen(ONE_SHOT + "  - { id: f, one_shot: fn, layer: { a: { cc: 9 } } }\n")
+        self.assertIn("#define GM_MODE_ONE_SHOT 1 ", h)
+        # the mode's row: toggle fn (3), hold GM_HOLD_ONE_SHOT (2)
+        self.assertRegex(c, r"\{ 3, GM_MODE_NONE, 0, -1, 0, -1, -1, 0, 0, 2, 0, 0, 0, 0, 0x00, \"f\", 0 \}, /\* f \*/")
+        self.assertIn("#define GM_LAYERS 1 ", h)
+        self.assertNotIn("GM_MODE_ONE_SHOT", self.gen(ONE_SHOT + "  - { id: f, hold: fn, layer: { a: { cc: 9 } } }\n")[1])
+        self.assertClean(ONE_SHOT + "  - { id: f, one_shot: { button: fn }, layer: { a: { cc: 9 } } }\n")
+
+    def test_checks(self):
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: fn, buttons: { a: channel_up } }\n",
+                         "a one-shot mode has a layer: and nothing else")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: fn }\n", "a one-shot mode has a layer:")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: a, layer: { b: { note: 61 } } }\n",
+                         "arms this mode, so its own action would never run")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: fn, toggle: fn, layer: { a: { cc: 9 } } }\n",
+                         "one of toggle:, hold:, one_shot: or parent:")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: { button: fn, with: a }, layer: { a: { cc: 9 } } }\n",
+                         "unknown key")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: fn, layer: { fn: { cc: 9 } } }\n", "enters a mode")
+        self.assertError(ONE_SHOT.replace("{ id: fn, pin: PA4 }", "{ id: fn, pin: PA4, hold: panic }") +
+                         "  - { id: f, one_shot: fn, layer: { a: { cc: 9 } } }\n", "switches mode 'f'")
+        self.assertError(ONE_SHOT + "  - { id: f, one_shot: fn, layer: { a: { cc: 9 } } }\n"
+                                    "combos:\n  - { buttons: [a, fn], action: panic }\n", "switches mode 'f'")
+
+
 @unittest.skipUnless(tb.GCC and gd.yaml, "needs host gcc and PyYAML")
 class TestGesturesCompile(unittest.TestCase):
     def setUp(self):
@@ -180,7 +216,9 @@ class TestGesturesCompile(unittest.TestCase):
                           ("both", with_gesture("double_tap: { cc: 21 }, hold: panic")),
                           ("combos", BASE + "combos:\n  - { buttons: [a, b], action: panic }\n"),
                           ("all", with_gesture("double_tap: { cc: 21 }, hold: panic",
-                                               extra="combos:\n  - { buttons: [a, b], action: panic }\n"))):
+                                               extra="combos:\n  - { buttons: [a, b], action: panic }\n")),
+                          ("one_shot", ONE_SHOT.replace("{ id: fn, pin: PA4 }", "{ id: fn, pin: PA4, led: l }") +
+                           "  - { id: f, one_shot: fn, layer: { a: { cc: 9 } } }\nleds:\n  - { id: l, pin: PB0 }\n")):
             with self.subTest(tag):
                 dev, diags = tb.load(text)
                 self.assertIsNotNone(dev, [str(d) for d in diags])
@@ -198,6 +236,8 @@ class TestGestureSchema(unittest.TestCase):
         self.assertNotIn("cc_toggle", button["hold"]["anyOf"][0]["anyOf"][0]["enum"])
         settings = s["properties"]["button_settings"]["anyOf"][0]["properties"]
         self.assertEqual(sorted(settings), sorted(gd.buttons.BUTTON_SETTINGS))
+        mode = s["properties"]["modes"]["anyOf"][0]["items"]["properties"]
+        self.assertIn("one_shot", mode)
         combo = s["properties"]["combos"]["anyOf"][0]["items"]["properties"]
         self.assertEqual(sorted(combo), sorted(gd.buttons.COMBO_KEYS))
 

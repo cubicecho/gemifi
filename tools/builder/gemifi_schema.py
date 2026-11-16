@@ -200,7 +200,8 @@ def modes():
     step = obj(gd.STEP_KEYS, {"enabled": BOOL, "colour": LOOK, "layer": {"type": "object",
                                                                           "additionalProperties": layer_entry}})
     item = obj(gd.MODE_KEYS, {
-        "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
+        "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})),
+        "one_shot": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
         "parent": ID_REF, "preset_blink": {},
         "led": one_of(ID_REF, {"type": "object", "description": "{ <LED id>: blink }"}),
         "keys": {}, "buttons": {"type": "object", "description": "button id: what it does in the mode"},

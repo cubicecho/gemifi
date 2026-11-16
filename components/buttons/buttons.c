@@ -639,6 +639,10 @@ void buttons_sample(void)
                 continue;                     /* an unlock / factory-reset combo's (gm_safety.h) */
             if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
+#if GM_MODE_ONE_SHOT
+            if (down)
+                mode_one_shot_press(i);
+#endif
 #if GM_BTN_DOUBLE || GM_N_COMBOS
             if (down)
                 gestures_before_press(i, now_ms);

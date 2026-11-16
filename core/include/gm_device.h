@@ -456,6 +456,7 @@ enum {                           /* gm_mode_key_t.op                      */
     GM_MK_CHANNEL_DOWN,          /* midi.channel - 1 (1 wraps to 16)      */
 };
 #define GM_MODE_NONE 0xFFu
+#define GM_HOLD_ONE_SHOT 2u          /* gm_mode_t.hold of a one_shot: mode */
 
 typedef struct {
     uint8_t key;                 /* key matrix index (the physical key); in
@@ -476,7 +477,9 @@ typedef struct {
     const gm_mode_key_t *keys;   /* sorted by key                         */
     /* Newer fields last, so a config generated before them still builds
      * (left out = 0: a toggle mode, no button bindings). */
-    uint8_t hold;                /* 1: active while the toggle button is held */
+    uint8_t hold;                /* 1: active while the toggle button is held;
+                                    GM_HOLD_ONE_SHOT: that, or after a tap for
+                                    the next press of another button */
     uint8_t n_buttons;
     const gm_mode_key_t *buttons;   /* { button index, op, arg }, sorted  */
     uint8_t with;                /* toggle only while button with - 1 is held

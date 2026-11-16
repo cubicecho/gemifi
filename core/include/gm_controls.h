@@ -37,6 +37,9 @@ extern "C" {
 #if GM_LAYERS && GM_N_MODES == 0
 #error "button layers belong to modes (the builder checks this)"
 #endif
+#ifndef GM_MODE_ONE_SHOT
+#define GM_MODE_ONE_SHOT 0              /* a one_shot: mode, components/modes/README.md "One-shot layers" */
+#endif
 #ifndef GM_PAD_TWINS
 #define GM_PAD_TWINS 0                  /* a config generated before pad twins */
 #endif
@@ -179,6 +182,11 @@ int mode_function_button(uint32_t i, int down);
 /* Button i released after a preset switch (its release is silent): a hold
  * mode still ends with its button. */
 void mode_late_release(uint32_t i);
+#if GM_MODE_ONE_SHOT
+/* Button i pressed (the live one): a one-shot's layer took it, so it ends;
+ * before the press goes to the modes, the gestures and its action. */
+void mode_one_shot_press(uint32_t i);
+#endif
 void modes_init(void);                  /* no mode on, no cycle on a step (before the settings are loaded) */
 #if GM_N_CYCLES
 void cycles_start(void);                /* each cycle on its first enabled step */

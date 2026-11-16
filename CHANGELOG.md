@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.53.0](https://github.com/cubicecho/gemifi/compare/v0.52.0...v0.53.0) (2026-11-16)
+
+
+### Features
+
+* **site:** drop the /components/ and /platforms/ pages, now in the docs ([9e3bf6f](https://github.com/cubicecho/gemifi/commit/9e3bf6ffb07bf83a277580399b24d51bc4ba13c3)), closes [#section](https://github.com/cubicecho/gemifi/issues/section)
+
 # [0.52.0](https://github.com/cubicecho/gemifi/compare/v0.51.1...v0.52.0) (2026-11-15)
 
 

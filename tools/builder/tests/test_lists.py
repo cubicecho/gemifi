@@ -198,7 +198,8 @@ class TestActionListSchema(unittest.TestCase):
         import gemifi_schema as gs
         s = gs.device_schema()
         button = s["properties"]["buttons"]["anyOf"][0]["items"]["properties"]
-        item = button["actions"]["items"]["anyOf"]
+        self.assertEqual(button["actions"], {"$ref": "#/definitions/action_list"})
+        item = s["definitions"]["action_list"]["items"]["anyOf"]
         self.assertEqual(item[0]["anyOf"][0]["enum"], list(gd.buttons.ITEM_ACTIONS))
         self.assertEqual(sorted(item[1]["properties"]), sorted(gd.buttons.ITEM_KEYS))
         self.assertNotIn("actions", button["action"]["anyOf"][0]["enum"])

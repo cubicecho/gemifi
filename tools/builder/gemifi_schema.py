@@ -63,11 +63,8 @@ KEY_TYPES = {
 }
 KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
 # an action list (components/buttons/README.md "Action lists"), on a button, a gesture, a combo, a twin, a preset
-KEY_TYPES["actions"] = lst(one_of(enum(gd.buttons.ITEM_ACTIONS),
-                                  obj(gd.buttons.ITEM_KEYS, {"action": enum(gd.buttons.ITEM_ACTIONS), "value": INT7,
-                                                             "channel": T("integer", minimum=1, maximum=16)})),
-                           "messages sent in order at the press: an action's name, or { cc / note / program / "
-                           "mmc / sysex, value, bank, channel }")
+# (one definition, action_list(), that each of them refers to)
+KEY_TYPES["actions"] = ref("action_list")
 # channel:, min: and max: on a button, analog input or encoder (build time only)
 CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
 
@@ -158,6 +155,15 @@ def matrix_lines():
     return {"rows": one_of(lst(ref("pin")), obj(gd.DECODER_ROWS_KEYS, {"decoder": ID_REF,
                                                                      "first": T("integer", minimum=0)})),
             "columns": lst(ref("pin"))}
+
+
+def action_list():
+    """actions: (components/buttons/README.md "Action lists"): the messages a press sends, in order."""
+    item = obj(gd.buttons.ITEM_KEYS, {"action": enum(gd.buttons.ITEM_ACTIONS), "value": INT7,
+                                      "channel": T("integer", minimum=1, maximum=16)})
+    return lst(one_of(enum(gd.buttons.ITEM_ACTIONS), item),
+               "messages sent in order at the press: an action's name, or { cc / note / program / mmc / sysex, "
+               "value, bank, channel }")
 
 
 def gesture():
@@ -369,6 +375,7 @@ def device_schema():
             "period": {"anyOf": [{"type": "string", "pattern": "^" + gd.TIME_RE.pattern + "$"}, _sub()],
                        "description": "a time period with a unit: 125us, 1.6ms, 2s"},
             "pin": pin(),
+            "action_list": action_list(),
         },
     }
 

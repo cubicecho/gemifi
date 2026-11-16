@@ -516,6 +516,9 @@ static void combo_press(uint32_t i, uint32_t now)
     int cannot_join = exact < 0 && !more;
     if (cannot_join && combo_waiting) {
         combo_settle();
+        int switched_presets = (btn_ignore >> i) & 1u;
+        if (switched_presets)
+            return;                 /* a press still being told apart at a preset switch is dropped */
         exact = combo_match(bit, &more);
     }
     if (!combo_waiting)

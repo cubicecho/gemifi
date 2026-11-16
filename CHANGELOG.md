@@ -2,6 +2,24 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.57.0](https://github.com/cubicecho/gemifi/compare/v0.56.2...v0.57.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **buttons:** drop a combo press whose settling switched presets ([775a28f](https://github.com/cubicecho/gemifi/commit/775a28f579541775752c415145626bddbde4e473))
+* **modes:** build layers_update on a device with layer twins and no LEDs ([d92400e](https://github.com/cubicecho/gemifi/commit/d92400eaa25464d771afa1daa0471cb2aaa9f389))
+* **modes:** keep each one-shot mode's state of its own ([311d3d4](https://github.com/cubicecho/gemifi/commit/311d3d4f65e4394f361c71d5ec55ad97fce1a760))
+
+
+### Features
+
+* **buttons:** auto-repeat while held (repeat:, button.repeat_delay/rate) ([e63afad](https://github.com/cubicecho/gemifi/commit/e63afadf7629701b425b2d995bea866154abf786)), closes [#89](https://github.com/cubicecho/gemifi/issues/89)
+* **buttons:** combos (combos:, button.combo_time) ([d42de0e](https://github.com/cubicecho/gemifi/commit/d42de0eba5dde29c8754911bfd4a91ab61d6ea16)), closes [#89](https://github.com/cubicecho/gemifi/issues/89)
+* **buttons:** double-tap gesture (double_tap:, button.tap_time) ([c4e5b8d](https://github.com/cubicecho/gemifi/commit/c4e5b8ddad2f43eef9bec4bd1f0b4b5c535c9109)), closes [#89](https://github.com/cubicecho/gemifi/issues/89)
+* **buttons:** tap vs hold gesture (hold:, button.hold_time) ([8611bbd](https://github.com/cubicecho/gemifi/commit/8611bbda577f62bfc4573a6fa97a18606cdf9255)), closes [#89](https://github.com/cubicecho/gemifi/issues/89)
+* **modes:** one-shot layers (one_shot:) ([8bae0af](https://github.com/cubicecho/gemifi/commit/8bae0afb8ce9bf968702094e5aec6d9f8c4814c4)), closes [#89](https://github.com/cubicecho/gemifi/issues/89)
+
 ## [0.56.2](https://github.com/cubicecho/gemifi/compare/v0.56.1...v0.56.2) (2026-11-16)
 
 

@@ -2,6 +2,15 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.56.2](https://github.com/cubicecho/gemifi/compare/v0.56.1...v0.56.2) (2026-11-16)
+
+
+### Performance Improvements
+
+* **scan:** leave the scan tick's timer off when the hardware scan has it all ([9179847](https://github.com/cubicecho/gemifi/commit/917984797754c0ed0bdeb42560e18b35f3184cd0))
+* **vpin:** keep ADC peaks only for the pads' pins ([188a5b1](https://github.com/cubicecho/gemifi/commit/188a5b182bc57a0b311681b9d03e94739e149adf))
+* **vpin:** the sweep's first pass of a generation in its own loop ([519becf](https://github.com/cubicecho/gemifi/commit/519becfe50ccf4160bd90118ba73310825464cec))
+
 ## [0.56.1](https://github.com/cubicecho/gemifi/compare/v0.56.0...v0.56.1) (2026-11-16)
 
 

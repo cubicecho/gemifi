@@ -10,7 +10,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import analog, buttons, encoders, pads, tm1637  # noqa: E402
+from components import analog, buttons, encoders, leds, pads, tm1637  # noqa: E402
 from components.keys import Enum  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
@@ -112,6 +112,13 @@ class EdgesAgree(unittest.TestCase):
         n = self.edges("button_settings:", {}, "button_settings", buttons.BUTTON_SETTINGS_SPEC,
                        more="buttons:\n  - { id: a, pin: PB0, action: panic }\n")
         self.assertEqual(n, 20)
+
+    def test_leds(self):
+        base = {"id": "l", "pin": "PB0"}
+        n = self.edges("leds", base, "leds[0]", leds.LED)
+        n += self.edges("leds", base, "leds[0]", leds.LED["feedback"].type.keys, nest="feedback",
+                        context={"channel": {"note": 1}})
+        self.assertGreater(n, 15)
 
     def test_tm1637(self):
         base = {"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}

@@ -9,9 +9,9 @@ import re
 import components
 from components.api import NO_PIN, RENAMED_ID, Hub, f1_off_why, f1_on, twin_c
 from components.hub import c_comment
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, Enum, Int, Key, Keys, Map, OneOf, Period, Pin,
+                             Section, Str, Type)
 
-LED_DEFAULTS_KEYS = ["idle", "active"]
-LED_KEYS = ["id", "name", "pin", "pin2", "pin3", "idle", "active", "feedback", "owner", "timeout", "daw"]
 # LED owners (gm_device.h GM_OWNER_*): who drives an LED that both the host and the device want.
 LED_OWNERS = {"host_then_local": 0, "host": 1, "local": 2}
 LED_SOURCES = {"note": 1, "cc": 2, "clock": 3, "transport": 4, "mcu": 5}   # gm_device.h GM_FB_*
@@ -35,6 +35,52 @@ LED_KIND_PINS = {"single": 1, "bicolour": 3, "rgb": 7}    # the pins each kind o
 RGB_LOOK_COLOURS = {"red": 0xFF0000, "green": 0x00FF00, "yellow": 0xFFFF00, "blue": 0x0000FF,
                     "magenta": 0xFF00FF, "cyan": 0x00FFFF, "white": 0xFFFFFF}
 RGB_LOOK_RE = re.compile(r"^#([0-9a-f]{6})$|^([a-z]+)\s+(\d{1,3})\s*%$")
+
+
+class Look(Type):
+    """An LED look (README.md "LED looks"): off, on, a colour of its kind, or a full colour. Checked by
+    validate_led_looks (what it may be depends on the LED's pins)."""
+    text = "look"
+
+    def schema(self):
+        return {"type": ["string", "boolean"], "description": "an LED look: off, on, or a colour (" +
+                ", ".join(n for n in LED_LOOK_NAMES if n != "off") + ")"}
+
+
+LOOKS = 'LED looks (idle and active)'
+TIMEOUT = OneOf(Period(10_000, 655_340_000, step_us=10_000, example="2s"), Enum(["never"]))
+# One LED's keys, and led_defaults: (core/README.md "Controls" has what the controls share).
+LED = Keys(
+    CONTROL_ID, CONTROL_NAME,
+    Key("pin", Pin(), required=True, doc="Its output pin (an RGB LED's red)."),
+    Key("pin2", Pin(), doc="A bicolour LED's second colour, or an RGB LED's green."),
+    Key("pin3", Pin(), doc="With `pin2`: an RGB LED's blue."),
+    Key("idle", Look(), see=LOOKS, shown_default="`off`, or `led_defaults:`'s", doc="What it shows while off."),
+    Key("active", Look(), see=LOOKS, shown_default="`on`, or `led_defaults:`'s", doc="What it shows while on."),
+    Key("feedback", Map(Keys(
+        Key("note", Int(0, 127), doc="Follows the host's note: velocity 0 off, 1 blinking, 2..127 on."),
+        Key("cc", Int(0, 127), doc="Follows the host's CC: 0 off, 1 blinking, 2..127 on."),
+        Key("clock", Enum(LED_SOURCE_VALUES["clock"]), doc="`beat`: lit for the first 16th of every beat "
+                                                          "(MIDI clock)."),
+        Key("transport", Enum(LED_SOURCE_VALUES["transport"]), doc="`playing`: on at Start / Continue, off at "
+                                                                  "Stop."),
+        Key("mcu", Str(), doc="A Mackie Control LED (`play`, `rec_1` ...)."),
+        Key("channel", Int(1, 16), doc="With `note:` / `cc:`: the channel it listens on (default `midi.channel`)."),
+    )), see='core/README.md "Plain feedback (F1, every DAW)"',
+        doc="What the host lights it with: one of `note:`, `cc:`, `clock:`, `transport:`, `mcu:`."),
+    Key("owner", Enum(LED_OWNERS), shown_default="`feedback.led_owner`", see='core/README.md "LED ownership"',
+        doc="Who drives it when both the host and the device want it."),
+    Key("timeout", TIMEOUT, shown_default="`feedback.led_timeout`", see='core/README.md "LED ownership"',
+        doc="With owner `host_then_local`: how long the host's state holds before the device's comes back."),
+    CONTROL_DAW,
+)
+LED_KEYS = LED.names
+LED_DEFAULTS = Keys(
+    Key("idle", Look(), default="off", see=LOOKS, doc="What every LED without its own `idle:` shows while off."),
+    Key("active", Look(), default="on", see=LOOKS, doc="What every LED without its own `active:` shows while on."),
+)
+LED_DEFAULTS_KEYS = LED_DEFAULTS.names
+KEY_SECTIONS = (Section("leds", LED), Section("led_defaults", LED_DEFAULTS, is_list=False))
 
 
 # Always built: the status LED and the lamp test use it on any device.
@@ -286,7 +332,7 @@ def validate_led_source(v, dev, d, p):
     ch = 0
     if "channel" in f:
         if k in ("note", "cc"):
-            ch = v.integer(f, "channel", fp, 1, 16, default=0)
+            ch = LED["feedback"].type.keys.get(v, f, "channel", fp, default=0)
         else:
             v.err(f"{fp}.channel", f.line_of("channel"), f"only for note: / cc: (a {k} source has no channel)")
     if k == "mcu":

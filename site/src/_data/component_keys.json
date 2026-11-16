@@ -811,6 +811,163 @@
       ]
     }
   ],
+  "leds": [
+    {
+      "section": "leds",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
+        },
+        {
+          "key": "name",
+          "type": "text",
+          "required": false,
+          "default": "from the id",
+          "doc": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`)."
+        },
+        {
+          "key": "pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "Its output pin (an RGB LED's red)."
+        },
+        {
+          "key": "pin2",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "A bicolour LED's second colour, or an RGB LED's green."
+        },
+        {
+          "key": "pin3",
+          "type": "pin",
+          "required": false,
+          "default": null,
+          "doc": "With `pin2`: an RGB LED's blue."
+        },
+        {
+          "key": "idle",
+          "type": "look",
+          "required": false,
+          "default": "`off`, or `led_defaults:`'s",
+          "doc": "What it shows while off.",
+          "see": "LED looks (idle and active)"
+        },
+        {
+          "key": "active",
+          "type": "look",
+          "required": false,
+          "default": "`on`, or `led_defaults:`'s",
+          "doc": "What it shows while on.",
+          "see": "LED looks (idle and active)"
+        },
+        {
+          "key": "feedback",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "What the host lights it with: one of `note:`, `cc:`, `clock:`, `transport:`, `mcu:`.",
+          "see": "core/README.md \"Plain feedback (F1, every DAW)\"",
+          "keys": [
+            {
+              "key": "note",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "Follows the host's note: velocity 0 off, 1 blinking, 2..127 on."
+            },
+            {
+              "key": "cc",
+              "type": "integer 0..127",
+              "required": false,
+              "default": null,
+              "doc": "Follows the host's CC: 0 off, 1 blinking, 2..127 on."
+            },
+            {
+              "key": "clock",
+              "type": "`beat`",
+              "required": false,
+              "default": null,
+              "doc": "`beat`: lit for the first 16th of every beat (MIDI clock)."
+            },
+            {
+              "key": "transport",
+              "type": "`playing`",
+              "required": false,
+              "default": null,
+              "doc": "`playing`: on at Start / Continue, off at Stop."
+            },
+            {
+              "key": "mcu",
+              "type": "text",
+              "required": false,
+              "default": null,
+              "doc": "A Mackie Control LED (`play`, `rec_1` ...)."
+            },
+            {
+              "key": "channel",
+              "type": "integer 1..16",
+              "required": false,
+              "default": null,
+              "doc": "With `note:` / `cc:`: the channel it listens on (default `midi.channel`)."
+            }
+          ]
+        },
+        {
+          "key": "owner",
+          "type": "`host_then_local`, `host`, `local`",
+          "required": false,
+          "default": "`feedback.led_owner`",
+          "doc": "Who drives it when both the host and the device want it.",
+          "see": "core/README.md \"LED ownership\""
+        },
+        {
+          "key": "timeout",
+          "type": "time 10ms..655340ms or `never`",
+          "required": false,
+          "default": "`feedback.led_timeout`",
+          "doc": "With owner `host_then_local`: how long the host's state holds before the device's comes back.",
+          "see": "core/README.md \"LED ownership\""
+        },
+        {
+          "key": "daw",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own).",
+          "see": "hosts/README.md"
+        }
+      ]
+    },
+    {
+      "section": "led_defaults",
+      "list": false,
+      "keys": [
+        {
+          "key": "idle",
+          "type": "look",
+          "required": false,
+          "default": "`off`",
+          "doc": "What every LED without its own `idle:` shows while off.",
+          "see": "LED looks (idle and active)"
+        },
+        {
+          "key": "active",
+          "type": "look",
+          "required": false,
+          "default": "`on`",
+          "doc": "What every LED without its own `active:` shows while on.",
+          "see": "LED looks (idle and active)"
+        }
+      ]
+    }
+  ],
   "pads": [
     {
       "section": "pads",

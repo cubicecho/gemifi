@@ -1736,14 +1736,16 @@
                 "string",
                 "boolean"
               ],
-              "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+              "description": "What every LED without its own `idle:` shows while off. Default: off.",
+              "default": "off"
             },
             "active": {
               "type": [
                 "string",
                 "boolean"
               ],
-              "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+              "description": "What every LED without its own `active:` shows while on. Default: on.",
+              "default": "on"
             }
           },
           "additionalProperties": false
@@ -1762,33 +1764,54 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Its output pin (an RGB LED's red)."
               },
               "pin2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "A bicolour LED's second colour, or an RGB LED's green."
               },
               "pin3": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "With `pin2`: an RGB LED's blue."
               },
               "idle": {
                 "type": [
                   "string",
                   "boolean"
                 ],
-                "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                "description": "What it shows while off. Default: off, or led_defaults:'s."
               },
               "active": {
                 "type": [
                   "string",
                   "boolean"
                 ],
-                "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                "description": "What it shows while on. Default: on, or led_defaults:'s."
               },
               "feedback": {
                 "type": "object",
@@ -1796,21 +1819,15 @@
                   "note": {
                     "anyOf": [
                       {
-                        "anyOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 127
-                          },
-                          {
-                            "$ref": "#/definitions/substitution"
-                          }
-                        ]
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
                       },
                       {
-                        "type": "string"
+                        "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "Follows the host's note: velocity 0 off, 1 blinking, 2..127 on."
                   },
                   "cc": {
                     "anyOf": [
@@ -1822,12 +1839,38 @@
                       {
                         "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "Follows the host's CC: 0 off, 1 blinking, 2..127 on."
                   },
-                  "clock": {},
-                  "transport": {},
+                  "clock": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "beat"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ],
+                    "description": "`beat`: lit for the first 16th of every beat (MIDI clock)."
+                  },
+                  "transport": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "playing"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ],
+                    "description": "`playing`: on at Start / Continue, off at Stop."
+                  },
                   "mcu": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "A Mackie Control LED (`play`, `rec_1` ...)."
                   },
                   "channel": {
                     "anyOf": [
@@ -1839,10 +1882,12 @@
                       {
                         "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "With `note:` / `cc:`: the channel it listens on (default `midi.channel`)."
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "What the host lights it with: one of `note:`, `cc:`, `clock:`, `transport:`, `mcu:`."
               },
               "owner": {
                 "anyOf": [
@@ -1856,7 +1901,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Who drives it when both the host and the device want it. Default: feedback.led_owner."
               },
               "timeout": {
                 "anyOf": [
@@ -1864,12 +1910,23 @@
                     "$ref": "#/definitions/period"
                   },
                   {
-                    "const": "never"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "never"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
                   }
-                ]
+                ],
+                "description": "With owner `host_then_local`: how long the host's state holds before the device's comes back. Default: feedback.led_timeout."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               }
             },
             "additionalProperties": false

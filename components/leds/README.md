@@ -8,7 +8,7 @@ leds:
   - { id: oct_down_led, pin: { number: PA10, inverted: true }, pin2: { number: PA14, inverted: true } }
 ```
 
-Its YAML (`leds:`, `led_defaults:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "LED looks", "Full-colour LEDs" and "LED walk" below, and who drives an LED in [core/README.md "LED ownership"](../../core/README.md#led-ownership).
+<!-- keys -->
 
 ## LED looks (idle and active)
 

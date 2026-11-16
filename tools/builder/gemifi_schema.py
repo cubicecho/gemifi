@@ -266,10 +266,6 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
-        "leds": lst(obj(gd.LED_KEYS, {
-            "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),
-            "owner": enum(gd.LED_OWNERS), "timeout": one_of(PERIOD, {"const": "never"})})),
         "key_matrix": obj(gd.MATRIX_KEYS, {
             "type": enum(["switch", "velocity"]), "contacts": enum(["columns", "rows"]), **matrix_lines(),
             "key_map": lst(lst(one_of(INT7, {"type": "null"}))),

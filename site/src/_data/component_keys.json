@@ -2480,5 +2480,87 @@
         }
       ]
     }
+  ],
+  "core/device": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "gemifi",
+          "type": "`2`",
+          "required": true,
+          "default": null,
+          "doc": "The format version of the file: 2."
+        },
+        {
+          "key": "name",
+          "type": "node name",
+          "required": true,
+          "default": null,
+          "doc": "The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."
+        },
+        {
+          "key": "friendly_name",
+          "type": "text",
+          "required": false,
+          "default": "`name`",
+          "doc": "Its display name: the USB product string, HELLO and the web page."
+        },
+        {
+          "key": "description",
+          "type": "text",
+          "required": false,
+          "default": null,
+          "doc": "A line about it, for people reading the file."
+        },
+        {
+          "key": "project",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "The firmware project: its version.",
+          "keys": [
+            {
+              "key": "version",
+              "type": "major.minor.patch",
+              "required": false,
+              "default": "the build's",
+              "doc": "The firmware version it reports (HELLO), major.minor.patch."
+            }
+          ]
+        },
+        {
+          "key": "board_id",
+          "type": "integer 0x00..0x3FFF",
+          "required": true,
+          "default": null,
+          "doc": "The id a firmware image is checked against before it is flashed: a board profile's fixed one, or your own for a DIY board.",
+          "see": "core/README.md \"Board profiles\""
+        },
+        {
+          "key": "platform",
+          "type": "`nuvoton-nuc1xx`, `stm32f1`, `esp32`, `esp32s2`, `esp32s3`",
+          "required": true,
+          "default": null,
+          "doc": "The MCU family it builds for (the docs' Platforms)."
+        },
+        {
+          "key": "chip",
+          "type": "text",
+          "required": true,
+          "default": null,
+          "doc": "The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."
+        },
+        {
+          "key": "board",
+          "type": "board profile name",
+          "required": false,
+          "default": "the platform's: `m-audio-code61` (stm32f1), `keystation-mini32-mk3` (nuvoton-nuc1xx)",
+          "doc": "The board profile (platform/<platform>/boards/<board>.json): its layout and board pins.",
+          "see": "core/README.md \"Board profiles\""
+        }
+      ]
+    }
   ]
 }

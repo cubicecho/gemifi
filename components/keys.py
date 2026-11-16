@@ -80,6 +80,11 @@ class Type:
         """(value, accepted) pairs at the edges of the type, for the tests that the validator agrees."""
         return []
 
+    def sub(self):
+        """The keys of the mapping it takes, if any, and how the docs name them under the key: (Keys, prefix),
+        prefix "" for `key.sub`, "[]" for a list's items (`key[].sub`), ".<id>" for a mapping by id (`key.<id>.sub`)."""
+        return None
+
 
 class Int(Type):
     """An integer lo..hi; hi None: no top here (the component's code knows it, e.g. the preset slots)."""
@@ -173,10 +178,16 @@ class Period(Type):
 
 
 class Str(Type):
+    """Text; pattern: a regular expression it must match (the schema says so; the component's code checks it)."""
     text = "text"
 
+    def __init__(self, pattern=None, text=None):
+        self.pattern = pattern
+        if text:
+            self.text = text
+
     def schema(self):
-        return {"type": "string"}
+        return {"type": "string", **({"pattern": f"^{self.pattern}$"} if self.pattern else {})}
 
     def check(self, v, d, key, path, default, required):
         return v.string(d, key, path, required=required, default=default)
@@ -218,6 +229,37 @@ class Ref(Type):
     def schema(self):
         return ref(self.name)
 
+    def sub(self):
+        return (self.keys, "") if self.keys else None
+
+
+class Raw(Type):
+    """A shape the schema writes out itself (the layout's [x, y] lists ...): schema as given."""
+
+    def __init__(self, schema, text, keys=None):
+        self._schema, self.text, self.keys = schema, text, keys
+
+    def schema(self):
+        return self._schema
+
+    def sub(self):
+        return (self.keys, "") if self.keys else None
+
+
+class ById(Type):
+    """A mapping from a component's id (of a kind: 'button', 'LED', 'component') to a value of a type."""
+
+    def __init__(self, kind, value):
+        self.kind, self.value = kind, value
+        self.text = f"{kind} id → {value.text}"
+
+    def schema(self):
+        return {"type": "object", "description": f"{self.kind} id: ...", "additionalProperties": self.value.schema()}
+
+    def sub(self):
+        s = self.value.sub()
+        return (s[0], ".<id>" + s[1]) if s else None
+
 
 class Null(Type):
     """`null` (in a list: "nothing here")."""
@@ -235,16 +277,23 @@ class List(Type):
     def schema(self):
         return lst(self.item.schema())
 
+    def sub(self):
+        s = self.item.sub()
+        return (s[0], "[]" + s[1]) if s else None
+
 
 class Map(Type):
     """A mapping with keys of its own (Keys): the docs list them under the key, as `key.sub`."""
     text = "mapping"
 
-    def __init__(self, keys):
-        self.keys = keys
+    def __init__(self, keys, desc=None):
+        self.keys, self.desc = keys, desc
 
     def schema(self):
-        return self.keys.schema()
+        return self.keys.schema(self.desc)
+
+    def sub(self):
+        return self.keys, ""
 
 
 class OneOf(Type):
@@ -259,7 +308,11 @@ class OneOf(Type):
 
     def keys(self):
         """The sub-keys of its mapping, if it takes one."""
-        return next((t.keys for t in self.types if isinstance(t, Map)), None)
+        s = self.sub()
+        return s[0] if s else None
+
+    def sub(self):
+        return next((t.sub() for t in self.types if t.sub()), None)
 
 
 # -- keys --
@@ -309,8 +362,8 @@ class Key:
         return None if x is None else code("true" if x is True else "false" if x is False else x)
 
     def sub_keys(self):
-        t = self.type
-        return t.keys if isinstance(t, (Map, Ref)) else t.keys() if isinstance(t, OneOf) else None
+        s = self.type.sub()
+        return s[0] if s else None
 
     def doc_row(self):
         """The key's row in the docs table (gemifi_build.py keys: site/src/_data/component_keys.json)."""
@@ -320,9 +373,11 @@ class Key:
             row["see"] = self.see
         if self.live:
             row["param"] = self.param
-        sub = self.sub_keys()
-        if sub:
-            row["keys"] = sub.doc_rows()
+        s = self.type.sub()
+        if s:
+            row["keys"] = s[0].doc_rows()
+            if s[1]:
+                row["sub"] = s[1]           # how the sub-keys are named under it: "[]", ".<id>"
         return row
 
 

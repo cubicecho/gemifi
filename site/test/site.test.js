@@ -12,7 +12,7 @@ import site from "../src/_data/site.js";
 import tested from "../src/_data/tested.js";
 import { buildDocs, GROUPS } from "../lib/docs-tree.js";
 import { REPO, componentFiles, componentSummary, docUrl, readRepo, resolveLink, slugify } from "../lib/repo-docs.js";
-import { componentKeys, withKeys } from "../lib/keys-table.js";
+import { componentKeys, keysEntry, withKeys } from "../lib/keys-table.js";
 
 const OUT = path.resolve(import.meta.dirname, "../_site");
 const PREFIX = site.pathPrefix;
@@ -147,12 +147,16 @@ test("every component README has a docs page in a known group", () => {
   );
 });
 
-test("a component whose keys are data has a key table on its page, from component_keys.json", () => {
+test("every key table in component_keys.json is on its page: a component's, or a Core area's", () => {
   const all = componentKeys();
-  assert.ok(all.encoders && all.tm1637, Object.keys(all).join(", "));
+  assert.ok(all.encoders && all.tm1637 && all["core/device"], Object.keys(all).join(", "));
   for (const [name, sections] of Object.entries(all)) {
-    const html = fs.readFileSync(servedFile(`${PREFIX}docs/components/${name}/`), "utf8");
-    assert.ok(idsOf(servedFile(`${PREFIX}docs/components/${name}/`)).has("keys"), `${name}: no Keys heading`);
+    const area = name.match(/^core\/(.+)$/);
+    const file = servedFile(`${PREFIX}docs/${area ? `core/yaml/${area[1]}` : `components/${name}`}/`);
+    assert.ok(file, `${name}: no page`);
+    assert.equal(keysEntry(area ? `core/yaml/${area[1]}.md` : `components/${name}/README.md`), name);
+    const html = fs.readFileSync(file, "utf8");
+    assert.ok(idsOf(file).has("keys"), `${name}: no Keys heading`);
     const keysAt = html.indexOf('id="keys"');
     for (const s of sections) {
       for (const k of s.keys) assert.ok(html.includes(`<td><code>${k.key}</code></td>`, keysAt), `${name}: no row for ${k.key}`);

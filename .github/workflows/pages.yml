@@ -19,6 +19,7 @@ on:
       - "components/**/README.md"
       - "components/**/__init__.py"
       - "core/*.md"
+      - "core/yaml/*.md"
       - "platform/*/README.md"
       - "bootloader/**/README.md"
       - "firmware/*/midi-controller/README.md"

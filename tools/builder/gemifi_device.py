@@ -27,6 +27,9 @@ import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
+from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, IdRef as _IdRef,  # noqa: E402
+                             Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map, OneOf as _OneOf,
+                             Period as _Period, Pin as _Pin, Raw as _Raw, Str as _Str, ById as _ById)
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -1567,6 +1570,33 @@ def humanize(ident):
 
 
 # ---------------------------------------------------------------------------------------------
+# The device's own top-level keys as data (components/keys.py), by area: each area is a page of the docs'
+# "Core" section (core/yaml/<area>.md, its key table where `<!-- keys -->` is), and the JSON schema types
+# those keys from it (gemifi_schema.py). The components' keys are their own (KEY_SECTIONS, spec).
+
+DEVICE_KEYS = _Keys(
+    _Key("gemifi", _Raw({"enum": [FORMAT_VERSION]}, f"`{FORMAT_VERSION}`"), required=True,
+         doc=f"The format version of the file: {FORMAT_VERSION}."),
+    _Key("name", _Str(NODE_NAME_RE.pattern, "node name"), required=True,
+         doc="The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."),
+    _Key("friendly_name", _Str(), shown_default="`name`",
+         doc="Its display name: the USB product string, HELLO and the web page."),
+    _Key("description", _Str(), doc="A line about it, for people reading the file."),
+    _Key("project", _Map(_Keys(
+        _Key("version", _Raw(_T("string", pattern=r"^\d+\.\d+\.\d+$"), "major.minor.patch"),
+             shown_default="the build's", doc="The firmware version it reports (HELLO), major.minor.patch."))),
+         doc="The firmware project: its version."),
+    _Key("board_id", _Hex(0, 0x3FFF), required=True, see='core/README.md "Board profiles"',
+         doc="The id a firmware image is checked against before it is flashed: a board profile's fixed one, or "
+             "your own for a DIY board."),
+    _Key("platform", _Enum(PLATFORMS), required=True, doc="The MCU family it builds for (the docs' Platforms)."),
+    _Key("chip", _Str(), required=True, doc="The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."),
+    _Key("board", _Raw({"enum": [b for p in gbd.PLATFORMS for b in gbd.boards(p)]}, "board profile name"),
+         shown_default="the platform's: " + ", ".join(f"`{b}` ({p})" for p, b in gbd.DEFAULT_BOARD.items()),
+         see='core/README.md "Board profiles"',
+         doc="The board profile (platform/<platform>/boards/<board>.json): its layout and board pins."),
+)
+
 
 def validate(data, file=None):
     """data: the loaded YAML (LDict). Returns (Device or None, [Diag])."""
@@ -1589,7 +1619,7 @@ def validate(data, file=None):
                                                  f"reads version {FORMAT_VERSION})")
     validate_names(v, dev, data)
     dev.description = v.string(data, "description", "")
-    dev.board_id = v.integer(data, "board_id", "", 0, 0x3FFF, required=True) or 0
+    dev.board_id = DEVICE_KEYS.get(v, data, "board_id", "") or 0
     dev.version = validate_version(v, data)
     pname = data.get("platform")
     if pname is None:
@@ -4183,3 +4213,11 @@ def write_generated(dev, out_dir, source):
             f.write(text)
         os.replace(tmp, p)
     return [os.path.join(out_dir, n) for n in files]
+
+
+# The device's top-level keys by area (the docs' Core pages, core/yaml/<area>.md): each a Keys of top-level
+# keys, which the JSON schema types and the docs table lists. Every top-level key is in an area or is a
+# component's (KEY_SECTIONS, a hub list); tests/test_core_keys.py checks.
+CORE_AREAS = {
+    "device": DEVICE_KEYS,
+}

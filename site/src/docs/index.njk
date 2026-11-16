@@ -18,7 +18,7 @@ lede: Everything a device YAML can hold, one page per component as in ESPHome, a
   </ul>
 </section>
 
-{% for g in [docs.base].concat(docs.groups) %}
+{% for g in [docs.coreYaml, docs.base].concat(docs.groups) %}
 <section class="section tone tone-{{ g.key }}">
   <h2 id="{{ g.key }}">{{ g.title }}</h2>
   {% if g.intro %}<p class="section-intro">{{ g.intro }}</p>{% endif %}

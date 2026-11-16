@@ -51,6 +51,23 @@ const CORE = [
   { file: "core/performance.md", title: "Component performance", label: "Performance" },
 ];
 
+/**
+ * The device's own YAML (the keys that aren't a component's), a page per area after the overview: each is
+ * core/yaml/<area>.md, with the key table of its area (gemifi_device.py CORE_AREAS) where `<!-- keys -->` is.
+ */
+export const CORE_YAML = {
+  key: "core",
+  title: "Core",
+  intro: "The device's own YAML, an area a page: what the file is, MIDI and USB, scanning, presets, feedback, safety, the layout.",
+  items: [
+    {
+      file: "core/yaml/device.md",
+      title: "Device",
+      summary: "The file itself: its format, names, version, and the platform, chip and board it builds for.",
+    },
+  ],
+};
+
 /** The repo's other docs, a section each after the devices: the tools, the protocol and the DAW scripts. */
 export const GUIDES = [
   {
@@ -124,6 +141,14 @@ export function buildDocs() {
   // Every page first, so links between docs can go to their pages.
   const specs = [];
   for (const c of CORE) specs.push({ ...c, url: c.url ?? docUrl(c.file), section: "core" });
+  const coreYaml = {
+    ...CORE_YAML,
+    items: CORE_YAML.items.map((i) => {
+      const spec = { ...i, url: docUrl(i.file), label: i.title, section: "core", group: CORE_YAML.title, tone: "core" };
+      specs.push(spec);
+      return { title: i.title, url: spec.url, summary: i.summary };
+    }),
+  };
   // Before the platforms, which link some of the same files (tools/README.md) under their own labels.
   const guides = GUIDES.map((g) => ({
     ...g,
@@ -201,6 +226,7 @@ export function buildDocs() {
 
   cache = {
     core: CORE.map((c) => ({ title: c.label, url: specs.find((s) => s.file === c.file).url })),
+    coreYaml,
     base,
     groups: shown,
     platforms: platformItems,

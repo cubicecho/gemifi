@@ -52,19 +52,20 @@
       "enum": [
         2
       ],
-      "description": "the format version"
+      "description": "The format version of the file: 2."
     },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9](?:[a-z0-9-]{0,29}[a-z0-9])?$",
-      "description": "node name: lowercase letters, digits and -, at most 31"
+      "description": "The device's node name: lowercase letters, digits and -, at most 31 (`keystation-mini32`)."
     },
     "friendly_name": {
       "type": "string",
-      "description": "display name (USB product string, HELLO)"
+      "description": "Its display name: the USB product string, HELLO and the web page. Default: name."
     },
     "description": {
-      "type": "string"
+      "type": "string",
+      "description": "A line about it, for people reading the file."
     },
     "project": {
       "anyOf": [
@@ -80,10 +81,12 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The firmware version it reports (HELLO), major.minor.patch. Default: the build's."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "The firmware project: its version."
         },
         {
           "type": "string",
@@ -101,7 +104,8 @@
         {
           "$ref": "#/definitions/substitution"
         }
-      ]
+      ],
+      "description": "The id a firmware image is checked against before it is flashed: a board profile's fixed one, or your own for a DIY board."
     },
     "platform": {
       "anyOf": [
@@ -117,10 +121,12 @@
         {
           "$ref": "#/definitions/substitution"
         }
-      ]
+      ],
+      "description": "The MCU family it builds for (the docs' Platforms)."
     },
     "chip": {
-      "type": "string"
+      "type": "string",
+      "description": "The MCU's part number (`STM32F103RC`, `NUC123LD4AN0`, `esp32`)."
     },
     "board": {
       "enum": [
@@ -128,7 +134,7 @@
         "generic-stm32f103c8",
         "keystation-mini32-mk3"
       ],
-      "description": "the board profile (platform/<platform>/boards/<board>.json: layout and board pins; stm32f1: m-audio-code61, nuvoton-nuc1xx: keystation-mini32-mk3 when left out)"
+      "description": "The board profile (platform/<platform>/boards/<board>.json): its layout and board pins. Default: the platform's: m-audio-code61 (stm32f1), keystation-mini32-mk3 (nuvoton-nuc1xx)."
     },
     "usb": {
       "anyOf": [

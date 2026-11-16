@@ -216,19 +216,6 @@ def pin():
 
 def device_schema():
     top_types = {
-        "gemifi": {"enum": [gd.FORMAT_VERSION], "description": "the format version"},
-        "name": {"type": "string", "pattern": "^" + gd.NODE_NAME_RE.pattern + "$",
-                 "description": "node name: lowercase letters, digits and -, at most 31"},
-        "friendly_name": {"type": "string", "description": "display name (USB product string, HELLO)"},
-        "description": STR,
-        "project": obj(gd.PROJECT_KEYS, {"version": T("string", pattern=r"^\d+\.\d+\.\d+$")}),
-        "board_id": T("integer", minimum=0, maximum=0x3FFF),
-        "platform": enum(gd.PLATFORMS),
-        "chip": STR,
-        "board": {"enum": [b for p in gd.gbd.PLATFORMS for b in gd.gbd.boards(p)],
-                  "description": "the board profile (platform/<platform>/boards/<board>.json: layout and board "
-                                 "pins; " + ", ".join(f"{p}: {b}" for p, b in gd.gbd.DEFAULT_BOARD.items()) +
-                                 " when left out)"},
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
@@ -282,7 +269,11 @@ def device_schema():
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),
     }
-    # the sections of the components whose keys are data (KEY_SECTIONS: components/keys.py)
+    # the device's own keys, by area (gemifi_device.py CORE_AREAS), and the components' sections (KEY_SECTIONS)
+    for area in gd.CORE_AREAS.values():
+        for k, s in area.types().items():
+            assert k not in top_types, f"{k}: in CORE_AREAS and written here too"
+            top_types[k] = s
     for s in key_sections():
         assert s.yaml_key not in top_types, f"{s.yaml_key}: in KEY_SECTIONS and written here too"
         one, many = s.keys.schema(s.desc), lst(s.keys.schema(), s.desc)
@@ -349,6 +340,9 @@ def component_keys():
                  for t in getattr(m, "DISPLAY_PLATFORMS", ()) if t.spec is not None]
         if secs:
             out[name] = [s.doc() for s in secs]
+    # the device's own keys: "core/<area>" -> its top-level keys (core/yaml/<area>.md)
+    for area, keys in gd.CORE_AREAS.items():
+        out[f"core/{area}"] = [Section("", keys, is_list=False).doc()]
     return out
 
 

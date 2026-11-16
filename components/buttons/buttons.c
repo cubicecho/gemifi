@@ -79,6 +79,28 @@ static void panic(void)
 }
 #endif
 
+#if GM_MSG_MMC
+/* An MMC command (F0 7F dev 06 command F7). */
+static void mmc_send(uint32_t command)
+{
+    const uint8_t m[6] = { 0xF0, 0x7F, GM_MMC_DEVICE, 0x06, (uint8_t)(command & 0x7Fu), 0xF7 };
+    sysex_out(m, 6);
+}
+#endif
+
+#if GM_N_SYSEX
+/* SysEx string num of button i on channel ch: at the press the value max:
+ * (top by default), at the release min: (0), if the string has a value at
+ * all. */
+static void sysex_button(uint32_t i, uint32_t num, int down, uint8_t ch)
+{
+    if (num < GM_N_SYSEX && (down || (gm_sysex[num].flags & GM_SX_HAS_VALUE))) {
+        uint32_t top = (gm_sysex[num].flags & GM_SX_WIDE) ? 16383u : 127u;
+        sysex_send(num, BTN_OUT(i, down ? top : 0u, (int32_t)top), ch);
+    }
+}
+#endif
+
 /* Pressed in every scan since the last sample; *any: in any of them. A
  * button on a switch matrix is scanned many times a sample (each frame of
  * a hardware scan), others are read once. */
@@ -233,20 +255,13 @@ static void run_action(uint32_t i, int32_t act, uint32_t num, int down)
 #endif
 #if GM_MSG_MMC
     case ACT_MMC:
-        if (down) {
-            const uint8_t m[6] = { 0xF0, 0x7F, GM_MMC_DEVICE, 0x06, (uint8_t)(num & 0x7Fu), 0xF7 };
-            sysex_out(m, 6);
-        }
+        if (down)
+            mmc_send(num);
         break;
 #endif
 #if GM_N_SYSEX
     case ACT_SYSEX:
-        /* press: the value max: (top by default), release: min: (0), if the
-         * string has a value at all */
-        if (num < GM_N_SYSEX && (down || (gm_sysex[num].flags & GM_SX_HAS_VALUE))) {
-            uint32_t top = (gm_sysex[num].flags & GM_SX_WIDE) ? 16383u : 127u;
-            sysex_send(num, BTN_OUT(i, down ? top : 0u, (int32_t)top), BTN_CH(i));
-        }
+        sysex_button(i, num, down, BTN_CH(i));
         break;
 #endif
     case ACT_PRESET_NEXT:

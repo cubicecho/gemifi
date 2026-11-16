@@ -611,28 +611,30 @@ A preset is a named set of *behaviours*: what the controls send, not how they ar
 
 ```yaml
 presets:
-  slots: 8                 # optional, 2..64, at least the number listed; default: the number listed
-  revision: 1              # optional, 0..16383: bump it when the YAML presets change (the updater asks then)
+  slots: 8
+  revision: 1
   list:
     - name: Default        # slot 1: the components' own values (above); only name: and program:
-    - name: Drums          # <= 16 printable ASCII, unique; default "Preset N"
-      program: 9           # optional 0..127: the Program Change sent when it is selected
+    - name: Drums
+      program: 9
       midi: { channel: 10, transpose: 0, octave: 0 }   # start values (the octave buttons still move them)
-      velocity: { curve: hard, fixed: 100 }            # curve: normal | soft | hard | fixed
-      bend: { glide: 50ms }                            # 0..2s
-      ramp: { time: 300ms }                            # 0..5s
+      velocity: { curve: hard, fixed: 100 }
+      bend: { glide: 50ms }
+      ramp: { time: 300ms }
       buttons:                                         # by id, with the button's own keys
         sustain: { action: note, note: 36 }
         edit:    { note: 38 }                          # action left out: keeps the button's
       analog:   { volume: { cc: 11 } }
-      encoders: { encoder_1: { cc: 21, mode: relative_offset } }   # absolute | relative_twos | relative_offset
-      pads: { kick: { note: 35 } }                     # pads: only note:
+      encoders: { encoder_1: { cc: 21, mode: relative_offset } }
+      pads: { kick: { note: 35 } }
       pad_settings: { channel: 10, curve: soft, aftertouch: true }
 ```
 
+Each key, its range and default: [the preset keys](yaml/presets.md#keys).
+
 - **Slot 1** is the first list entry (or "Default" when the list is empty, with `slots:`); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (with one in use, they only reload it). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
-- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `actions`, `cc`, `note`, `preset`, `mcu`, `program`, `mmc`, `sysex`; `actions:` gives the button another action list, written as its `button.number`, components/buttons/README.md "Action lists"), `analog.cc`/`analog.mode` (`cc`, `mode`, `nrpn`, `rpn`, `sysex`), `encoder.cc`/`encoder.mode` (`cc`, `mode`, `nrpn`, `rpn`), `bank` (`preset.bank`, with `program`: "MIDI messages"), `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.octave`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
+- **What a preset can set** is the mapping: the keys that start a per-preset param ([the preset keys](yaml/presets.md#keys) lists them with their params; `actions:` gives a button another action list, written as its `button.number`, components/buttons/README.md "Action lists"). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
 - **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
 - **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its 3 config pages of 1 KB: there the Code 61 fits up to 5 slots.
 

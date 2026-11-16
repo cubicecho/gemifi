@@ -138,25 +138,6 @@ def action_list():
                "value, bank, channel }")
 
 
-def presets():
-    comps = {}
-    for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
-        spec = section_keys(sec)
-        comps[sec] = {"type": "object", "description": f"per {sec[:-1] if sec.endswith('s') else sec} id",
-                      "additionalProperties": obj(allowed, {k: spec[k].schema() for k in allowed})}
-    globs = {}
-    for sec, keys in gd.PRESET_GLOBALS.items():
-        types = {}
-        for k, (_p, _d, kind, lo, hi) in keys.items():
-            types[k] = (enum(kind) if isinstance(kind, list) else PERIOD if kind == "ms" else BOOL
-                        if kind == "bool" else T("integer", minimum=lo, maximum=hi))
-        globs[sec] = obj(list(keys), types)
-    item = obj(gd.PRESET_KEYS, {"name": STR, "program": INT7, "bank": gd.buttons.BANK.schema(), **globs, **comps})
-    return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=2, maximum=gd.MAX_PRESETS),
-                                 "revision": T("integer", minimum=0, maximum=gd.PRESET_REVISION_MAX),
-                                 "list": lst(item)}, "preset slots (core/README.md \"Presets\")")
-
-
 def modes():
     toggle = one_of(ID_REF, obj(["button", "with"], {"button": ID_REF, "with": ID_REF}))
     # a layer entry takes keys of a button, a pad or an encoder (components/modes), typed as theirs
@@ -240,7 +221,6 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "presets": presets(),
         "modes": modes(),
         "display": screen(),
         "displays": lst(obj(gd.DISPLAY_KEYS, {"id": ref("id"), "daw": STR, "type": enum(gd.DISPLAY_TYPES),

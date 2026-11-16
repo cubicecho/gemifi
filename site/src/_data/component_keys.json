@@ -2562,5 +2562,512 @@
         }
       ]
     }
+  ],
+  "core/presets": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "presets",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets are off (one slot).",
+          "see": "core/README.md \"Presets\"",
+          "keys": [
+            {
+              "key": "slots",
+              "type": "integer 2..64",
+              "required": false,
+              "default": "the number listed",
+              "doc": "The preset slots, at least the number listed: the ones not listed start as copies of slot 1."
+            },
+            {
+              "key": "revision",
+              "type": "integer 0..16383",
+              "required": false,
+              "default": "`0`",
+              "doc": "Bump it when the YAML's presets change: the updater then offers to load them."
+            },
+            {
+              "key": "list",
+              "type": "list of mapping",
+              "required": false,
+              "default": null,
+              "doc": "The presets, slot 1 first: its values are the rest of the file.",
+              "keys": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "required": false,
+                  "default": "`Default` (slot 1), `Preset N`",
+                  "doc": "Its name: up to 16 printable ASCII characters, unique."
+                },
+                {
+                  "key": "program",
+                  "type": "integer 0..127",
+                  "required": false,
+                  "default": null,
+                  "doc": "The Program Change sent when it is selected.",
+                  "param": "preset.program"
+                },
+                {
+                  "key": "bank",
+                  "type": "integer 0..16383 or mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`.",
+                  "see": "core/README.md \"MIDI messages\"",
+                  "param": "preset.bank",
+                  "keys": [
+                    {
+                      "key": "msb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 0's value."
+                    },
+                    {
+                      "key": "lsb",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "CC 32's value."
+                    }
+                  ]
+                },
+                {
+                  "key": "midi",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `midi` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "channel",
+                      "type": "integer 1..16",
+                      "required": false,
+                      "default": "`1`",
+                      "doc": "The MIDI channel the device plays on.",
+                      "param": "midi.channel"
+                    },
+                    {
+                      "key": "transpose",
+                      "type": "integer -24..24",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Semitones the keys' notes are moved by (the transpose buttons step it).",
+                      "param": "midi.transpose"
+                    },
+                    {
+                      "key": "octave",
+                      "type": "integer -4..4",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Octaves the keys' notes are moved by (the octave buttons step it).",
+                      "param": "midi.octave"
+                    }
+                  ]
+                },
+                {
+                  "key": "velocity",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `velocity` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "curve",
+                      "type": "`normal`, `soft`, `hard`, `fixed`",
+                      "required": false,
+                      "default": "`normal`",
+                      "doc": "How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only.",
+                      "param": "velocity.curve"
+                    },
+                    {
+                      "key": "fixed",
+                      "type": "integer 1..127",
+                      "required": false,
+                      "default": "`100`",
+                      "doc": "The velocity of curve `fixed`, and of the `note` buttons.",
+                      "param": "velocity.fixed"
+                    }
+                  ]
+                },
+                {
+                  "key": "bend",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `bend` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "glide",
+                      "type": "time 0us..2s",
+                      "required": false,
+                      "default": "`80ms`",
+                      "doc": "How long the pitch-bend buttons take to glide to full bend and back.",
+                      "param": "bend.glide"
+                    }
+                  ]
+                },
+                {
+                  "key": "ramp",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `ramp` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "time",
+                      "type": "time 0us..5s",
+                      "required": false,
+                      "default": "`300ms`",
+                      "doc": "How long a `cc_ramp` button takes to glide from 0 to 127 and back.",
+                      "param": "ramp.time"
+                    }
+                  ]
+                },
+                {
+                  "key": "pad_settings",
+                  "type": "mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "What it changes of the per-preset `pad_settings` settings. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "channel",
+                      "type": "integer 0..16",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "The MIDI channel the pads play on (0: `midi.channel`). Per preset.",
+                      "param": "pad.channel"
+                    },
+                    {
+                      "key": "curve",
+                      "type": "`normal`, `soft`, `hard`, `fixed`",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset.",
+                      "param": "pad.curve"
+                    },
+                    {
+                      "key": "aftertouch",
+                      "type": "`true` or `false`",
+                      "required": false,
+                      "default": "`pad_settings:`'s",
+                      "doc": "Polyphonic aftertouch while a pad is held. Per preset.",
+                      "param": "pad.aftertouch"
+                    },
+                    {
+                      "key": "octave",
+                      "type": "integer -4..4",
+                      "required": false,
+                      "default": "`0`",
+                      "doc": "Octaves the pads' notes are moved by (the pad octave buttons step it).",
+                      "param": "pad.octave"
+                    }
+                  ]
+                },
+                {
+                  "key": "buttons",
+                  "type": "button id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By button id, what differs from the button's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "action",
+                      "type": "`none`, `cc_momentary`, `cc_toggle`, `cc_ramp`, `note`, `octave_down`, `octave_up`, `transpose_down`, `transpose_up`, `bend_down`, `bend_up`, `program_next`, `program_prev`, `preset_next`, `preset_prev`, `preset_select`, `mcu`, `program`, `panic`, `mmc`, `sysex`, `pad_octave_down`, `pad_octave_up`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What a press does.",
+                      "see": "components/buttons/README.md \"Button actions\"",
+                      "param": "button.action"
+                    },
+                    {
+                      "key": "actions",
+                      "type": "action list: items (an action's name, or a mapping)",
+                      "required": false,
+                      "default": null,
+                      "doc": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping.",
+                      "see": "components/buttons/README.md \"Action lists\"",
+                      "param": "button.action",
+                      "keys": [
+                        {
+                          "key": "action",
+                          "type": "`cc_momentary`, `note`, `program`, `panic`, `mmc`, `sysex`",
+                          "required": false,
+                          "default": null,
+                          "doc": "The item's action; left out, its number key says it (`cc:` is `cc_momentary`)."
+                        },
+                        {
+                          "key": "cc",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A CC: 127 at the press and 0 at the release, or `value:` once."
+                        },
+                        {
+                          "key": "value",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "With `cc:`: the value it sends once, at the press."
+                        },
+                        {
+                          "key": "note",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A note, held while the button is."
+                        },
+                        {
+                          "key": "program",
+                          "type": "integer 0..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "A Program Change.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "bank",
+                          "type": "integer 0..16383 or mapping",
+                          "required": false,
+                          "default": null,
+                          "doc": "With `program:`: the Bank Select sent first.",
+                          "see": "core/README.md \"MIDI messages\"",
+                          "keys": [
+                            {
+                              "key": "msb",
+                              "type": "integer 0..127",
+                              "required": false,
+                              "default": "`0`",
+                              "doc": "CC 0's value."
+                            },
+                            {
+                              "key": "lsb",
+                              "type": "integer 0..127",
+                              "required": false,
+                              "default": "`0`",
+                              "doc": "CC 32's value."
+                            }
+                          ]
+                        },
+                        {
+                          "key": "mmc",
+                          "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                          "required": false,
+                          "default": null,
+                          "doc": "An MMC command: a name or 1..127.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "sysex",
+                          "type": "SysEx string id",
+                          "required": false,
+                          "default": null,
+                          "doc": "The id of a `midi_messages.sysex` string.",
+                          "see": "core/README.md \"MIDI messages\""
+                        },
+                        {
+                          "key": "channel",
+                          "type": "integer 1..16",
+                          "required": false,
+                          "default": null,
+                          "doc": "Its channel, instead of the button's."
+                        }
+                      ]
+                    },
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "note",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The note, with action `note`.",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "preset",
+                      "type": "integer from 1",
+                      "required": false,
+                      "default": null,
+                      "doc": "The preset slot (1..slots), with action `preset_select`.",
+                      "see": "core/README.md \"Presets\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "mcu",
+                      "type": "text",
+                      "required": false,
+                      "default": null,
+                      "doc": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).",
+                      "see": "core/README.md \"Second USB port and Mackie Control\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "program",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The Program Change it sends, with action `program`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "mmc",
+                      "type": "`stop`, `play`, `deferred_play`, `fast_forward`, `rewind`, `record`, `record_exit`, `record_pause`, `pause`, `eject`, `chase`, `reset` or integer 1..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The MMC command it sends, with action `mmc`: a name or 1..127.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    },
+                    {
+                      "key": "sysex",
+                      "type": "SysEx string id",
+                      "required": false,
+                      "default": null,
+                      "doc": "The id of the `midi_messages.sysex` string it sends, with action `sysex`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "button.number"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "analog",
+                  "type": "analog input id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By analog input id, what differs from the analog input's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "mode",
+                      "type": "`cc`, `pitch_bend`, `channel_pressure`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`, `sysex`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\").",
+                      "see": "components/analog/README.md \"Pitch wheels and aftertouch\"",
+                      "param": "analog.mode"
+                    },
+                    {
+                      "key": "nrpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "rpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    },
+                    {
+                      "key": "sysex",
+                      "type": "SysEx string id",
+                      "required": false,
+                      "default": null,
+                      "doc": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "analog.cc"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "encoders",
+                  "type": "encoder id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By encoder id, what differs from the encoder's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "cc",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`.",
+                      "param": "encoder.cc"
+                    },
+                    {
+                      "key": "mode",
+                      "type": "`absolute`, `relative_twos`, `relative_offset`, `relative_sign`, `cc14`, `nrpn`, `nrpn14`, `rpn`, `rpn14`",
+                      "required": false,
+                      "default": null,
+                      "doc": "What a turn sends.",
+                      "see": "components/encoders/README.md \"Encoder modes\"",
+                      "param": "encoder.mode"
+                    },
+                    {
+                      "key": "nrpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "encoder.cc"
+                    },
+                    {
+                      "key": "rpn",
+                      "type": "integer 0..16383",
+                      "required": false,
+                      "default": null,
+                      "doc": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.",
+                      "see": "core/README.md \"MIDI messages\"",
+                      "param": "encoder.cc"
+                    }
+                  ],
+                  "sub": ".<id>"
+                },
+                {
+                  "key": "pads",
+                  "type": "pad id → mapping",
+                  "required": false,
+                  "default": null,
+                  "doc": "By pad id, what differs from the pad's own keys. Not in slot 1, which is the rest of the file.",
+                  "keys": [
+                    {
+                      "key": "note",
+                      "type": "integer 0..127",
+                      "required": false,
+                      "default": null,
+                      "doc": "The note it plays.",
+                      "param": "pad.note"
+                    }
+                  ],
+                  "sub": ".<id>"
+                }
+              ],
+              "sub": "[]"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

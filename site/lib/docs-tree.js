@@ -65,6 +65,11 @@ export const CORE_YAML = {
       title: "Device",
       summary: "The file itself: its format, names, version, and the platform, chip and board it builds for.",
     },
+    {
+      file: "core/yaml/presets.md",
+      title: "Presets",
+      summary: "The preset slots and what each preset changes: the channel, the curves, the controls' numbers and modes.",
+    },
   ],
 };
 

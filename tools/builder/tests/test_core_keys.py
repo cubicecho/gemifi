@@ -75,6 +75,38 @@ class EdgesAgree(unittest.TestCase):
     def test_device(self):
         self.assertGreater(self.edges(gd.DEVICE_KEYS.without("platform")), 3)
 
+    # a device with a velocity keybed, a button, an encoder, an analog input and a pad: every preset key exists
+    CONTROLS = ("key_matrix: { type: velocity, rows: [PB0, PB1], columns: [PA0, PA1] }\n"
+                "buttons:\n  - { id: b, pin: PB2, action: cc_momentary, cc: 20 }\n"
+                "encoders:\n  - { id: e, pin_a: PB6, pin_b: PB7, cc: 20 }\n"
+                "analog:\n  - { id: a, pin: PA2, cc: 7 }\n"
+                "pads:\n  - { id: p, pin: PA3, note: 36 }\n")
+
+    def slot_2(self, keys, at, context=None):
+        """The edges of keys in preset 2 (slot 1 takes only name: and program:): at(key, value) -> (its preset's
+        keys, the key's path)."""
+        n = 0
+        for k in keys:
+            for value, ok in k.type.bad_values():
+                with self.subTest(key=k.name, value=value):
+                    item, path = at(k.name, value)
+                    errs = errors({"presets": {"list": [{"name": "A"}, {"name": "B", **item}]}}, self.CONTROLS)
+                    (self.assertNotIn if ok else self.assertIn)(path, [p for p, _ in errs], (item, errs))
+                    n += 1
+        return n
+
+    def test_presets(self):
+        # 64 slots fit an ESP32's NVS, not the STM32F1's config pages
+        n = self.edges(gd.PRESETS_SPEC.without("list"), nest="presets",
+                       context={"slots": {"platform": "esp32", "chip": "esp32", "usb": None}})
+        n += self.slot_2(gd.PRESET_ITEM, lambda k, x: ({k: x}, f"presets.list[1].{k}"))
+        for sec, keys in gd.PRESET_GLOBALS.items():
+            n += self.slot_2(keys, lambda k, x: ({sec: {k: x}}, f"presets.list[1].{sec}.{k}"))
+        for sec, cid in (("encoders", "e"), ("pads", "p")):
+            keys = gd.PRESET_ITEM[sec].sub_keys().without("nrpn", "rpn")    # (they need a mode that takes them)
+            n += self.slot_2(keys, lambda k, x: ({sec: {cid: {k: x}}}, f"presets.list[1].{sec}.{cid}.{k}"))
+        self.assertGreater(n, 30)
+
 
 if __name__ == "__main__":
     unittest.main()

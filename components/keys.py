@@ -24,6 +24,7 @@ A leaf module, like api.py: components import it at load time.
 """
 
 import copy
+import re
 
 MISSING = object()
 
@@ -336,6 +337,13 @@ class Key:
             assert hasattr(k, f), f
             setattr(k, f, x)
         return k
+
+    def elsewhere(self, readme):
+        """This key in another page's table (a preset's overrides, a mode's layer entries): a `see` naming a
+        heading of its own component's README (readme, from the repo root) names that README too."""
+        if self.see and not re.match(r"[\w./-]+\.md", self.see):
+            return self.but(see=f'{readme} "{self.see}"')
+        return self
 
     def schema(self):
         """The key's JSON schema: its type's, with the doc line and default for the editor's hover."""

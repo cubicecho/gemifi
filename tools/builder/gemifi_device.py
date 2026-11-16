@@ -194,27 +194,50 @@ def stored_counts(dev):
     return out[PRESET], out[GLOBAL]
 
 
-# The per-preset globals a preset may set (§10.2): YAML section -> key -> (param, default, kind, lo, hi).
-# Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
-# enum's YAML names in value order.
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
+# The per-preset globals a preset may set (§10.2), as data (components/keys.py): YAML section -> its keys,
+# each starting a per-preset param. Defaults and ranges as in core/src/settings.c; a time is whole ms. A
+# key without a default (pad_settings') starts at the device's own value (the top-level pad_settings:).
 PRESET_GLOBALS = {
-    "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
-             "transpose": ("midi.transpose", 0, "int", -24, 24),
-             "octave": ("midi.octave", 0, "int", -4, 4)},
-    "velocity": {"curve": ("velocity.curve", 0, CURVES, 0, 3),
-                 "fixed": ("velocity.fixed", 100, "int", 1, 127)},
-    "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
-    "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
-    # default: the device's own pad_settings: (a function of the device)
-    "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
-                     "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
-                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1),
-                     "octave": ("pad.octave", 0, "int", -4, 4)},
+    "midi": _Keys(
+        _Key("channel", _Int(1, 16), default=1, param="midi.channel", doc="The MIDI channel the device plays on."),
+        _Key("transpose", _Int(-24, 24), default=0, param="midi.transpose",
+             doc="Semitones the keys' notes are moved by (the transpose buttons step it)."),
+        _Key("octave", _Int(-4, 4), default=0, param="midi.octave",
+             doc="Octaves the keys' notes are moved by (the octave buttons step it)."),
+    ),
+    "velocity": _Keys(
+        _Key("curve", _Enum(CURVES), default="normal", param="velocity.curve",
+             doc="How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only."),
+        _Key("fixed", _Int(1, 127), default=100, param="velocity.fixed",
+             doc="The velocity of curve `fixed`, and of the `note` buttons."),
+    ),
+    "bend": _Keys(_Key("glide", _Period(0, 2_000_000, step_us=1000, example="80ms"), default="80ms",
+                       param="bend.glide", doc="How long the pitch-bend buttons take to glide to full bend and back.")),
+    "ramp": _Keys(_Key("time", _Period(0, 5_000_000, step_us=1000, example="80ms"), default="300ms",
+                       param="ramp.time", doc="How long a `cc_ramp` button takes to glide from 0 to 127 and back.")),
+    "pad_settings": _Keys(
+        *(pads.PAD_SETTINGS[k].but(default=None, shown_default="`pad_settings:`'s").elsewhere(
+            "components/pads/README.md") for k in
+          ("channel", "curve", "aftertouch")),
+        _Key("octave", _Int(-4, 4), default=0, param="pad.octave",
+             doc="Octaves the pads' notes are moved by (the pad octave buttons step it)."),
+    ),
 }
+
+
+def preset_base(dev, key):
+    """Slot 1's value of a per-preset global (an override equal to it is dropped), in its param's units."""
+    if key.default is None:                     # pad_settings': the device's own
+        return dev.pad_set[key.name]
+    if isinstance(key.type, _Enum):
+        return key.type.values.index(key.default)
+    if isinstance(key.type, _Period):
+        return int(key.default.removesuffix("ms"))
+    return key.default
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
     "midi": {"transport": "the MIDI transport is the device's (the same in every preset): set it in the "
@@ -231,17 +254,52 @@ def _preset_keys(spec):
     return [k.name for k in spec if k.param], [k.name for k in spec if not k.param]
 
 
+PRESET_SPECS = {"buttons": buttons.BUTTON, "analog": analog.ANALOG, "encoders": encoders.ENCODER, "pads": pads.PAD}
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", *_preset_keys(buttons.BUTTON)),
     "analog": ("analog input", "analog inputs", *_preset_keys(analog.ANALOG)),
     "encoders": ("encoder", "encoders", *_preset_keys(encoders.ENCODER)),
     "pads": ("pad", "pads", *_preset_keys(pads.PAD)),
 }
-PRESET_KEYS = ["name", "program", "bank", *PRESET_GLOBALS, *PRESET_COMPONENTS]
-PRESETS_KEYS = ["slots", "revision", "list"]
 MAX_PRESETS = 64
 PRESET_NAME_LEN = 16           # config_store.h CS_NAME_LEN
 PRESET_REVISION_MAX = 0x3FFF
+_SLOT_1 = " Not in slot 1, which is the rest of the file."
+
+
+def _override(k, sec):
+    """A component's key as a preset sets it: left out, the component's own value."""
+    return k.elsewhere(f"components/{sec}/README.md").but(required=False, default=None, shown_default=None)
+
+
+# One presets.list item (core/README.md "Presets"), checked by validate_presets(): its name, its Program
+# Change, and what differs from slot 1: the per-preset globals and, by component id, the component keys that
+# start a per-preset param (each the component's own Key).
+PRESET_ITEM = _Keys(
+    _Key("name", _Str(), shown_default="`Default` (slot 1), `Preset N`",
+         doc=f"Its name: up to {PRESET_NAME_LEN} printable ASCII characters, unique."),
+    _Key("program", _Int(0, 127), param="preset.program", doc="The Program Change sent when it is selected."),
+    _Key("bank", buttons.BANK, param="preset.bank", see='core/README.md "MIDI messages"',
+         doc="With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`."),
+    *(_Key(sec, _Map(keys), doc=f"What it changes of the per-preset `{sec}` settings.{_SLOT_1}")
+      for sec, keys in PRESET_GLOBALS.items()),
+    *(_Key(sec, _ById(kind, _Map(_Keys(*(_override(k, sec) for k in PRESET_SPECS[sec] if k.name in allowed)))),
+           doc=f"By {kind} id, what differs from the {kind}'s own keys.{_SLOT_1}")
+      for sec, (kind, _pl, allowed, _hw) in PRESET_COMPONENTS.items()),
+)
+PRESET_KEYS = PRESET_ITEM.names
+PRESETS_SPEC = _Keys(
+    _Key("slots", _Int(2, MAX_PRESETS), shown_default="the number listed",
+         doc="The preset slots, at least the number listed: the ones not listed start as copies of slot 1."),
+    _Key("revision", _Int(0, PRESET_REVISION_MAX), default=0,
+         doc="Bump it when the YAML's presets change: the updater then offers to load them."),
+    _Key("list", _List(_Map(PRESET_ITEM)), doc="The presets, slot 1 first: its values are the rest of the file."),
+)
+PRESETS_KEYS = PRESETS_SPEC.names
+# The Core area (core/yaml/presets.md)
+PRESETS_AREA = _Keys(_Key("presets", _Map(PRESETS_SPEC), see='core/README.md "Presets"',
+                          doc="Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets "
+                              "are off (one slot)."))
 
 # ---- storage budget (§10.5) ----
 # Worst-case record, in 32-bit words: header (magic, seq, slot|flags|revision, count) + a name + 2 per
@@ -2902,7 +2960,7 @@ def preset_slots(v, dev, data):
     # isn't reported as well; the build stops on the error anyway.
     dev.slots_invalid = is_slots_bad or is_one_slot
     dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
-    dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
+    dev.presets_revision = PRESETS_SPEC.get(v, ps, "revision", "presets")
 
 
 def validate_presets(v, dev, data):
@@ -2936,7 +2994,7 @@ def validate_presets(v, dev, data):
             v.err(f"{p}.name" if "name" in d else p, d.line_of("name"),
                   f"'{name}' is already the name of {pth} (line {ln}): preset names are unique")
         names.setdefault(name.lower(), (p, d.line_of("name")))
-        program = v.integer(d, "program", p, 0, 127, default=-1)
+        program = PRESET_ITEM.get(v, d, "program", p, default=-1)
         vals = preset_bank(v, dev, d, p, program)
         if slot == 1:
             for k in d:
@@ -2987,10 +3045,11 @@ def preset_values(v, dev, d, p):
         if sec not in d:
             continue
         sp, sl = f"{p}.{sec}", d.line_of(sec)
-        g = v.mapping(d[sec], sp, sl, list(keys), renamed=PRESET_NOT_HERE.get(sec))
+        g = v.mapping(d[sec], sp, sl, keys.names, renamed=PRESET_NOT_HERE.get(sec))
         if g is None:
             continue
-        for k, (param, default, kind, lo, hi) in keys.items():
+        for key in keys:
+            k, param, typ = key.name, key.param, key.type
             if k not in g:
                 continue
             kp, kl = f"{sp}.{k}", g.line_of(k)
@@ -3000,20 +3059,14 @@ def preset_values(v, dev, d, p):
                        if param.startswith("pad.") else "the device has no buttons")
                 v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
                 continue
-            if callable(default):
-                default = default(dev)
-            if kind == "int":
-                val, shown = v.integer(g, k, sp, lo, hi), None
-            elif kind == "bool":
+            if isinstance(typ, _Bool):         # (Bool's check reads a wrong value as false)
                 val = v.boolean(g, k, sp, default=None)
                 val, shown = (None, None) if val is None else (int(val), str(val).lower())
-            elif kind == "ms":
-                val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
-                shown = f"{val} ms"
             else:
-                val = v.enum_value(g, k, kp, kind)
-                shown = None if val is None else kind[val]
-            put(param, 0, val, default, kp, kl, param, shown)
+                val = keys.get(v, g, k, sp, default=None)
+                shown = (None if val is None or isinstance(typ, _Int) else f"{val} ms" if isinstance(typ, _Period)
+                         else typ.values[val])
+            put(param, 0, val, preset_base(dev, key), kp, kl, param, shown)
 
     for sec, (kind, plural, allowed, hw) in PRESET_COMPONENTS.items():
         if sec not in d:
@@ -4220,4 +4273,5 @@ def write_generated(dev, out_dir, source):
 # component's (KEY_SECTIONS, a hub list); tests/test_core_keys.py checks.
 CORE_AREAS = {
     "device": DEVICE_KEYS,
+    "presets": PRESETS_AREA,
 }

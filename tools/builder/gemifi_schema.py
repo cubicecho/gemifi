@@ -3,8 +3,9 @@
 Built from the validator's own tables in gemifi_device.py (TOP_KEYS, BUTTON_KEYS, HUB_KEYS, ACTIONS,
 CURVES, ...), so a key the validator learns shows up here too. The validator stays the authority:
 the schema gives completion and catches unknown keys and wrong types, the builder checks the rest.
-A component whose keys are data (components/keys.py: encoders, tm1637) gives its own types, with each
-key's doc line and default for the editor's hover; the same data is the key table on its docs page:
+A component whose keys are data (components/keys.py: encoders, the hub types, the display platforms, the
+i2c: buses) gives its own types, with each key's doc line and default for the editor's hover; the same data
+is the key table on its docs page:
 
     gemifi_build.py schema -o site/src/schema/device.json   # published at SCHEMA_URL
     gemifi_build.py keys -o site/src/_data/component_keys.json
@@ -65,14 +66,6 @@ KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
 # channel:, min: and max: on a button, analog input or encoder (build time only)
 CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
 
-# hub keys: pins are `*_pin` and `pin_s*`
-HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("integer", minimum=1),
-             "intensity": T("integer", minimum=0, maximum=7), "grids": T("integer", minimum=4, maximum=7),
-             "fade": BOOL,
-             "touch_min": T("integer", minimum=0, maximum=4095), "touch_max": T("integer", minimum=0, maximum=4095),
-             "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
-
-
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
 
@@ -113,23 +106,8 @@ def bare(s):
 
 
 def hub_key_types(typ):
-    """The JSON schema types of a hub type's keys, by key."""
-    keys = gd.HUB_KEYS[typ]
-    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
-    types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
-    types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in gd.HUB_DEFS[typ].schema.items()})
-    types.update({k: v for k, v in matrix_lines().items() if k in keys})
-    if typ in gd.ROW_HUBS:
-        types["address"] = lst(ref("pin"), "the address pins, A0 first")
-    elif "address" in keys:
-        types["address"] = T("integer", minimum=0x08, maximum=0x77)
-    types["id"] = ref("id")
-    if "i2c_id" in keys:
-        types["i2c_id"] = ref("id")
-    spec = gd.HUB_DEFS[typ].spec
-    if spec is not None:
-        types.update(spec.types())
-    return types
+    """The JSON schema types of a hub type's keys, by key: its spec's (every hub type has one)."""
+    return gd.HUB_DEFS[typ].spec.types()
 
 
 def screen():
@@ -139,7 +117,7 @@ def screen():
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
     types = {}
     for t in plats:
-        for k, s in (t.spec.types() if t.spec is not None else {}).items():
+        for k, s in t.spec.types().items():
             types[k] = widest(types[k], s) if k in types else s
     types["platform"] = enum(gd.DISPLAY_PLATFORMS)
     return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +

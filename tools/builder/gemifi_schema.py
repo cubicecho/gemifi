@@ -3,8 +3,9 @@
 Built from the validator's own tables in gemifi_device.py (TOP_KEYS, BUTTON_KEYS, HUB_KEYS, ACTIONS,
 CURVES, ...), so a key the validator learns shows up here too. The validator stays the authority:
 the schema gives completion and catches unknown keys and wrong types, the builder checks the rest.
-A component whose keys are data (components/keys.py: encoders, tm1637) gives its own types, with each
-key's doc line and default for the editor's hover; the same data is the key table on its docs page:
+A component whose keys are data (components/keys.py: encoders, the hub types, the display platforms, the
+i2c: buses) gives its own types, with each key's doc line and default for the editor's hover; the same data
+is the key table on its docs page:
 
     gemifi_build.py schema -o site/src/schema/device.json   # published at SCHEMA_URL
     gemifi_build.py keys -o site/src/_data/component_keys.json
@@ -17,7 +18,6 @@ import json
 import gemifi_device as gd
 import gemifi_yaml as gy
 import components
-from components import encoders
 from components.keys import Section, T, enum, lst, one_of, ref, sub as _sub
 
 SCHEMA_URL = "https://cubicecho.github.io/gemifi/schema/device.json"
@@ -27,10 +27,10 @@ REUSE_KEYS = ["substitutions", "packages", "min_version"]   # gemifi_yaml.py use
 
 
 def obj(keys, types=None, desc=None, extra=None):
-    """A mapping with exactly `keys` (the validator's list), typed from `types` where known."""
+    """A mapping with exactly `keys` (the validator's list), typed from `types` where known. (A component's
+    keys are typed by its spec, components/keys.py; this is for the device's own sections.)"""
     types = types or {}
-    s = {"type": "object", "properties": {k: types.get(k, KEY_TYPES.get(k, {})) for k in keys},
-         "additionalProperties": False}
+    s = {"type": "object", "properties": {k: types.get(k, {}) for k in keys}, "additionalProperties": False}
     if desc:
         s["description"] = desc
     if extra:
@@ -40,41 +40,11 @@ def obj(keys, types=None, desc=None, extra=None):
 
 
 INT7 = T("integer", minimum=0, maximum=127)
-INT14 = T("integer", minimum=0, maximum=16383)
-NOTE = one_of(T("integer", minimum=0, maximum=127), {"type": "string"})
 PERIOD = ref("period")
 BOOL = T("boolean")
 STR = {"type": "string"}
 ID_REF = {"type": "string", "description": "the id of another component"}
-LOOK = {"type": ["string", "boolean"], "description": "an LED look: off, on, or a colour (" +
-        ", ".join(n for n in gd.LED_LOOK_NAMES if n != "off") + ")"}
-
-# What a key means wherever it appears, unless the section says otherwise (obj(types=...)).
-KEY_TYPES = {
-    "id": ref("id"), "name": STR, "pin": ref("pin"), "pin2": ref("pin"), "pin3": ref("pin"),
-    "pin_a": ref("pin"), "pin_b": ref("pin"), "cc": INT7, "note": NOTE, "preset": T("integer", minimum=1),
-    "action": enum(gd.ACTIONS), "led": ID_REF, "daw": STR, "mcu": STR, "idle": LOOK, "active": LOOK,
-    "channel": T("integer", minimum=0, maximum=16), "settle": PERIOD, "delay": PERIOD, "timer": {},
-    "dma": BOOL, "address": T("integer"), "count": T("integer", minimum=1),
-    # MIDI messages (core/README.md "MIDI messages")
-    "program": INT7, "mmc": one_of(enum(gd.MMC_COMMANDS), T("integer", minimum=1, maximum=127)),
-    "sysex": {"type": "string", "description": "the id of a midi_messages.sysex string"},
-    "nrpn": INT14, "rpn": INT14,
-}
-KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
-# an action list (components/buttons/README.md "Action lists"), on a button, a gesture, a combo, a twin, a preset
-# (one definition, action_list(), that each of them refers to)
-KEY_TYPES["actions"] = ref("action_list")
-# channel:, min: and max: on a button, analog input or encoder (build time only)
-CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
-
-# hub keys: pins are `*_pin` and `pin_s*`
-HUB_TYPES = {"sr_count": T("integer", minimum=1, maximum=4), "ram_bytes": T("integer", minimum=1),
-             "intensity": T("integer", minimum=0, maximum=7), "grids": T("integer", minimum=4, maximum=7),
-             "fade": BOOL,
-             "touch_min": T("integer", minimum=0, maximum=4095), "touch_max": T("integer", minimum=0, maximum=4095),
-             "rows_per_scan": T("integer", minimum=1, maximum=32), "groups": {}}
-
+LOOK = gd.leds.Look().schema()
 
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
@@ -89,8 +59,21 @@ def hub_domain(domain):
         for k, t in hub_key_types(typ).items():
             types[k] = widest(types[k], t) if k in types else t
     types["platform"] = enum(plats)
-    return lst(obj(keys, types), f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
-                                 f"(components/{domain}/README.md)")
+    item = by_platform(obj(keys, types), {typ: (gd.HUB_KEYS[typ], hub_key_types(typ)) for typ in plats})
+    return lst(item, f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
+                     f"(components/{domain}/README.md)")
+
+
+def by_platform(item, plats):
+    """An item of a list whose items each name a platform (led_strip:, led_driver:, display:): the keys of
+    all of them (item), and for each platform (plats: name -> (its keys, their types)) only its own keys,
+    typed and described as its spec says, so an editor offers and explains that platform's keys and flags
+    another's (JSON schema if / then)."""
+    item["allOf"] = [{"if": {"properties": {"platform": {"const": p}}, "required": ["platform"]},
+                      "then": {"properties": {k: {} if k == "platform" else types.get(k, {}) for k in keys},
+                               "additionalProperties": False}}
+                     for p, (keys, types) in plats.items()]
+    return item
 
 
 def widest(a, b):
@@ -116,37 +99,22 @@ def bare(s):
 
 
 def hub_key_types(typ):
-    """The JSON schema types of a hub type's keys, by key."""
-    keys = gd.HUB_KEYS[typ]
-    types = {k: ref("pin") for k in keys if k.endswith("_pin") or k.startswith("pin_") or k == "pin"}
-    types.update({k: v for k, v in HUB_TYPES.items() if k in keys})
-    types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in gd.HUB_DEFS[typ].schema.items()})
-    types.update({k: v for k, v in matrix_lines().items() if k in keys})
-    if typ in gd.ROW_HUBS:
-        types["address"] = lst(ref("pin"), "the address pins, A0 first")
-    elif "address" in keys:
-        types["address"] = T("integer", minimum=0x08, maximum=0x77)
-    types["id"] = ref("id")
-    if "i2c_id" in keys:
-        types["i2c_id"] = ref("id")
-    spec = gd.HUB_DEFS[typ].spec
-    if spec is not None:
-        types.update(spec.types())
-    return types
+    """The JSON schema types of a hub type's keys, by key: its spec's (every hub type has one)."""
+    return gd.HUB_DEFS[typ].spec.types()
 
 
 def screen():
-    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys)."""
+    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys: their types
+    from its spec, the wider where platforms share a key)."""
     plats = list(gd.DISPLAY_PLATFORMS.values())
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
-    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS), "i2c_id": ref("id")}
+    types = {}
     for t in plats:
-        types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in t.schema.items()})
-        types.update({k: enum(vals) for k, vals in t.enums.items()})
-        if t.i2c:
-            # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
-            types["address"] = T("integer", minimum=0x08, maximum=0x7A)
-    return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
+        for k, s in t.spec.types().items():
+            types[k] = widest(types[k], s) if k in types else s
+    types["platform"] = enum(gd.DISPLAY_PLATFORMS)
+    item = by_platform(obj(keys, types), {name: (t.keys, t.spec.types()) for name, t in gd.DISPLAY_PLATFORMS.items()})
+    return lst(item, "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
                ", ... } (components/display/README.md); text displays name one with display: <id>")
 
 
@@ -157,27 +125,25 @@ def matrix_lines():
             "columns": lst(ref("pin"))}
 
 
+def section_keys(yaml_key):
+    """The Keys of a component's section (KEY_SECTIONS), by its YAML key."""
+    return next(s.keys for s in key_sections() if s.yaml_key == yaml_key)
+
+
 def action_list():
-    """actions: (components/buttons/README.md "Action lists"): the messages a press sends, in order."""
-    item = obj(gd.buttons.ITEM_KEYS, {"action": enum(gd.buttons.ITEM_ACTIONS), "value": INT7,
-                                      "channel": T("integer", minimum=1, maximum=16)})
-    return lst(one_of(enum(gd.buttons.ITEM_ACTIONS), item),
+    """actions: (components/buttons/README.md "Action lists"): the messages a press sends, in order (the
+    definition every actions: key refers to, components/buttons ACTION_LIST)."""
+    return lst(one_of(enum(gd.buttons.ITEM_ACTIONS), gd.buttons.ITEM.schema()),
                "messages sent in order at the press: an action's name, or { cc / note / program / mmc / sysex, "
                "value, bank, channel }")
-
-
-def gesture():
-    """A button's hold: (components/buttons/README.md "Gestures"): an action's name, or the keys of an action."""
-    return one_of(enum(a for a in gd.ACTIONS if a not in gd.buttons.NOT_GESTURE_ACTIONS),
-                  obj(gd.buttons.GESTURE_KEYS))
 
 
 def presets():
     comps = {}
     for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
-        types = {"mode": enum(gd.ENC_MODES if sec == "encoders" else gd.ANALOG_MODES)}
+        spec = section_keys(sec)
         comps[sec] = {"type": "object", "description": f"per {sec[:-1] if sec.endswith('s') else sec} id",
-                      "additionalProperties": obj(allowed, types)}
+                      "additionalProperties": obj(allowed, {k: spec[k].schema() for k in allowed})}
     globs = {}
     for sec, keys in gd.PRESET_GLOBALS.items():
         types = {}
@@ -185,7 +151,7 @@ def presets():
             types[k] = (enum(kind) if isinstance(kind, list) else PERIOD if kind == "ms" else BOOL
                         if kind == "bool" else T("integer", minimum=lo, maximum=hi))
         globs[sec] = obj(list(keys), types)
-    item = obj(gd.PRESET_KEYS, {"program": INT7, **globs, **comps})
+    item = obj(gd.PRESET_KEYS, {"name": STR, "program": INT7, "bank": gd.buttons.BANK.schema(), **globs, **comps})
     return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=2, maximum=gd.MAX_PRESETS),
                                  "revision": T("integer", minimum=0, maximum=gd.PRESET_REVISION_MAX),
                                  "list": lst(item)}, "preset slots (core/README.md \"Presets\")")
@@ -193,11 +159,16 @@ def presets():
 
 def modes():
     toggle = one_of(ID_REF, obj(["button", "with"], {"button": ID_REF, "with": ID_REF}))
-    layer_entry = obj(sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS)),
-                      {"name": STR, "cc": one_of(INT7, {"const": "none"}), "preset": T("integer", minimum=1)})
-    step = obj(gd.STEP_KEYS, {"enabled": BOOL, "colour": LOOK, "layer": {"type": "object",
-                                                                          "additionalProperties": layer_entry}})
+    # a layer entry takes keys of a button, a pad or an encoder (components/modes), typed as theirs
+    layer_keys = sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS))
+    specs = [section_keys(s) for s in ("buttons", "pads", "encoders", "leds")]   # idle:/active: are an LED's
+    layer_types = {k: next(sp[k].schema() for sp in specs if k in sp.by_name) for k in layer_keys
+                   if any(k in sp.by_name for sp in specs)}
+    layer_entry = obj(layer_keys, {**layer_types, "cc": one_of(INT7, {"const": "none"})})
+    step = obj(gd.STEP_KEYS, {"id": ref("id"), "name": STR, "enabled": BOOL, "colour": LOOK,
+                              "layer": {"type": "object", "additionalProperties": layer_entry}})
     item = obj(gd.MODE_KEYS, {
+        "id": ref("id"), "name": STR, "daw": STR,
         "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})),
         "one_shot": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
         "parent": ID_REF, "preset_blink": {},
@@ -261,14 +232,11 @@ def device_schema():
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
-        "i2c": one_of(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")},
-                          "one I2C bus (its id optional)"),
-                      lst(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")}),
-                          "I2C buses, each with an id that I2C components name with i2c_id:")),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
-            "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),
-            "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS))}),
+            "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL, "settle": PERIOD,
+                                                   "timer": {}}),
+            "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS, {"timer": {}}))}),
         "boot_combo": lst(ID_REF),
         # safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED")
         "factory_reset_combo": one_of(
@@ -285,38 +253,11 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES},
-                                            "repeat": BOOL})),
-        "combos": lst(obj(gd.buttons.COMBO_KEYS, {"buttons": lst(ID_REF)}),
-                      "buttons pressed together that run an action of their own (components/buttons/README.md "
-                      "\"Combos\")"),
-        "button_settings": obj(gd.buttons.BUTTON_SETTINGS_KEYS, {k: PERIOD for k in gd.buttons.BUTTON_SETTINGS_KEYS},
-                               "the gestures' timing (components/buttons/README.md \"Gestures\")"),
-        "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
-        "leds": lst(obj(gd.LED_KEYS, {
-            "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),
-            "owner": enum(gd.LED_OWNERS), "timeout": one_of(PERIOD, {"const": "never"})})),
-        "analog": lst(obj(gd.ANALOG_KEYS, {**CTL_TYPES, "mode": enum(gd.ANALOG_MODES),
-                                           "adc_min": T("integer", minimum=0, maximum=4095),
-                                           "adc_max": T("integer", minimum=0, maximum=4095),
-                                           "takeover": enum(gd.TAKEOVER), "touch": enum(gd.TOUCH)})),
-        "encoders": lst(encoders.ENCODER.schema()),
-        "encoder_settings": encoders.ENCODER_SETTINGS.schema(),
-        "key_matrix": obj(gd.MATRIX_KEYS, {
-            "type": enum(["switch", "velocity"]), "contacts": enum(["columns", "rows"]), **matrix_lines(),
-            "key_map": lst(lst(one_of(INT7, {"type": "null"}))),
-            "keys": T("integer", minimum=1, maximum=128), "first_note": INT7,
-            "velocity": obj(gd.VELOCITY_KEYS, {"fast": PERIOD, "slow": PERIOD})}),
-        "pads": lst(obj(gd.PAD_KEYS)),
-        "pad_settings": obj(gd.PAD_SETTINGS_KEYS, {"curve": enum(gd.CURVES), "aftertouch": BOOL,
-                                                   "threshold": T("integer", minimum=1, maximum=4095),
-                                                   "release": T("integer", minimum=0, maximum=4094),
-                                                   "full": T("integer", minimum=2, maximum=4095),
-                                                   "window": PERIOD, "retrigger": PERIOD}),
         "presets": presets(),
         "modes": modes(),
         "display": screen(),
-        "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES), "shows": enum(gd.DISPLAY_SHOWS),
+        "displays": lst(obj(gd.DISPLAY_KEYS, {"id": ref("id"), "daw": STR, "type": enum(gd.DISPLAY_TYPES),
+                                              "shows": enum(gd.DISPLAY_SHOWS),
                                               "segment_step": T("integer", minimum=1, maximum=64),
                                               "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
                                                                                 for n in ns})),
@@ -330,17 +271,22 @@ def device_schema():
                                               "length": T("integer", minimum=1, maximum=gd.MAX_TEXT_CHARS)})),
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
                                       "port_name": STR, "thru": BOOL, "controller_out": BOOL,
-                                      "usb_to_din": BOOL}),
+                                      "usb_to_din": BOOL, "dma": BOOL}),
         "midi_messages": obj(gd.MIDI_MESSAGES_KEYS, {
             "enable": lst(enum([*gd.MSG_FEATURES, *gd.MSG_ALIASES])), "null_rpn": BOOL,
             "mmc_device_id": INT7,
-            "sysex": lst(obj(gd.SYSEX_KEYS, {"data": {"type": "string", "description": "hex bytes F0 .. F7, "
+            "sysex": lst(obj(gd.SYSEX_KEYS, {"id": ref("id"), "data":{"type": "string", "description": "hex bytes F0 .. F7, "
                                                       "with v, msb, lsb, ch and [ ... ] cs placeholders"}}))},
             "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"),
         "layout": layout(),
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),
     }
+    # the sections of the components whose keys are data (KEY_SECTIONS: components/keys.py)
+    for s in key_sections():
+        assert s.yaml_key not in top_types, f"{s.yaml_key}: in KEY_SECTIONS and written here too"
+        one, many = s.keys.schema(s.desc), lst(s.keys.schema(), s.desc)
+        top_types[s.yaml_key] = one_of(one, many) if s.is_list == "either" else many if s.is_list else one
     # the keys gemifi_yaml.py uses up before validation
     reuse = {
         "substitutions": {"type": "object", "description": "name: value, used as ${name} in string values",
@@ -384,15 +330,23 @@ def schema_text():
     return json.dumps(device_schema(), indent=2, ensure_ascii=False) + "\n"
 
 
+def key_sections():
+    """Every component's KEY_SECTIONS (the top-level YAML keys whose items' keys are data)."""
+    return [s for m in components.modules().values() for s in getattr(m, "KEY_SECTIONS", ())]
+
+
 def component_keys():
     """The key tables of the components whose keys are data (components/keys.py), for their docs pages:
     component name -> [its sections: where the keys go in the YAML, and each key's type, default, doc]. A
-    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES with a spec."""
+    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES and display platform of
+    its DISPLAY_PLATFORMS with a spec."""
     out = {}
     for name, m in components.modules().items():
         secs = list(getattr(m, "KEY_SECTIONS", ()))
         secs += [Section(t.domain or t.key, t.spec, platform=t.key if t.domain else None)
                  for t in getattr(m, "HUB_TYPES", ()) if t.spec is not None]
+        secs += [Section("display", t.spec, platform=t.platform)
+                 for t in getattr(m, "DISPLAY_PLATFORMS", ()) if t.spec is not None]
         if secs:
             out[name] = [s.doc() for s in secs]
     return out

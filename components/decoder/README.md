@@ -12,9 +12,11 @@ decoder:
       - { PB6: 0, PB7: 0 }     # outputs 16-23
 ```
 
-Its keys are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-`decoder` is one or more 74HC138-style chips sharing address lines: `address` (1–4 pins, A0 first), optional `groups` (1–4 mappings of enable pin to level, e.g. `{ PB6: 1, PB7: 0 }`). Output n = address n % 2^address-pins in group n / 2^address-pins. Its outputs are one-of-N row selects, so only matrix rows (`key_matrix`, `switch_matrix`), given as `rows: { decoder: rows, first: 16, count: 4 }` or `{ decoder: rows, number: n }` pins. An output is selected when its row is driven ("on") and stays selected until the next row's select replaces it ("off" does nothing). See [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+
+Output n = address n % 2^address-pins in group n / 2^address-pins. Its outputs are one-of-N row selects, so only matrix rows (`key_matrix`, `switch_matrix`), given as `rows: { decoder: rows, first: 16, count: 4 }` or `{ decoder: rows, number: n }` pins. An output is selected when its row is driven ("on") and stays selected until the next row's select replaces it ("off" does nothing). See [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
 
 ## Files
 

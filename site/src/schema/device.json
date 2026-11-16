@@ -212,17 +212,32 @@
           "type": "object",
           "properties": {
             "id": {
-              "$ref": "#/definitions/id"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/id"
+                }
+              ],
+              "description": "What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."
             },
             "sda": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The data pin (SDA), an MCU pin."
             },
             "scl": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The clock pin (SCL), an MCU pin."
             }
           },
           "additionalProperties": false,
-          "description": "one I2C bus (its id optional)"
+          "description": "one I2C bus (its id optional), or a list of them, each with an id that I2C components name with i2c_id:"
         },
         {
           "type": "array",
@@ -230,18 +245,33 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."
               },
               "sda": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin (SDA), an MCU pin."
               },
               "scl": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The clock pin (SCL), an MCU pin."
               }
             },
             "additionalProperties": false
           },
-          "description": "I2C buses, each with an id that I2C components name with i2c_id:"
+          "description": "one I2C bus (its id optional), or a list of them, each with an id that I2C components name with i2c_id:"
         }
       ]
     },
@@ -474,19 +504,44 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ sn74hc595: <id>, number: n }`."
               },
               "data_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The serial data in (SER)."
               },
               "clock_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The shift clock (SRCLK)."
               },
               "latch_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The latch (RCLK): a pulse puts the shifted bits on the outputs."
               },
               "oe_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The output enable (/OE), driven low. Leave it out when /OE is tied low."
               },
               "sr_count": {
                 "anyOf": [
@@ -498,7 +553,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 8 outputs each (8..15 on the second). Default: 1.",
+                "default": 1
               }
             },
             "additionalProperties": false
@@ -519,16 +576,36 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ sn74hc165: <id>, number: n }`."
               },
               "data_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The serial out (QH) of the chip nearest the MCU."
               },
               "clock_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The shift clock (CLK)."
               },
               "load_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The load pin (SH/LD): the inputs are loaded while it is low."
               },
               "sr_count": {
                 "anyOf": [
@@ -540,7 +617,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 8 inputs each (8..15 on the second). Default: 1.",
+                "default": 1
               }
             },
             "additionalProperties": false
@@ -561,25 +640,60 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its channels name: `{ cd74hc4051: <id>, number: n }`."
               },
               "pin_s0": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S0: bit 0 of the channel."
               },
               "pin_s1": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S1: bit 1 of the channel."
               },
               "pin_s2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S2: bit 2 of the channel."
               },
               "common_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
               },
               "enable_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The enable pin (/E), driven low. Leave it out when /E is tied low."
               },
               "delay": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after switching channel before a read (`0us` is the default too). Default: 2us."
               }
             },
             "additionalProperties": false
@@ -600,28 +714,68 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its channels name: `{ cd74hc4067: <id>, number: n }`."
               },
               "pin_s0": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S0: bit 0 of the channel."
               },
               "pin_s1": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S1: bit 1 of the channel."
               },
               "pin_s2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S2: bit 2 of the channel."
               },
               "pin_s3": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Select line S3: bit 3 of the channel."
               },
               "common_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The common pin (SIG): on an ADC pin the channels read analog, on another MCU pin digital."
               },
               "enable_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The enable pin (/E), driven low. Leave it out when /E is tied low."
               },
               "delay": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after switching channel before a read (`0us` is the default too). Default: 2us."
               }
             },
             "additionalProperties": false
@@ -642,7 +796,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ mcp23xxx: <id>, number: n }`."
               },
               "address": {
                 "anyOf": [
@@ -654,10 +813,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27. Default: 0x20.",
+                "default": 32
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
             "additionalProperties": false
@@ -678,7 +840,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ pcf8574: <id>, number: n }`."
               },
               "address": {
                 "anyOf": [
@@ -690,10 +857,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27, PCF8574A 0x38-0x3F. Default: 0x20.",
+                "default": 32
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
             "additionalProperties": false
@@ -714,16 +884,53 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its outputs name: `rows: { decoder: <id>, first: n, count: n }`, or a pin `{ decoder: <id>, number: n }`."
               },
               "address": {
                 "type": "array",
                 "items": {
                   "$ref": "#/definitions/pin"
                 },
-                "description": "the address pins, A0 first"
+                "description": "The address pins (1..4), A0 first, shared by its chips."
               },
-              "groups": {}
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "description": "Its chips (1..4): each the levels of the enable pins that select it, e.g. `{ PB6: 1, PB7: 0 }`. At most 3 enable pins, the same ones in each. Default: one chip, no enable pins."
+              }
             },
             "additionalProperties": false
           },
@@ -743,7 +950,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ led_driver: <id>, number: n }`."
               },
               "platform": {
                 "anyOf": [
@@ -767,18 +979,26 @@
                 "$ref": "#/definitions/pin"
               },
               "stb_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The strobe pin (STB), one per chip."
               },
               "ram_bytes": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 16
                   },
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The display RAM bytes it writes: what the chip has (TM1628 14, TM1638 16) or what the board uses. Default: 14.",
+                "default": 14
               },
               "intensity": {
                 "anyOf": [
@@ -802,7 +1022,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The grids it is set to at start-up (the display-mode command). Left out, the chip keeps its own setting. Default: not sent."
               },
               "fade": {
                 "anyOf": [
@@ -812,13 +1033,25 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its brightness follows the host's LED colours, up to `intensity`. Default: false.",
+                "default": false
               },
               "din_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin, to the first chip's DIN. Chains can share it."
               },
               "cs_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The chip select (LOAD / CS), one per chain."
               },
               "num_chips": {
                 "anyOf": [
@@ -830,7 +1063,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 64 pins each. Default: 1.",
+                "default": 1
               },
               "scan_limit": {
                 "anyOf": [
@@ -842,7 +1077,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The digits each chip lights, DIG0 first; fewer light longer. Default: 8.",
+                "default": 8
               },
               "length": {
                 "anyOf": [
@@ -868,13 +1105,341 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by the board's address jumpers: usually 0x70-0x77. Default: 0x70.",
+                "default": 112
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "tm1628"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). Chips can share it."
+                    },
+                    "dio_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin (DIO), push-pull or open drain with a pull-up. Chips can share it."
+                    },
+                    "stb_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The strobe pin (STB), one per chip."
+                    },
+                    "ram_bytes": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 16
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The display RAM bytes it writes: what the chip has (TM1628 14, TM1638 16) or what the board uses. Default: 14.",
+                      "default": 14
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness, the chip's PWM, for every LED on it. Default: 7.",
+                      "default": 7
+                    },
+                    "grids": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 4,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The grids it is set to at start-up (the display-mode command). Left out, the chip keeps its own setting. Default: not sent."
+                    },
+                    "fade": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its brightness follows the host's LED colours, up to `intensity`. Default: false.",
+                      "default": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "max7219"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). Chains can share it."
+                    },
+                    "din_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin, to the first chip's DIN. Chains can share it."
+                    },
+                    "cs_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The chip select (LOAD / CS), one per chain."
+                    },
+                    "num_chips": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The chips in the chain, 64 pins each. Default: 1.",
+                      "default": 1
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 15
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness, the same on every chip. Default: 15.",
+                      "default": 15
+                    },
+                    "scan_limit": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The digits each chip lights, DIG0 first; fewer light longer. Default: 8.",
+                      "default": 8
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "tm1637"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). It can't be shared with another chip."
+                    },
+                    "dio_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin (DIO), push-pull or open drain with a pull-up. It can't be shared with another chip."
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness. Default: 7.",
+                      "default": 7
+                    },
+                    "length": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The grids (digits) it drives: pin = grid × 8 + segment. Default: 6.",
+                      "default": 6
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ht16k33"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 8,
+                          "maximum": 119
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its I2C address, set by the board's address jumpers: usually 0x70-0x77. Default: 0x70.",
+                      "default": 112
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 15
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness. Default: 15.",
+                      "default": 15
+                    },
+                    "i2c_id": {
+                      "type": "string",
+                      "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "led_driver hubs, ESPHome style: { id, platform: tm1628 | max7219 | tm1637 | ht16k33, ... } (components/led_driver/README.md)"
         },
@@ -892,7 +1457,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its switches name: `{ switch_matrix: <id>, number: n }`."
               },
               "rows": {
                 "anyOf": [
@@ -907,43 +1477,55 @@
                     "properties": {
                       "decoder": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The decoder hub whose outputs are the rows."
                       },
                       "first": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 0
+                            "minimum": 0,
+                            "maximum": 255
                           },
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its output that is the first row. Default: 0.",
+                        "default": 0
                       },
                       "count": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 1
+                            "minimum": 1,
+                            "maximum": 255
                           },
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The rows: its outputs from `first` on."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The row pins, driven in turn: MCU pins or decoder outputs, or a run of a decoder's outputs."
               },
               "columns": {
                 "type": "array",
                 "items": {
                   "$ref": "#/definitions/pin"
-                }
+                },
+                "description": "The column pins, read for each row: MCU inputs (at most 32)."
               },
               "settle": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after driving a row before it reads the columns. Default: 1us."
               },
               "rows_per_scan": {
                 "anyOf": [
@@ -955,7 +1537,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The rows read per scan, in turn, to spread a big panel over several scans. Default: all rows."
               }
             },
             "additionalProperties": false
@@ -976,7 +1559,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ led_strip: <id>, number: n }`."
               },
               "platform": {
                 "anyOf": [
@@ -992,16 +1580,27 @@
                 ]
               },
               "tx_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The UART TX pin to the board (PA2 on the Code 61)."
               },
               "rx_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The UART RX pin, to hear the board's answers. Left out, the LEDs are sent blind."
               },
               "count": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 256
                   },
                   {
                     "$ref": "#/definitions/substitution"
@@ -1016,16 +1615,237 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Sends through a DMA channel (stm32f1); `false` sends from the interrupt. Default: true.",
+                "default": true
               },
-              "gamma": {},
-              "white": {},
+              "gamma": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1.0,
+                    "maximum": 3.0
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ],
+                "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                "default": 1
+              },
+              "white": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 255
+                    },
+                    {
+                      "$ref": "#/definitions/substitution"
+                    }
+                  ]
+                },
+                "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+              },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin, to the first LED's DIN: any output on an ESP32, PA7 or PB15 on stm32f1."
               },
-              "order": {}
+              "order": {
+                "type": "string",
+                "description": "The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, `BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs. Default: GRB.",
+                "default": "GRB"
+              }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "maudio_pads"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_strip: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "tx_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The UART TX pin to the board (PA2 on the Code 61)."
+                    },
+                    "rx_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The UART RX pin, to hear the board's answers. Left out, the LEDs are sent blind."
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 32
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The LEDs on the board. Default: 16.",
+                      "default": 16
+                    },
+                    "dma": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Sends through a DMA channel (stm32f1); `false` sends from the interrupt. Default: true.",
+                      "default": true
+                    },
+                    "gamma": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 1.0,
+                          "maximum": 3.0
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                      "default": 1
+                    },
+                    "white": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ws2812"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_strip: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin, to the first LED's DIN: any output on an ESP32, PA7 or PB15 on stm32f1."
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The LEDs in the chain."
+                    },
+                    "order": {
+                      "type": "string",
+                      "description": "The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, `BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs. Default: GRB.",
+                      "default": "GRB"
+                    },
+                    "gamma": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 1.0,
+                          "maximum": 3.0
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                      "default": 1
+                    },
+                    "white": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "led_strip hubs, ESPHome style: { id, platform: maudio_pads | ws2812, ... } (components/led_strip/README.md)"
         },
@@ -1043,19 +1863,44 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its two inputs name: `{ xy_pad: <id>, number: x }` and `number: y`."
               },
               "x_plus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The X plate's + end, driven high to read X. Y is read on it when `x_minus_pin` has no ADC."
               },
               "x_minus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The X plate's - end, driven low to read X. Y is read on it if it has an ADC."
               },
               "y_plus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The Y plate's + end, driven high to read Y. X is read on it when `y_minus_pin` has no ADC."
               },
               "y_minus_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The Y plate's - end, driven low to read Y. X is read on it if it has an ADC."
               },
               "touch_min": {
                 "anyOf": [
@@ -1067,7 +1912,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The lowest reading that counts as a touch, below `touch_max`. Default: 570.",
+                "default": 570
               },
               "touch_max": {
                 "anyOf": [
@@ -1079,7 +1926,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The highest reading that counts as a touch. Default: 3430.",
+                "default": 3430
               }
             },
             "additionalProperties": false
@@ -1100,13 +1949,24 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Its input pin: an MCU pin, a hub's or a switch matrix's."
               },
               "action": {
                 "anyOf": [
@@ -1140,10 +2000,17 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                "default": "none"
               },
               "actions": {
-                "$ref": "#/definitions/action_list"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/action_list"
+                  }
+                ],
+                "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
               },
               "cc": {
                 "anyOf": [
@@ -1155,26 +2022,21 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
               },
               "note": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 127
-                      },
-                      {
-                        "$ref": "#/definitions/substitution"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
                   },
                   {
-                    "type": "string"
+                    "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The note, with action `note`. Can be changed on the device (button.number)."
               },
               "preset": {
                 "anyOf": [
@@ -1185,17 +2047,20 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
               },
               "led": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "An LED that shows its state (on while held, or the toggle's state)."
               },
               "mcu": {
-                "type": "string"
+                "type": "string",
+                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               },
               "program": {
                 "anyOf": [
@@ -1207,7 +2072,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
               },
               "mmc": {
                 "anyOf": [
@@ -1246,11 +2112,12 @@
                       }
                     ]
                   }
-                ]
+                ],
+                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
               },
               "sysex": {
                 "type": "string",
-                "description": "the id of a midi_messages.sysex string"
+                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
               },
               "bank": {
                 "anyOf": [
@@ -1279,7 +2146,9 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "CC 0's value. Default: 0.",
+                        "default": 0
                       },
                       "lsb": {
                         "anyOf": [
@@ -1291,12 +2160,15 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "CC 32's value. Default: 0.",
+                        "default": 0
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "Bank Select sent before the Program Change, with the program actions: 0..16383 or `{ msb, lsb }`."
               },
               "channel": {
                 "anyOf": [
@@ -1308,7 +2180,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The MIDI channel it sends on, instead of `midi.channel`."
               },
               "min": {
                 "anyOf": [
@@ -1320,7 +2193,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
               },
               "max": {
                 "anyOf": [
@@ -1332,7 +2206,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the top of its range (default: the mode's top)."
               },
               "hold": {
                 "anyOf": [
@@ -1401,10 +2276,17 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                        "default": "none"
                       },
                       "actions": {
-                        "$ref": "#/definitions/action_list"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/action_list"
+                          }
+                        ],
+                        "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
                       },
                       "cc": {
                         "anyOf": [
@@ -1416,26 +2298,21 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                       },
                       "note": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ]
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
                           },
                           {
-                            "type": "string"
+                            "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The note, with action `note`. Can be changed on the device (button.number)."
                       },
                       "preset": {
                         "anyOf": [
@@ -1446,7 +2323,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                       },
                       "program": {
                         "anyOf": [
@@ -1458,7 +2336,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                       },
                       "mmc": {
                         "anyOf": [
@@ -1497,19 +2376,22 @@
                               }
                             ]
                           }
-                        ]
+                        ],
+                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                       },
                       "sysex": {
                         "type": "string",
-                        "description": "the id of a midi_messages.sysex string"
+                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                       },
                       "mcu": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "What it does when held instead: an action, or a mapping of the action keys (what it leaves out is the button's)."
               },
               "double_tap": {
                 "anyOf": [
@@ -1578,10 +2460,17 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                        "default": "none"
                       },
                       "actions": {
-                        "$ref": "#/definitions/action_list"
+                        "anyOf": [
+                          {
+                            "$ref": "#/definitions/action_list"
+                          }
+                        ],
+                        "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
                       },
                       "cc": {
                         "anyOf": [
@@ -1593,26 +2482,21 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                       },
                       "note": {
                         "anyOf": [
                           {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 127
-                              },
-                              {
-                                "$ref": "#/definitions/substitution"
-                              }
-                            ]
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
                           },
                           {
-                            "type": "string"
+                            "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The note, with action `note`. Can be changed on the device (button.number)."
                       },
                       "preset": {
                         "anyOf": [
@@ -1623,7 +2507,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                       },
                       "program": {
                         "anyOf": [
@@ -1635,7 +2520,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                       },
                       "mmc": {
                         "anyOf": [
@@ -1674,19 +2560,22 @@
                               }
                             ]
                           }
-                        ]
+                        ],
+                        "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                       },
                       "sysex": {
                         "type": "string",
-                        "description": "the id of a midi_messages.sysex string"
+                        "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                       },
                       "mcu": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "What it does when pressed twice instead, as `hold:`."
               },
               "repeat": {
                 "anyOf": [
@@ -1696,7 +2585,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Runs a stepping action (octave, transpose, program, preset) again while it is held. Default: false.",
+                "default": false
               }
             },
             "additionalProperties": false
@@ -1718,14 +2609,16 @@
                 "string",
                 "boolean"
               ],
-              "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+              "description": "What every LED without its own `idle:` shows while off. Default: off.",
+              "default": "off"
             },
             "active": {
               "type": [
                 "string",
                 "boolean"
               ],
-              "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+              "description": "What every LED without its own `active:` shows while on. Default: on.",
+              "default": "on"
             }
           },
           "additionalProperties": false
@@ -1744,33 +2637,54 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "Its output pin (an RGB LED's red)."
               },
               "pin2": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "A bicolour LED's second colour, or an RGB LED's green."
               },
               "pin3": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "With `pin2`: an RGB LED's blue."
               },
               "idle": {
                 "type": [
                   "string",
                   "boolean"
                 ],
-                "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                "description": "What it shows while off. Default: off, or led_defaults:'s."
               },
               "active": {
                 "type": [
                   "string",
                   "boolean"
                 ],
-                "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                "description": "What it shows while on. Default: on, or led_defaults:'s."
               },
               "feedback": {
                 "type": "object",
@@ -1778,21 +2692,15 @@
                   "note": {
                     "anyOf": [
                       {
-                        "anyOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 127
-                          },
-                          {
-                            "$ref": "#/definitions/substitution"
-                          }
-                        ]
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
                       },
                       {
-                        "type": "string"
+                        "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "Follows the host's note: velocity 0 off, 1 blinking, 2..127 on."
                   },
                   "cc": {
                     "anyOf": [
@@ -1804,12 +2712,38 @@
                       {
                         "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "Follows the host's CC: 0 off, 1 blinking, 2..127 on."
                   },
-                  "clock": {},
-                  "transport": {},
+                  "clock": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "beat"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ],
+                    "description": "`beat`: lit for the first 16th of every beat (MIDI clock)."
+                  },
+                  "transport": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "playing"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ],
+                    "description": "`playing`: on at Start / Continue, off at Stop."
+                  },
                   "mcu": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "A Mackie Control LED (`play`, `rec_1` ...)."
                   },
                   "channel": {
                     "anyOf": [
@@ -1821,10 +2755,12 @@
                       {
                         "$ref": "#/definitions/substitution"
                       }
-                    ]
+                    ],
+                    "description": "With `note:` / `cc:`: the channel it listens on (default `midi.channel`)."
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "What the host lights it with: one of `note:`, `cc:`, `clock:`, `transport:`, `mcu:`."
               },
               "owner": {
                 "anyOf": [
@@ -1838,7 +2774,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Who drives it when both the host and the device want it. Default: feedback.led_owner."
               },
               "timeout": {
                 "anyOf": [
@@ -1846,12 +2783,23 @@
                     "$ref": "#/definitions/period"
                   },
                   {
-                    "const": "never"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "never"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
                   }
-                ]
+                ],
+                "description": "With owner `host_then_local`: how long the host's state holds before the device's comes back. Default: feedback.led_timeout."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               }
             },
             "additionalProperties": false
@@ -1871,13 +2819,24 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "What it reads: an ADC pin, a multiplexer channel or an XY pad axis."
               },
               "cc": {
                 "anyOf": [
@@ -1889,7 +2848,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device (analog.cc)."
               },
               "mode": {
                 "anyOf": [
@@ -1909,7 +2869,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device (analog.mode).",
+                "default": "cc"
               },
               "adc_min": {
                 "anyOf": [
@@ -1921,7 +2883,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The raw reading at the bottom of its travel. Greater than `adc_max` turns it around. Default: 0.",
+                "default": 0
               },
               "adc_max": {
                 "anyOf": [
@@ -1933,7 +2897,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The raw reading at the top of its travel. Default: 4095.",
+                "default": 4095
               },
               "takeover": {
                 "anyOf": [
@@ -1946,7 +2912,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "`pickup`: after the host sets a value, it stays silent until it reaches or crosses it. Needs DAW feedback. Default: none; pickup with mcu:.",
+                "default": "none"
               },
               "touch": {
                 "anyOf": [
@@ -1959,13 +2927,17 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "`movement`: it tells a DAW script when it is touched (moving) and let go. Default: none.",
+                "default": "none"
               },
               "mcu": {
-                "type": "string"
+                "type": "string",
+                "description": "Makes it a Mackie Control fader (`fader_1`..`fader_8`, `master`), which sends its own messages: no `mode:`, `channel:`, `min:` or `max:` then."
               },
               "daw": {
-                "type": "string"
+                "type": "string",
+                "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
               },
               "nrpn": {
                 "anyOf": [
@@ -1977,7 +2949,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "rpn": {
                 "anyOf": [
@@ -1989,11 +2962,12 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "sysex": {
                 "type": "string",
-                "description": "the id of a midi_messages.sysex string"
+                "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device (analog.cc)."
               },
               "channel": {
                 "anyOf": [
@@ -2005,7 +2979,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The MIDI channel it sends on, instead of `midi.channel`."
               },
               "min": {
                 "anyOf": [
@@ -2017,7 +2992,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the bottom of its range, in the mode's units (0..127, or 0..16383 in a 14-bit mode); greater than `max` turns it around."
               },
               "max": {
                 "anyOf": [
@@ -2029,7 +3005,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The value it sends at the top of its range (default: the mode's top)."
               }
             },
             "additionalProperties": false
@@ -2087,7 +3064,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device."
+                "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device (encoder.cc)."
               },
               "steps_per_detent": {
                 "anyOf": [
@@ -2213,7 +3190,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "What a turn sends. Default: absolute. Can be changed on the device.",
+                "description": "What a turn sends. Default: absolute. Can be changed on the device (encoder.mode).",
                 "default": "absolute"
               },
               "nrpn": {
@@ -2227,7 +3204,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
               },
               "rpn": {
                 "anyOf": [
@@ -2240,7 +3217,7 @@
                     "$ref": "#/definitions/substitution"
                   }
                 ],
-                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device."
+                "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
               },
               "channel": {
                 "anyOf": [
@@ -2392,7 +3369,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "`switch`: one contact per key; `velocity`: two, timed for the velocity."
             },
             "rows": {
               "anyOf": [
@@ -2407,40 +3385,47 @@
                   "properties": {
                     "decoder": {
                       "type": "string",
-                      "description": "the id of another component"
+                      "description": "The decoder whose outputs drive the rows."
                     },
                     "first": {
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": 0
+                          "minimum": 0,
+                          "maximum": 255
                         },
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its first output used. Default: 0.",
+                      "default": 0
                     },
                     "count": {
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": 1
+                          "minimum": 1,
+                          "maximum": 255
                         },
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "How many outputs, from `first`."
                     }
                   },
                   "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "The pins it drives, one row at a time: MCU pins, sn74hc595 pins, or a decoder's outputs."
             },
             "columns": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/pin"
-              }
+              },
+              "description": "The pins it reads: MCU pins or sn74hc165 pins (at most 32)."
             },
             "contacts": {
               "anyOf": [
@@ -2453,7 +3438,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "With type `velocity`: a key's two contacts are two columns of a row, or two rows of a column. Default: columns.",
+              "default": "columns"
             },
             "key_map": {
               "type": "array",
@@ -2478,7 +3465,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "description": "Which key sits where, when the wiring doesn't follow the default numbering: a list per row (pair), a key number or `null` per column (pair)."
             },
             "keys": {
               "anyOf": [
@@ -2490,7 +3478,8 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How many keys it has. Default: rows × columns (at most 128)."
             },
             "first_note": {
               "anyOf": [
@@ -2502,25 +3491,47 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The note of key 0, the lowest. Default: 48.",
+              "default": 48
             },
             "settle": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long a driven row settles before the columns are read. Default: 1us.",
+              "default": "1us"
             },
             "velocity": {
               "type": "object",
               "properties": {
                 "fast": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time between a key's two contacts that plays velocity 127 (`velocity.fast`). Default: 1.2ms. Can be changed on the device (velocity.fast).",
+                  "default": "1.2ms"
                 },
                 "slow": {
-                  "$ref": "#/definitions/period"
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/period"
+                    }
+                  ],
+                  "description": "The time that plays velocity 1 (`velocity.slow`). Longer than `fast`. Default: 120ms. Can be changed on the device (velocity.slow).",
+                  "default": "120ms"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "With type `velocity`: the key times for velocity 127 and 1."
             },
             "daw": {
-              "type": "string"
+              "type": "string",
+              "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
             }
           },
           "additionalProperties": false
@@ -2539,36 +3550,41 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "What it reads: an ADC pin or a multiplexer channel (`inverted: true` when pressure lowers the reading)."
               },
               "note": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 127
-                      },
-                      {
-                        "$ref": "#/definitions/substitution"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
                   },
                   {
-                    "type": "string"
+                    "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The note it plays. Can be changed on the device (pad.note)."
               },
               "led": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "An LED lit while the pad is held."
               }
             },
             "additionalProperties": false
@@ -2595,7 +3611,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The MIDI channel the pads play on (0: `midi.channel`). Per preset. Default: 0: midi.channel. Can be changed on the device (pad.channel).",
+              "default": 0
             },
             "curve": {
               "anyOf": [
@@ -2610,7 +3628,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset. Default: normal. Can be changed on the device (pad.curve).",
+              "default": "normal"
             },
             "aftertouch": {
               "anyOf": [
@@ -2620,7 +3640,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Polyphonic aftertouch while a pad is held. Per preset. Default: false. Can be changed on the device (pad.aftertouch).",
+              "default": false
             },
             "threshold": {
               "anyOf": [
@@ -2632,7 +3654,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`. Default: 200. Can be changed on the device (pad.threshold).",
+              "default": 200
             },
             "release": {
               "anyOf": [
@@ -2644,7 +3668,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Below this reading the pad is let go. Default: 100. Can be changed on the device (pad.release).",
+              "default": 100
             },
             "full": {
               "anyOf": [
@@ -2656,13 +3682,27 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The peak reading that plays velocity 127. Default: 3000. Can be changed on the device (pad.full).",
+              "default": 3000
             },
             "window": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long after the threshold a hit's peak is looked for. Default: 3ms. Can be changed on the device (pad.window).",
+              "default": "3ms"
             },
             "retrigger": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long after a release the pad can't start a new hit (against bounce and double hits). Default: 20ms. Can be changed on the device (pad.retrigger).",
+              "default": "20ms"
             }
           },
           "additionalProperties": false
@@ -2679,19 +3719,49 @@
           "type": "object",
           "properties": {
             "tap_time": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "A second press within this long is a double tap (`button.tap_time`). Default: 200ms. Can be changed on the device (button.tap_time).",
+              "default": "200ms"
             },
             "hold_time": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "Held this long, a press is a hold (`button.hold_time`). Default: 200ms. Can be changed on the device (button.hold_time).",
+              "default": "200ms"
             },
             "combo_time": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "Buttons pressed within this long of the first are pressed together (`button.combo_time`). Default: 50ms. Can be changed on the device (button.combo_time).",
+              "default": "50ms"
             },
             "repeat_delay": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long a button is held before it repeats (`button.repeat_delay`). Default: 500ms. Can be changed on the device (button.repeat_delay).",
+              "default": "500ms"
             },
             "repeat_rate": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "The time between repeats (`button.repeat_rate`). Default: 50ms. Can be changed on the device (button.repeat_rate).",
+              "default": "50ms"
             }
           },
           "additionalProperties": false,
@@ -2714,8 +3784,9 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "description": "the id of another component"
-                }
+                  "description": "the id of a button"
+                },
+                "description": "The buttons pressed together: 2 or more of the YAML's own, each once."
               },
               "action": {
                 "anyOf": [
@@ -2749,10 +3820,16 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "What it does: an action from the list, with its number key (`action:` or `actions:` is required)."
               },
               "actions": {
-                "$ref": "#/definitions/action_list"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/action_list"
+                  }
+                ],
+                "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
               },
               "cc": {
                 "anyOf": [
@@ -2764,26 +3841,21 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
               },
               "note": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 127
-                      },
-                      {
-                        "$ref": "#/definitions/substitution"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
                   },
                   {
-                    "type": "string"
+                    "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The note, with action `note`. Can be changed on the device (button.number)."
               },
               "preset": {
                 "anyOf": [
@@ -2794,7 +3866,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
               },
               "program": {
                 "anyOf": [
@@ -2806,7 +3879,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
               },
               "mmc": {
                 "anyOf": [
@@ -2845,14 +3919,16 @@
                       }
                     ]
                   }
-                ]
+                ],
+                "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
               },
               "sysex": {
                 "type": "string",
-                "description": "the id of a midi_messages.sysex string"
+                "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
               },
               "mcu": {
-                "type": "string"
+                "type": "string",
+                "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
               }
             },
             "additionalProperties": false
@@ -2941,7 +4017,9 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "CC 0's value. Default: 0.",
+                            "default": 0
                           },
                           "lsb": {
                             "anyOf": [
@@ -2953,7 +4031,9 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "CC 32's value. Default: 0.",
+                            "default": 0
                           }
                         },
                         "additionalProperties": false
@@ -3146,10 +4226,17 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                          "default": "none"
                         },
                         "actions": {
-                          "$ref": "#/definitions/action_list"
+                          "anyOf": [
+                            {
+                              "$ref": "#/definitions/action_list"
+                            }
+                          ],
+                          "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
                         },
                         "cc": {
                           "anyOf": [
@@ -3161,26 +4248,21 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`. Can be changed on the device (button.number)."
                         },
                         "note": {
                           "anyOf": [
                             {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 127
-                                },
-                                {
-                                  "$ref": "#/definitions/substitution"
-                                }
-                              ]
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 127
                             },
                             {
-                              "type": "string"
+                              "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The note, with action `note`. Can be changed on the device (button.number)."
                         },
                         "preset": {
                           "anyOf": [
@@ -3191,10 +4273,12 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                         },
                         "mcu": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...). Can be changed on the device (button.number)."
                         },
                         "program": {
                           "anyOf": [
@@ -3206,7 +4290,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                         },
                         "mmc": {
                           "anyOf": [
@@ -3245,11 +4330,12 @@
                                 }
                               ]
                             }
-                          ]
+                          ],
+                          "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "the id of a midi_messages.sysex string"
+                          "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                         }
                       },
                       "additionalProperties": false
@@ -3271,7 +4357,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed with mode `cc` unless `mcu:` is set. Can be changed on the device (analog.cc)."
                         },
                         "mode": {
                           "anyOf": [
@@ -3291,7 +4378,9 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What it sends: a CC, pitch bend, channel pressure, or a 14-bit CC, NRPN, RPN or SysEx string (core/README.md \"MIDI messages\"). Default: cc. Can be changed on the device (analog.mode).",
+                          "default": "cc"
                         },
                         "nrpn": {
                           "anyOf": [
@@ -3303,7 +4392,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3315,11 +4405,12 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         },
                         "sysex": {
                           "type": "string",
-                          "description": "the id of a midi_messages.sysex string"
+                          "description": "The id of the `midi_messages.sysex` string it sends with mode `sysex`, instead of `cc:`. Can be changed on the device (analog.cc)."
                         }
                       },
                       "additionalProperties": false
@@ -3341,7 +4432,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the mode takes `nrpn:` / `rpn:`. Can be changed on the device (encoder.cc)."
                         },
                         "mode": {
                           "anyOf": [
@@ -3361,7 +4453,9 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "What a turn sends. Default: absolute. Can be changed on the device (encoder.mode).",
+                          "default": "absolute"
                         },
                         "nrpn": {
                           "anyOf": [
@@ -3373,7 +4467,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
                         },
                         "rpn": {
                           "anyOf": [
@@ -3385,7 +4480,8 @@
                             {
                               "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`. Can be changed on the device (encoder.cc)."
                         }
                       },
                       "additionalProperties": false
@@ -3400,21 +4496,15 @@
                         "note": {
                           "anyOf": [
                             {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 127
-                                },
-                                {
-                                  "$ref": "#/definitions/substitution"
-                                }
-                              ]
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 127
                             },
                             {
-                              "type": "string"
+                              "$ref": "#/definitions/substitution"
                             }
-                          ]
+                          ],
+                          "description": "The note it plays. Can be changed on the device (pad.note)."
                         }
                       },
                       "additionalProperties": false
@@ -3584,17 +4674,24 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                      "default": "none"
                     },
                     "actions": {
-                      "$ref": "#/definitions/action_list"
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/action_list"
+                        }
+                      ],
+                      "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
                     },
                     "active": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What it shows while on. Default: on, or led_defaults:'s."
                     },
                     "cc": {
                       "anyOf": [
@@ -3616,14 +4713,15 @@
                       ]
                     },
                     "daw": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
                     },
                     "idle": {
                       "type": [
                         "string",
                         "boolean"
                       ],
-                      "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                      "description": "What it shows while off. Default: off, or led_defaults:'s."
                     },
                     "mmc": {
                       "anyOf": [
@@ -3662,29 +4760,25 @@
                             }
                           ]
                         }
-                      ]
+                      ],
+                      "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
                     },
                     "note": {
                       "anyOf": [
                         {
-                          "anyOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 127
-                            },
-                            {
-                              "$ref": "#/definitions/substitution"
-                            }
-                          ]
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 127
                         },
                         {
-                          "type": "string"
+                          "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The note, with action `note`. Can be changed on the device (button.number)."
                     },
                     "preset": {
                       "anyOf": [
@@ -3695,7 +4789,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                     },
                     "program": {
                       "anyOf": [
@@ -3707,11 +4802,12 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                     },
                     "sysex": {
                       "type": "string",
-                      "description": "the id of a midi_messages.sysex string"
+                      "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                     }
                   },
                   "additionalProperties": false
@@ -3782,17 +4878,24 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "What a press does. Default: none; mcu with mcu:. Can be changed on the device (button.action).",
+                            "default": "none"
                           },
                           "actions": {
-                            "$ref": "#/definitions/action_list"
+                            "anyOf": [
+                              {
+                                "$ref": "#/definitions/action_list"
+                              }
+                            ],
+                            "description": "Messages sent in order at the press, instead of `action:`: each an action's name or a mapping. Can be changed on the device (button.action)."
                           },
                           "active": {
                             "type": [
                               "string",
                               "boolean"
                             ],
-                            "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                            "description": "What it shows while on. Default: on, or led_defaults:'s."
                           },
                           "cc": {
                             "anyOf": [
@@ -3814,14 +4917,15 @@
                             ]
                           },
                           "daw": {
-                            "type": "string"
+                            "type": "string",
+                            "description": "A role for the DAW scripts (`transport.play`, `x_<name>` for your own)."
                           },
                           "idle": {
                             "type": [
                               "string",
                               "boolean"
                             ],
-                            "description": "an LED look: off, on, or a colour (red, green, yellow, blue, magenta, cyan, white, colour1, colour2, both)"
+                            "description": "What it shows while off. Default: off, or led_defaults:'s."
                           },
                           "mmc": {
                             "anyOf": [
@@ -3860,29 +4964,25 @@
                                   }
                                 ]
                               }
-                            ]
+                            ],
+                            "description": "The MMC command it sends, with action `mmc`: a name or 1..127. Can be changed on the device (button.number)."
                           },
                           "name": {
-                            "type": "string"
+                            "type": "string",
+                            "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
                           },
                           "note": {
                             "anyOf": [
                               {
-                                "anyOf": [
-                                  {
-                                    "type": "integer",
-                                    "minimum": 0,
-                                    "maximum": 127
-                                  },
-                                  {
-                                    "$ref": "#/definitions/substitution"
-                                  }
-                                ]
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
                               },
                               {
-                                "type": "string"
+                                "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The note, with action `note`. Can be changed on the device (button.number)."
                           },
                           "preset": {
                             "anyOf": [
@@ -3893,7 +4993,8 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The preset slot (1..slots), with action `preset_select`. Can be changed on the device (button.number)."
                           },
                           "program": {
                             "anyOf": [
@@ -3905,11 +5006,12 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "The Program Change it sends, with action `program`. Can be changed on the device (button.number)."
                           },
                           "sysex": {
                             "type": "string",
-                            "description": "the id of a midi_messages.sysex string"
+                            "description": "The id of the `midi_messages.sysex` string it sends, with action `sysex`. Can be changed on the device (button.number)."
                           }
                         },
                         "additionalProperties": false
@@ -3938,7 +5040,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What text displays on it name: `display: <id>`."
               },
               "platform": {
                 "anyOf": [
@@ -3962,10 +5069,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its 7-bit I2C address, 0x3C or 0x3D. 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning. Default: 0x3C.",
+                "default": 60
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               },
               "model": {
                 "anyOf": [
@@ -3978,7 +5088,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The controller: `sh1106` for most 1.3\" modules. Default: ssd1306.",
+                "default": "ssd1306"
               },
               "width": {
                 "anyOf": [
@@ -3990,7 +5102,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The panel's width in pixels: 128 × 64 on both models, and on an SSD1306 also 128 × 32, 96 × 16, 64 × 48 or 64 × 32. Default: 128.",
+                "default": 128
               },
               "height": {
                 "anyOf": [
@@ -4002,7 +5116,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The panel's height in pixels. Default: 64.",
+                "default": 64
               },
               "contrast": {
                 "anyOf": [
@@ -4014,7 +5130,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The panel's contrast (its brightness). Default: 207.",
+                "default": 207
               },
               "rotate": {
                 "anyOf": [
@@ -4027,10 +5145,130 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "`180` turns the picture upside down. Default: 0.",
+                "default": 0
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ssd1306"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What text displays on it name: `display: <id>`."
+                    },
+                    "platform": {},
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 8,
+                          "maximum": 122
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its 7-bit I2C address, 0x3C or 0x3D. 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning. Default: 0x3C.",
+                      "default": 60
+                    },
+                    "i2c_id": {
+                      "type": "string",
+                      "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
+                    },
+                    "model": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "ssd1306",
+                            "sh1106"
+                          ]
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The controller: `sh1106` for most 1.3\" modules. Default: ssd1306.",
+                      "default": "ssd1306"
+                    },
+                    "width": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 64,
+                          "maximum": 128
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's width in pixels: 128 × 64 on both models, and on an SSD1306 also 128 × 32, 96 × 16, 64 × 48 or 64 × 32. Default: 128.",
+                      "default": 128
+                    },
+                    "height": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 16,
+                          "maximum": 64
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's height in pixels. Default: 64.",
+                      "default": 64
+                    },
+                    "contrast": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's contrast (its brightness). Default: 207.",
+                      "default": 207
+                    },
+                    "rotate": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            0,
+                            180
+                          ]
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "`180` turns the picture upside down. Default: 0.",
+                      "default": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "screens, ESPHome style: { id, platform: ssd1306, ... } (components/display/README.md); text displays name one with display: <id>"
         },
@@ -4853,7 +6091,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The item's action; left out, its number key says it (`cc:` is `cc_momentary`)."
               },
               "cc": {
                 "anyOf": [
@@ -4865,7 +6104,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "A CC: 127 at the press and 0 at the release, or `value:` once."
               },
               "value": {
                 "anyOf": [
@@ -4877,26 +6117,21 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "With `cc:`: the value it sends once, at the press."
               },
               "note": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 127
-                      },
-                      {
-                        "$ref": "#/definitions/substitution"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
                   },
                   {
-                    "type": "string"
+                    "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "A note, held while the button is."
               },
               "program": {
                 "anyOf": [
@@ -4908,7 +6143,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "A Program Change."
               },
               "bank": {
                 "anyOf": [
@@ -4937,7 +6173,9 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "CC 0's value. Default: 0.",
+                        "default": 0
                       },
                       "lsb": {
                         "anyOf": [
@@ -4949,12 +6187,15 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "CC 32's value. Default: 0.",
+                        "default": 0
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "With `program:`: the Bank Select sent first."
               },
               "mmc": {
                 "anyOf": [
@@ -4993,11 +6234,12 @@
                       }
                     ]
                   }
-                ]
+                ],
+                "description": "An MMC command: a name or 1..127."
               },
               "sysex": {
                 "type": "string",
-                "description": "the id of a midi_messages.sysex string"
+                "description": "The id of a `midi_messages.sysex` string."
               },
               "channel": {
                 "anyOf": [
@@ -5009,7 +6251,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its channel, instead of the button's."
               }
             },
             "additionalProperties": false

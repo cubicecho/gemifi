@@ -9,7 +9,9 @@ buttons:
   - { id: button_3, pin: { number: PB14, mode: INPUT_PULLUP, inverted: true }, action: octave_down }
 ```
 
-Its YAML (`buttons:`): the fields in [core/README.md "Controls"](../../core/README.md#controls), "Button actions" and "Action lists" below, the message actions in [core/README.md "MIDI messages"](../../core/README.md#midi-messages), and the modes and layers in [modes](../modes/README.md).
+<!-- keys -->
+
+Modes and layers change what buttons do: [modes](../modes/README.md).
 
 ## Button actions
 
@@ -70,14 +72,14 @@ button_settings:                 # optional; these are the defaults
 
 - **`hold:`** runs when the button is held for `hold_time`. A press let go sooner is a **tap**, and runs the button's own action.
 - **`double_tap:`** runs when the button is pressed again within `tap_time` of letting go. The second press runs it, and its release lets go of it. A tap not followed by another within `tap_time` is a single tap. A first press held for `tap_time` (on a button without `hold:`) isn't a tap: the button's own action goes down then, and lets go with the button, so a `cc_momentary` or a `note` still works held. With `hold:` too, holding the first press is the hold. Triple taps aren't supported.
-- **What a gesture takes:** an action's name (`hold: panic`), or a mapping with the keys of the button's action: `action:`, `actions:` (an action list), `cc:`, `note:`, `preset:`, `program:`, `mmc:`, `sysex:`, `mcu:`. What it leaves out is the button's, so `hold: { cc: 21 }` is the button's `cc_momentary` on CC 21. It sends on the button's `channel:`, with its `min:`, `max:` and `bank:`.
+- **What it leaves out is the button's,** so `hold: { cc: 21 }` is the button's `cc_momentary` on CC 21, and `hold: { actions: [...] }` sends an action list. It sends on the button's `channel:`, with its `min:`, `max:` and `bank:`.
 - **Latency.** A button without a gesture fires at the press, as before; only a button with one waits. A tap is known when the button is let go, so its action is pressed and let go together then: a `cc_momentary` tap sends its 127 and its 0 at once. A hold is known after `hold_time`, and lets go when the button does. With `double_tap:`, a single tap waits `tap_time` more after the release, unless another button is pressed first: that press sends the tap at once, before its own action. A double tap is known at the second press.
 - **EVENTs** (`debug.events`) still come at the press and the release, as they happen.
 - **Nothing hangs.** A hold that sent a note or a CC lets go of it when the button is released, or at a preset switch (`buttons_off`), as a button's own note does. A press still being told apart at a preset switch is dropped: its release sends nothing.
 - **Not for every action.** A gesture can't run `cc_ramp`, `bend_down` or `bend_up` (they work for as long as the button is held) or `cc_toggle` (its on/off state is the button's, which its LED and host echoes show). A button whose own action is `cc_ramp` or a pitch bend can't have a gesture, and a preset can't give it one of those actions.
 - **The same in every preset**, like modes: presets can't set `hold:` or `double_tap:`. The gestures are YAML only; their timing is the params below.
 - **Layer twins** ([modes](../modes/README.md#button-layers)) have no gestures: while a twin is live the switch is the twin's, and fires at the press.
-- **Params**, global (stored once, the same in every preset), only on a device with that gesture: `button.tap_time` (50..1000 ms, default 200) and `button.hold_time` (100..5000 ms, default 200), in the "Buttons" group. The YAML's `button_settings:` sets the default; a key for a gesture no button has is a warning.
+- **Params**, global (stored once, the same in every preset), only on a device with that gesture: `button.tap_time` and `button.hold_time`, in the "Buttons" group. The YAML's `button_settings:` sets their starting values; a key for a gesture no button has is a warning.
 
 **Generated code:** `GM_BTN_HOLD` and `GM_BTN_DOUBLE` in `gm_device_config.h` (the buttons with `hold:` and with `double_tap:`, one bit each; 0 or left out: the gesture code isn't compiled in), `GM_BTN_HOLD_TIME_DEFAULT` and `GM_BTN_TAP_TIME_DEFAULT`, and `gm_btn_gestures[GM_N_BUTTONS]` (`gm_device.h` `gm_btn_gesture_t`: each button's `hold` and `double_tap` as `{ action, number }`, `GM_BTN_NO_ACT` for none). The runtime keeps 5 bytes per button (a state and the time of the press or release), only on such a device.
 
@@ -94,10 +96,10 @@ button_settings:
 ```
 
 - **Together** means each pressed within `combo_time` of the first, in any order. The combo goes down once its buttons are all pressed and no bigger combo with them in it could still come; with one that could, it waits out `combo_time` (or the first release). It lets go when the first of its buttons is let go; the others' releases send nothing.
-- **What it takes:** `buttons:` (the YAML's own buttons, 2 or more, each once) and an action with its number, as a gesture takes them ("Gestures"), with `action:` or `actions:` required. It runs on whichever of its buttons comes first in the top-level `buttons:` list, with that button's `channel:`, `min:`, `max:` and `bank:`.
+- **Which button it sends as.** It runs on whichever of its buttons comes first in the top-level `buttons:` list, with that button's `channel:`, `min:`, `max:` and `bank:`.
 - **Latency.** A button in a combo waits for it: its own press (or its gesture) goes on when the combo can't happen any more: after `combo_time`, when it is let go, when another button is pressed, or when a press can't make a combo with it. Buttons in no combo never wait.
 - **Not combos:** a mode's toggle, hold or cycle button, a modifier or a `with:` button (Shift + a button is a mode's job: [modes](../modes/README.md)), a layer twin, or a button whose action is `cc_ramp` or a pitch bend. The actions are those of a gesture. While a button's layer twin is live, its presses are the twin's and don't make the combo.
-- **Global**, the same in every preset; `button.combo_time` (10..500 ms, default 50) is a global param in the "Buttons" group, only on a device with combos. A combo that sent a note or a CC lets go of it at a preset switch.
+- **Global**, the same in every preset; `button.combo_time` is a global param in the "Buttons" group, only on a device with combos. A combo that sent a note or a CC lets go of it at a preset switch.
 
 **Generated code:** `GM_N_COMBOS`, `GM_COMBO_BUTTONS` (the buttons in any combo, one bit each), `GM_N_COMBO_BUTTONS` and `GM_BTN_COMBO_TIME_DEFAULT` in `gm_device_config.h`, and `gm_btn_combos[GM_N_COMBOS]` (`gm_device.h` `gm_btn_combo_t`: the buttons as a bit mask and `{ action, number }`). The runtime keeps the waiting presses in order (one byte per combo button) and 13 bytes more.
 
@@ -119,7 +121,7 @@ button_settings:                 # optional; these are the defaults
 - **Through preset switches:** `preset_next` held steps on through the presets it switches to; any held repeat goes on after a preset switch, with that preset's action.
 - **No EVENTs** for the repeats: the press and the release are the button's EVENTs.
 - **Not with** `hold:` or `double_tap:` (they wait to tell a press apart), nor on a mode's switching button, a modifier or a `with:` button. It may be in a combo: it repeats once its press goes on as its own.
-- **Params**, global, only on a device with `repeat:`: `button.repeat_delay` (100..2000 ms, default 500) and `button.repeat_rate` (20..1000 ms between repeats, default 50), in the "Buttons" group.
+- **Params**, global, only on a device with `repeat:`: `button.repeat_delay` and `button.repeat_rate`, in the "Buttons" group.
 
 **Generated code:** `GM_BTN_REPEAT` (the buttons with `repeat: true`, one bit each), `GM_BTN_REPEAT_DELAY_DEFAULT` and `GM_BTN_REPEAT_RATE_DEFAULT` in `gm_device_config.h`. The runtime keeps the time of the next repeat, 4 bytes per button.
 

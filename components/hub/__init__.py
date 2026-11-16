@@ -8,6 +8,9 @@ The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; README.md here.
 """
 import re
 
+from components.i2c import I2C_ID, address
+from components.keys import Id, Int, Key, Keys, Pin
+
 # The core's pin dispatch (core/src/vpin.c) is always built, so this is too.
 REQUIRED = True
 
@@ -22,10 +25,10 @@ class HubType:
                                 # rewrites them)
     enum = ""                   # gm_device.h GM_HUB_*
     num = 0                     # ... its value
-    keys = ("id",)              # a hub's YAML keys
-    # Its keys as data (components/keys.py Keys: type, default, doc), for a type that has them: then
-    # `keys` is its names, and the JSON schema and the docs take each key's type from it.
+    # Its keys as data (components/keys.py Keys: type, default, doc): the JSON schema and the docs take
+    # each key's type from it, and `keys` (the validator's list) is its names.
     spec = None
+    keys = ("id",)              # a hub's YAML keys
     lines = {}                  # control-pin keys: the line kind, for allow_other_uses (same kind on each)
     roles = frozenset()         # what its pins can be: "in", "out", "analog" (and "row": decoder outputs)
     ram = False                 # its pins are in the hub RAM (GM_HUB_RAM): ram_bytes of it
@@ -33,7 +36,6 @@ class HubType:
     # row from LED * colour_pins (red, green, blue[, white]), and takes full-colour looks.
     full_colour = False
     pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
-    schema = {}                 # key -> (min, max) where the JSON schema's shared range differs
     i2c = False                 # on the i2c: bus (address:)
     what = "pin"                # a pin's name in messages
     # The C side, for a hub type whose code is in its component (components/<name>/; gm_components.h):
@@ -100,12 +102,31 @@ class ShiftRegister(HubType):
 
     def __init__(self, key, enum, num, out, c_ops=None):
         self.key, self.enum, self.num, self.out, self.c_ops = key, enum, num, out, c_ops
-        self.keys = ("id", "data_pin", "clock_pin", "latch_pin", "oe_pin", "sr_count") if out else \
-            ("id", "data_pin", "clock_pin", "load_pin", "sr_count")
+        own = f"What its pins name: `{{ {key}: <id>, number: n }}`."
+        count = Key("sr_count", Int(1, 4), default=1,       # the drivers: at most 4 chips (32 pins)
+                    doc=f"The chips in the chain, 8 {'outputs' if out else 'inputs'} each (8..15 on the second).")
+        if out:
+            self.spec = Keys(
+                Key("id", Id(), required=True, doc=own),
+                Key("data_pin", Pin(), required=True, doc="The serial data in (SER)."),
+                Key("clock_pin", Pin(), required=True, doc="The shift clock (SRCLK)."),
+                Key("latch_pin", Pin(), required=True, doc="The latch (RCLK): a pulse puts the shifted bits on "
+                                                           "the outputs."),
+                Key("oe_pin", Pin(), doc="The output enable (/OE), driven low. Leave it out when /OE is tied low."),
+                count)
+        else:
+            self.spec = Keys(
+                Key("id", Id(), required=True, doc=own),
+                Key("data_pin", Pin(), required=True, doc="The serial out (QH) of the chip nearest the MCU."),
+                Key("clock_pin", Pin(), required=True, doc="The shift clock (CLK)."),
+                Key("load_pin", Pin(), required=True, doc="The load pin (SH/LD): the inputs are loaded while it "
+                                                          "is low."),
+                count)
+        self.keys = tuple(self.spec.names)
         self.roles = frozenset({"out"} if out else {"in"})
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "sr_count", p, 1, 4, default=1)   # the drivers: at most 4 chips (32 pins)
+        hub.chain = self.spec.get(v, h, "sr_count", p)
         hub.n_pins = 8 * hub.chain
         hub.data = ctl("data_pin", "out" if self.out else "in")
         hub.clock = ctl("clock_pin", "out")
@@ -127,7 +148,6 @@ class I2CExpander(HubType):
     """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
     the main loop: the two share it (components/mcp23017, pcf8574), and their config (.i2c) and pin
     state (gm_hub.h u.io, gm_hub_i2c_*)."""
-    keys = ("id", "address", "i2c_id")
     roles = frozenset({"in", "out"})
     i2c = True
 
@@ -135,9 +155,14 @@ class I2CExpander(HubType):
         self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
         self.addrs, self.addr_text, self.pin_key, self.c_ops = addrs, addr_text, pin_key, c_ops
         self.pullup = key == "mcp23017"
+        self.spec = Keys(
+            Key("id", Id(), required=True, doc=f"What its pins name: `{{ {pin_key or key}: <id>, number: n }}`."),
+            address(0x20, f"Its I2C address, set by its A0..A2 pins: usually {addr_text}."),
+            I2C_ID)
+        self.keys = tuple(self.spec.names)
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
+        hub.addr = self.spec.get(v, h, "address", p)
         hub.n_pins = self.n_pins
         if hub.addr not in self.addrs:
             v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "

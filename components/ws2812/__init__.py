@@ -5,7 +5,8 @@ The YAML, the C and the platforms: README.md here.
 import difflib
 import itertools
 
-from components.led_strip import LedStrip, validate_rgb_calibration
+from components.keys import Enum, Id, Int, Key, Keys, Pin, Str
+from components.led_strip import GAMMA, WHITE, LedStrip, validate_rgb_calibration
 
 DEPENDENCIES = ("led_strip",)
 
@@ -15,17 +16,30 @@ WS2812_MAX = 256
 WS2812_ORDERS = sorted({"".join(p) for p in itertools.permutations("RGB")}) + \
     sorted({"".join(p) for p in itertools.permutations("RGBW")})
 
+SPEC = Keys(
+    Key("id", Id(), required=True, doc="What its pins name: `{ led_strip: <id>, number: n }`."),
+    Key("platform", Enum(["ws2812"]), required=True, doc="This kind of strip."),
+    Key("pin", Pin(), required=True, doc="The data pin, to the first LED's DIN: any output on an ESP32, PA7 or "
+                                         "PB15 on stm32f1."),
+    Key("count", Int(1, WS2812_MAX), required=True, doc="The LEDs in the chain."),
+    Key("order", Str(), default="GRB", doc="The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, "
+                                           "`BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs."),
+    GAMMA,
+    WHITE,
+)
+
 
 class WS2812(LedStrip):
     """An addressable LED strip (WS2812B / SK6812, RGB or RGBW): pin = LED * 3 (4) + colour."""
     key, enum, num = "ws2812", "GM_HUB_WS2812", 11
     old_keys = ("ws2812",)
-    keys = ("id", "platform", "pin", "count", "order", "gamma", "white")
+    spec = SPEC
+    keys = tuple(SPEC.names)
     lines = {"pin": "ledstrip"}
     c_header, c_config, c_state, c_ops = "ws2812.h", ("gm_hub_ws2812_t", "ws"), ("gm_ws2812_state_t", "ws"), "gm_ws2812_ops"
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.chain = v.integer(h, "count", p, 1, WS2812_MAX, required=True) or 1
+        hub.chain = SPEC.get(v, h, "count", p) or 1
         order = h.get("order", "GRB")
         order = order.strip().upper() if isinstance(order, str) else order
         if order not in WS2812_ORDERS:

@@ -3,14 +3,32 @@ YAML and the C: README.md here.
 """
 from components.api import NO_PIN
 from components.hub import HubType
+from components.keys import Id, Int, Key, Keys, Pin
 
 # A 4-wire resistive XY pad: two analog channels, 0 = x, 1 = y (xy_pad.c reads it in software).
 XY_TOUCH = (570, 3430)          # stock Code 61: 0x250 - 22 .. 0xD50 + 22
 
+SPEC = Keys(
+    Key("id", Id(), required=True, doc="What its two inputs name: `{ xy_pad: <id>, number: x }` and `number: y`."),
+    Key("x_plus_pin", Pin(), required=True, see="How it reads",
+        doc="The X plate's + end, driven high to read X. Y is read on it when `x_minus_pin` has no ADC."),
+    Key("x_minus_pin", Pin(), required=True, see="How it reads",
+        doc="The X plate's - end, driven low to read X. Y is read on it if it has an ADC."),
+    Key("y_plus_pin", Pin(), required=True, see="How it reads",
+        doc="The Y plate's + end, driven high to read Y. X is read on it when `y_minus_pin` has no ADC."),
+    Key("y_minus_pin", Pin(), required=True, see="How it reads",
+        doc="The Y plate's - end, driven low to read Y. X is read on it if it has an ADC."),
+    Key("touch_min", Int(0, 4095), default=XY_TOUCH[0], see="How it reads",
+        doc="The lowest reading that counts as a touch, below `touch_max`."),
+    Key("touch_max", Int(0, 4095), default=XY_TOUCH[1], see="How it reads",
+        doc="The highest reading that counts as a touch."),
+)
+
 
 class XYPad(HubType):
     key, enum, num = "xy_pad", "GM_HUB_XY", 10
-    keys = ("id", "x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin", "touch_min", "touch_max")
+    spec = SPEC
+    keys = tuple(SPEC.names)
     lines = {"x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}
     roles = frozenset({"analog"})
     c_header, c_config, c_ops = "xy_pad.h", ("gm_hub_xy_t", "xy"), "gm_xy_pad_ops"
@@ -34,8 +52,8 @@ def validate_xy_pad(v, hub, h, p, ctl):
     pin if it has an ADC, else its plus pin."""
     hub.n_pins = 2
     hub.sel = [ctl(k, "out") for k in ("x_plus_pin", "x_minus_pin", "y_plus_pin", "y_minus_pin")]
-    hub.touch_min = v.integer(h, "touch_min", p, 0, 4095, default=XY_TOUCH[0])
-    hub.touch_max = v.integer(h, "touch_max", p, 0, 4095, default=XY_TOUCH[1])
+    hub.touch_min = SPEC.get(v, h, "touch_min", p)
+    hub.touch_max = SPEC.get(v, h, "touch_max", p)
     if hub.touch_min >= hub.touch_max:
         v.err(p, h.line, f"touch_min {hub.touch_min} must be below touch_max {hub.touch_max}")
 

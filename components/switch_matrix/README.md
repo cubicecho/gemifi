@@ -13,9 +13,11 @@ buttons:
   - { id: pad_1, pin: { switch_matrix: grid, number: 0 }, action: note, note: 36 }
 ```
 
-Its keys are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-`switch_matrix` is up to 32 switches scanned from the scan interrupt: `rows` (MCU pins or decoder outputs), `columns` (MCU input pins), `settle` (wait after driving a row, default 1us), `rows_per_scan` (rows read per scan, in turn; default all). Pin n = row n / columns, column n % columns, 1 = closed. Buttons and encoders. It is scanned right after the key matrix, so the two can share column pins (`allow_other_uses: true` on each use); see [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+
+Pin n = row n / columns, column n % columns, 1 = closed. Buttons and encoders. It is scanned right after the key matrix, so the two can share column pins (`allow_other_uses: true` on each use); see [Matrices behind decoders](../../core/README.md#matrices-behind-decoders).
 
 ## Files
 

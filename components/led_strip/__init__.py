@@ -6,6 +6,14 @@ what they share: a byte per colour in the hub RAM, gamma: and white:. The C side
 """
 from components.api import MIGRATE_HINT
 from components.hub import HubType, c_comment
+from components.keys import Int, Key, List, Number
+
+# The calibration keys every strip has (validate_rgb_calibration checks them; README.md "Calibration").
+GAMMA = Key("gamma", Number(1.0, 3.0), default=1, see='components/led_strip/README.md "Calibration"',
+            doc="The colours' curve: 1 is straight, about 2.2 suits most LEDs.")
+WHITE = Key("white", List(Int(1, 255)), shown_default="all 255", see='components/led_strip/README.md "Calibration"',
+            doc="What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on "
+                "RGBW, each 1..255.")
 
 
 class LedStrip(HubType):

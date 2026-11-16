@@ -5,9 +5,8 @@ them.
 """
 from components.api import NO_PIN, Hub, LList
 from components.hub import c_comment
+from components.keys import (CONTROL_DAW, Enum, IdRef, Int, Key, Keys, List, Map, Null, OneOf, Period, Pin, Section)
 
-MATRIX_KEYS = ["type", "rows", "columns", "contacts", "key_map", "keys", "first_note", "settle", "velocity", "daw"]
-VELOCITY_KEYS = ["fast", "slow"]
 RENAMED_MATRIX = {"kind": "renamed: use `type:` (switch | velocity)", "cols": "renamed: use `columns:`",
                   "settle_us": "renamed: use `settle:` with a unit, e.g. `settle: 1us`"}
 RENAMED_VELOCITY = {"fast_ms": "renamed: use `fast:` with a unit, e.g. `fast: 1.6ms`",
@@ -23,6 +22,42 @@ VEL_FAST_RANGE = (1, 500)
 VEL_SLOW_RANGE = (20, 2000)
 
 MATRIX_FAST_COLS = 16   # key_matrix.c FAST_COLS: columns read as port runs
+
+# key_matrix:'s keys, checked by validate() (rows: and columns: by the builder's matrix_rows / pins).
+SCAN = 'core/README.md "Software scan"'
+VELOCITY = Keys(
+    Key("fast", Period(VEL_FAST_RANGE[0] * 100, VEL_FAST_RANGE[1] * 100, step_us=100, example="1.6ms"),
+        default="1.2ms", param="velocity.fast", doc="The time between a key's two contacts that plays velocity 127 "
+                                        "(`velocity.fast`)."),
+    Key("slow", Period(VEL_SLOW_RANGE[0] * 100, VEL_SLOW_RANGE[1] * 100, step_us=100, example="120ms"),
+        default="120ms", param="velocity.slow", doc="The time that plays velocity 1 (`velocity.slow`). Longer than `fast`."),
+)
+VELOCITY_KEYS = VELOCITY.names
+KEY_MATRIX = Keys(
+    Key("type", Enum(["switch", "velocity"]), required=True, see="Key matrix",
+        doc="`switch`: one contact per key; `velocity`: two, timed for the velocity."),
+    Key("rows", OneOf(List(Pin()), Map(Keys(
+        Key("decoder", IdRef("decoder"), required=True, doc="The decoder whose outputs drive the rows."),
+        Key("first", Int(0, 255), default=0, doc="Its first output used."),
+        Key("count", Int(1, 255), required=True, doc="How many outputs, from `first`.")))),
+        required=True, see='core/README.md "Matrices behind decoders"',
+        doc="The pins it drives, one row at a time: MCU pins, sn74hc595 pins, or a decoder's outputs."),
+    Key("columns", List(Pin()), required=True, doc="The pins it reads: MCU pins or sn74hc165 pins (at most 32)."),
+    Key("contacts", Enum(["columns", "rows"]), default="columns", see="Key matrix options",
+        doc="With type `velocity`: a key's two contacts are two columns of a row, or two rows of a column."),
+    Key("key_map", List(List(OneOf(Int(0, 127), Null()))), see="Key matrix options",
+        doc="Which key sits where, when the wiring doesn't follow the default numbering: a list per row (pair), "
+            "a key number or `null` per column (pair)."),
+    Key("keys", Int(1, 128), shown_default="rows × columns (at most 128)", doc="How many keys it has."),
+    Key("first_note", Int(0, 127), default=48, doc="The note of key 0, the lowest."),
+    Key("settle", Period(0, 255, example="1us"), default="1us", see=SCAN,
+        doc="How long a driven row settles before the columns are read."),
+    Key("velocity", Map(VELOCITY), see="Key matrix", doc="With type `velocity`: the key times for velocity 127 "
+                                                         "and 1."),
+    CONTROL_DAW,
+)
+MATRIX_KEYS = KEY_MATRIX.names
+KEY_SECTIONS = (Section("key_matrix", KEY_MATRIX, is_list=False),)
 
 
 def in_device(dev):
@@ -85,14 +120,14 @@ def validate(v, dev, data):
             v.err(f"{p}.columns", d.line_of("columns"), f"type velocity needs an even number of columns "
                                                         f"(two contacts per key), got {nc}")
     cap = lrows * lcols
-    keys = v.integer(d, "keys", p, 1, 128, default=min(cap, 128) or 1)
-    first = v.integer(d, "first_note", p, 0, 127, default=48)
+    keys = KEY_MATRIX.get(v, d, "keys", p, default=min(cap, 128) or 1)
+    first = KEY_MATRIX.get(v, d, "first_note", p)
     if keys is not None and nr and nc and keys > cap and d.get("key_map") is None:
         v.err(f"{p}.keys", d.line_of("keys"), f"{keys} keys don't fit a {nr} x {nc} {kind} matrix "
                                               f"(at most {cap})")
     if keys is not None and first is not None and first + keys > 128:
         v.err(f"{p}.keys", d.line_of("keys"), f"first_note {first} + {keys} keys goes past note 127")
-    settle = v.period(d, "settle", p, 0, 255, default=1, example="1us")
+    settle = KEY_MATRIX.get(v, d, "settle", p, default=1)
     vel_fast, vel_slow = validate_velocity(v, d, p, kind)
     key_map = validate_key_map(v, d, p, lrows, lcols, keys or 0, by_rows, kind)
     dev.matrix = Hub(kind=kind, rows=pins["rows"], cols=pins["columns"], keys=keys or 0,
@@ -152,10 +187,8 @@ def validate_velocity(v, d, path, kind):
     if kind != "velocity":
         v.err(p, d.line_of("velocity"), "only for type: velocity (a switch matrix has no key times)")
         return None, None
-    fast = v.period(vd, "fast", p, VEL_FAST_RANGE[0] * 100, VEL_FAST_RANGE[1] * 100, step_us=100,
-                    example="1.6ms")
-    slow = v.period(vd, "slow", p, VEL_SLOW_RANGE[0] * 100, VEL_SLOW_RANGE[1] * 100, step_us=100,
-                    example="120ms")
+    fast = VELOCITY.get(v, vd, "fast", p, default=None)
+    slow = VELOCITY.get(v, vd, "slow", p, default=None)
     if (fast or 12) >= (slow or 1200):
         v.err(p, d.line_of("velocity"), f"fast ({(fast or 12) / 10:g}ms) must be shorter than slow "
                                         f"({(slow or 1200) / 10:g}ms)")

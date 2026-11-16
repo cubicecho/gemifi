@@ -10,9 +10,11 @@ leds:
   - { id: play_led, pin: { mcp23xxx: io, number: GPB0 } }
 ```
 
-Its keys are below; its bus is an [`i2c:`](../i2c/README.md) one. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-`mcp23017` is an MCP23017: 16 GPIO on the I2C bus (`address`, default 0x20; an [`i2c:`](../i2c/README.md) bus, `i2c_id:`), numbered `0`–`15` or `GPA0`–`GPB7`, with pull-ups (`mode: INPUT_PULLUP`). Its pin key is `mcp23xxx`, as in ESPHome: `{ mcp23xxx: io, number: GPB7 }`. It is read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt. A chip with no input on it is never read (a read is two transactions, ~120 µs at 400 kHz), and outputs are written only when they change; the writes aren't checked. ESP only for now: stm32f1 and nuvoton-nuc1xx have no I2C driver, so the builder refuses it there.
+Its bus is an [`i2c:`](../i2c/README.md) one. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+
+Its 16 GPIO are numbered `0`–`15` or `GPA0`–`GPB7`, with pull-ups (`mode: INPUT_PULLUP`). Its pin key is `mcp23xxx`, as in ESPHome: `{ mcp23xxx: io, number: GPB7 }`. It is read and written from the main loop (every 1 ms), since I2C can't run in the scan interrupt. A chip with no input on it is never read (a read is two transactions, ~120 µs at 400 kHz), and outputs are written only when they change; the writes aren't checked. ESP only for now: stm32f1 and nuvoton-nuc1xx have no I2C driver, so the builder refuses it there.
 
 ## Files
 

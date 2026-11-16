@@ -12,12 +12,13 @@ analog:
   - { id: fader_1, pin: { cd74hc4051: faders, number: 0 }, cc: 20 }
 ```
 
-Their keys are below. Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components).
+<!-- keys -->
 
-- **`cd74hc4051`**: `pin_s0`–`pin_s2`, `common_pin`, optional `enable_pin` (/E, driven low), `delay` (settle time after switching channel, default 2us). 8 input channels, analog (if `common_pin` is an ADC pin) or digital.
-- **`cd74hc4067`**: `pin_s0`–`pin_s3`, `common_pin`, optional `enable_pin`, `delay`. 16 input channels, as above.
+Hub types and the pins they give: [hub](../hub/README.md), [core/README.md "Components"](../../core/README.md#components). A `cd74hc4051` has 8 input channels, a `cd74hc4067` 16, analog (if `common_pin` is an ADC pin) or digital, and a pin names the mux by its key: `{ cd74hc4051: faders, number: 0 }`.
 
-A pin names the mux by its key: `{ cd74hc4051: faders, number: 0 }`. Muxes may share select lines (`allow_other_uses: true` on each use); give them the same `delay`. Switching one switches the others: one with the same lines is then on the same channel, one that shares only some switches again before its next read.
+## Shared select lines
+
+Muxes may share select lines (`allow_other_uses: true` on each use); give them the same `delay`. Switching one switches the others: one with the same lines is then on the same channel, one that shares only some switches again before its next read.
 
 ## Files
 

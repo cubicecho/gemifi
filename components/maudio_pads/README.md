@@ -11,7 +11,9 @@ pads:
   - { id: pad_1, pin: { cd74hc4051: pad_mux_b, number: 4 }, note: 36, led: pad_1_led }   # lit while held
 ```
 
-Each colour is a byte (0 off to 255 full), and an RGB LED on the board shows any colour, with the strip's `gamma:` and `white:` ([led_strip](../led_strip/README.md)). `dma:` takes a DMA channel on stm32f1 ([DMA channels](../../core/README.md#dma-channels-stm32f1)). It was called `maudio_pad_leds:`, and `rgb_serial:` before that, as its own list.
+<!-- keys -->
+
+Each colour is a byte (0 off to 255 full), and an RGB LED on the board shows any colour, with the strip's `gamma:` and `white:` ([led_strip](../led_strip/README.md)). It was called `maudio_pad_leds:`, and `rgb_serial:` before that, as its own list.
 
 The board's protocol, found in the stock firmware: one message per LED, `02, 0x80 + LED, R, G, B, 03` (each colour 00 off to FF full), and a lone `A5` keepalive at least every ~60 ms, without which the board turns its LEDs off. The board drops messages sent back to back, so the core sends one changed LED per 5 ms from the main loop (16 LEDs all changing take 80 ms) and the keepalive every 50 ms, with every write, the keepalive included, at least 5 ms after the last. The UART runs in the background (DMA on stm32f1, `hal_serial_write`).
 

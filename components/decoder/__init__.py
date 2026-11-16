@@ -3,12 +3,32 @@
 """
 from components.api import NO_PIN
 from components.hub import HubType
+from components.keys import Id, Key, Keys, List, Pin, T, Type, one_of
+
+
+class Levels(Type):
+    """A group: enable pin -> its level, 0 or 1."""
+    text = "mapping of pin to 0 or 1"
+
+    def schema(self):
+        return {"type": "object", "additionalProperties": one_of(T("integer", minimum=0, maximum=1), T("boolean"))}
+
+
+SPEC = Keys(
+    Key("id", Id(), required=True, doc="What its outputs name: `rows: { decoder: <id>, first: n, count: n }`, or "
+                                       "a pin `{ decoder: <id>, number: n }`."),
+    Key("address", List(Pin()), required=True, doc="The address pins (1..4), A0 first, shared by its chips."),
+    Key("groups", List(Levels()), shown_default="one chip, no enable pins",
+        doc="Its chips (1..4): each the levels of the enable pins that select it, e.g. `{ PB6: 1, PB7: 0 }`. "
+            "At most 3 enable pins, the same ones in each."),
+)
 
 
 class Decoder(HubType):
     """A 74HC138-style one-of-N decoder: outputs only, and only as matrix rows."""
     key, enum, num = "decoder", "GM_HUB_DECODER", 6
-    keys = ("id", "address", "groups")
+    spec = SPEC
+    keys = tuple(SPEC.names)
     roles = frozenset({"row"})
     # its config (.dec) is the core's: vpin_write selects an output itself (the scan's path)
     c_ops = "gm_decoder_ops"

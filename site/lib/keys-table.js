@@ -28,7 +28,7 @@ function rows(keys, file, prefix = "") {
   return keys.flatMap((k) => {
     const name = `${prefix}${k.key}`;
     let what = k.doc;
-    if (k.live) what += " *Can be changed on the device.*";
+    if (k.param) what += ` *Can be changed on the device* (\`${k.param}\`).`;
     if (k.see) what += ` See ${seeLink(k.see, file)}.`;
     const dflt = k.required ? "**required**" : (k.default ?? ""); // empty: the CSS shows a dash, or drops it on a phone
     const type = k.type.replace(/^(integer|time) /, "$1 "); // "integer 0..7" on one line
@@ -39,6 +39,7 @@ function rows(keys, file, prefix = "") {
 
 function heading(s) {
   if (s.platform) return `\`${s.section}:\` items with \`platform: ${s.platform}\``;
+  if (s.list === "either") return `\`${s.section}:\`, or each item of it as a list`;
   return s.list ? `Each \`${s.section}:\` item` : `\`${s.section}:\``;
 }
 

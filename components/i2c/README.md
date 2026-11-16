@@ -8,7 +8,7 @@ mcp23017:
   - { id: io, address: 0x20 }
 ```
 
-That is one bus. Its keys are in the table below, and the components on I2C under "On I2C". A device can have several buses, each with an `id`; a component on I2C names its bus with `i2c_id:`:
+That is one bus. A device can have several, `i2c:` a list of them, each with an `id`; a component on I2C names its bus with `i2c_id:`:
 
 ```yaml
 i2c:
@@ -20,10 +20,7 @@ display:
   - { id: oled, platform: ssd1306, i2c_id: bus_b }
 ```
 
-| Key | |
-|---|---|
-| `id` | what `i2c_id:` names; required in a list, optional on a single bus |
-| `sda`, `scl` | MCU pins |
+<!-- keys -->
 
 - **On I2C:** the `mcp23017` and `pcf8574` hubs, the `ht16k33` LED driver platform and the `ssd1306` display platform. Each takes `i2c_id:`, which may be left out when the device has one bus; with two or more the builder asks for it.
 - **Addresses** must differ on a bus; the same address on two buses is fine (two OLEDs at 0x3C).

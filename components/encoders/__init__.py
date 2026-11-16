@@ -8,8 +8,8 @@ import difflib
 from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, mode_wide, twin_c, type_name
 from components.cd74hc4067 import Mux
 from components.hub import c_comment
-from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_OUT, Enum, IdRef, Int, Key, Keys, List,
-                             Map, OneOf, Period, Pin, Section, Str)
+from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_NRPN, CONTROL_OUT, CONTROL_RPN, Enum,
+                             IdRef, Int, Key, Keys, List, Map, OneOf, Period, Pin, Section, Str)
 
 # encoder.mode (gm_settings.h ENC_*): from cc14 on they need a message kind (core/README.md "MIDI messages").
 ENC_MODES = ["absolute", "relative_twos", "relative_offset", "relative_sign", "cc14", "nrpn", "nrpn14",
@@ -45,7 +45,7 @@ ENCODER = Keys(
                                            "a mux's). On an I2C hub it is read from the main loop."),
     Key("pin_b", Pin(), required=True, doc="The other pin."),
     Key("cc", Int(0, 127), doc="The CC it sends (0..31 with mode `cc14`). Needed unless `mcu:` is set or the "
-                               "mode takes `nrpn:` / `rpn:`.", live=True),
+                               "mode takes `nrpn:` / `rpn:`.", param="encoder.cc"),
     Key("steps_per_detent", Int(1, 255), default=4, doc="Quarter steps it makes per click (most encoders make 4)."),
     Key("mcu", Str(), doc="Makes it a Mackie Control V-Pot (`vpot_1`..`vpot_8`), which sends its own messages: "
                           "no `mode:`, `channel:`, `min:` or `max:` then.",
@@ -58,10 +58,8 @@ ENCODER = Keys(
         see="Encoder acceleration",
         doc="How far a quick turn moves per detent: a preset, or a mapping whose keys left out come from "
             "`encoder_settings:`, else from `medium`."),
-    Key("mode", Enum(ENC_MODES), default="absolute", doc="What a turn sends.", see="Encoder modes", live=True),
-    Key("nrpn", Int(0, 16383), doc="The NRPN it sends with mode `nrpn` or `nrpn14`, instead of `cc:`.", live=True),
-    Key("rpn", Int(0, 16383), doc="The RPN it sends with mode `rpn` or `rpn14`, instead of `cc:`.", live=True),
-    *CONTROL_OUT,
+    Key("mode", Enum(ENC_MODES), default="absolute", doc="What a turn sends.", see="Encoder modes", param="encoder.mode"),
+    CONTROL_NRPN.but(param="encoder.cc"), CONTROL_RPN.but(param="encoder.cc"), *CONTROL_OUT,
 )
 ENCODER_KEYS = ENCODER.names
 ENCODER_SETTINGS = Keys(

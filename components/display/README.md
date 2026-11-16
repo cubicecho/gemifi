@@ -37,7 +37,7 @@ A component of its own, `components/<platform>/`, as [ssd1306](../ssd1306/) does
 
 1. **`<platform>.h`**: its config struct (a member of `gm_screen_t`'s union) and flags.
 2. **`<platform>.c`**: its `send` and a `const gm_screen_ops_t gm_<platform>_ops`.
-3. **`__init__.py`**: a `ScreenType` subclass (`platform`, `enum`, `num`, `keys`, `i2c`, `schema`, `enums`, `c_header`, `c_config`, `c_ops`, `validate`, `c_fields`), listed in `DISPLAY_PLATFORMS`, with `DEPENDENCIES = ("display",)`. Add its `GM_SCREEN_*` value to `gm_screen.h`. Then `gemifi_build.py schema -o site/src/schema/device.json`.
+3. **`__init__.py`**: a `ScreenType` subclass (`platform`, `enum`, `num`, its keys as data in `spec` and their names in `keys`, `i2c`, `c_header`, `c_config`, `c_ops`, `validate`, `c_fields`), listed in `DISPLAY_PLATFORMS`, with `DEPENDENCIES = ("display",)`. Add its `GM_SCREEN_*` value to `gm_screen.h`. Then `gemifi_build.py schema -o site/src/schema/device.json`.
 4. **`test/`**: a host test with its YAML, built by `core/test/Makefile`.
 
 Not yet: screens that take text rather than pixels (HD44780 character LCDs: they'd add a text op to `gm_screen_ops_t`), SPI panels, graphics.

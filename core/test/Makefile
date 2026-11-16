@@ -52,6 +52,8 @@
 # test_gestures:   button gestures on fake time (gestures-test.yaml), and
 # test_gestures_no_leds: the same without its LED (layer twins and no
 #                  LEDs: the modes' code for that case builds warning-free)
+# test_twins:      layer twins with more than 32 buttons (a 64-bit button
+#                  reading), bases below and above bit 32 (twins-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
@@ -104,6 +106,8 @@ KO_DEV    := $(BUILD)/device-keys-only
 GES_DEVICE := gestures-test.yaml
 GES_DEV    := $(BUILD)/device-gestures
 GESN_DEVICE := $(BUILD)/gestures-no-leds-test.yaml
+TW_DEVICE := twins-test.yaml
+TW_DEV    := $(BUILD)/device-twins
 GESN_DEV    := $(BUILD)/device-gestures-no-leds
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
@@ -216,6 +220,10 @@ GEN_OUT := $(shell mkdir -p $(BUILD) && sed -e 's/, led: fn_led//' -e '/^leds:$$
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(GESN_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(TW_DEVICE) -o $(TW_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(TW_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
@@ -233,7 +241,7 @@ include $(2)/gm_components.mk
 $(1)_COMP_SRCS := $$(GM_COMPONENT_SRCS)
 endef
 CONFIG_DIRS := DEV WTF_DEV FB_DEV MX_DEV HW_DEV TM_DEV TMA_DEV SEG_DEV PAD_DEV PADHW_DEV DINP_DEV DINM_DEV \
-               LED_DEV LEDL_DEV LEDM_DEV ENC_DEV I2C_DEV OLED_DEV MSG_DEV MODES_DEV WS_DEV KO_DEV GES_DEV GESN_DEV
+               LED_DEV LEDL_DEV LEDM_DEV ENC_DEV I2C_DEV OLED_DEV MSG_DEV MODES_DEV WS_DEV KO_DEV GES_DEV GESN_DEV TW_DEV
 $(foreach c,$(CONFIG_DIRS),$(eval $(call load_components,$(c),$($(c)))))
 CFLAGS += $(addprefix -I,$(sort $(dir $(wildcard $(ROOT)/components/*/*.h))))
 
@@ -263,11 +271,12 @@ WS_SRCS := $(ROOT)/components/ws2812/test/test_ws2812.c $(CORE_SRCS) $(WS_DEV)/g
 KO_SRCS := test_keys_only.c $(CORE_SRCS) $(KO_DEV)/gm_device_config.c $(KO_DEV_COMP_SRCS)
 GES_SRCS := test_gestures.c $(CORE_SRCS) $(GES_DEV)/gm_device_config.c $(GES_DEV_COMP_SRCS)
 GESN_SRCS := test_gestures.c $(CORE_SRCS) $(GESN_DEV)/gm_device_config.c $(GESN_DEV_COMP_SRCS)
+TW_SRCS := test_twins.c $(CORE_SRCS) $(TW_DEV)/gm_device_config.c $(TW_DEV_COMP_SRCS)
 
 .PHONY: test clean
 test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812 $(BUILD)/test_keys_only \
       $(BUILD)/test_feedback_fbi $(BUILD)/test_matrix_fbi $(BUILD)/test_msg_fbi $(BUILD)/test_gestures \
-      $(BUILD)/test_gestures_no_leds
+      $(BUILD)/test_gestures_no_leds $(BUILD)/test_twins
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -305,6 +314,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_msg_fbi
 	$(BUILD)/test_gestures
 	$(BUILD)/test_gestures_no_leds
+	$(BUILD)/test_twins
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -424,3 +434,7 @@ $(BUILD)/test_gestures: $(GES_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/
 $(BUILD)/test_gestures_no_leds: $(GESN_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(GESN_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(GESN_DEV) $(GESN_SRCS) -o $@
+
+$(BUILD)/test_twins: $(TW_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(TW_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(TW_DEV) $(TW_SRCS) -o $@

@@ -29,6 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gemifi_device as gd  # noqa: E402
+import gemifi_external as ge  # noqa: E402
 import gemifi_migrate as gm  # noqa: E402
 import gemifi_schema as gs  # noqa: E402
 import gemifi_yaml as gy  # noqa: E402
@@ -230,11 +231,13 @@ def source_hash(path, files=None, preset_dir=None):
     main = one(path)
     if main is None:
         return None
+    ext = b""
     if files is None:
-        files = gy.resolve_file(path, preset_dir=preset_dir).files
-    if not files:
+        res = gy.resolve_file(path, preset_dir=preset_dir)
+        files, ext = res.files, ge.data_digest(res.data, path)     # an external component's files count too
+    if not files and not ext:
         return main
-    return hashlib.sha256("\n".join([main] + [f"{one(p)} {p}" for p in files]).encode()).hexdigest()
+    return hashlib.sha256("\n".join([main] + [f"{one(p)} {p}" for p in files]).encode() + ext).hexdigest()
 
 
 def built_hash(out_dir):

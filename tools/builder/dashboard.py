@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import gemifi_build as gb
 import gemifi_device as gd
+import gemifi_external as ge
 import gemifi_yaml as gy
 
 NAME = "gemifi builder"
@@ -99,7 +100,7 @@ class Roots:
     def config_hash(self, path):
         """The file's config hash (param config.hash) as it is now, or None when it doesn't resolve."""
         res = gy.resolve_file(path, preset_dir=self.dirs["presets"])
-        return None if res.data is None else gy.config_hash(res.data)
+        return None if res.data is None else gy.config_hash(res.data, ge.data_digest(res.data, path))
 
     def file_label(self, path, device_path):
         """How to name another file in a message: <root>/<file> in a root, else relative to the device file."""

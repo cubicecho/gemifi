@@ -386,3 +386,13 @@ def config_digest(reg):
     if not reg.external:
         return b""
     return "\n".join(f"{n}:{files_digest(reg.dirs[n])}" for n in sorted(reg.external)).encode()
+
+
+def data_digest(data, file):
+    """config_digest() for a resolved device file without validating it (the dashboard's listing, the
+    stale check): b'' when it has no external components or they don't load."""
+    if not isinstance(data, dict) or "external_components" not in data:
+        return b""
+    import gemifi_device as gd
+    reg = registry(gd._V(file), data, file)
+    return config_digest(reg) if reg is not None else b""

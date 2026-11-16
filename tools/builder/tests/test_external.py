@@ -324,5 +324,28 @@ class Generated(Base):
         self.assertEqual(dev2.config_hash, dev3.config_hash)
 
 
+class Dashboard(Base):
+    """The dashboard's view of a file agrees with its build: the config hash it lists, and whether the build
+    is stale, both count the external components' files."""
+
+    def test_listed_hash_is_the_built_one(self):
+        import dashboard
+        import gemifi_yaml as gy
+        path = self.device(TCA)
+        dev, _ = gd.load_device(path)
+        res = gy.resolve_file(path)
+        self.assertEqual(gy.config_hash(res.data, ge.data_digest(res.data, path)), dev.config_hash)
+        self.assertNotEqual(gy.config_hash(res.data), dev.config_hash)     # the YAML alone isn't
+        self.assertTrue(hasattr(dashboard, "ge"))
+
+    def test_stale_when_a_driver_changes(self):
+        import gemifi_build as gb
+        path = self.device(TCA)
+        before = gb.source_hash(path)
+        with open(os.path.join(self.ext, "tca9555", "tca9555.c"), "a", encoding="utf-8") as f:
+            f.write("/* changed */\n")
+        self.assertNotEqual(gb.source_hash(path), before)
+
+
 if __name__ == "__main__":
     unittest.main()

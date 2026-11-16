@@ -11,6 +11,7 @@ import * as pagefind from "pagefind";
 import site from "./src/_data/site.js";
 import { buildDocs, resetDocs } from "./lib/docs-tree.js";
 import { highlightBlocks } from "./lib/highlight.js";
+import { addPager } from "./lib/pager.js";
 
 export default function (eleventyConfig) {
   eleventyConfig.on("eleventy.before", resetDocs);
@@ -47,11 +48,16 @@ export default function (eleventyConfig) {
   eleventyConfig.addPassthroughCopy({ "src/nojekyll": ".nojekyll" });
 
   eleventyConfig.addShortcode("year", () => `${new Date().getFullYear()}`);
+  // Previous/next at the foot of each docs page, from the docs menu's own order (lib/pager.js).
+  eleventyConfig.addTransform("pager", addPager);
 
   // Whether a docs menu section holds the page at `url` (its items, or their children): the section is open then.
   eleventyConfig.addFilter("holds", (items, url) =>
     items.some((i) => i.url === url || (i.children ?? []).some((c) => c.url === url)),
   );
+
+  // The devices whose status is `key` (statuses.js): the homepage's counts.
+  eleventyConfig.addFilter("withStatus", (devices, key) => devices.filter((d) => d.data.status === key));
 
   // One markdown file per device in src/devices/, ordered by `order:`.
   eleventyConfig.addCollection("devices", (api) =>

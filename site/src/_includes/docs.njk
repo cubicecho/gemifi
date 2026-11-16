@@ -19,6 +19,8 @@ layout: base.njk
       collected when the site is built. Fix it there.
     </p>
     {% endif %}
+    {#- lib/pager.js puts the previous and next pages in the menu here. #}
+    <!-- pager -->
   </article>
   {%- set toc = doc.toc if doc else toc -%}
   {% if toc and toc.length > 1 %}

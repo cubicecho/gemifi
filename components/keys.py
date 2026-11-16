@@ -138,12 +138,15 @@ class Enum(Type):
         return enum(self.values)
 
     def check(self, v, d, key, path, default, required):
+        p = f"{path}.{key}" if path else key
+        # the default as an index too (given as a name: Key(default="absolute"))
+        dflt = self.values.index(default) if isinstance(default, str) else default
         if d.get(key) is None:
             if required:
-                v.err(f"{path}.{key}", d.line, "is required")
-            return self.values.index(default) if isinstance(default, str) else default
-        i = v.enum_value(d, key, f"{path}.{key}", self.values)
-        return default if i is None else i
+                v.err(p, d.line, "is required")
+            return dflt
+        i = v.enum_value(d, key, p, self.values)
+        return dflt if i is None else i
 
     def bad_values(self):
         return [(self.values[0], True), (f"not_{self.values[0]}", False)]

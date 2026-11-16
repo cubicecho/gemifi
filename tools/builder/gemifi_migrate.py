@@ -18,8 +18,8 @@ import gemifi_device as gd
 
 def moves():
     """old key -> (the base's key, the platform: name), from the components."""
-    out = {old: (t.domain, t.key) for t in gd.HUB_DEFS.values() if t.domain for old in t.old_keys}
-    out.update({old: ("display", t.platform) for t in gd.DISPLAY_PLATFORMS.values() for old in t.old_keys})
+    out = {old: (t.domain, t.key) for t in gd.REG.HUB_DEFS.values() if t.domain for old in t.old_keys}
+    out.update({old: ("display", t.platform) for t in gd.REG.DISPLAY_PLATFORMS.values() for old in t.old_keys})
     return out
 
 

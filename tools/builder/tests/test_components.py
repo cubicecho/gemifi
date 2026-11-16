@@ -27,24 +27,24 @@ def core_hub_enum():
 
 class HubTypes(unittest.TestCase):
     def test_every_hub_type_is_known(self):
-        self.assertEqual(set(gd.HUB_DEFS), HUB_KEYS)
+        self.assertEqual(set(gd.REG.HUB_DEFS), HUB_KEYS)
 
     def test_enums_match_the_core(self):
         core = core_hub_enum()
-        for key, t in gd.HUB_DEFS.items():
+        for key, t in gd.REG.HUB_DEFS.items():
             with self.subTest(key):
                 self.assertEqual(core[t.enum], t.num)
 
     def test_every_hub_type_is_a_top_level_key(self):
         """A hub type's list is its key, or its domain's (led_strip: ...)."""
-        for key, t in gd.HUB_DEFS.items():
+        for key, t in gd.REG.HUB_DEFS.items():
             with self.subTest(key):
-                self.assertIn(t.domain or key, gd.TOP_KEYS)
+                self.assertIn(t.domain or key, gd.REG.TOP_KEYS)
 
     def test_a_domain_is_a_base_component(self):
         """A domain's platforms depend on its base component, which has no hub types of its own."""
         mods = components.modules()
-        for domain, plats in gd.HUB_DOMAINS.items():
+        for domain, plats in gd.REG.HUB_DOMAINS.items():
             with self.subTest(domain):
                 self.assertIn(domain, mods)
                 self.assertFalse(getattr(mods[domain], "HUB_TYPES", ()))
@@ -61,10 +61,10 @@ class Discovery(unittest.TestCase):
         for t in components.hub_types():
             with self.subTest(t.key):
                 self.assertIsInstance(t, HubType)
-                self.assertIs(gd.HUB_DEFS[t.key], t)
+                self.assertIs(gd.REG.HUB_DEFS[t.key], t)
 
     def test_hub_types_are_in_enum_order(self):
-        self.assertEqual(list(gd.HUB_DEFS), [t.key for t in sorted(gd.HUB_DEFS.values(), key=lambda t: (t.num, t.key))])
+        self.assertEqual(list(gd.REG.HUB_DEFS), [t.key for t in sorted(gd.REG.HUB_DEFS.values(), key=lambda t: (t.num, t.key))])
 
 
 KEYSTATION = os.path.join(REPO, "devices", "keystation-mini32-mk3.yaml")
@@ -119,7 +119,7 @@ class Header(unittest.TestCase):
 
     def test_platforms_share_their_base_state(self):
         """Two LED driver platforms with the led_driver base's state: one union member, both headers."""
-        dev = SimpleNamespace(hubs=[SimpleNamespace(kind=gd.HUB_DEFS[k]) for k in ("max7219", "tm1637")], screens=[])
+        dev = SimpleNamespace(hubs=[SimpleNamespace(kind=gd.REG.HUB_DEFS[k]) for k in ("max7219", "tm1637")], screens=[])
         h = gd.component_header(dev, "x.yaml")["gm_components.h"]
         self.assertEqual(h.count("gm_led_driver_state_t led_driver;"), 1)
         self.assertIn('#include "max7219.h"', h)

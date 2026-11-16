@@ -387,40 +387,69 @@ COMP_STR_MAX = 31               # sysex.md lstring
 # platform: ws2812, ... }], pins { led_strip: strip, number: 0 }.
 #
 # Each hub type is a HubType: its YAML keys, what its pins can be, its validation and the C of its
-# gm_hub_t entry. The tables below (HUB_KEYS, OUT_HUBS, ...) are made from HUB_DEFS. A new
+# gm_hub_t entry. HubTables below makes the tables (HUB_KEYS, OUT_HUBS, ...) from the hub types. A new
 # type is a component of its own, components/<key>/ (components/hub/README.md "Adding a hub type").
-# The hub types, from the components, in GM_HUB_* order.
-HUB_DEFS = {t.key: t for t in sorted(components.hub_types(), key=lambda t: (t.num, t.key))}
-# The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
-DISPLAY_PLATFORMS = {t.platform: t for t in sorted(components.display_platforms(), key=lambda t: t.num)}
-HUB_TYPES = list(HUB_DEFS)
-# A domain's platforms, by domain: {"led_strip": {"ws2812": WS2812, ...}}.
-HUB_DOMAINS = {d: {k: t for k, t in HUB_DEFS.items() if t.domain == d}
-               for d in dict.fromkeys(t.domain for t in HUB_DEFS.values() if t.domain)}
-# The top-level hub lists (a chip's key, or a domain) and the pin keys ({ <pin key>: <hub id> }).
-HUB_LISTS = list(dict.fromkeys(t.domain or k for k, t in HUB_DEFS.items()))
-HUB_PIN_KEY = {k: t.domain or t.pin_key or k for k, t in HUB_DEFS.items()}
-PIN_HUB_KEYS = list(dict.fromkeys(HUB_PIN_KEY.values()))
-# older list and pin keys of a type, refused with the new form
-HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_keys}
-HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
-I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
-MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
-XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
-TM_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, TM1628)}
-RAM_HUBS = {k for k, t in HUB_DEFS.items() if t.ram}
-OUT_HUBS = {k for k, t in HUB_DEFS.items() if "out" in t.roles}
-IN_HUBS = {k for k, t in HUB_DEFS.items() if "in" in t.roles}
-ANALOG_HUBS = {k for k, t in HUB_DEFS.items() if "analog" in t.roles}
-# A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
-ROW_HUBS = {k for k, t in HUB_DEFS.items() if "row" in t.roles}
+class HubTables:
+    """The validator's tables of hub types and display platforms (HUB_KEYS, OUT_HUBS, ...), and the top-level
+    and pin keys they add, made from one components.Registry: gemifi's own components, or a device's with its
+    external components. The code reads them as REG.<table>, from the current registry (components.using())."""
 
-TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip", "board",
-            "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
-            "status_led", "feedback", "mcu", *HUB_LISTS,
-            "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
-PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
+    def __init__(self, reg):
+        # The hub types, from the components, in GM_HUB_* order.
+        self.HUB_DEFS = HUB_DEFS = {t.key: t for t in sorted(reg.hub_types(), key=lambda t: (t.num, t.key))}
+        # The display platforms (display: [{ platform: ... }]), from the components, in GM_SCREEN_* order.
+        self.DISPLAY_PLATFORMS = {t.platform: t for t in sorted(reg.display_platforms(), key=lambda t: t.num)}
+        self.HUB_TYPES = list(HUB_DEFS)
+        # A domain's platforms, by domain: {"led_strip": {"ws2812": WS2812, ...}}.
+        self.HUB_DOMAINS = {d: {k: t for k, t in HUB_DEFS.items() if t.domain == d}
+                            for d in dict.fromkeys(t.domain for t in HUB_DEFS.values() if t.domain)}
+        # The top-level hub lists (a chip's key, or a domain) and the pin keys ({ <pin key>: <hub id> }).
+        self.HUB_LISTS = list(dict.fromkeys(t.domain or k for k, t in HUB_DEFS.items()))
+        self.HUB_PIN_KEY = {k: t.domain or t.pin_key or k for k, t in HUB_DEFS.items()}
+        self.PIN_HUB_KEYS = list(dict.fromkeys(self.HUB_PIN_KEY.values()))
+        # older list and pin keys of a type, refused with the new form
+        self.HUB_MOVED = {old: t.moved_text() for t in HUB_DEFS.values() for old in t.old_keys}
+        self.HUB_KEYS = {k: list(t.keys) for k, t in HUB_DEFS.items()}
+        self.I2C_HUBS = {k for k, t in HUB_DEFS.items() if t.i2c}
+        self.MUX_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, Mux)}
+        self.XY_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, XYPad)}
+        self.TM_HUBS = {k for k, t in HUB_DEFS.items() if isinstance(t, TM1628)}
+        self.RAM_HUBS = {k for k, t in HUB_DEFS.items() if t.ram}
+        self.OUT_HUBS = {k for k, t in HUB_DEFS.items() if "out" in t.roles}
+        self.IN_HUBS = {k for k, t in HUB_DEFS.items() if "in" in t.roles}
+        self.ANALOG_HUBS = {k for k, t in HUB_DEFS.items() if "analog" in t.roles}
+        # A decoder's outputs are one-of-N selects: only matrix rows (key_matrix, switch_matrix).
+        self.ROW_HUBS = {k for k, t in HUB_DEFS.items() if "row" in t.roles}
+        self.TOP_KEYS = TOP_KEYS_BEFORE_HUBS + self.HUB_LISTS + TOP_KEYS_AFTER_HUBS
+        self.PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *self.PIN_HUB_KEYS]
+        self.RENAMED_TOP = {**RENAMED_TOP_FIXED,
+                            "hubs": RENAMED_TOP_FIXED["hubs"] + "(keys: " + ", ".join(self.HUB_LISTS) + ")",
+                            **self.HUB_MOVED}
+
+
+def hub_tables(reg=None):
+    """The HubTables of reg (the current registry by default), made once per registry."""
+    reg = reg or components.current()
+    if "hub_tables" not in reg.cache:
+        reg.cache["hub_tables"] = HubTables(reg)
+    return reg.cache["hub_tables"]
+
+
+class _CurrentTables:
+    """REG.<table>: that table of the current registry's HubTables."""
+
+    def __getattr__(self, name):
+        return getattr(hub_tables(), name)
+
+
+REG = _CurrentTables()
+
+TOP_KEYS_BEFORE_HUBS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
+                        "board", "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo",
+                        "factory_reset_combo", "unlock", "status_led", "feedback", "mcu"]
+TOP_KEYS_AFTER_HUBS = ["buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix",
+                       "pads", "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays",
+                       "din_midi", "write_to_flash", "midi_messages", "layout"]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here. (The Core areas' keys are data: CORE_AREAS, at the end.)
 PROJECT_KEYS = ["version"]
@@ -435,16 +464,14 @@ MODE_STRINGS = {"INPUT": {"input"}, "OUTPUT": {"output"}, "OUTPUT_OPEN_DRAIN": {
                 "INPUT_OUTPUT_OPEN_DRAIN": {"input", "output", "open_drain"}}
 
 # Format 1 keys: an old file gets one error per old key, at its line, saying what replaced it.
-RENAMED_TOP = {
+RENAMED_TOP_FIXED = {   # HubTables.RENAMED_TOP adds the hub lists and HUB_MOVED
     "hubs": "replaced: declare each hub under its chip's key, ESPHome style, e.g. "
-            "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` "
-            "(keys: " + ", ".join(HUB_LISTS) + ")",
+            "`sn74hc595: [{ id: leds, data_pin: ..., clock_pin: ..., latch_pin: ... }]` ",
     "scan_us": "renamed: use `scan_interval:` with a unit, e.g. `scan_interval: 125us`",
     "version": "moved: use `project: { version: 1.0.0 }` (as ESPHome's `project:`)",
     "ssd1306": "moved: an OLED is a display now, ESPHome style: `display: [{ id: oled, platform: ssd1306, "
                "address: 0x3C }]`, and a text display names it with `display: oled` (instead of `ssd1306: oled`)"
                + MIGRATE_HINT,
-    **HUB_MOVED,
 }
 RENAMED_PIN = {
     "pin": "renamed: use `number:` (e.g. `{ number: PA1, inverted: true }`)",
@@ -454,7 +481,7 @@ RENAMED_PIN = {
     "pullup": "replaced: use `mode: INPUT_PULLUP` (or `mode: { input: true, pullup: true }`)",
     "pulldown": "replaced: use `mode: INPUT_PULLDOWN` (or `mode: { input: true, pulldown: true }`)",
     "mcp23017": "the pin key for an MCP23017 hub is `mcp23xxx:` (as in ESPHome)",
-    **HUB_MOVED,
+    **REG.HUB_MOVED,
 }
 RENAMED_HUB = {
     "type": "replaced: the chip is the list this hub is in (e.g. `sn74hc595:`), not a `type:` key",
@@ -1194,13 +1221,13 @@ class _V:
         """The hub types (YAML keys) of a kind, for a pin's hubs=: a HubType class (Mux ...), or a role
         ('in', 'out', 'analog', 'row')."""
         if isinstance(kind, str):
-            return {k for k, t in HUB_DEFS.items() if kind in t.roles}
-        return {k for k, t in HUB_DEFS.items() if isinstance(t, kind)}
+            return {k for k, t in REG.HUB_DEFS.items() if kind in t.roles}
+        return {k for k, t in REG.HUB_DEFS.items() if isinstance(t, kind)}
 
     @staticmethod
     def names_hub(x):
         """A pin given as a mapping that names a hub ({ sn74hc165: x, number: 3 })."""
-        return isinstance(x, dict) and any(k in x for k in PIN_HUB_KEYS)
+        return isinstance(x, dict) and any(k in x for k in REG.PIN_HUB_KEYS)
 
     def ref(self, container, key, path, line, kind, plural):
         """A reference to another component by id (`led: edit_led`, boot_combo items, hub pins).
@@ -1276,12 +1303,12 @@ class _V:
         flags, hub_key, share = 0, None, False
         raw = v
         if isinstance(v, dict):
-            v = self.mapping(v, path, line, PIN_KEYS, renamed=RENAMED_PIN)
+            v = self.mapping(v, path, line, REG.PIN_KEYS, renamed=RENAMED_PIN)
             if v is None:
                 return None
             if any(k in v for k in RENAMED_PIN):
                 return None        # format 1 pin: already reported
-            if any(k not in PIN_KEYS for k in v):
+            if any(k not in REG.PIN_KEYS for k in v):
                 return None        # an unknown key (a hub type gemifi lacks, say): already reported,
                 #                    and its number: isn't an MCU pin
             if self.boolean(v, "inverted", path):
@@ -1297,7 +1324,7 @@ class _V:
                          "gemifi only shares hub control lines (e.g. one clock_pin for two shift-register "
                          "hubs): a component pin can't have another use")
                 return None
-            keys = [k for k in PIN_HUB_KEYS if k in v]
+            keys = [k for k in REG.PIN_HUB_KEYS if k in v]
             if len(keys) > 1:
                 self.err(path, line, f"names more than one hub ({', '.join(keys)})")
                 return None
@@ -1351,15 +1378,15 @@ class _V:
             hub = self.hub_by_id.get(hub_id)
             if hub is None:
                 return None
-        if HUB_PIN_KEY[hub.type] != hub_key:
-            self.err(path, line, f"hub '{hub.id}' is a {hub.type}: write `{HUB_PIN_KEY[hub.type]}: {hub.id}`, "
+        if REG.HUB_PIN_KEY[hub.type] != hub_key:
+            self.err(path, line, f"hub '{hub.id}' is a {hub.type}: write `{REG.HUB_PIN_KEY[hub.type]}: {hub.id}`, "
                                  f"not `{hub_key}: {hub.id}`")
             return None
         hub.used = True
         num = self.hub_pin_num(hub, raw, path, line)
         if num is None:
             return None
-        allowed = hubs or {"out": OUT_HUBS, "in": IN_HUBS, "analog": ANALOG_HUBS}[role]
+        allowed = hubs or {"out": REG.OUT_HUBS, "in": REG.IN_HUBS, "analog": REG.ANALOG_HUBS}[role]
         if hub.type not in allowed:
             self.err(path, line, f"hub '{hub.id}' is a {hub.type}, which can't be {ROLE_TEXT[role]} "
                                  f"(use {' / '.join(sorted(allowed))}{'; ' + why if why else ''})")
@@ -1379,7 +1406,7 @@ class _V:
         n = None
         if isinstance(raw, int) and not isinstance(raw, bool):
             n = raw
-        elif isinstance(raw, str) and hub.type in XY_HUBS and raw.strip().lower() in ("x", "y"):
+        elif isinstance(raw, str) and hub.type in REG.XY_HUBS and raw.strip().lower() in ("x", "y"):
             n = "xy".index(raw.strip().lower())
         elif isinstance(raw, str):
             s = raw.strip().upper()
@@ -1707,7 +1734,7 @@ def validate(data, file=None):
         v.err("", getattr(data, "line", 1), f"the top level must be a mapping (gemifi: {FORMAT_VERSION}, "
                                             "name: ..., ...)")
         return None, v.diags
-    v.mapping(data, "", data.line, TOP_KEYS, renamed=RENAMED_TOP)
+    v.mapping(data, "", data.line, REG.TOP_KEYS, renamed=REG.RENAMED_TOP)
 
     fmt = v.integer(data, "gemifi", "", 0, 1000, required=True)
     if fmt == 1:
@@ -1777,23 +1804,23 @@ def validate(data, file=None):
 
     # hubs (before anything that refers to them), in file order
     for key in data:
-        if key in HUB_LISTS:
+        if key in REG.HUB_LISTS:
             lst = v.seq(data[key], key, data.line_of(key))
             for i, h in enumerate(lst):
                 p, line = f"{key}[{i}]", lst.line_of(i)
-                typ = hub_platform(v, key, h, p, line) if key in HUB_DOMAINS else key
+                typ = hub_platform(v, key, h, p, line) if key in REG.HUB_DOMAINS else key
                 if typ is not None:
                     validate_hub(v, dev, h, typ, p, line)
     if len(dev.hubs) > 254:
         v.err("", data.line, f"{len(dev.hubs)} hubs: at most 254")
-    for t in HUB_DEFS.values():
+    for t in REG.HUB_DEFS.values():
         hubs = [h for h in dev.hubs if h.type == t.key]
         if hubs:
             t.final_validate(v, dev, hubs)
     validate_screens(v, dev, data)
 
     # i2c
-    on_i2c = [h for h in dev.hubs if h.type in I2C_HUBS] + [x for x in dev.screens if x.kind.i2c]
+    on_i2c = [h for h in dev.hubs if h.type in REG.I2C_HUBS] + [x for x in dev.screens if x.kind.i2c]
     need_i2c = bool(on_i2c)
     if need_i2c and not plat.i2c:
         for h in on_i2c:
@@ -2347,10 +2374,10 @@ def validate_screens(v, dev, data):
             v.err(p, lst.line_of(i), f"must be a mapping, e.g. {{ id: oled, platform: ssd1306 }} (got {type_name(d)})")
             continue
         plat = d.get("platform")
-        kind = DISPLAY_PLATFORMS.get(plat) if isinstance(plat, str) else None
+        kind = REG.DISPLAY_PLATFORMS.get(plat) if isinstance(plat, str) else None
         if kind is None:
             what = f"unknown platform '{plat}'" if plat is not None else "platform: is required"
-            v.err(f"{p}.platform", d.line_of("platform") or d.line, f"{what} (use {', '.join(DISPLAY_PLATFORMS)})")
+            v.err(f"{p}.platform", d.line_of("platform") or d.line, f"{what} (use {', '.join(REG.DISPLAY_PLATFORMS)})")
             continue
         v.mapping(d, p, lst.line_of(i), kind.keys)
         index = len(dev.screens)
@@ -2370,7 +2397,7 @@ def validate_screens(v, dev, data):
 def hub_platform(v, domain, h, p, line):
     """The hub type item h of a domain's list names with platform: (led_strip: ws2812 ...), or None
     (reported)."""
-    plats = HUB_DOMAINS[domain]
+    plats = REG.HUB_DOMAINS[domain]
     if not isinstance(h, dict):
         v.err(p, line, f"must be a mapping, e.g. {{ id: ..., platform: {next(iter(plats))} }} (got {type_name(h)})")
         return None
@@ -2387,8 +2414,8 @@ def validate_hub(v, dev, h, typ, p, line):
     if not isinstance(h, dict):
         v.err(p, line, f"must be a mapping (got {type_name(h)})")
         return
-    kind = HUB_DEFS[typ]
-    v.mapping(h, p, line, HUB_KEYS[typ], renamed=RENAMED_HUB)
+    kind = REG.HUB_DEFS[typ]
+    v.mapping(h, p, line, REG.HUB_KEYS[typ], renamed=RENAMED_HUB)
     hid = v.ident(h, p, "hub", index, allow_name=False)
     hub = Hub(id=hid or f"#{index}", type=typ, kind=kind, index=index, path=p, line=line, used=False, chain=0,
               n_sel=0, addr=0, data=NO_PIN, clock=NO_PIN, latch=NO_PIN, sel=[], common=None,
@@ -2413,7 +2440,7 @@ def matrix_rows(v, d, path, why, hubs=None):
     """Rows of a key_matrix / switch_matrix: a list of pins (on hubs, by default the hubs that give rows;
     why says why a pin can't be one), or { decoder: <id>, first: n, count: n } for consecutive outputs of a
     decoder hub."""
-    hubs = ROW_HUBS if hubs is None else hubs
+    hubs = REG.ROW_HUBS if hubs is None else hubs
     rows = d.get("rows")
     line = d.line_of("rows") if "rows" in d else d.line
     p = f"{path}.rows"
@@ -2953,7 +2980,7 @@ def layout_control(v, dev, ctl, cid, seen):
     if shape == "xy":
         pin = comp.pin
         hub = dev.hubs[pin.hub - 1] if 0 < pin.hub <= len(dev.hubs) else None
-        if hub is None or hub.type not in XY_HUBS:
+        if hub is None or hub.type not in REG.XY_HUBS:
             v.err(f"{p}.shape", line, f"'{cid}' isn't on an xy_pad hub: shape xy draws the two axes of one")
             return None
         other = next((j for j, a in enumerate(dev.analogs) if a.pin.hub == pin.hub and a.pin.num != pin.num), None)
@@ -4027,7 +4054,7 @@ def generate(dev, source="device.yaml"):
          f"#define GM_HAS_MATRIX {1 if m else 0}",
          f"#define GM_MATRIX_KEYS {m.keys if m else 0}",
          f"#define GM_MATRIX_VELOCITY {1 if m and m.kind == 'velocity' else 0}",
-         f"#define GM_HAS_I2C {1 if any(x.type in I2C_HUBS for x in dev.hubs) else 0}",
+         f"#define GM_HAS_I2C {1 if any(x.type in REG.I2C_HUBS for x in dev.hubs) else 0}",
          f"#define GM_HW_SCAN {1 if dev.hw_scan else 0} /* hardware_scan.matrix */",
          f"#define GM_HW_ADC {1 if dev.hw_adc else 0} /* hardware_scan.analog */"]
     if dma_text(dev):
@@ -4041,7 +4068,7 @@ def generate(dev, source="device.yaml"):
     h += hw_scan_sizes(dev)
     h += timer_defines(dev)
     h += key_matrix.c_defines(dev)
-    hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in RAM_HUBS)
+    hub_ram = sum(x.ram_bytes for x in dev.hubs if x.type in REG.RAM_HUBS)
     if hub_ram:
         h.append(f"#define GM_HUB_RAM {hub_ram} /* hub RAM bytes (gm_hub_ram, components/hub): its LED strips' and drivers' */")
     strips = sum(1 for x in dev.hubs if x.type == "ws2812")
@@ -4053,7 +4080,7 @@ def generate(dev, source="device.yaml"):
             if spi:
                 h.append(f"#define GM_LEDSTRIP_SPI{spi}_BYTES {x.ram_bytes} /* ws2812 '{c_comment(x.id)}' on "
                          f"{x.data.desc}: a frame's bytes (platform/stm32f1/src/hal.c) */")
-    if any(x.type in TM_HUBS and x.fade for x in dev.hubs):
+    if any(x.type in REG.TM_HUBS and x.fade for x in dev.hubs):
         h.append("#define GM_TM_FADE 1 /* a tm1628 hub with fade: */")
     h += key_matrix.c_param_defaults(dev)
     h += screen_defines(dev)
@@ -4184,7 +4211,7 @@ def hw_scan_sizes(dev):
                 adc = pin.num
             elif 0 < pin.hub <= len(dev.hubs):
                 h = dev.hubs[pin.hub - 1]
-                if h.type in MUX_HUBS and h.common is not None and h.common.hub == 0:
+                if h.type in REG.MUX_HUBS and h.common is not None and h.common.hub == 0:
                     adc = h.common.num
                     steps = max(steps, 1 << h.n_sel)
             if adc is not None:

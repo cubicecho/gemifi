@@ -46,19 +46,19 @@ STR = {"type": "string"}
 ID_REF = {"type": "string", "description": "the id of another component"}
 
 def hub(typ):
-    return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
+    return lst(obj(gd.REG.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
 
 
 def hub_domain(domain):
     """A domain's list (led_strip: ...): an item takes platform: and the keys of its platforms."""
-    plats = gd.HUB_DOMAINS[domain]
-    keys = list(dict.fromkeys(k for typ in plats for k in gd.HUB_KEYS[typ]))
+    plats = gd.REG.HUB_DOMAINS[domain]
+    keys = list(dict.fromkeys(k for typ in plats for k in gd.REG.HUB_KEYS[typ]))
     types = {}
     for typ in plats:
         for k, t in hub_key_types(typ).items():
             types[k] = widest(types[k], t) if k in types else t
     types["platform"] = enum(plats)
-    item = by_platform(obj(keys, types), {typ: (gd.HUB_KEYS[typ], hub_key_types(typ)) for typ in plats})
+    item = by_platform(obj(keys, types), {typ: (gd.REG.HUB_KEYS[typ], hub_key_types(typ)) for typ in plats})
     return lst(item, f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
                      f"(components/{domain}/README.md)")
 
@@ -99,21 +99,21 @@ def bare(s):
 
 def hub_key_types(typ):
     """The JSON schema types of a hub type's keys, by key: its spec's (every hub type has one)."""
-    return gd.HUB_DEFS[typ].spec.types()
+    return gd.REG.HUB_DEFS[typ].spec.types()
 
 
 def screen():
     """display: the screens, each on a platform (components/<platform>, its ScreenType's keys: their types
     from its spec, the wider where platforms share a key)."""
-    plats = list(gd.DISPLAY_PLATFORMS.values())
+    plats = list(gd.REG.DISPLAY_PLATFORMS.values())
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
     types = {}
     for t in plats:
         for k, s in t.spec.types().items():
             types[k] = widest(types[k], s) if k in types else s
-    types["platform"] = enum(gd.DISPLAY_PLATFORMS)
-    item = by_platform(obj(keys, types), {name: (t.keys, t.spec.types()) for name, t in gd.DISPLAY_PLATFORMS.items()})
-    return lst(item, "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
+    types["platform"] = enum(gd.REG.DISPLAY_PLATFORMS)
+    item = by_platform(obj(keys, types), {name: (t.keys, t.spec.types()) for name, t in gd.REG.DISPLAY_PLATFORMS.items()})
+    return lst(item, "screens, ESPHome style: { id, platform: " + " | ".join(gd.REG.DISPLAY_PLATFORMS) +
                ", ... } (components/display/README.md); text displays name one with display: <id>")
 
 
@@ -141,16 +141,16 @@ def pin():
     return one_of(
         {"type": "string", "description": "an MCU pin: PA1, GPIO5, 5"},
         {"type": "integer"},
-        obj(gd.PIN_KEYS, {"number": one_of(STR, {"type": "integer"}), "inverted": BOOL,
+        obj(gd.REG.PIN_KEYS, {"number": one_of(STR, {"type": "integer"}), "inverted": BOOL,
                           "allow_other_uses": BOOL, "mode": one_of(enum(gd.MODE_STRINGS), obj(gd.MODE_FLAGS, {
                               k: BOOL for k in gd.MODE_FLAGS})),
-                          **{k: ID_REF for k in gd.PIN_HUB_KEYS}}))
+                          **{k: ID_REF for k in gd.REG.PIN_HUB_KEYS}}))
 
 
 def device_schema():
     top_types = {
-        **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
-        **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
+        **{k: hub(k) for k in gd.REG.HUB_LISTS if k not in gd.REG.HUB_DOMAINS},
+        **{d: hub_domain(d) for d in gd.REG.HUB_DOMAINS},
         "display": screen(),
     }
     # the device's own keys, by area (gemifi_device.py CORE_AREAS), and the components' sections (KEY_SECTIONS)
@@ -175,7 +175,7 @@ def device_schema():
                         "description": "the oldest gemifi builder that can build this file"},
     }
     assert list(reuse) == REUSE_KEYS
-    props = {**reuse, **{k: top_types.get(k, {}) for k in gd.TOP_KEYS}}
+    props = {**reuse, **{k: top_types.get(k, {}) for k in gd.REG.TOP_KEYS}}
     # a section may be an `!include file.yaml` (a string to the editor)
     for k, s in props.items():
         if k not in reuse and s.get("type") in ("object", "array"):

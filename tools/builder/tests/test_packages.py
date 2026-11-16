@@ -467,7 +467,7 @@ class TestSchema(unittest.TestCase):
                     node, dynamic = node["additionalProperties"], True
             return self.resolve(schema, node, True), dynamic
 
-        domains = {f"{d}[]" for d in gd.HUB_DOMAINS}
+        domains = {f"{d}[]" for d in gd.REG.HUB_DOMAINS}
         for path, keys in seen.items():
             node, dynamic = at(path)
             props = set(node.get("properties", {}))
@@ -487,17 +487,17 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(check_schema(schema, plain(good)), [])
         bad = gd.load_yaml("led_driver:\n  - { id: d, platform: tm1637, clk_pin: PB6, dio_pin: PB7, stb_pin: PB8 }\n")
         self.assertIn("$.led_driver[0]: unknown key stb_pin", check_schema(schema, plain(bad)))
-        for domain, plats in gd.HUB_DOMAINS.items():
+        for domain, plats in gd.REG.HUB_DOMAINS.items():
             item = self.resolve(schema, schema["properties"][domain], False)["items"]
             self.assertEqual({c["if"]["properties"]["platform"]["const"] for c in item["allOf"]}, set(plats))
 
     def test_a_domain_takes_its_platforms_keys(self):
         """A domain's list (led_strip: ...) takes the keys of all its platforms, and platform: one of them."""
         schema = gs.device_schema()
-        for domain, plats in gd.HUB_DOMAINS.items():
+        for domain, plats in gd.REG.HUB_DOMAINS.items():
             with self.subTest(domain):
                 item = self.resolve(schema, schema["properties"][domain], False)["items"]
-                self.assertEqual(set(item["properties"]), {k for t in plats for k in gd.HUB_KEYS[t]})
+                self.assertEqual(set(item["properties"]), {k for t in plats for k in gd.REG.HUB_KEYS[t]})
                 self.assertEqual(item["properties"]["platform"]["anyOf"][0]["enum"], list(plats))
 
     @staticmethod

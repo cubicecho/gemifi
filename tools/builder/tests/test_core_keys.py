@@ -28,13 +28,13 @@ def errors(top, more=""):
 class Coverage(unittest.TestCase):
     def test_every_top_level_key_is_somewhere(self):
         """Each top-level key is in one Core area, or is a component's section, a hub list or display:."""
-        mine = {s.yaml_key for s in gs.key_sections()} | set(gd.HUB_LISTS) | {"display"}
+        mine = {s.yaml_key for s in gs.key_sections()} | set(gd.REG.HUB_LISTS) | {"display"}
         seen = {}
         for area, keys in gd.CORE_AREAS.items():
             for k in keys.names:
                 self.assertNotIn(k, seen, f"{k}: in {seen.get(k)} and {area}")
                 seen[k] = area
-        for k in gd.TOP_KEYS:
+        for k in gd.REG.TOP_KEYS:
             self.assertTrue(k in seen or k in mine, f"{k}: in no Core area (gemifi_device.py CORE_AREAS)")
         self.assertFalse(set(seen) & mine, "a component's key in a Core area too")
 

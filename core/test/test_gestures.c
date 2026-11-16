@@ -2,13 +2,14 @@
  * test_gestures.c: host test of the button gestures (components/buttons/
  * README.md "Gestures") with core/test/gestures-test.yaml, on fake time: a
  * button without one fires at the press; tap vs hold and the hold time;
- * double taps, and a single tap that waits for the double-tap window.
- * Nothing a gesture sends is left hanging, a preset switch included.
+ * double taps, and a single tap that waits for the double-tap window;
+ * combos, and combo buttons pressed too far apart. Nothing a gesture sends is left hanging, a preset switch included.
  *
  * Buttons (PB0.., inverted): 0 plain CC 10, 1 tap_hold CC 20 / held CC 21,
  * 2 note_hold note 60 / held preset_next, 3 dbl note 62 / twice note 63,
- * 4 both CC 30 / twice CC 31 / held CC 32. button_settings: tap_time
- * 200 ms, hold_time 300 ms.
+ * 4 both CC 30 / twice CC 31 / held CC 32, 5..7 c1 CC 40, c2 CC 41, c3
+ * CC 43. Combos: c1 + c2 CC 42, c1 + c2 + c3 note 70. button_settings:
+ * tap_time 200 ms, hold_time 300 ms, combo_time 50 ms.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -19,7 +20,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_N_BUTTONS != 5 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18
+#if GM_N_BUTTONS != 8 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2
 #error "test_gestures.c needs the gestures-test.yaml config"
 #endif
 
@@ -60,13 +61,14 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
-enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH };
+enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3 };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
 /* A release counts once the contact has read open for BTN_STABLE (16)
  * samples: let go, then this long until it is seen. */
 #define RELEASE_MS 20u
 #define HOLD_MS 300u                /* button_settings.hold_time */
 #define TAP_MS 200u                 /* button_settings.tap_time */
+#define COMBO_MS 50u                /* button_settings.combo_time */
 
 static void run_ms(uint32_t ms)
 {
@@ -288,6 +290,86 @@ static void test_double_tap(void)
     gm_cfg.btn_tap_time = TAP_MS;
 }
 
+static void test_combos(void)
+{
+    /* c1 + c2 within combo_time: CC 42, not 40 or 41; it waits out combo_time (c3 could still come) */
+    out_n = 0;
+    press(C1);
+    run_ms(10);
+    press(C2);
+    CHECK(out_n == 0, "c1, c2: nothing yet (c3 could make the bigger combo)");
+    run_ms(COMBO_MS);
+    CHECK(!strcmp(cc_values(42), "1") && !*cc_values(40) && !*cc_values(41), "c1 + c2: the combo's CC 42 (got %s)",
+          cc_values(42));
+    release(C2);
+    CHECK(!strcmp(cc_values(42), "10"), "the first button let go: CC 42 off");
+    release(C1);
+    CHECK(!strcmp(cc_values(42), "10") && !*cc_values(40) && !*cc_values(41), "the second: silent");
+
+    /* all three: the bigger combo at once, at the third press */
+    out_n = 0;
+    press(C3);
+    press(C2);
+    press(C1);
+    CHECK(!strcmp(note_values(70), "1") && count(0xB0, -1, 0) == 0, "c3, c2, c1: note 70 at the last press");
+    release(C1);
+    release(C2);
+    release(C3);
+    CHECK(!strcmp(note_values(70), "10") && count(0xB0, -1, 0) == 0, "released: note 70 off, nothing else");
+
+    /* too far apart: each its own CC, the first at combo_time */
+    out_n = 0;
+    press(C1);
+    run_ms(COMBO_MS - 10u);
+    CHECK(out_n == 0, "c1 alone: waits for combo_time");
+    run_ms(20);
+    CHECK(!strcmp(cc_values(40), "1"), "c1 after combo_time: its own CC 40");
+    press(C2);
+    run_ms(COMBO_MS + 10u);
+    CHECK(!strcmp(cc_values(41), "1") && !*cc_values(42), "c2 late: its own CC 41, no combo");
+    release(C1);
+    release(C2);
+    CHECK(!strcmp(cc_values(40), "10") && !strcmp(cc_values(41), "10"), "both let go");
+
+    /* let go before combo_time: a tap of its own */
+    out_n = 0;
+    level[PIN_BTN(C1)] = 0;
+    run_ms(5);
+    level[PIN_BTN(C1)] = 1;
+    run_ms(RELEASE_MS);
+    CHECK(!strcmp(cc_values(40), "10") && !*cc_values(42), "c1 tapped: CC 40 on and off");
+
+    /* c1 + c2 let go before combo_time: still the combo (c3 never came) */
+    out_n = 0;
+    press(C1);
+    press(C2);
+    level[PIN_BTN(C1)] = 1;
+    run_ms(RELEASE_MS);
+    CHECK(!strcmp(cc_values(42), "10") && !*cc_values(40), "c1 + c2, c1 let go early: CC 42 on and off");
+    release(C2);
+    CHECK(!strcmp(cc_values(42), "10") && !*cc_values(41), "c2 let go: silent");
+
+    /* another button's press decides at once: c1 goes out before plain */
+    out_n = 0;
+    press(C1);
+    press(PLAIN);
+    CHECK(!strcmp(cc_values(40), "1") && !strcmp(cc_values(10), "1") && out[1] == 40, "c1, then plain: c1 first");
+    release(PLAIN);
+    release(C1);
+
+    /* button.combo_time is live */
+    gm_cfg.btn_combo_time = 200;
+    out_n = 0;
+    press(C1);
+    run_ms(150);
+    press(C2);
+    run_ms(210);
+    CHECK(!strcmp(cc_values(42), "1"), "combo_time 200: 150 ms apart is the combo");
+    release(C1);
+    release(C2);
+    gm_cfg.btn_combo_time = COMBO_MS;
+}
+
 /* A preset switch from a hold lets go of the other hold's CC; nothing
  * hangs and nothing more comes at the releases. */
 static void test_nothing_hangs(void)
@@ -316,6 +398,28 @@ static void test_nothing_hangs(void)
     release(TAP_HOLD);
     release(NOTE_HOLD);
     CHECK(count(0xB0, 20, 0) == 0 && count(0xB0, 21, 0) == 0, "tap_hold, pressed before the switch: silent");
+
+    /* a combo's note and a double tap's note, let go by a preset switch */
+    out_n = 0;
+    press(C1);
+    press(C2);
+    press(C3);
+    press(DBL);
+    release(DBL);
+    press(DBL);
+    CHECK(!strcmp(note_values(70), "1") && !strcmp(note_values(63), "1"), "note 70 (combo) and 63 (double tap) on");
+    press(NOTE_HOLD);
+    run_ms(HOLD_MS + 10u);
+    CHECK(gm_cfg.preset_active == 4, "note_hold held: the next preset");
+    CHECK(!strcmp(note_values(70), "10") && !strcmp(note_values(63), "10"), "the switch let go of notes 70 and 63");
+    out_n = 0;
+    release(C1);
+    release(C2);
+    release(C3);
+    release(DBL);
+    release(NOTE_HOLD);
+    run_ms(TAP_MS + 50u);
+    CHECK(out_n == 0, "released after the switch: silent");
 }
 
 int main(void)
@@ -329,6 +433,7 @@ int main(void)
     test_tap();
     test_hold();
     test_double_tap();
+    test_combos();
     test_nothing_hangs();
 
     printf("test_gestures: %d checks, %d failed\n", checks, fails);

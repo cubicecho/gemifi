@@ -142,6 +142,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     # button gestures (components/buttons/README.md "Gestures"): ids 75-79, global, each only with its gesture
     ("button.tap_time", 75, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "double_tap") else 0),
     ("button.hold_time", 76, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "hold") else 0),
+    ("button.combo_time", 77, GLOBAL, lambda d: 1 if getattr(d, "combos", []) else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, maudio_pads, din_midi dma:) may not share one.
@@ -173,7 +174,7 @@ DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # from this, so keep it in step with settings.c (test_builder checks it).
 WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
                "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank",
-               "button.tap_time", "button.hold_time"}
+               "button.tap_time", "button.hold_time", "button.combo_time"}
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
@@ -351,7 +352,7 @@ TOP_KEYS = ["gemifi", "name", "friendly_name", "description", "project", "board_
             "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo", "factory_reset_combo", "unlock",
             "status_led", "feedback", "mcu", *HUB_LISTS,
             "buttons", "led_defaults", "leds", "analog", "encoders", "encoder_settings", "key_matrix", "pads",
-            "pad_settings", "button_settings", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
+            "pad_settings", "button_settings", "combos", "presets", "modes", "display", "displays", "din_midi", "write_to_flash", "midi_messages", "layout"]
 PIN_KEYS = ["number", "inverted", "mode", "allow_other_uses", *PIN_HUB_KEYS]
 # The keys of each section (the v.mapping() calls below). gemifi_schema.py builds the JSON schema from
 # these lists, so a new key goes here.
@@ -911,6 +912,7 @@ class Device:
         self.pads = []               # Hub per pad (pads.validate), in YAML order
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.btn_set = {}            # button_settings: the gesture timing params' defaults (buttons.button_settings)
+        self.combos = []             # Hub per combo (buttons.validate_combos), in YAML order
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
         self.layout = None           # (width, height, [Hub item]) from layout: (validate_layout)

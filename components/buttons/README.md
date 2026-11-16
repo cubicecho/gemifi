@@ -42,6 +42,26 @@ button_settings:                 # optional; these are the defaults
 
 **Generated code:** `GM_BTN_HOLD` and `GM_BTN_DOUBLE` in `gm_device_config.h` (the buttons with `hold:` and with `double_tap:`, one bit each; 0 or left out: the gesture code isn't compiled in), `GM_BTN_HOLD_TIME_DEFAULT` and `GM_BTN_TAP_TIME_DEFAULT`, and `gm_btn_gestures[GM_N_BUTTONS]` (`gm_device.h` `gm_btn_gesture_t`: each button's `hold` and `double_tap` as `{ action, number }`, `GM_BTN_NO_ACT` for none). The runtime keeps 5 bytes per button (a state and the time of the press or release), only on such a device.
 
+## Combos
+
+Two or more buttons pressed together run an action of their own instead of theirs: a **combo**.
+
+```yaml
+combos:
+  - { buttons: [b1, b2], action: panic }                    # B1 + B2: panic
+  - { buttons: [b1, b2, b3], action: cc_momentary, cc: 90 }
+button_settings:
+  combo_time: 50ms               # optional; the default
+```
+
+- **Together** means each pressed within `combo_time` of the first, in any order. The combo goes down once its buttons are all pressed and no bigger combo with them in it could still come; with one that could, it waits out `combo_time` (or the first release). It lets go when the first of its buttons is let go; the others' releases send nothing.
+- **What it takes:** `buttons:` (the YAML's own buttons, 2 or more, each once) and an action with its number, as a gesture takes them ("Gestures"), with `action:` required. It runs on whichever of its buttons comes first in the top-level `buttons:` list, with that button's `channel:`, `min:`, `max:` and `bank:`.
+- **Latency.** A button in a combo waits for it: its own press (or its gesture) goes on when the combo can't happen any more: after `combo_time`, when it is let go, when another button is pressed, or when a press can't make a combo with it. Buttons in no combo never wait.
+- **Not combos:** a mode's toggle, hold or cycle button, a modifier or a `with:` button (Shift + a button is a mode's job: [modes](../modes/README.md)), a layer twin, or a button whose action is `cc_ramp` or a pitch bend. The actions are those of a gesture. While a button's layer twin is live, its presses are the twin's and don't make the combo.
+- **Global**, the same in every preset; `button.combo_time` (10..500 ms, default 50) is a global param in the "Buttons" group, only on a device with combos. A combo that sent a note or a CC lets go of it at a preset switch.
+
+**Generated code:** `GM_N_COMBOS`, `GM_COMBO_BUTTONS` (the buttons in any combo, one bit each), `GM_N_COMBO_BUTTONS` and `GM_BTN_COMBO_TIME_DEFAULT` in `gm_device_config.h`, and `gm_btn_combos[GM_N_COMBOS]` (`gm_device.h` `gm_btn_combo_t`: the buttons as a bit mask and `{ action, number }`). The runtime keeps the waiting presses in order (one byte per combo button) and 13 bytes more.
+
 ## Files
 
 - `buttons.c`: sampling and debouncing the buttons, their actions, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.
@@ -55,9 +75,9 @@ The main loop (`gm_poll`) calls:
 
 Each press or release goes, in this order:
 1. to the safety combos (`gm_safety_button`);
-2. to the live one of a button and its layer twins;
+2. to the live one of a button and its layer twins; a press then first sends a single tap still waiting for a double tap, and decides a combo it isn't in (`gestures_before_press`);
 3. to the modes: a mode's toggle, hold or cycle button (`mode_toggle_button`), or a function button of the active mode (`mode_function_button`);
-4. to the gestures, for a button with one (`gesture_input`, "Gestures"): `gestures_ms`, at the end of each sample, times them;
+4. to the gestures, for a button with one or in a combo (`gesture_input`, "Gestures", "Combos"): `gestures_ms`, at the end of each sample, times them;
 5. to the button's own action (`button_changed`).
 
 A preset switch (`gm_release_all`) calls `buttons_off`, which lets go of every note and CC the buttons hold. Buttons held through it release silently.

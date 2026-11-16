@@ -342,6 +342,15 @@ typedef struct {
 
 extern const gm_btn_gesture_t gm_btn_gestures[];   /* GM_N_BUTTONS entries, with GM_BTN_HOLD or GM_BTN_DOUBLE */
 
+/* A combo: its buttons pressed together, within button.combo_time, run its
+ * action instead of theirs. It runs on its first button (channel, note). */
+typedef struct {
+    uint64_t buttons;            /* one bit per button                     */
+    gm_btn_act_t act;
+} gm_btn_combo_t;
+
+extern const gm_btn_combo_t gm_btn_combos[];       /* GM_N_COMBOS entries */
+
 /* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
  * from F0 to F7, with these placeholders (all >= 0x80, so never a data
  * byte): the value (7-bit), its top and bottom 7 bits (14-bit), the

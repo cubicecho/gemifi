@@ -30,7 +30,16 @@ buttons:
     cc: 30
     double_tap: { cc: 31 }
     hold: { cc: 32 }
+  # combo buttons: CC 40, 41, 43 alone
+  - { id: c1, pin: { number: PB5, inverted: true }, action: cc_momentary, cc: 40 }
+  - { id: c2, pin: { number: PB6, inverted: true }, action: cc_momentary, cc: 41 }
+  - { id: c3, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 43 }
+
+combos:
+  - { buttons: [c1, c2], action: cc_momentary, cc: 42 }      # c1 + c2: CC 42
+  - { buttons: [c1, c2, c3], action: note, note: 70 }        # all three: note 70
 
 button_settings:
   tap_time: 200ms
   hold_time: 300ms
+  combo_time: 50ms

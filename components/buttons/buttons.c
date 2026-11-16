@@ -265,11 +265,11 @@ static void button_changed(uint32_t i, int down)
 }
 
 #if GM_BTN_GESTURES
-/* Gestures (components/buttons/README.md "Gestures"). A button with one
- * doesn't run its action at the press: gesture_input takes its presses and
- * releases, and gestures_ms (every sample) times them. The other buttons
- * never wait. */
-#define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD | GM_BTN_DOUBLE))
+/* Gestures (components/buttons/README.md "Gestures"). A button with one,
+ * or in a combo, doesn't run its action at the press: gesture_input takes
+ * its presses and releases, and gestures_ms (every sample) times them. The
+ * other buttons never wait. */
+#define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD | GM_BTN_DOUBLE | GM_COMBO_BUTTONS))
 #define HAS(mask, i) (((btn_bits_t)(mask) >> (i)) & 1u)
 #if GM_BTN_HOLD
 #define HOLD_MS ((uint32_t)gm_cfg.btn_hold_time)
@@ -283,14 +283,17 @@ static void button_changed(uint32_t i, int down)
 #endif
 enum {
     GS_IDLE,                        /* up, nothing to decide */
+    GS_COMBO_WAIT,                  /* down, held back: it may be part of a combo */
     GS_PRESSED,                     /* down, not told apart yet */
     GS_TAPPED,                      /* let go: a tap, unless pressed again within tap_time */
-    GS_OWN,                         /* its own action is down (held too long for a double tap's first) */
+    GS_OWN,                         /* its own action is down */
     GS_HOLD,                        /* its hold action is down */
     GS_DOUBLE,                      /* its double_tap action is down */
+    GS_COMBO,                       /* down, in a combo whose action is down */
+    GS_SILENT,                      /* down, in a combo already let go: its release sends nothing */
 };
 static uint8_t gs_state[NB];
-static uint32_t gs_since[NB];       /* ms: the press (GS_PRESSED) or the release (GS_TAPPED) */
+static uint32_t gs_since[NB];       /* ms: the press, or the release (GS_TAPPED) */
 
 /* The button's own action (button.action, button.number). */
 static void own_action(uint32_t i, int down)
@@ -310,6 +313,67 @@ static void tap(uint32_t i)
     own_action(i, 0);
 }
 
+#if GM_N_COMBOS
+/* Combos (components/buttons/README.md "Combos"): presses of their buttons
+ * wait in combo_queue, in order, until they are a combo or can't be one. */
+static btn_bits_t combo_waiting;
+static uint8_t combo_queue[GM_N_COMBO_BUTTONS];
+static uint8_t combo_n;
+static uint32_t combo_since;        /* ms: the first press waiting */
+static uint32_t combo_down;         /* bit c: combo c's action is down */
+
+/* A combo's action runs on its first button: that button's channel and note. */
+#define COMBO_OWNER(c) ((uint32_t)__builtin_ctzll(gm_btn_combos[c].buttons))
+
+/* The combo whose buttons are exactly set, or -1; *more: a combo with more
+ * buttons than set, set among them. */
+static int combo_match(btn_bits_t set, int *more)
+{
+    int exact = -1;
+    *more = 0;
+    for (uint32_t c = 0; c < GM_N_COMBOS; c++) {
+        btn_bits_t m = (btn_bits_t)gm_btn_combos[c].buttons;
+        if (m == set)
+            exact = (int)c;
+        else if ((m & set) == set)
+            *more = 1;
+    }
+    return exact;
+}
+
+static void combo_fire(uint32_t c)
+{
+    btn_bits_t m = (btn_bits_t)gm_btn_combos[c].buttons;
+    for (btn_bits_t k = m; k; k &= k - 1u)
+        gs_state[__builtin_ctzll(k)] = GS_COMBO;
+    combo_waiting = 0;
+    combo_n = 0;
+    combo_down |= 1u << c;
+    app_log(LOG_DEBUG, gm_device.buttons[COMBO_OWNER(c)].name, ": combo");
+    gesture_action(COMBO_OWNER(c), &gm_btn_combos[c].act, 1);
+}
+
+/* Combo member i let go: the first of its buttons lets go of the combo's
+ * action, the others' releases are silent. */
+static void combo_up(uint32_t i)
+{
+    for (uint32_t c = 0; c < GM_N_COMBOS; c++) {
+        btn_bits_t m = (btn_bits_t)gm_btn_combos[c].buttons;
+        int is_its_combo = ((combo_down >> c) & 1u) && HAS(m, i);
+        if (!is_its_combo)
+            continue;
+        combo_down &= ~(1u << c);
+        for (btn_bits_t k = m; k; k &= k - 1u) {
+            uint32_t j = (uint32_t)__builtin_ctzll(k);
+            if (gs_state[j] == GS_COMBO)
+                gs_state[j] = GS_SILENT;
+        }
+        gesture_action(COMBO_OWNER(c), &gm_btn_combos[c].act, 0);
+        return;
+    }
+}
+#endif
+
 /* Let go of the action state s has down on button i. */
 static void let_go(uint32_t i, uint8_t s)
 {
@@ -323,18 +387,89 @@ static void let_go(uint32_t i, uint8_t s)
     case GS_DOUBLE:
         gesture_action(i, &gm_btn_gestures[i].double_tap, 0);
         break;
+#if GM_N_COMBOS
+    case GS_COMBO:
+        combo_up(i);
+        break;
+#endif
     default:                        /* nothing down */
         break;
     }
 }
 
-#if GM_BTN_DOUBLE
-/* Button i is about to be pressed: a tap still waiting for its second
- * press (another button's, or i's own after tap_time) is a tap, and goes
- * out first. Called before i is held, so a preset switch from that tap
- * leaves i's press its own. */
-static void taps_now(uint32_t i, uint32_t now)
+/* Button i's press, now that no combo takes it (pressed at gs_since[i]):
+ * a button with hold: or double_tap: waits to be told apart, a combo's
+ * other buttons run their action. */
+static void gesture_start(uint32_t i)
 {
+    if (HAS(GM_BTN_HOLD | GM_BTN_DOUBLE, i)) {
+        gs_state[i] = GS_PRESSED;
+        return;
+    }
+    gs_state[i] = GS_OWN;
+    own_action(i, 1);
+}
+
+#if GM_N_COMBOS
+/* The presses waiting for a combo aren't one: each goes on as a press of
+ * its own, in order. A preset switch from one of them drops the rest. */
+static void combo_flush(void)
+{
+    uint8_t queue[GM_N_COMBO_BUTTONS];
+    uint32_t n = combo_n;
+    for (uint32_t k = 0; k < n; k++)
+        queue[k] = combo_queue[k];
+    combo_waiting = 0;
+    combo_n = 0;
+    for (uint32_t k = 0; k < n; k++)
+        if (gs_state[queue[k]] == GS_COMBO_WAIT)
+            gesture_start(queue[k]);
+}
+
+/* Decide the presses waiting: a combo if they are exactly one, else each
+ * on its own. */
+static void combo_settle(void)
+{
+    int more;
+    int exact = combo_match(combo_waiting, &more);
+    if (exact >= 0)
+        combo_fire((uint32_t)exact);
+    else
+        combo_flush();
+}
+
+/* Combo button i pressed: it waits with the others, and they are a combo
+ * as soon as no bigger one could still come. What waits but can't make a
+ * combo with i is decided first. */
+static void combo_press(uint32_t i, uint32_t now)
+{
+    btn_bits_t bit = (btn_bits_t)1 << i;
+    int more;
+    int exact = combo_match(combo_waiting | bit, &more);
+    int cannot_join = exact < 0 && !more;
+    if (cannot_join && combo_waiting) {
+        combo_settle();
+        exact = combo_match(bit, &more);
+    }
+    if (!combo_waiting)
+        combo_since = now;
+    combo_waiting |= bit;
+    combo_queue[combo_n++] = (uint8_t)i;
+    gs_state[i] = GS_COMBO_WAIT;
+    gs_since[i] = now;
+    if (exact >= 0 && !more)
+        combo_fire((uint32_t)exact);
+}
+#endif
+
+#if GM_BTN_DOUBLE || GM_N_COMBOS
+/* Button i is about to be pressed: a tap still waiting for its second
+ * press (another button's, or i's own after tap_time) is a tap, and a
+ * combo i isn't in is decided; both go out first. Called before i is
+ * held, so a preset switch from them leaves i's press its own. */
+static void gestures_before_press(uint32_t i, uint32_t now)
+{
+#if GM_BTN_DOUBLE
     for (btn_bits_t m = GM_BTN_DOUBLE; m; m &= m - 1u) {
         uint32_t j = (uint32_t)__builtin_ctzll(m);
         int is_waiting = gs_state[j] == GS_TAPPED && (j != i || now - gs_since[j] >= TAP_MS);
@@ -343,23 +478,38 @@ static void taps_now(uint32_t i, uint32_t now)
             tap(j);
         }
     }
+#endif
+#if GM_N_COMBOS
+    if (combo_waiting && !HAS(GM_COMBO_BUTTONS, i))
+        combo_settle();
+#endif
 }
 #endif
 
 static void gesture_press(uint32_t i, uint32_t now)
 {
-    if (gs_state[i] == GS_TAPPED) { /* again within tap_time (taps_now took a later one): a double tap */
+    if (gs_state[i] == GS_TAPPED) { /* again within tap_time (gestures_before_press took a later one) */
         gs_state[i] = GS_DOUBLE;
         app_log(LOG_DEBUG, gm_device.buttons[i].name, ": double tap");
         gesture_action(i, &gm_btn_gestures[i].double_tap, 1);
         return;
     }
-    gs_state[i] = GS_PRESSED;
+#if GM_N_COMBOS
+    if (HAS(GM_COMBO_BUTTONS, i)) {
+        combo_press(i, now);
+        return;
+    }
+#endif
     gs_since[i] = now;
+    gesture_start(i);
 }
 
 static void gesture_release(uint32_t i, uint32_t now)
 {
+#if GM_N_COMBOS
+    if (gs_state[i] == GS_COMBO_WAIT)
+        combo_settle();             /* let go before the combo was decided: decide it now */
+#endif
     uint8_t was = gs_state[i];
     int is_first_tap = was == GS_PRESSED && HAS(GM_BTN_DOUBLE, i);
     if (is_first_tap) {
@@ -374,7 +524,8 @@ static void gesture_release(uint32_t i, uint32_t now)
         let_go(i, was);
 }
 
-/* Button i's press or release, if it has a gesture: 1 if it took it. */
+/* Button i's press or release, if it has a gesture or is in a combo: 1 if
+ * it took it. */
 static int gesture_input(uint32_t i, int down, uint32_t now)
 {
     if (!HAS(GESTURE_BUTTONS, i))
@@ -387,13 +538,18 @@ static int gesture_input(uint32_t i, int down, uint32_t now)
     return 1;
 }
 
-/* Every sample: a press held for hold_time is a hold (a press of a button
- * with only double_tap:, held for tap_time, its own action), and a tap
- * not pressed again within tap_time a tap. The state is set before the
- * action runs, so a preset switch from it (gestures_off) has the last
- * word. */
+/* Every sample: presses that waited combo_time for a combo are decided; a
+ * press held for hold_time is a hold (a press of a button with only
+ * double_tap:, held for tap_time, its own action), and a tap not pressed
+ * again within tap_time a tap. The state is set before the action runs,
+ * so a preset switch from it (gestures_off) has the last word. */
 static void gestures_ms(uint32_t now)
 {
+#if GM_N_COMBOS
+    int combo_timed_out = combo_waiting && now - combo_since >= (uint32_t)gm_cfg.btn_combo_time;
+    if (combo_timed_out)
+        combo_settle();
+#endif
     for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
         uint32_t i = (uint32_t)__builtin_ctzll(m);
         uint32_t age = now - gs_since[i];
@@ -426,13 +582,17 @@ static void gesture_forget(uint32_t i)
     let_go(i, was);
 }
 
-/* A preset switch: let go of what a gesture has down, and forget the
- * presses and taps still being told apart (their releases are silent).
- * Returns the buttons whose own action isn't down: buttons_off lets go of
- * the others'. */
+/* A preset switch: let go of what a gesture or a combo has down, and
+ * forget the presses and taps still being told apart (their releases are
+ * silent). Returns the buttons whose own action isn't down: buttons_off
+ * lets go of the others'. */
 static btn_bits_t gestures_off(void)
 {
     btn_bits_t own_up = 0;
+#if GM_N_COMBOS
+    combo_waiting = 0;
+    combo_n = 0;
+#endif
     for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
         uint32_t i = (uint32_t)__builtin_ctzll(m);
         uint8_t was = gs_state[i];
@@ -479,9 +639,9 @@ void buttons_sample(void)
                 continue;                     /* an unlock / factory-reset combo's (gm_safety.h) */
             if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
-#if GM_BTN_DOUBLE
+#if GM_BTN_DOUBLE || GM_N_COMBOS
             if (down)
-                taps_now(i, now_ms);
+                gestures_before_press(i, now_ms);
 #endif
             if (down)
                 btn_held |= 1ull << i;

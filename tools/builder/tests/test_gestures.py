@@ -114,6 +114,54 @@ class TestHold(unittest.TestCase):
                          "the same in every preset")
 
 
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestCombos(unittest.TestCase):
+    errs = tb.TestValidation.errs
+    assertError = tb.TestValidation.assertError
+    assertClean = tb.TestValidation.assertClean
+    gen = TestHold.gen
+    warns = TestHold.warns
+
+    def test_generates(self):
+        dev, h, c = self.gen(BASE + "combos:\n  - { buttons: [a, c], action: panic }\n"
+                                    "  - { buttons: [a, b, c], action: note, note: 70 }\n"
+                                    "button_settings: { combo_time: 30ms }\n")
+        self.assertIn("#define GM_N_COMBOS 2 ", h)
+        self.assertIn("#define GM_COMBO_BUTTONS 0x7ull /* in a combo: a, b, c */", h)
+        self.assertIn("#define GM_N_COMBO_BUTTONS 3", h)
+        self.assertIn("#define GM_BTN_COMBO_TIME_DEFAULT 30 ", h)
+        self.assertIn(f"{{ 0x5ull, {{ {gd.ACTION_IDS['panic']}, 0 }} }}, /* a + c: panic */", c)
+        self.assertIn("{ 0x7ull, { 4, 70 } }, /* a + b + c: note */", c)
+        self.assertNotIn("gm_btn_gestures", c)          # no hold: or double_tap:
+        self.assertNotIn("GM_BTN_HOLD", h)
+        self.assertEqual([n for n, _i, _s, count in gd.PARAMS if n.startswith("button.") and n[7:] in
+                          gd.buttons.BUTTON_SETTINGS and count(dev)], ["button.combo_time"])
+        self.assertNotIn("GM_N_COMBOS", self.gen(BASE)[1])
+
+    def test_checks(self):
+        combo = lambda body: BASE + "combos:\n  - " + body + "\n"   # noqa: E731
+        self.assertClean(combo("{ buttons: [a, b], action: panic }"))
+        self.assertError(combo("{ buttons: [a], action: panic }"), "needs 2 or more buttons")
+        self.assertError(combo("{ buttons: [a, a], action: panic }"), "is listed twice")
+        self.assertError(combo("{ buttons: [a, nope], action: panic }"), "no button with id 'nope'")
+        self.assertError(combo("{ buttons: [a, b] }"), "needs action:")
+        self.assertError(combo("{ buttons: [a, b], action: cc_toggle, cc: 3 }"), "a combo can't run action cc_toggle")
+        self.assertError(combo("{ buttons: [a, b], action: cc_momentary }"), "needs cc:")
+        self.assertError(combo("{ buttons: [a, b], action: panic, daw: play }"), "unknown key")
+        self.assertError(BASE + "combos:\n  - { buttons: [a, b], action: panic }\n  - { buttons: [b, a], action: panic }\n",
+                         r"combos\[0\] has the same buttons")
+        self.assertError(combo("{ buttons: [a, c], action: panic }").replace("cc_momentary, cc: 3", "bend_up"),
+                         "has action bend_up, which works for as long as the button is held")
+        modes = BASE + "modes:\n  - { id: m, hold: c, layer: { b: { note: 61 } } }\n"
+        self.assertError(modes + "combos:\n  - { buttons: [a, c], action: panic }\n", "is held for mode 'm'")
+        self.assertError(modes + "combos:\n  - { buttons: [a, b_m], action: panic }\n", "is a layer twin")
+        self.assertClean(modes + "combos:\n  - { buttons: [a, b], action: panic }\n")    # a twin's base may be
+        self.assertTrue(any("there are no combos:" in w for w in self.warns(BASE + "button_settings: { combo_time: 30ms }\n")))
+        presets = combo("{ buttons: [a, b], action: panic }") + ("presets:\n  slots: 2\n  list:\n    - { name: A }\n"
+                                                                 "    - { name: B, buttons: { a: { action: cc_ramp } } }\n")
+        self.assertError(presets, "has a combo, so its presses wait")
+
+
 @unittest.skipUnless(tb.GCC and gd.yaml, "needs host gcc and PyYAML")
 class TestGesturesCompile(unittest.TestCase):
     def setUp(self):
@@ -129,7 +177,10 @@ class TestGesturesCompile(unittest.TestCase):
         """Each gesture alone, and all of them, compile warning-free with the core."""
         for tag, text in (("hold", with_gesture("hold: { cc: 21 }")),
                           ("double_tap", with_gesture("double_tap: { cc: 21 }")),
-                          ("both", with_gesture("double_tap: { cc: 21 }, hold: panic"))):
+                          ("both", with_gesture("double_tap: { cc: 21 }, hold: panic")),
+                          ("combos", BASE + "combos:\n  - { buttons: [a, b], action: panic }\n"),
+                          ("all", with_gesture("double_tap: { cc: 21 }, hold: panic",
+                                               extra="combos:\n  - { buttons: [a, b], action: panic }\n"))):
             with self.subTest(tag):
                 dev, diags = tb.load(text)
                 self.assertIsNotNone(dev, [str(d) for d in diags])
@@ -147,6 +198,8 @@ class TestGestureSchema(unittest.TestCase):
         self.assertNotIn("cc_toggle", button["hold"]["anyOf"][0]["anyOf"][0]["enum"])
         settings = s["properties"]["button_settings"]["anyOf"][0]["properties"]
         self.assertEqual(sorted(settings), sorted(gd.buttons.BUTTON_SETTINGS))
+        combo = s["properties"]["combos"]["anyOf"][0]["items"]["properties"]
+        self.assertEqual(sorted(combo), sorted(gd.buttons.COMBO_KEYS))
 
 
 if __name__ == "__main__":

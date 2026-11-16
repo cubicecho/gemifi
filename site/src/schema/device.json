@@ -2605,10 +2605,172 @@
             },
             "hold_time": {
               "$ref": "#/definitions/period"
+            },
+            "combo_time": {
+              "$ref": "#/definitions/period"
             }
           },
           "additionalProperties": false,
           "description": "the gestures' timing (components/buttons/README.md \"Gestures\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
+    "combos": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "buttons": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "the id of another component"
+                }
+              },
+              "action": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "none",
+                      "cc_momentary",
+                      "cc_toggle",
+                      "cc_ramp",
+                      "note",
+                      "octave_down",
+                      "octave_up",
+                      "transpose_down",
+                      "transpose_up",
+                      "bend_down",
+                      "bend_up",
+                      "program_next",
+                      "program_prev",
+                      "preset_next",
+                      "preset_prev",
+                      "preset_select",
+                      "mcu",
+                      "program",
+                      "panic",
+                      "mmc",
+                      "sysex",
+                      "pad_octave_down",
+                      "pad_octave_up"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "cc": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "note": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "preset": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "program": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "mmc": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "stop",
+                          "play",
+                          "deferred_play",
+                          "fast_forward",
+                          "rewind",
+                          "record",
+                          "record_exit",
+                          "record_pause",
+                          "pause",
+                          "eject",
+                          "chase",
+                          "reset"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 127
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sysex": {
+                "type": "string",
+                "description": "the id of a midi_messages.sysex string"
+              },
+              "mcu": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "buttons pressed together that run an action of their own (components/buttons/README.md \"Combos\")"
         },
         {
           "type": "string",

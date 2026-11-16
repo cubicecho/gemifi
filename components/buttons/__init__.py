@@ -41,9 +41,13 @@ GESTURE_KEYS = ["action", "cc", "note", "preset", "program", "mmc", "sysex", "mc
 HELD_ACTIONS = {"cc_ramp", "bend_down", "bend_up"}
 # ... nor cc_toggle: its on/off state is the button's own, which the button's LED and host echoes show.
 NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
+# combos: (README.md "Combos"): a combo's buttons and its action, with the keys of a gesture.
+COMBO_KEYS = ["buttons", *GESTURE_KEYS]
+MAX_COMBOS = 32                 # buttons.c combo_down: one bit each
 # button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
-# key -> (default, lo, hi, the gesture that uses it).
-BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold")}
+# key -> (default, lo, hi, the gesture that uses it: a button key, or combos).
+BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold"),
+                   "combo_time": (50, 10, 500, "combos")}
 BUTTON_SETTINGS_KEYS = list(BUTTON_SETTINGS)
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
@@ -252,13 +256,76 @@ def button_bank(v, dev, d, p, act):
 
 def validate_gestures(v, dev, data):
     """After the modes (they say which buttons switch them): a button a mode switches with has no
-    gestures; then button_settings: -> dev.btn_set, the timing params' defaults."""
+    gestures; then combos: -> dev.combos and button_settings: -> dev.btn_set, the timing params'
+    defaults."""
     for idx, b in enumerate(dev.buttons):
         for g in getattr(b, "gestures", {}):
             why = mode_use(v, dev, idx)
             if why:
                 v.err(f"{b.path}.{g}", b.line, f"button '{b.id}' {why}, so it can't have {g}:")
+    validate_combos(v, dev, data)
     button_settings(v, dev, data)
+
+
+def validate_combos(v, dev, data):
+    """combos: [{ buttons: [ids], action ... }] (README.md "Combos") -> dev.combos, one Hub each: mask (one
+    bit per button), action name, number, path."""
+    combos = v.seq(data.get("combos"), "combos", data.line_of("combos"))
+    if len(combos) > MAX_COMBOS:
+        v.err("combos", data.line_of("combos"), f"{len(combos)} combos: at most {MAX_COMBOS}")
+        return
+    seen = {}
+    for i, d in enumerate(combos):
+        p = f"combos[{i}]"
+        d = v.mapping(d, p, combos.line_of(i), COMBO_KEYS)
+        if d is None:
+            continue
+        mask = combo_buttons(v, dev, d, p)
+        if "action" not in d:
+            v.err(p, d.line, "needs action: (what the buttons pressed together do, e.g. `action: panic`)")
+            continue
+        act, num = button_action(v, dev, d, p)
+        if number_key(act) is None and act != "mcu":
+            num = 0
+        if act in NOT_GESTURE_ACTIONS:
+            v.err(f"{p}.action", d.line_of("action"), f"a combo can't run action {act}: it works for as long as "
+                                                      "the button is held, or keeps an on/off state of its own")
+            continue
+        if mask is None:
+            continue
+        if mask in seen:
+            v.err(f"{p}.buttons", d.line_of("buttons"), f"{seen[mask]} has the same buttons")
+            continue
+        seen[mask] = p
+        dev.combos.append(Hub(mask=mask, action_name=act, number=num, path=p))
+
+
+def combo_buttons(v, dev, d, p):
+    """A combo's buttons: 2 or more of the YAML's own, each once, none a mode uses and none whose action
+    works while held. Returns the mask, or None."""
+    lst = v.seq(d.get("buttons"), f"{p}.buttons", d.line_of("buttons"))
+    if len(lst) < 2:
+        v.err(f"{p}.buttons", d.line_of("buttons"), "needs 2 or more buttons (e.g. `buttons: [b1, b2]`)")
+        return None
+    mask, ok = 0, True
+    for k in range(len(lst)):
+        bp, bl = f"{p}.buttons[{k}]", lst.line_of(k)
+        idx = v.ref(lst, k, bp, bl, "button", "buttons")
+        if idx is None:
+            ok = False
+            continue
+        b = dev.buttons[idx]
+        why = ("is a layer twin: give the combo the button itself" if getattr(b, "layer", 0) else
+               mode_use(v, dev, idx) or
+               (f"has action {b.action_name}, which works for as long as the button is held"
+                if b.action_name in HELD_ACTIONS else None))
+        if (mask >> idx) & 1:
+            why = "is listed twice"
+        if why:
+            v.err(bp, bl, f"button '{b.id}' {why}, so it can't be in a combo")
+            ok = False
+        mask |= 1 << idx
+    return mask if ok else None
 
 
 def mode_use(v, dev, idx):
@@ -279,11 +346,12 @@ def mode_use(v, dev, idx):
 def held_action_problem(dev, idx, act):
     """Why button idx can't take action act from a preset (or None): act works for as long as the
     button is held (HELD_ACTIONS), and the button's presses wait for a gesture."""
-    gestures = getattr(dev.buttons[idx], "gestures", {})
-    if act not in HELD_ACTIONS or not gestures:
+    uses = [g + ":" for g in getattr(dev.buttons[idx], "gestures", {})]
+    uses += ["a combo"] if any((c.mask >> idx) & 1 for c in getattr(dev, "combos", [])) else []
+    if act not in HELD_ACTIONS or not uses:
         return None
     return (f"action {act} works for as long as the button is held, and button '{dev.buttons[idx].id}' has "
-            f"{', '.join(g + ':' for g in gestures)}, so its presses wait to be told apart")
+            f"{' and '.join(uses)}, so its presses wait to be told apart")
 
 
 def gestures_used(dev):
@@ -301,15 +369,15 @@ def button_settings(v, dev, data):
     s = v.mapping(data["button_settings"], p, line, BUTTON_SETTINGS_KEYS)
     if s is None:
         return
-    used = gestures_used(dev)
+    used = gestures_used(dev) | ({"combos"} if dev.combos else set())
     for k, (default, lo, hi, gesture) in BUTTON_SETTINGS.items():
         ms = v.period(s, k, p, lo * 1000, hi * 1000, step_us=1000, example=f"{default}ms")
         if ms is None:
             continue
         dev.btn_set[k] = ms
         if gesture not in used:
-            v.warn(f"{p}.{k}", s.line_of(k), f"no button has {gesture}:, so {k} does nothing (it isn't a param "
-                                             "on this device)")
+            what = "there are no combos:" if gesture == "combos" else f"no button has {gesture}:"
+            v.warn(f"{p}.{k}", s.line_of(k), f"{what}, so {k} does nothing (it isn't a param on this device)")
 
 
 def gesture_mask(dev, gesture):
@@ -326,16 +394,28 @@ def c_defines(dev):
     their timing defaults (button_settings:), when a button has one."""
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     h = [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
-    if not gestures_used(dev):
+    combos = getattr(dev, "combos", [])
+    if not gestures_used(dev) and not combos:
         return h
     s = getattr(dev, "btn_set", {})
+
+    def default(setting):
+        return (f"#define GM_BTN_{setting.upper()}_DEFAULT {s.get(setting, BUTTON_SETTINGS[setting][0])} "
+                f"/* ms, button_settings.{setting} */")
+
     h.append("/* button gestures (components/buttons/README.md \"Gestures\"): one bit per button */")
     for gesture, define, setting in (("hold", "GM_BTN_HOLD", "hold_time"), ("double_tap", "GM_BTN_DOUBLE", "tap_time")):
         mask = gesture_mask(dev, gesture)
         if mask:
             h += [f"#define {define} 0x{mask:X}ull /* {gesture}: {c_comment(gesture_names(dev, mask))} */",
-                  f"#define GM_BTN_{setting.upper()}_DEFAULT {s.get(setting, BUTTON_SETTINGS[setting][0])} "
-                  f"/* ms, button_settings.{setting} */"]
+                  default(setting)]
+    if combos:
+        members = 0
+        for c in combos:
+            members |= c.mask
+        h += [f"#define GM_N_COMBOS {len(combos)} /* combos: gm_btn_combos[] */",
+              f"#define GM_COMBO_BUTTONS 0x{members:X}ull /* in a combo: {c_comment(gesture_names(dev, members))} */",
+              f"#define GM_N_COMBO_BUTTONS {bin(members).count('1')}", default("combo_time")]
     return h
 
 
@@ -356,6 +436,13 @@ def c_tables(dev):
         c += [f"    {{ {b.pin.c()}, {c_str(b.name)}, {b.led}{twin_c(b)} }}, "
               f"/* {c_comment(b.id)}: {c_comment(b.pin.desc)} */" for b in dev.buttons]
         c += ["};", ""]
+    if getattr(dev, "combos", []):
+        c += ["/* combos: { buttons (one bit each), { action, number } } */",
+              "const gm_btn_combo_t gm_btn_combos[GM_N_COMBOS] = {",
+              *[f"    {{ 0x{x.mask:X}ull, {{ {ACTION_IDS[x.action_name]}, {x.number} }} }}, "
+                f"/* {c_comment(gesture_names(dev, x.mask).replace(', ', ' + '))}: {x.action_name} */"
+                for x in dev.combos],
+              "};", ""]
     if gestures_used(dev):
         c += ["/* button gestures: { hold, double_tap }, each { action, number }, GM_BTN_NO_ACT = none */",
               "const gm_btn_gesture_t gm_btn_gestures[GM_N_BUTTONS] = {",

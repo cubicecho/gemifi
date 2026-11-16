@@ -287,6 +287,9 @@ def device_schema():
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
         "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES}})),
+        "combos": lst(obj(gd.buttons.COMBO_KEYS, {"buttons": lst(ID_REF)}),
+                      "buttons pressed together that run an action of their own (components/buttons/README.md "
+                      "\"Combos\")"),
         "button_settings": obj(gd.buttons.BUTTON_SETTINGS_KEYS, {k: PERIOD for k in gd.buttons.BUTTON_SETTINGS_KEYS},
                                "the gestures' timing (components/buttons/README.md \"Gestures\")"),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),

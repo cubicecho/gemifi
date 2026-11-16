@@ -9,7 +9,9 @@ leds:
   - { id: shift_led, pin: { led_driver: leds_a, number: 37 } }
 ```
 
-Set `ram_bytes` to what the chip has or what the board uses (default 14). Its pin numbers, `intensity` and `fade:` are below; the base's pins in [led_driver](../led_driver/README.md).
+<!-- keys -->
+
+How its pins are numbered, written and timed, and what `fade:` does, are below; the base's pins in [led_driver](../led_driver/README.md).
 
 - **Pin numbers** are display RAM bits: `number = byte * 8 + bit`, bit 0 = the LSB of the byte. `{ led_driver: leds_a, number: 37 }` is byte 4 (address 0xC4), bit 5. On a TM1628 in its usual wiring, byte 2g is SEG1–SEG8 of grid g+1 and byte 2g+1 is SEG9–SEG14, but the board decides what each bit lights.
 - **Sharing**: several chips can share `clk_pin` and `dio_pin` (`allow_other_uses: true` on each), each with its own `stb_pin`. TM1628 lines can't be shared with other hubs' lines.

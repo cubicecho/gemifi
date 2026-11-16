@@ -607,6 +607,78 @@
       ]
     }
   ],
+  "tm1628": [
+    {
+      "section": "led_driver",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_driver: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`tm1628`",
+          "required": true,
+          "default": null,
+          "doc": "This chip family."
+        },
+        {
+          "key": "clk_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The clock pin (CLK). Chips can share it."
+        },
+        {
+          "key": "dio_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The data pin (DIO), push-pull or open drain with a pull-up. Chips can share it."
+        },
+        {
+          "key": "stb_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The strobe pin (STB), one per chip."
+        },
+        {
+          "key": "ram_bytes",
+          "type": "integer 1..16",
+          "required": false,
+          "default": "`14`",
+          "doc": "The display RAM bytes it writes: what the chip has (TM1628 14, TM1638 16) or what the board uses."
+        },
+        {
+          "key": "intensity",
+          "type": "integer 0..7",
+          "required": false,
+          "default": "`7`",
+          "doc": "The brightness, the chip's PWM, for every LED on it."
+        },
+        {
+          "key": "grids",
+          "type": "integer 4..7",
+          "required": false,
+          "default": "not sent",
+          "doc": "The grids it is set to at start-up (the display-mode command). Left out, the chip keeps its own setting."
+        },
+        {
+          "key": "fade",
+          "type": "`true` or `false`",
+          "required": false,
+          "default": "`false`",
+          "doc": "Its brightness follows the host's LED colours, up to `intensity`."
+        }
+      ],
+      "platform": "tm1628"
+    }
+  ],
   "tm1637": [
     {
       "section": "led_driver",

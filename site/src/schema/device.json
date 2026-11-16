@@ -974,18 +974,26 @@
                 "$ref": "#/definitions/pin"
               },
               "stb_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The strobe pin (STB), one per chip."
               },
               "ram_bytes": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 16
                   },
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The display RAM bytes it writes: what the chip has (TM1628 14, TM1638 16) or what the board uses. Default: 14.",
+                "default": 14
               },
               "intensity": {
                 "anyOf": [
@@ -1009,7 +1017,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The grids it is set to at start-up (the display-mode command). Left out, the chip keeps its own setting. Default: not sent."
               },
               "fade": {
                 "anyOf": [
@@ -1019,7 +1028,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its brightness follows the host's LED colours, up to `intensity`. Default: false.",
+                "default": false
               },
               "din_pin": {
                 "$ref": "#/definitions/pin"

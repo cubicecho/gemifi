@@ -218,7 +218,7 @@ void send_value(uint32_t kind, uint8_t ch, uint32_t num, uint32_t v)
 
 /* ---- the scan ---------------------------------------------------------- */
 
-volatile uint32_t scan_ticks;
+uint32_t scan_ticks;
 volatile uint32_t gm_scan_period_us;
 volatile uint32_t gm_scan_part_max[3];
 uint32_t gm_poll_part_max[GM_POLL_PARTS];

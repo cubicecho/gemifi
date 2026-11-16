@@ -9,7 +9,13 @@
 
 GM_SCREEN_OPS_EXTERNS               /* each platform's (gm_components.h) */
 
-static const gm_screen_ops_t *const screen_ops[GM_SCREEN_N_TYPES] = {
+/* With external display platforms (core/README.md "External components"), gm_components.h numbers them
+ * after GM_SCREEN_N_TYPES and sets GM_SCREEN_N_ALL. */
+#ifndef GM_SCREEN_N_ALL
+#define GM_SCREEN_N_ALL GM_SCREEN_N_TYPES
+#endif
+
+static const gm_screen_ops_t *const screen_ops[GM_SCREEN_N_ALL] = {
     GM_SCREEN_OPS
 };
 
@@ -74,7 +80,7 @@ uint32_t gm_screen_send(uint32_t budget)
 {
     for (uint32_t i = 0; i < GM_N_SCREENS && budget; i++) {
         const gm_screen_t *c = &gm_screens[i];
-        const gm_screen_ops_t *o = c->type < GM_SCREEN_N_TYPES ? screen_ops[c->type] : 0;
+        const gm_screen_ops_t *o = c->type < GM_SCREEN_N_ALL ? screen_ops[c->type] : 0;
         gm_screen_state_t *s = &st[i];
         if (!o || !o->send || !s->pages || s->fb + fb_bytes(c) > GM_SCREEN_RAM)
             continue;

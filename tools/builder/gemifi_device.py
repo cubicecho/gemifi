@@ -26,6 +26,8 @@ from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PR
 import gemifi_board as gbd  # noqa: E402
 from components.led_strip import rgb_curve  # noqa: E402,F401
 from components.hub import c_comment  # noqa: E402
+import components.hub as hub_base  # noqa: E402
+import components.display as display_base  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, Id as _Id,  # noqa: E402
                              IdRef as _IdRef, Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map,
@@ -4146,6 +4148,7 @@ def generate(dev, source="device.yaml"):
     h += ["", "#endif", ""]
 
     c = [head, '#include "gm_device.h"', '#include "gm_device_config.h"', ""]
+    c += external_checks(dev)
 
     if dev.hubs:
         for hb in dev.hubs:
@@ -4488,19 +4491,49 @@ def component_lists(dev, source):
     used = components.used(sorted({h.kind.key for h in dev.hubs}), sorted({x.type for x in dev.screens}),
                            components.controls(dev))
     srcs = [s for name in used for s in components.sources(name)]
-    incs = [f"components/{name}" for name in used if components.has_headers(name)]
+
+    def root(path, var):        # gemifi's own under the repo root; an external component's absolute
+        return path if os.path.isabs(path) else f"{var}/{path}"
+    incs = [components.folder(name) for name in used if components.has_headers(name)]
     head = (f"gm_components: do not edit; generated from {c_comment(source)} by tools/builder/gemifi_build.py.\n"
             "The components this device builds (components/<name>/), their C sources and include dirs, under the\n"
             "repo root GM_ROOT, which the including build sets.")
     mk = ["\n".join(f"# {line}" for line in head.split("\n")),
           f"GM_COMPONENTS := {' '.join(used)}",
-          f"GM_COMPONENT_SRCS := {' '.join(f'$(GM_ROOT)/{s}' for s in srcs)}".rstrip(),
-          f"GM_COMPONENT_INCS := {' '.join(f'$(GM_ROOT)/{d}' for d in incs)}".rstrip(), ""]
+          f"GM_COMPONENT_SRCS := {' '.join(root(s, '$(GM_ROOT)') for s in srcs)}".rstrip(),
+          f"GM_COMPONENT_INCS := {' '.join(root(d, '$(GM_ROOT)') for d in incs)}".rstrip(), ""]
     cm = ["\n".join(f"# {line}" for line in head.split("\n")),
           f"set(GM_COMPONENTS {' '.join(used)})",
-          f"set(GM_COMPONENT_SRCS {' '.join(f'${{GM_ROOT}}/{s}' for s in srcs)})",
-          f"set(GM_COMPONENT_INCS {' '.join(f'${{GM_ROOT}}/{d}' for d in incs)})", ""]
+          f"set(GM_COMPONENT_SRCS {' '.join(root(s, '${GM_ROOT}') for s in srcs)})",
+          f"set(GM_COMPONENT_INCS {' '.join(root(d, '${GM_ROOT}') for d in incs)})", ""]
     return {"gm_components.mk": "\n".join(mk), "gm_components.cmake": "\n".join(cm)}
+
+
+def external_numbers(hub_types, screen_types):
+    """gm_components.h: the GM_HUB_* / GM_SCREEN_* numbers of a device's external hub types and display
+    platforms (gemifi_external.py numbers them after the built-ins), and GM_HUB_N_ALL / GM_SCREEN_N_ALL, the
+    dispatch tables' sizes (core/src/vpin.c, components/display/screen.c). Nothing without them."""
+    out = []
+    for what, types, builtin in (("HUB", hub_types, hub_base.BUILTIN_TYPES),
+                                 ("SCREEN", screen_types, display_base.BUILTIN_TYPES)):
+        ext = [t for t in types if t.num >= builtin]
+        if ext:
+            out += ["", f"/* external: numbered after GM_{what}_N_TYPES ({builtin}; gm_device_config.c checks it) */",
+                    *[f"#define {t.enum} {t.num}" for t in ext],
+                    f"#define GM_{what}_N_ALL {max(t.num for t in ext) + 1}"]
+    return out
+
+
+def external_checks(dev):
+    """gm_device_config.c, with external hub types or display platforms: that the C enums end where the
+    builder numbers them from (hub.BUILTIN_TYPES, display.BUILTIN_TYPES), so their numbers don't clash."""
+    out = []
+    if any(h.kind.num >= hub_base.BUILTIN_TYPES for h in dev.hubs):
+        out.append(f"typedef char gm_external_hub_numbers[GM_HUB_N_TYPES == {hub_base.BUILTIN_TYPES} ? 1 : -1];")
+    if any(x.kind.num >= display_base.BUILTIN_TYPES for x in dev.screens):
+        out += ['#include "gm_screen.h"', f"typedef char gm_external_screen_numbers[GM_SCREEN_N_TYPES == "
+                                          f"{display_base.BUILTIN_TYPES} ? 1 : -1];"]
+    return out + [""] if out else []
 
 
 @with_registry
@@ -4535,6 +4568,7 @@ def component_header(dev, source):
              macro("GM_SCREEN_CONFIG_MEMBERS", [f"{t.c_config[0]} {t.c_config[1]};" for t in screens]),
              macro("GM_SCREEN_OPS_EXTERNS", [f"extern const gm_screen_ops_t {t.c_ops};" for t in screens]),
              macro("GM_SCREEN_OPS", [f"[{t.enum}] = &{t.c_ops}," for t in screens]),
+             *external_numbers(parts, screens),
              "", "#endif", ""]
     return {"gm_components.h": "\n".join(lines)}
 

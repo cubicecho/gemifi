@@ -84,6 +84,23 @@ button_settings:                 # optional; these are the defaults
 
 **Generated code:** `GM_BTN_REPEAT` (the buttons with `repeat: true`, one bit each), `GM_BTN_REPEAT_DELAY_DEFAULT` and `GM_BTN_REPEAT_RATE_DEFAULT` in `gm_device_config.h`. The runtime keeps the time of the next repeat, 4 bytes per button.
 
+## Gestures or modes?
+
+Gestures give one button (or a set of buttons pressed together) a second action. [Modes](../modes/README.md) change what other buttons do while they are on. Each job has one way to do it:
+
+| You want | Use |
+|---|---|
+| a second action on the same button, by holding it | `hold:` |
+| ... by pressing it twice | `double_tap:` |
+| two or more buttons pressed together to do something else | `combos:` |
+| Shift + a button to do something else (Shift keeps its own action) | a modifier: a `hold:` mode with a `layer:` |
+| Shift + a button to turn a layer on and off | `toggle: { button, with: shift }` |
+| a layer for the next press only | a `one_shot:` mode |
+| other buttons changing while one is held, or until it is pressed again | a `hold:` or `toggle:` mode, or a cycle |
+| a stepping button that keeps stepping | `repeat: true` |
+
+The builder refuses the overlaps: gestures, `repeat:` and combos on a mode's toggle, hold, one-shot or cycle button (it has no action of its own) and on a modifier or a `with:` button (held for Shift + a button, which is the mode's job; a combo of Shift and B would be a second way to say it). A mode that takes a press (its toggle, a `buttons:` binding while it is on, a layer twin) takes it at once, without the gestures.
+
 ## Files
 
 - `buttons.c`: sampling and debouncing the buttons, their actions, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.

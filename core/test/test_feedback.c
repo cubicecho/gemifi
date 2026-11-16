@@ -18,6 +18,8 @@
 #include "app_proto.h"
 #include "params.h"
 #include "gsx.h"
+#include "config_store.h"
+#include "fake_config_store.h"
 
 #if !(GM_FEEDBACK && GM_MCU && GM_USB_DAW_PORT && GM_LED_FB && GM_ANALOG_PICKUP)
 #error "test_feedback.c needs the feedback-test.yaml config"
@@ -271,9 +273,57 @@ int main(void)
         const param_def_t *act = params_find(P_BTN_ACTION);
         CHECK(act && act->option_count == 17 && act->max == ACT_MCU && ACT_MCU == 16 &&
               gm_cfg.btn_action[0] == ACT_MCU, "mcu action is 16, options 0..16");
-        CHECK(GM_N_PRESETS == 1 && params_find(P_PRESET_ACTIVE) && !params_find(P_PRESET_PROGRAM),
-              "one preset: preset.active only");
+        CHECK(!act->options[ACT_PRESET_NEXT] && !act->options[ACT_PRESET_PREV] && !act->options[ACT_PRESET_SELECT],
+              "presets off: no preset actions to pick");
+        int32_t v = 0;
+        CHECK(params_set(P_BTN_ACTION, 0, ACT_PRESET_NEXT, 1) == GSX_BAD_VALUE && params_get(P_BTN_ACTION, 0, &v) == GSX_OK &&
+              v == ACT_MCU, "and a SET of one is refused");
     }
+
+    /* presets off (one slot, no presets:): settings only (sysex.md 4.5) */
+    {
+        CHECK(GM_N_PRESETS == 1 && !GM_HAS_PRESETS, "feedback-test.yaml has no presets:");
+        const uint8_t *h;
+        int hn;
+        CHECK(gsx_request(GSX_CMD_HELLO, 0, 0, &h, &hn) == GSX_OK && (gsx_get_u(h + 11, 2) & GSX_CAP_CONFIG) &&
+              !(gsx_get_u(h + 11, 2) & GSX_CAP_PRESETS), "HELLO: config, no caps bit 5");
+        CHECK(!params_find(P_PRESET_ACTIVE) && !params_find(P_PRESET_PROGRAM) && !params_find(P_PRESET_DIRTY) &&
+              !params_find(P_PRESET_COUNT), "no preset.* params");
+        int has_group = 0;
+        for (uint32_t g = 0; g < app_params.group_count; g++)
+            has_group |= !strcmp(app_params.groups[g], "Presets");
+        CHECK(!has_group, "no Presets group");
+        static const uint8_t cmds[] = { GSX_CMD_PRESET_INFO, GSX_CMD_PRESET_SAVE, GSX_CMD_PRESET_RESET,
+                                        GSX_CMD_PRESET_DELETE };
+        uint8_t slot[2] = { 1, 0 };
+        for (uint32_t i = 0; i < sizeof cmds; i++)
+            CHECK(gsx_request(cmds[i], slot, 2, 0, 0) == GSX_BAD_CMD, "PRESET cmd 0x%02x -> BAD_CMD", cmds[i]);
+        uint8_t name[4] = { 1, 0, 1, 'A' }, move[4] = { 1, 0, 1, 0 };
+        CHECK(gsx_request(GSX_CMD_PRESET_NAME, name, 4, 0, 0) == GSX_BAD_CMD &&
+              gsx_request(GSX_CMD_PRESET_MOVE, move, 4, 0, 0) == GSX_BAD_CMD, "PRESET_NAME, PRESET_MOVE -> BAD_CMD");
+
+        /* The settings are still edited live and stored by COMMIT: the mapping in
+         * slot 1's record, the globals in slot 0's. */
+        int32_t level;
+        params_get(P_LOG_LEVEL, 0, &level);
+        uint8_t ch[9] = { P_CHANNEL, 0, 0, 0, 2, 0, 0, 0, 0 };
+        uint8_t lv[9] = { P_LOG_LEVEL, 0, 0, 0, (uint8_t)((level + 1) % 5), 0, 0, 0, 0 };
+        CHECK(gsx_request(GSX_CMD_SET_PARAM, ch, 9, 0, 0) == GSX_OK && gm_cfg.channel == 2, "midi.channel = 2");
+        CHECK(find_sysex(GSX_MSG_PRESET_CHANGED) < 0, "no PRESET_CHANGED for the edit");
+        CHECK(gsx_request(GSX_CMD_SET_PARAM, lv, 9, 0, 0) == GSX_OK, "debug.log_level changed");
+        CHECK(gsx_request(GSX_CMD_COMMIT, 0, 0, 0, 0) == GSX_OK, "COMMIT");
+        int32_t stored_ch = 0, stored_lv = -1;
+        CHECK(fake_cs_get(1, P_CHANNEL, 0, &stored_ch) && stored_ch == 2, "midi.channel stored in slot 1");
+        CHECK(fake_cs_get(CS_SLOT_GLOBAL, P_LOG_LEVEL, 0, &stored_lv) && stored_lv == (level + 1) % 5,
+              "debug.log_level stored with the globals");
+        CHECK(find_sysex(GSX_MSG_PRESET_CHANGED) < 0, "no PRESET_CHANGED for the COMMIT");
+        ch[4] = 1;
+        lv[4] = (uint8_t)level;
+        gsx_request(GSX_CMD_SET_PARAM, ch, 9, 0, 0);
+        gsx_request(GSX_CMD_SET_PARAM, lv, 9, 0, 0);
+        gsx_request(GSX_CMD_COMMIT, 0, 0, 0, 0);
+    }
+    out_n = 0;
 
     /* -- dispatcher: SysEx still reaches the gemifi protocol on cable 0 -- */
     {

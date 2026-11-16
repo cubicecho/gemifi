@@ -2,6 +2,28 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.54.0](https://github.com/cubicecho/gemifi/compare/v0.53.1...v0.54.0) (2026-11-16)
+
+
+### Features
+
+* **builder:** presets off without presets:, one slot refused ([5776301](https://github.com/cubicecho/gemifi/commit/5776301988ddc16684473cba7257a2b7ba1bf5ca)), closes [#58](https://github.com/cubicecho/gemifi/issues/58)
+* **core:** presets off on a one-slot device ([672678a](https://github.com/cubicecho/gemifi/commit/672678a2a72207e3be92c05e4f03d6016210bc88)), closes [#58](https://github.com/cubicecho/gemifi/issues/58)
+
+## [0.53.1](https://github.com/cubicecho/gemifi/compare/v0.53.0...v0.53.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **core:** read the I2C hubs once at init, after setting them up ([5dba8fb](https://github.com/cubicecho/gemifi/commit/5dba8fb8d6c2f5a24810ea3d446f9238ecd4ea99)), closes [#134](https://github.com/cubicecho/gemifi/issues/134) [#134](https://github.com/cubicecho/gemifi/issues/134)
+
+# [0.53.0](https://github.com/cubicecho/gemifi/compare/v0.52.0...v0.53.0) (2026-11-16)
+
+
+### Features
+
+* **site:** drop the /components/ and /platforms/ pages, now in the docs ([9e3bf6f](https://github.com/cubicecho/gemifi/commit/9e3bf6ffb07bf83a277580399b24d51bc4ba13c3)), closes [#section](https://github.com/cubicecho/gemifi/issues/section)
+
 # [0.52.0](https://github.com/cubicecho/gemifi/compare/v0.51.1...v0.52.0) (2026-11-15)
 
 

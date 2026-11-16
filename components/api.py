@@ -38,6 +38,9 @@ WIDE_MODES = {"cc14", "nrpn14", "rpn14"}
 # The white keys of an octave (pitch classes): a key matrix's white_from:, the layout's keyboard.
 WHITE = {0, 2, 4, 5, 7, 9, 11}
 
+# Why a preset action or setting does nothing on a device with one preset slot (core/README.md "Presets").
+PRESETS_OFF = "presets are off on this device (no presets:): add presets: with 2 or more slots to turn them on"
+
 # Said after the message for a key that moved onto a base component (old_keys).
 MIGRATE_HINT = " (`gemifi_build.py migrate --write <file>` rewrites a file to the current form)"
 

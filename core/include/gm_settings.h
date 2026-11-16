@@ -50,7 +50,7 @@ enum {
     P_DIN_THRU = 30,                 /* din_midi: (GM_DIN) */
     P_DIN_OUT = 31,
     P_DIN_USB = 32,                  /* din_midi.mode usb_merge only */
-    P_PRESET_COUNT = 33,             /* presets in use (GM_N_PRESETS > 1) */
+    P_PRESET_COUNT = 33,             /* presets in use (GM_HAS_PRESETS) */
     /* layers (GM_LAYER_PARAMS): global, stored once (components/modes/README.md
      * "Button layers", "Cycles") */
     P_LAYER_ENABLED = 34,            /* per mode (index = mode index) */
@@ -129,8 +129,12 @@ enum {
 #define GM_N_SYSEX 0                 /* midi_messages.sysex: gm_sysex[] */
 #endif
 #define GM_MSG_WIDE (GM_MSG_CC14 || GM_MSG_NRPN)   /* 14-bit values */
+/* Presets are on with 2 or more slots (YAML presets:). One slot (no presets:)
+ * is presets off: the slot only holds the settings, and HELLO caps bit 5, the
+ * PRESET_* commands, the preset.* params and the preset actions are left out. */
+#define GM_HAS_PRESETS (GM_N_PRESETS > 1)
 /* preset.bank: with presets, a preset's Bank Select before its Program Change */
-#define GM_PRESET_BANK (GM_MSG_PROGRAM && GM_N_PRESETS > 1)
+#define GM_PRESET_BANK (GM_MSG_PROGRAM && GM_HAS_PRESETS)
 
 enum { CURVE_NORMAL, CURVE_SOFT, CURVE_HARD, CURVE_FIXED };
 

@@ -20,7 +20,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 import components  # noqa: E402
-from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN,  # noqa: E402,F401
+from components.api import (CURVES, INVERT, MIGRATE_HINT, NO_PIN, OPEN_DRAIN, PRESETS_OFF,  # noqa: E402,F401
                             PULLDOWN, PULLUP, RENAMED_ID, WHITE, Hub, LDict, LList, Pin, c_str, errors, f1_on,
                             type_name, with_article)
 import gemifi_board as gbd  # noqa: E402
@@ -55,7 +55,7 @@ YAML_HINT = ("PyYAML is required: `pip install pyyaml` (or `sudo apt install pyt
 FORMAT_VERSION = 2
 # The builder's version: min_version: is checked against it, and /api/info sends it.
 # tools/release/set-version.mjs sets it at each release.
-VERSION = "0.52.0"
+VERSION = "0.54.0"
 
 
 # ---- MIDI messages (core/README.md "MIDI messages") ----
@@ -113,9 +113,9 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("debug.log_level", 14, GLOBAL, lambda d: 1),
     ("encoder.cc", 15, PRESET, lambda d: _own(d.encoders)),
     ("encoder.mode", 16, PRESET, lambda d: _own(d.encoders)),
-    ("preset.active", 17, GLOBAL, lambda d: 1),
-    ("preset.program", 18, PRESET, lambda d: 1 if d.n_presets > 1 else 0),
-    ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.n_presets > 1 else 0),
+    ("preset.active", 17, GLOBAL, lambda d: 1 if d.has_presets else 0),
+    ("preset.program", 18, PRESET, lambda d: 1 if d.has_presets else 0),
+    ("preset.dirty", 19, VOLATILE, lambda d: 1 if d.has_presets else 0),
     ("pad.note", 20, PRESET, lambda d: len(d.pads)),
     *((n, i, s, (lambda d: 1 if d.pads else 0)) for n, i, s in (
         ("pad.channel", 21, PRESET), ("pad.curve", 22, PRESET), ("pad.aftertouch", 23, PRESET),
@@ -125,7 +125,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("midi.thru", 30, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.din_out", 31, GLOBAL, lambda d: 1 if d.din else 0),
     ("midi.usb_to_din", 32, GLOBAL, lambda d: 1 if d.din and d.din.mode == DIN_MODES.index("usb_merge") else 0),
-    ("preset.count", 33, GLOBAL, lambda d: 1 if d.n_presets > 1 else 0),
+    ("preset.count", 33, GLOBAL, lambda d: 1 if d.has_presets else 0),
     # layers (components/modes/README.md "Button layers", "Cycles"): global, so they count once in the budget
     ("layer.enabled", 34, GLOBAL, _layer_modes),
     ("layer.button.action", 35, GLOBAL, lambda d: _twins(d.buttons)),
@@ -138,7 +138,7 @@ PARAMS = [  # (name, id, scope, count(dev))
         ("diag.loop_max", 69), ("diag.scan_period", 70), ("diag.uptime", 71))),
     ("config.hash", 39, VOLATILE, lambda d: 1),     # read-only: the resolved YAML's hash (gemifi_yaml.py)
     # MIDI messages (core/README.md "MIDI messages"): ids 41-59
-    ("preset.bank", 41, PRESET, lambda d: 1 if d.n_presets > 1 and "program" in getattr(d, "msg", ()) else 0),
+    ("preset.bank", 41, PRESET, lambda d: 1 if d.has_presets and "program" in getattr(d, "msg", ()) else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, maudio_pads, din_midi dma:) may not share one.
@@ -898,7 +898,7 @@ class Device:
         self.din = None              # Hub(tx, rx, mode, port_name, thru, out, usb) for din_midi:
         # presets (research/core/presets-design.md): slot n = presets[n - 1], Hub(name, program, vals)
         self.n_presets = 1
-        self.slots_invalid = False   # preset_slots: presets.slots is given but invalid
+        self.slots_invalid = False   # preset_slots: presets: gives an invalid slot count
         self.presets_given = False   # the YAML has presets:
         self.presets_revision = 0
         self.presets = []
@@ -919,6 +919,12 @@ class Device:
         self.sources = []            # load_device: the files a package or !include pulled in
         self.board = None            # the board profile (gemifi_board.load), bare-metal platforms only
         self.board_given = False     # ... named by board: (else the platform's default)
+
+    @property
+    def has_presets(self):
+        """Presets are on with 2 or more slots. One slot (no presets:) is presets off: it only holds the
+        settings (core/README.md "Presets")."""
+        return self.n_presets > 1
 
 
 class Use:
@@ -2826,7 +2832,8 @@ def preset_section(v, data):
 
 def preset_slots(v, dev, data):
     """Before the components (preset_select checks its slot against it): dev.n_presets and the
-    revision, from presets.slots (default: the number of listed presets, at least 1)."""
+    revision, from presets.slots (default: the number of listed presets). One slot is refused: without
+    presets: the device has one, and presets are off."""
     ps = v.presets = preset_section(v, data)
     if ps is None:
         return
@@ -2840,9 +2847,16 @@ def preset_slots(v, dev, data):
         slots = None
     if n_list > MAX_PRESETS:
         v.err("presets.list", ps.line_of("list"), f"{n_list} presets: at most {MAX_PRESETS}")
-    # An invalid slots: (reported above) allows every slot, so a preset: on a button or a mode isn't
-    # reported as well; the build stops on the error anyway.
-    dev.slots_invalid = ps.get("slots") is not None and slots is None
+    is_slots_bad = ps.get("slots") is not None and slots is None
+    is_one_slot = not is_slots_bad and (slots or n_list) <= 1
+    if is_one_slot:
+        path = "presets.slots" if slots is not None else "presets"
+        v.err(path, ps.line_of("slots") if slots is not None else data.line_of("presets"),
+              "one preset slot is presets off, the same as leaving presets: out: give 2 or more slots "
+              "(presets.slots, or 2 or more presets in presets.list), or leave presets: out")
+    # An invalid slot count (reported above) allows every slot, so a preset: on a button or a mode
+    # isn't reported as well; the build stops on the error anyway.
+    dev.slots_invalid = is_slots_bad or is_one_slot
     dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
     dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
 
@@ -3257,9 +3271,6 @@ def preset_bank(v, dev, d, p, program):
     if program < 0:
         v.err(f"{p}.bank", d.line_of("bank"), "bank: is sent before the preset's Program Change: give program: too")
         return []
-    if dev.n_presets < 2:
-        v.err(f"{p}.bank", d.line_of("bank"), "preset.bank needs 2 or more preset slots")
-        return []
     dev.msg_used.add("program")
     return [(PARAM_ID["preset.bank"], 0, bank, f"preset.bank = {bank} (MSB {bank >> 7}, LSB {bank & 127})")]
 
@@ -3380,8 +3391,8 @@ def validate_write_to_flash(v, dev, data):
                 if key in x:
                     v.warn(f"write_to_flash.{key}", x.line_of(key),
                            "only used when the device stores something on its own (e.g. last_preset: true)")
-    if w["last_preset"] and dev.n_presets < 2:
-        v.warn("write_to_flash.last_preset", line, "the device has one preset: nothing to remember (ignored)")
+    if w["last_preset"] and not dev.has_presets:
+        v.warn("write_to_flash.last_preset", line, f"nothing to remember (ignored): {PRESETS_OFF}")
         w["last_preset"] = False
 
 

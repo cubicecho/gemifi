@@ -138,7 +138,8 @@ int hal_i2c_read(uint8_t bus, uint8_t a, uint8_t *p, uint32_t n)
     if (m) {
         m->reads++;
         for (uint32_t k = 0; k < n; k++, m->ptr++)
-            p[k] = m->ptr == 0x12 ? m->gpio[0] : m->ptr == 0x13 ? m->gpio[1] :
+            /* GPIOA / GPIOB: a pin without its pull-up (GPPUA / GPPUB) floats, read here as low */
+            p[k] = m->ptr == 0x12 ? m->gpio[0] & m->reg[0x0C] : m->ptr == 0x13 ? m->gpio[1] & m->reg[0x0D] :
                    m->ptr < sizeof m->reg ? m->reg[m->ptr] : 0;
         return 0;
     }
@@ -196,10 +197,14 @@ static int sent_cc(int num, int val)
 
 int main(void)
 {
+    /* The boot combo's read (before gm_init, as the firmware does): the
+     * chips are set up first, so play's pull-up is on and it reads released. */
+    CHECK(!(gm_buttons_now() & 1u), "boot combo: play reads released, its pull-up on (GPPUA %02X)", mcp[1].reg[0x0C]);
     gm_init(0x01000000u, 0);
     CHECK(strncmp(ht_log, "21|00 ", 6) == 0 && strstr(ht_log, "|E9|81|") != NULL,
           "HT16K33: oscillator on, the RAM from 0, dimming 9, display on: %s", ht_log);
     run_ms(2000);
+    CHECK(!sent_cc(20, 127), "nothing pressed at boot: no CC 20 127 before the first read (#134)");
     CHECK(ada('0') == 0x0C3F, "the order: 0 = a-f and the K / L slash, as Adafruit's font (%04X)", ada('0'));
 
     CHECK(mcp[0].reg[0x00] == 0xFE && mcp[0].reg[0x01] == 0x7F, "led_io: IODIR set, GPA0 and GPB7 outputs (%02X %02X)",

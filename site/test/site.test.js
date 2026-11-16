@@ -70,6 +70,27 @@ test("the homepage links to the docs, the devices and the platforms", () => {
   for (const p of ["docs/", "devices/", "docs/platforms/"]) assert.ok(html.includes(`href="${PREFIX}${p}"`), p);
 });
 
+test("every page names its own address, and the sitemap lists every page", () => {
+  const sitemap = fs.readFileSync(path.join(OUT, "sitemap.xml"), "utf8");
+  assert.ok(sitemap.startsWith("<?xml"), "sitemap.xml starts with its XML declaration");
+  const listed = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]));
+  const moved = (html) => html.includes('http-equiv="refresh"');
+  for (const file of htmlFiles()) {
+    const html = fs.readFileSync(file, "utf8");
+    const rel = path.relative(OUT, file);
+    if (rel === "404.html" || moved(html)) {
+      assert.ok(html.includes('name="robots" content="noindex"'), `${rel}: noindex`);
+      continue;
+    }
+    const here = `${site.origin}${PREFIX}${rel.replace(/index\.html$/, "")}`;
+    assert.ok(html.includes(`<link rel="canonical" href="${here}" />`), `${rel}: canonical`);
+    assert.ok(html.includes(`<meta property="og:url" content="${here}" />`), `${rel}: og:url`);
+    assert.ok(listed.has(here), `${rel}: not in sitemap.xml`);
+    listed.delete(here);
+  }
+  assert.deepEqual([...listed], [], "sitemap.xml lists pages that aren't built");
+});
+
 test("the pages that moved into the docs send old links, and their sections, to pages and ids that exist", () => {
   for (const old of ["components/", "platforms/"]) {
     const html = fs.readFileSync(servedFile(PREFIX + old), "utf8");

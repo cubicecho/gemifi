@@ -1,4 +1,0 @@
-{
-  "layout": "device.njk",
-  "permalink": "/devices/{{ page.fileSlug }}/"
-}

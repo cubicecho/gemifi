@@ -4,6 +4,8 @@ pagination:
   data: docs.pages
   size: 1
   alias: doc
+  # Every doc page in collections.all (the sitemap), not only the first.
+  addAllPagesToCollections: true
 permalink: "{{ doc.url }}"
 layout: docs.njk
 eleventyComputed:

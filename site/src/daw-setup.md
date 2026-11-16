@@ -1,13 +1,12 @@
 ---
-layout: base.njk
+layout: docs.njk
 title: DAW setup
 description: Connect a gemifi device to Ableton Live, Bitwig Studio, REAPER, Logic Pro or Zynthian, with LED feedback, Mackie Control or the gemifi script.
 permalink: /daw-setup/
+crumb: Overview
+tone: overview
+lede: Which port to pick in each DAW, and what you get.
 ---
-<section class="hero">
-  <h1>DAW setup</h1>
-  <p>Which port to pick in each DAW, and what you get.</p>
-</section>
 
 <div class="prose">
 

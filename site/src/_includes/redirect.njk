@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <title>{{ title }} · {{ site.name }}</title>
-    <link rel="canonical" href="{{ to | url }}" />
+    <link rel="canonical" href="{{ site.origin }}{{ to | url }}" />
     <meta http-equiv="refresh" content="0; url={{ to | url }}" />
     <script>
       const to = {{ (hashes or {}) | dump | safe }}[location.hash.slice(1)];

@@ -51,6 +51,65 @@ const CORE = [
   { file: "core/performance.md", title: "Component performance", label: "Performance" },
 ];
 
+/** The repo's other docs, a section each after the devices: the tools, the protocol and the DAW scripts. */
+export const GUIDES = [
+  {
+    key: "tools",
+    title: "Tools",
+    intro: "What builds the firmware, flashes it and talks to a device.",
+    items: [
+      {
+        file: "tools/builder/README.md",
+        title: "Builder and dashboard",
+        summary: "Checks a device YAML, generates its C tables and builds the firmware; the dashboard runs it in Docker.",
+      },
+      {
+        file: "web/updater/README.md",
+        title: "Web updater",
+        summary: "Flashes a device from the browser over Web MIDI or Web Serial, shows its log and edits its settings.",
+      },
+      {
+        file: "tools/README.md",
+        title: "SWD and host tools",
+        summary: "The first-steps runbook: backups and bootloader installs over SWD, and gemifi.py on the command line.",
+      },
+    ],
+  },
+  {
+    key: "protocol",
+    title: "Protocol",
+    intro: "The SysEx every gemifi device speaks, and what a host does with it.",
+    items: [
+      {
+        file: "protocol/sysex.md",
+        title: "SysEx protocol",
+        summary: "Every message: HELLO, the schema, settings, firmware upload, logs and events.",
+      },
+      {
+        file: "protocol/host-feedback.md",
+        title: "Host feedback",
+        summary: "How a DAW lights a device's LEDs, sets pick-up targets and drives rings and text.",
+      },
+      {
+        file: "protocol/daw-scripts.md",
+        title: "Writing a DAW script",
+        summary: "The base for every DAW integration: the session, example frames, the rules and a checklist.",
+      },
+    ],
+  },
+  {
+    key: "hosts",
+    title: "DAW scripts",
+    intro: "Scripts that drive any gemifi device from a DAW, through the component roles.",
+    items: [
+      { file: "hosts/README.md", title: "DAW scripts and roles", summary: "What the scripts share: finding a device and the component roles." },
+      { file: "hosts/ableton-live/README.md", title: "Ableton Live", summary: "A Live 11/12 Remote Script, with clip launching from pads." },
+      { file: "hosts/bitwig/README.md", title: "Bitwig Studio", summary: "A Bitwig controller extension, the Live script's counterpart." },
+      { file: "hosts/zynthian/README.md", title: "Zynthian", summary: "A ctrldev driver in a zynthian-ui fork." },
+    ],
+  },
+];
+
 let cache;
 
 /** Forget the tree, so the next build reads the READMEs again (eleventy.config.js, before each build). */
@@ -65,6 +124,15 @@ export function buildDocs() {
   // Every page first, so links between docs can go to their pages.
   const specs = [];
   for (const c of CORE) specs.push({ ...c, url: c.url ?? docUrl(c.file), section: "core" });
+  // Before the platforms, which link some of the same files (tools/README.md) under their own labels.
+  const guides = GUIDES.map((g) => ({
+    ...g,
+    items: g.items.map((i) => {
+      const spec = { ...i, url: docUrl(i.file), label: i.title, section: g.key, group: g.title, tone: g.key };
+      specs.push(spec);
+      return { title: i.title, url: spec.url, summary: i.summary };
+    }),
+  }));
   const components = componentFiles().map((file) => {
     const name = file.split("/")[1];
     const spec = { file, url: `/docs/components/${name}/`, title: name, label: name, section: "components", name };
@@ -134,6 +202,7 @@ export function buildDocs() {
     base,
     groups: shown,
     platforms: platformItems,
+    guides,
     pages: rendered,
     /** A repo path (with an optional #anchor) as a site link: its doc page if it has one, else GitHub. */
     link: (href) => resolveLink(href, { ...env, file: "README.md" }),

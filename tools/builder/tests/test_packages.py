@@ -373,6 +373,14 @@ def check_schema(schema, x, root=None, path="$"):
     if isinstance(x, list) and "items" in schema:
         for i, v in enumerate(x):
             out += check_schema(schema["items"], v, root, f"{path}[{i}]")
+    if isinstance(x, dict) and any(k not in x for k in schema.get("required", ())):
+        out.append(f"{path}: missing {', '.join(k for k in schema['required'] if k not in x)}")
+    for sub in schema.get("allOf", ()):     # a platform's own keys (gemifi_schema.by_platform): if / then
+        if "if" in sub:
+            if not check_schema(sub["if"], x, root, path):
+                out += check_schema(sub["then"], x, root, path)
+        else:
+            out += check_schema(sub, x, root, path)
     return out
 
 
@@ -469,6 +477,19 @@ class TestSchema(unittest.TestCase):
                 self.assertLessEqual(keys, props, path)
             else:
                 self.assertEqual(keys, props, path)
+
+    def test_a_platform_takes_only_its_own_keys(self):
+        """In a list whose items name a platform, the schema knows each platform's keys: another platform's key
+        is flagged, and its own pass."""
+        schema = gs.device_schema()
+        good = gd.load_yaml("led_driver:\n  - { id: d, platform: tm1637, clk_pin: PB6, dio_pin: PB7, length: 4 }\n"
+                            "display:\n  - { id: s, platform: ssd1306, model: sh1106, address: 0x3C }\n")
+        self.assertEqual(check_schema(schema, plain(good)), [])
+        bad = gd.load_yaml("led_driver:\n  - { id: d, platform: tm1637, clk_pin: PB6, dio_pin: PB7, stb_pin: PB8 }\n")
+        self.assertIn("$.led_driver[0]: unknown key stb_pin", check_schema(schema, plain(bad)))
+        for domain, plats in gd.HUB_DOMAINS.items():
+            item = self.resolve(schema, schema["properties"][domain], False)["items"]
+            self.assertEqual({c["if"]["properties"]["platform"]["const"] for c in item["allOf"]}, set(plats))
 
     def test_a_domain_takes_its_platforms_keys(self):
         """A domain's list (led_strip: ...) takes the keys of all its platforms, and platform: one of them."""

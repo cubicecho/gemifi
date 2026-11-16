@@ -1114,7 +1114,332 @@
                 "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "tm1628"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). Chips can share it."
+                    },
+                    "dio_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin (DIO), push-pull or open drain with a pull-up. Chips can share it."
+                    },
+                    "stb_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The strobe pin (STB), one per chip."
+                    },
+                    "ram_bytes": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 16
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The display RAM bytes it writes: what the chip has (TM1628 14, TM1638 16) or what the board uses. Default: 14.",
+                      "default": 14
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness, the chip's PWM, for every LED on it. Default: 7.",
+                      "default": 7
+                    },
+                    "grids": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 4,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The grids it is set to at start-up (the display-mode command). Left out, the chip keeps its own setting. Default: not sent."
+                    },
+                    "fade": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its brightness follows the host's LED colours, up to `intensity`. Default: false.",
+                      "default": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "max7219"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). Chains can share it."
+                    },
+                    "din_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin, to the first chip's DIN. Chains can share it."
+                    },
+                    "cs_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The chip select (LOAD / CS), one per chain."
+                    },
+                    "num_chips": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The chips in the chain, 64 pins each. Default: 1.",
+                      "default": 1
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 15
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness, the same on every chip. Default: 15.",
+                      "default": 15
+                    },
+                    "scan_limit": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The digits each chip lights, DIG0 first; fewer light longer. Default: 8.",
+                      "default": 8
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "tm1637"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "clk_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The clock pin (CLK). It can't be shared with another chip."
+                    },
+                    "dio_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin (DIO), push-pull or open drain with a pull-up. It can't be shared with another chip."
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 7
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness. Default: 7.",
+                      "default": 7
+                    },
+                    "length": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The grids (digits) it drives: pin = grid × 8 + segment. Default: 6.",
+                      "default": 6
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ht16k33"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_driver: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 8,
+                          "maximum": 119
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its I2C address, set by the board's address jumpers: usually 0x70-0x77. Default: 0x70.",
+                      "default": 112
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 15
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The brightness. Default: 15.",
+                      "default": 15
+                    },
+                    "i2c_id": {
+                      "type": "string",
+                      "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "led_driver hubs, ESPHome style: { id, platform: tm1628 | max7219 | tm1637 | ht16k33, ... } (components/led_driver/README.md)"
         },
@@ -1338,7 +1663,189 @@
                 "default": "GRB"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "maudio_pads"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_strip: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "tx_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The UART TX pin to the board (PA2 on the Code 61)."
+                    },
+                    "rx_pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The UART RX pin, to hear the board's answers. Left out, the LEDs are sent blind."
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 32
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The LEDs on the board. Default: 16.",
+                      "default": 16
+                    },
+                    "dma": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Sends through a DMA channel (stm32f1); `false` sends from the interrupt. Default: true.",
+                      "default": true
+                    },
+                    "gamma": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 1.0,
+                          "maximum": 3.0
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                      "default": 1
+                    },
+                    "white": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ws2812"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What its pins name: `{ led_strip: <id>, number: n }`."
+                    },
+                    "platform": {},
+                    "pin": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/pin"
+                        }
+                      ],
+                      "description": "The data pin, to the first LED's DIN: any output on an ESP32, PA7 or PB15 on stm32f1."
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 256
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The LEDs in the chain."
+                    },
+                    "order": {
+                      "type": "string",
+                      "description": "The colours in the order the LED takes them: `GRB` (WS2812B), `RGB`, `BRG`, ..., or with a W (`GRBW`, `RGBW`, ...) for RGBW LEDs. Default: GRB.",
+                      "default": "GRB"
+                    },
+                    "gamma": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 1.0,
+                          "maximum": 3.0
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The colours' curve: 1 is straight, about 2.2 suits most LEDs. Default: 1.",
+                      "default": 1
+                    },
+                    "white": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 255
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "description": "What full white sends, to balance the LEDs: `[red, green, blue]`, `[red, green, blue, white]` on RGBW, each 1..255. Default: all 255."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "led_strip hubs, ESPHome style: { id, platform: maudio_pads | ws2812, ... } (components/led_strip/README.md)"
         },
@@ -4643,7 +5150,125 @@
                 "default": 0
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "platform": {
+                      "const": "ssd1306"
+                    }
+                  },
+                  "required": [
+                    "platform"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/definitions/id"
+                        }
+                      ],
+                      "description": "What text displays on it name: `display: <id>`."
+                    },
+                    "platform": {},
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 8,
+                          "maximum": 122
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "Its 7-bit I2C address, 0x3C or 0x3D. 0x78 / 0x7A, the 8-bit forms printed on many boards, are taken as 0x3C / 0x3D with a warning. Default: 0x3C.",
+                      "default": 60
+                    },
+                    "i2c_id": {
+                      "type": "string",
+                      "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
+                    },
+                    "model": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "ssd1306",
+                            "sh1106"
+                          ]
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The controller: `sh1106` for most 1.3\" modules. Default: ssd1306.",
+                      "default": "ssd1306"
+                    },
+                    "width": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 64,
+                          "maximum": 128
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's width in pixels: 128 × 64 on both models, and on an SSD1306 also 128 × 32, 96 × 16, 64 × 48 or 64 × 32. Default: 128.",
+                      "default": 128
+                    },
+                    "height": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 16,
+                          "maximum": 64
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's height in pixels. Default: 64.",
+                      "default": 64
+                    },
+                    "contrast": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "The panel's contrast (its brightness). Default: 207.",
+                      "default": 207
+                    },
+                    "rotate": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            0,
+                            180
+                          ]
+                        },
+                        {
+                          "$ref": "#/definitions/substitution"
+                        }
+                      ],
+                      "description": "`180` turns the picture upside down. Default: 0.",
+                      "default": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
           },
           "description": "screens, ESPHome style: { id, platform: ssd1306, ... } (components/display/README.md); text displays name one with display: <id>"
         },

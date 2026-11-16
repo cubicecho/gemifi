@@ -59,8 +59,21 @@ def hub_domain(domain):
         for k, t in hub_key_types(typ).items():
             types[k] = widest(types[k], t) if k in types else t
     types["platform"] = enum(plats)
-    return lst(obj(keys, types), f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
-                                 f"(components/{domain}/README.md)")
+    item = by_platform(obj(keys, types), {typ: (gd.HUB_KEYS[typ], hub_key_types(typ)) for typ in plats})
+    return lst(item, f"{domain} hubs, ESPHome style: {{ id, platform: {' | '.join(plats)}, ... }} "
+                     f"(components/{domain}/README.md)")
+
+
+def by_platform(item, plats):
+    """An item of a list whose items each name a platform (led_strip:, led_driver:, display:): the keys of
+    all of them (item), and for each platform (plats: name -> (its keys, their types)) only its own keys,
+    typed and described as its spec says, so an editor offers and explains that platform's keys and flags
+    another's (JSON schema if / then)."""
+    item["allOf"] = [{"if": {"properties": {"platform": {"const": p}}, "required": ["platform"]},
+                      "then": {"properties": {k: {} if k == "platform" else types.get(k, {}) for k in keys},
+                               "additionalProperties": False}}
+                     for p, (keys, types) in plats.items()]
+    return item
 
 
 def widest(a, b):
@@ -100,7 +113,8 @@ def screen():
         for k, s in t.spec.types().items():
             types[k] = widest(types[k], s) if k in types else s
     types["platform"] = enum(gd.DISPLAY_PLATFORMS)
-    return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
+    item = by_platform(obj(keys, types), {name: (t.keys, t.spec.types()) for name, t in gd.DISPLAY_PLATFORMS.items()})
+    return lst(item, "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
                ", ... } (components/display/README.md); text displays name one with display: <id>")
 
 

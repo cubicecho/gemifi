@@ -326,8 +326,9 @@ extern const gm_ctl_t gm_encoder_ctl[];      /* GM_ENC_CTL */
 extern const uint16_t gm_button_bank[];      /* GM_BTN_BANK */
 
 /* Button gestures (components/buttons/README.md "Gestures"): an action a
- * button runs instead of its own when it is held. It sends with the
- * button's channel:, min:, max: and bank:. GM_BTN_NO_ACT = no gesture. */
+ * button runs instead of its own when it is held, or pressed twice. It
+ * sends with the button's channel:, min:, max: and bank:. GM_BTN_NO_ACT =
+ * no gesture. */
 #define GM_BTN_NO_ACT 0xFFu
 typedef struct {
     uint8_t action;              /* a button.action value (ACT_*)          */
@@ -336,9 +337,10 @@ typedef struct {
 
 typedef struct {
     gm_btn_act_t hold;           /* held for button.hold_time              */
+    gm_btn_act_t double_tap;     /* pressed again within button.tap_time   */
 } gm_btn_gesture_t;
 
-extern const gm_btn_gesture_t gm_btn_gestures[];   /* GM_N_BUTTONS entries, with GM_BTN_HOLD */
+extern const gm_btn_gesture_t gm_btn_gestures[];   /* GM_N_BUTTONS entries, with GM_BTN_HOLD or GM_BTN_DOUBLE */
 
 /* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
  * from F0 to F7, with these placeholders (all >= 0x80, so never a data

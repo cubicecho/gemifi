@@ -140,6 +140,7 @@ PARAMS = [  # (name, id, scope, count(dev))
     # MIDI messages (core/README.md "MIDI messages"): ids 41-59
     ("preset.bank", 41, PRESET, lambda d: 1 if d.has_presets and "program" in getattr(d, "msg", ()) else 0),
     # button gestures (components/buttons/README.md "Gestures"): ids 75-79, global, each only with its gesture
+    ("button.tap_time", 75, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "double_tap") else 0),
     ("button.hold_time", 76, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "hold") else 0),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
@@ -172,7 +173,7 @@ DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # from this, so keep it in step with settings.c (test_builder checks it).
 WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
                "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank",
-               "button.hold_time"}
+               "button.tap_time", "button.hold_time"}
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}

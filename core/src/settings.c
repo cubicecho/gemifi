@@ -54,6 +54,9 @@ int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c 
 
 /* Gesture timing defaults, in ms: the YAML's button_settings:
  * (components/buttons/README.md "Gestures"). */
+#ifndef GM_BTN_TAP_TIME_DEFAULT
+#define GM_BTN_TAP_TIME_DEFAULT 200
+#endif
 #ifndef GM_BTN_HOLD_TIME_DEFAULT
 #define GM_BTN_HOLD_TIME_DEFAULT 200
 #endif
@@ -264,6 +267,11 @@ static const param_def_t params[] = {
       .name = "ramp.time", .label = "CC ramp time", .values = &gm_cfg.ramp_time },
 #endif
     /* gestures: global, the same in every preset */
+#if GM_BTN_DOUBLE
+    { .id = P_BTN_TAP_TIME, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+      .min = 50, .max = 1000, .def = GM_BTN_TAP_TIME_DEFAULT, .unit = "ms",
+      .name = "button.tap_time", .label = "Double tap within", .values = &gm_cfg.btn_tap_time },
+#endif
 #if GM_BTN_HOLD
     { .id = P_BTN_HOLD_TIME, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 100, .max = 5000, .def = GM_BTN_HOLD_TIME_DEFAULT, .unit = "ms",

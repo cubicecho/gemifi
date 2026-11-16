@@ -1,11 +1,14 @@
 /*
  * test_gestures.c: host test of the button gestures (components/buttons/
  * README.md "Gestures") with core/test/gestures-test.yaml, on fake time: a
- * button without one fires at the press; tap vs hold and the hold time.
+ * button without one fires at the press; tap vs hold and the hold time;
+ * double taps, and a single tap that waits for the double-tap window.
  * Nothing a gesture sends is left hanging, a preset switch included.
  *
  * Buttons (PB0.., inverted): 0 plain CC 10, 1 tap_hold CC 20 / held CC 21,
- * 2 note_hold note 60 / held preset_next. button_settings: hold_time 300 ms.
+ * 2 note_hold note 60 / held preset_next, 3 dbl note 62 / twice note 63,
+ * 4 both CC 30 / twice CC 31 / held CC 32. button_settings: tap_time
+ * 200 ms, hold_time 300 ms.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -16,7 +19,7 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_N_BUTTONS != 3 || GM_BTN_HOLD != 0x6
+#if GM_N_BUTTONS != 5 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18
 #error "test_gestures.c needs the gestures-test.yaml config"
 #endif
 
@@ -57,12 +60,13 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
-enum { PLAIN, TAP_HOLD, NOTE_HOLD };
+enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
 /* A release counts once the contact has read open for BTN_STABLE (16)
  * samples: let go, then this long until it is seen. */
 #define RELEASE_MS 20u
 #define HOLD_MS 300u                /* button_settings.hold_time */
+#define TAP_MS 200u                 /* button_settings.tap_time */
 
 static void run_ms(uint32_t ms)
 {
@@ -187,6 +191,103 @@ static void test_hold(void)
     gm_cfg.btn_hold_time = HOLD_MS;
 }
 
+/* A note's on (1) and off (0) since the last clear, in order. */
+static const char *note_values(int note)
+{
+    static char s[32];
+    int j = 0;
+    for (int i = 0; i + 2 < out_n && j < 31; i++) {
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+            continue;
+        }
+        int is_on = out[i] == 0x90 && out[i + 1] == note && out[i + 2] > 0;
+        int is_off = (out[i] == 0x80 || out[i] == 0x90) && out[i + 1] == note && !is_on;
+        if (is_on || is_off) {
+            s[j++] = is_on ? '1' : '0';
+            i += 2;
+        }
+    }
+    s[j] = 0;
+    return s;
+}
+
+static void test_double_tap(void)
+{
+    /* a single tap waits for tap_time after the release, then goes out */
+    out_n = 0;
+    press(DBL);
+    release(DBL);
+    run_ms(TAP_MS - 10u);
+    CHECK(out_n == 0, "dbl tapped: nothing within tap_time (it may be a double tap)");
+    run_ms(20);
+    CHECK(!strcmp(note_values(62), "10") && !*note_values(63), "dbl: a single tap after tap_time, note 62 (got %s)",
+          note_values(62));
+
+    /* pressed again within tap_time: the double tap's note, held while the button is */
+    out_n = 0;
+    press(DBL);
+    release(DBL);
+    run_ms(50);
+    press(DBL);
+    CHECK(!strcmp(note_values(63), "1") && !*note_values(62), "dbl twice: note 63 on at the second press");
+    run_ms(400);
+    release(DBL);
+    run_ms(TAP_MS + 50u);
+    CHECK(!strcmp(note_values(63), "10") && !*note_values(62), "released: note 63 off, and no tap after");
+
+    /* another button's press doesn't wait: the tap goes out first */
+    out_n = 0;
+    press(DBL);
+    release(DBL);
+    press(PLAIN);
+    CHECK(!strcmp(note_values(62), "10") && !strcmp(cc_values(10), "1"), "dbl tapped, then plain: the tap at once");
+    CHECK(out[0] == 0x90 && out[1] == 62, "and before plain's CC 10");
+    release(PLAIN);
+
+    /* held for tap_time: not a double tap's first, the button's own note, held */
+    out_n = 0;
+    press(DBL);
+    run_ms(TAP_MS + 10u);
+    CHECK(!strcmp(note_values(62), "1"), "dbl held: its own note 62 on after tap_time");
+    run_ms(500);
+    release(DBL);
+    run_ms(TAP_MS + 50u);
+    CHECK(!strcmp(note_values(62), "10") && !*note_values(63), "released: note 62 off");
+
+    /* hold and double_tap on one button */
+    out_n = 0;
+    press(BOTH);
+    release(BOTH);
+    run_ms(TAP_MS + 10u);
+    CHECK(!strcmp(cc_values(30), "10") && !*cc_values(31) && !*cc_values(32), "both tapped: CC 30");
+    out_n = 0;
+    press(BOTH);
+    release(BOTH);
+    press(BOTH);
+    release(BOTH);
+    CHECK(!strcmp(cc_values(31), "10") && !*cc_values(30) && !*cc_values(32), "both twice: CC 31");
+    out_n = 0;
+    press(BOTH);
+    run_ms(HOLD_MS + 10u);
+    release(BOTH);
+    run_ms(TAP_MS + 10u);
+    CHECK(!strcmp(cc_values(32), "10") && !*cc_values(30) && !*cc_values(31), "both held: CC 32");
+
+    /* button.tap_time is live */
+    gm_cfg.btn_tap_time = 400;
+    out_n = 0;
+    press(DBL);
+    release(DBL);
+    run_ms(300);
+    press(DBL);
+    release(DBL);
+    run_ms(450);
+    CHECK(!strcmp(note_values(63), "10") && !*note_values(62), "tap_time 400: 300 ms apart is a double tap");
+    gm_cfg.btn_tap_time = TAP_MS;
+}
+
 /* A preset switch from a hold lets go of the other hold's CC; nothing
  * hangs and nothing more comes at the releases. */
 static void test_nothing_hangs(void)
@@ -227,6 +328,7 @@ int main(void)
     test_no_gesture();
     test_tap();
     test_hold();
+    test_double_tap();
     test_nothing_hangs();
 
     printf("test_gestures: %d checks, %d failed\n", checks, fails);

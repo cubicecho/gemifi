@@ -31,10 +31,10 @@ MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "re
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
-               "bank", "channel", "min", "max", "hold"]
-# Gestures (README.md "Gestures"): a button's hold: takes the keys of its action; what it leaves out is the
-# button's.
-GESTURES = ("hold",)
+               "bank", "channel", "min", "max", "hold", "double_tap"]
+# Gestures (README.md "Gestures"): a button's hold: and double_tap: take the keys of its action; what they
+# leave out is the button's.
+GESTURES = ("hold", "double_tap")
 GESTURE_KEYS = ["action", "cc", "note", "preset", "program", "mmc", "sysex", "mcu"]
 # Actions that work for as long as the button is held: a gesture can't run them, and a button with one can't
 # have a gesture (its press would wait to be told apart).
@@ -43,7 +43,7 @@ HELD_ACTIONS = {"cc_ramp", "bend_down", "bend_up"}
 NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
 # button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
 # key -> (default, lo, hi, the gesture that uses it).
-BUTTON_SETTINGS = {"hold_time": (200, 100, 5000, "hold")}
+BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold")}
 BUTTON_SETTINGS_KEYS = list(BUTTON_SETTINGS)
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
@@ -79,7 +79,7 @@ def validate(v, dev, data):
 
 
 def gesture_action(v, dev, d, p, key, base):
-    """A button's hold: (README.md "Gestures"): the action it runs instead of the button's own, as
+    """A button's hold: or double_tap: (README.md "Gestures"): the action it runs instead of the button's own, as
     (action name, button.number), or None. A string names the action; a mapping takes the keys of the
     button's action, and what it leaves out is the button's (base: its (action, number))."""
     path, line = f"{p}.{key}", d.line_of(key)
@@ -313,7 +313,7 @@ def button_settings(v, dev, data):
 
 
 def gesture_mask(dev, gesture):
-    """The buttons with a gesture, one bit each (gm_settings.h GM_BTN_HOLD ...)."""
+    """The buttons with a gesture, one bit each (gm_settings.h GM_BTN_HOLD, GM_BTN_DOUBLE)."""
     return sum(1 << i for i, b in enumerate(dev.buttons) if gesture in getattr(b, "gestures", {}))
 
 
@@ -326,14 +326,16 @@ def c_defines(dev):
     their timing defaults (button_settings:), when a button has one."""
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     h = [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
-    hold = gesture_mask(dev, "hold")
-    if not hold:
+    if not gestures_used(dev):
         return h
     s = getattr(dev, "btn_set", {})
-    h += ["/* button gestures (components/buttons/README.md \"Gestures\"): one bit per button */",
-          f"#define GM_BTN_HOLD 0x{hold:X}ull /* hold: {c_comment(gesture_names(dev, hold))} */",
-          f"#define GM_BTN_HOLD_TIME_DEFAULT {s.get('hold_time', BUTTON_SETTINGS['hold_time'][0])} "
-          "/* ms, button_settings.hold_time */"]
+    h.append("/* button gestures (components/buttons/README.md \"Gestures\"): one bit per button */")
+    for gesture, define, setting in (("hold", "GM_BTN_HOLD", "hold_time"), ("double_tap", "GM_BTN_DOUBLE", "tap_time")):
+        mask = gesture_mask(dev, gesture)
+        if mask:
+            h += [f"#define {define} 0x{mask:X}ull /* {gesture}: {c_comment(gesture_names(dev, mask))} */",
+                  f"#define GM_BTN_{setting.upper()}_DEFAULT {s.get(setting, BUTTON_SETTINGS[setting][0])} "
+                  f"/* ms, button_settings.{setting} */"]
     return h
 
 
@@ -355,9 +357,10 @@ def c_tables(dev):
               f"/* {c_comment(b.id)}: {c_comment(b.pin.desc)} */" for b in dev.buttons]
         c += ["};", ""]
     if gestures_used(dev):
-        c += ["/* button gestures: { hold } as { action, number }, GM_BTN_NO_ACT = none */",
+        c += ["/* button gestures: { hold, double_tap }, each { action, number }, GM_BTN_NO_ACT = none */",
               "const gm_btn_gesture_t gm_btn_gestures[GM_N_BUTTONS] = {",
-              *[f"    {{ {c_gesture_act(b, 'hold')} }}, /* {c_comment(b.id)} */" for b in dev.buttons],
+              *[f"    {{ {', '.join(c_gesture_act(b, g) for g in GESTURES)} }}, /* {c_comment(b.id)} */"
+                for b in dev.buttons],
               "};", ""]
     return c
 

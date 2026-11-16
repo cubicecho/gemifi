@@ -269,14 +269,28 @@ static void button_changed(uint32_t i, int down)
  * doesn't run its action at the press: gesture_input takes its presses and
  * releases, and gestures_ms (every sample) times them. The other buttons
  * never wait. */
-#define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD))
+#define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD | GM_BTN_DOUBLE))
+#define HAS(mask, i) (((btn_bits_t)(mask) >> (i)) & 1u)
+#if GM_BTN_HOLD
+#define HOLD_MS ((uint32_t)gm_cfg.btn_hold_time)
+#else
+#define HOLD_MS 0u                  /* no button has hold: */
+#endif
+#if GM_BTN_DOUBLE
+#define TAP_MS ((uint32_t)gm_cfg.btn_tap_time)
+#else
+#define TAP_MS 0u                   /* no button has double_tap: */
+#endif
 enum {
     GS_IDLE,                        /* up, nothing to decide */
-    GS_PRESSED,                     /* down: a tap if let go before hold_time */
-    GS_HOLD,                        /* held past hold_time: its hold action is down */
+    GS_PRESSED,                     /* down, not told apart yet */
+    GS_TAPPED,                      /* let go: a tap, unless pressed again within tap_time */
+    GS_OWN,                         /* its own action is down (held too long for a double tap's first) */
+    GS_HOLD,                        /* its hold action is down */
+    GS_DOUBLE,                      /* its double_tap action is down */
 };
 static uint8_t gs_state[NB];
-static uint32_t gs_pressed_at[NB];  /* ms */
+static uint32_t gs_since[NB];       /* ms: the press (GS_PRESSED) or the release (GS_TAPPED) */
 
 /* The button's own action (button.action, button.number). */
 static void own_action(uint32_t i, int down)
@@ -284,52 +298,138 @@ static void own_action(uint32_t i, int down)
     run_action(i, gm_cfg.btn_action[i], (uint32_t)gm_cfg.btn_number[i], down);
 }
 
-static void hold_action(uint32_t i, int down)
+static void gesture_action(uint32_t i, const gm_btn_act_t *a, int down)
 {
-    const gm_btn_act_t *a = &gm_btn_gestures[i].hold;
     run_action(i, a->action, a->number, down);
+}
+
+/* A tap: the button's own action, pressed and let go. */
+static void tap(uint32_t i)
+{
+    own_action(i, 1);
+    own_action(i, 0);
+}
+
+/* Let go of the action state s has down on button i. */
+static void let_go(uint32_t i, uint8_t s)
+{
+    switch (s) {
+    case GS_OWN:
+        own_action(i, 0);
+        break;
+    case GS_HOLD:
+        gesture_action(i, &gm_btn_gestures[i].hold, 0);
+        break;
+    case GS_DOUBLE:
+        gesture_action(i, &gm_btn_gestures[i].double_tap, 0);
+        break;
+    default:                        /* nothing down */
+        break;
+    }
+}
+
+#if GM_BTN_DOUBLE
+/* Button i is about to be pressed: a tap still waiting for its second
+ * press (another button's, or i's own after tap_time) is a tap, and goes
+ * out first. Called before i is held, so a preset switch from that tap
+ * leaves i's press its own. */
+static void taps_now(uint32_t i, uint32_t now)
+{
+    for (btn_bits_t m = GM_BTN_DOUBLE; m; m &= m - 1u) {
+        uint32_t j = (uint32_t)__builtin_ctzll(m);
+        int is_waiting = gs_state[j] == GS_TAPPED && (j != i || now - gs_since[j] >= TAP_MS);
+        if (is_waiting) {
+            gs_state[j] = GS_IDLE;
+            tap(j);
+        }
+    }
+}
+#endif
+
+static void gesture_press(uint32_t i, uint32_t now)
+{
+    if (gs_state[i] == GS_TAPPED) { /* again within tap_time (taps_now took a later one): a double tap */
+        gs_state[i] = GS_DOUBLE;
+        app_log(LOG_DEBUG, gm_device.buttons[i].name, ": double tap");
+        gesture_action(i, &gm_btn_gestures[i].double_tap, 1);
+        return;
+    }
+    gs_state[i] = GS_PRESSED;
+    gs_since[i] = now;
+}
+
+static void gesture_release(uint32_t i, uint32_t now)
+{
+    uint8_t was = gs_state[i];
+    int is_first_tap = was == GS_PRESSED && HAS(GM_BTN_DOUBLE, i);
+    if (is_first_tap) {
+        gs_state[i] = GS_TAPPED;
+        gs_since[i] = now;
+        return;
+    }
+    gs_state[i] = GS_IDLE;
+    if (was == GS_PRESSED)          /* let go before hold_time: a tap */
+        tap(i);
+    else
+        let_go(i, was);
 }
 
 /* Button i's press or release, if it has a gesture: 1 if it took it. */
 static int gesture_input(uint32_t i, int down, uint32_t now)
 {
-    int has_gesture = (GESTURE_BUTTONS >> i) & 1u;
-    if (!has_gesture)
+    if (!HAS(GESTURE_BUTTONS, i))
         return 0;
     report_change(i, down);         /* the EVENT now; the action may come later */
-    if (down) {
-        gs_state[i] = GS_PRESSED;
-        gs_pressed_at[i] = now;
-        return 1;
-    }
-    uint8_t was = gs_state[i];
-    gs_state[i] = GS_IDLE;
-    if (was == GS_PRESSED) {        /* let go before hold_time: a tap */
-        own_action(i, 1);
-        own_action(i, 0);
-    } else if (was == GS_HOLD) {
-        hold_action(i, 0);
-    }
+    if (down)
+        gesture_press(i, now);
+    else
+        gesture_release(i, now);
     return 1;
 }
 
-/* Every sample: a press held for hold_time is a hold. */
+/* Every sample: a press held for hold_time is a hold (a press of a button
+ * with only double_tap:, held for tap_time, its own action), and a tap
+ * not pressed again within tap_time a tap. The state is set before the
+ * action runs, so a preset switch from it (gestures_off) has the last
+ * word. */
 static void gestures_ms(uint32_t now)
 {
     for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
         uint32_t i = (uint32_t)__builtin_ctzll(m);
-        int is_held_long = gs_state[i] == GS_PRESSED && now - gs_pressed_at[i] >= (uint32_t)gm_cfg.btn_hold_time;
-        if (is_held_long) {
+        uint32_t age = now - gs_since[i];
+        int is_pressed = gs_state[i] == GS_PRESSED;
+        int is_hold = is_pressed && HAS(GM_BTN_HOLD, i) && age >= HOLD_MS;
+        int is_long_press = is_pressed && !HAS(GM_BTN_HOLD, i) && age >= TAP_MS;
+        int is_single_tap = gs_state[i] == GS_TAPPED && age >= TAP_MS;
+        if (is_hold) {
             gs_state[i] = GS_HOLD;
             app_log(LOG_DEBUG, gm_device.buttons[i].name, ": hold");
-            hold_action(i, 1);
+            gesture_action(i, &gm_btn_gestures[i].hold, 1);
+        } else if (is_long_press) {
+            gs_state[i] = GS_OWN;
+            own_action(i, 1);
+        } else if (is_single_tap) {
+            gs_state[i] = GS_IDLE;
+            tap(i);
         }
     }
 }
 
-/* A preset switch: let go of what a gesture holds, and forget the
- * presses still being decided (their releases are silent). Returns the
- * buttons whose own action a gesture kept up. */
+/* Button i's release skipped the gestures (held through a preset switch):
+ * nothing a gesture has down outlives it. */
+static void gesture_forget(uint32_t i)
+{
+    if (!HAS(GESTURE_BUTTONS, i))
+        return;
+    uint8_t was = gs_state[i];
+    gs_state[i] = GS_IDLE;
+    let_go(i, was);
+}
+
+/* A preset switch: let go of what a gesture has down, and forget the
+ * presses and taps still being told apart (their releases are silent).
+ * Returns the buttons whose own action isn't down: buttons_off lets go of
+ * the others'. */
 static btn_bits_t gestures_off(void)
 {
     btn_bits_t own_up = 0;
@@ -337,10 +437,10 @@ static btn_bits_t gestures_off(void)
         uint32_t i = (uint32_t)__builtin_ctzll(m);
         uint8_t was = gs_state[i];
         gs_state[i] = GS_IDLE;
-        if (was == GS_HOLD)
-            hold_action(i, 0);
-        if (was != GS_IDLE)
-            own_up |= (btn_bits_t)1 << i;
+        if (was == GS_OWN)
+            continue;
+        let_go(i, was);
+        own_up |= (btn_bits_t)1 << i;
     }
     return own_up;
 }
@@ -379,12 +479,19 @@ void buttons_sample(void)
                 continue;                     /* an unlock / factory-reset combo's (gm_safety.h) */
             if (down ? !((live >> i) & 1u) : !((btn_held >> i) & 1u))
                 continue;                     /* the press is the live twin's (or a hidden one's release) */
+#if GM_BTN_DOUBLE
+            if (down)
+                taps_now(i, now_ms);
+#endif
             if (down)
                 btn_held |= 1ull << i;
             else
                 btn_held &= ~(1ull << i);
             if ((btn_ignore >> i) & 1u) {
                 btn_ignore &= ~(1ull << i);   /* released after a preset switch */
+#if GM_BTN_GESTURES
+                gesture_forget(i);
+#endif
 #if GM_N_MODES > 0
                 mode_late_release(i);
 #endif

@@ -21,6 +21,16 @@ buttons:
   - { id: tap_hold, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 20, hold: { cc: 21 } }
   # tap: note 60; held: the next preset
   - { id: note_hold, pin: { number: PB2, inverted: true }, action: note, note: 60, hold: preset_next }
+  # tap: note 62; pressed twice: note 63
+  - { id: dbl, pin: { number: PB3, inverted: true }, action: note, note: 62, double_tap: { note: 63 } }
+  # tap: CC 30; pressed twice: CC 31; held: CC 32
+  - id: both
+    pin: { number: PB4, inverted: true }
+    action: cc_momentary
+    cc: 30
+    double_tap: { cc: 31 }
+    hold: { cc: 32 }
 
 button_settings:
+  tap_time: 200ms
   hold_time: 300ms

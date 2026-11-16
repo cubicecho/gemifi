@@ -1502,6 +1502,180 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "double_tap": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "none",
+                          "cc_momentary",
+                          "note",
+                          "octave_down",
+                          "octave_up",
+                          "transpose_down",
+                          "transpose_up",
+                          "program_next",
+                          "program_prev",
+                          "preset_next",
+                          "preset_prev",
+                          "preset_select",
+                          "mcu",
+                          "program",
+                          "panic",
+                          "mmc",
+                          "sysex",
+                          "pad_octave_down",
+                          "pad_octave_up"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "none",
+                              "cc_momentary",
+                              "cc_toggle",
+                              "cc_ramp",
+                              "note",
+                              "octave_down",
+                              "octave_up",
+                              "transpose_down",
+                              "transpose_up",
+                              "bend_down",
+                              "bend_up",
+                              "program_next",
+                              "program_prev",
+                              "preset_next",
+                              "preset_prev",
+                              "preset_select",
+                              "mcu",
+                              "program",
+                              "panic",
+                              "mmc",
+                              "sysex",
+                              "pad_octave_down",
+                              "pad_octave_up"
+                            ]
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "cc": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "note": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "preset": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "program": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "mmc": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "stop",
+                                  "play",
+                                  "deferred_play",
+                                  "fast_forward",
+                                  "rewind",
+                                  "record",
+                                  "record_exit",
+                                  "record_pause",
+                                  "pause",
+                                  "eject",
+                                  "chase",
+                                  "reset"
+                                ]
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          },
+                          {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 127
+                              },
+                              {
+                                "$ref": "#/definitions/substitution"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "sysex": {
+                        "type": "string",
+                        "description": "the id of a midi_messages.sysex string"
+                      },
+                      "mcu": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -2426,6 +2600,9 @@
         {
           "type": "object",
           "properties": {
+            "tap_time": {
+              "$ref": "#/definitions/period"
+            },
             "hold_time": {
               "$ref": "#/definitions/period"
             }

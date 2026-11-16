@@ -74,6 +74,7 @@ enum {
     P_DIAG_UPTIME = 71,
     /* button gestures (GM_BTN_GESTURES): global, stored once
      * (components/buttons/README.md "Gestures"): 75-79 */
+    P_BTN_TAP_TIME = 75,
     P_BTN_HOLD_TIME = 76,
 };
 
@@ -139,7 +140,10 @@ enum {
 #ifndef GM_BTN_HOLD
 #define GM_BTN_HOLD 0                /* hold: an action of its own when held */
 #endif
-#define GM_BTN_GESTURES (GM_BTN_HOLD != 0)
+#ifndef GM_BTN_DOUBLE
+#define GM_BTN_DOUBLE 0              /* double_tap: an action of its own when pressed twice */
+#endif
+#define GM_BTN_GESTURES (GM_BTN_HOLD != 0 || GM_BTN_DOUBLE != 0)
 /* Presets are on with 2 or more slots (YAML presets:). One slot (no presets:)
  * is presets off: the slot only holds the settings, and HELLO caps bit 5, the
  * PRESET_* commands, the preset.* params and the preset actions are left out. */
@@ -234,6 +238,9 @@ typedef struct {
     int32_t din_thru;                /* DIN In -> DIN Out              */
     int32_t din_out;                 /* the controller -> DIN Out      */
     int32_t din_usb;                 /* usb_merge: host -> DIN Out     */
+#endif
+#if GM_BTN_DOUBLE
+    int32_t btn_tap_time;            /* ms: a second press this soon after a tap is a double tap */
 #endif
 #if GM_BTN_HOLD
     int32_t btn_hold_time;           /* ms: held this long is a hold, sooner a tap */

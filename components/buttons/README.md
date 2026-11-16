@@ -17,27 +17,30 @@ Its YAML (`buttons:`): the fields in [core/README.md "Controls"](../../core/READ
 
 ## Gestures
 
-A button can do something else when it is held: a **gesture**. A gesture runs an action of its own instead of the button's, from the same list ("Button actions" above).
+A button can do something else when it is held or pressed twice: a **gesture**. A gesture runs an action of its own instead of the button's, from the same list ("Button actions" above).
 
 ```yaml
 buttons:
   - { id: rec, pin: PB3, action: cc_momentary, cc: 20, hold: { cc: 21 } }   # tap: CC 20; held: CC 21
   - { id: stop, pin: PB4, action: mmc, mmc: stop, hold: panic }             # tap: MMC stop; held: panic
+  - { id: next, pin: PB5, action: program_next, double_tap: program_prev }  # tap: next; twice: previous
 button_settings:                 # optional; these are the defaults
+  tap_time: 200ms
   hold_time: 200ms
 ```
 
 - **`hold:`** runs when the button is held for `hold_time`. A press let go sooner is a **tap**, and runs the button's own action.
+- **`double_tap:`** runs when the button is pressed again within `tap_time` of letting go. The second press runs it, and its release lets go of it. A tap not followed by another within `tap_time` is a single tap. A first press held for `tap_time` (on a button without `hold:`) isn't a tap: the button's own action goes down then, and lets go with the button, so a `cc_momentary` or a `note` still works held. With `hold:` too, holding the first press is the hold. Triple taps aren't supported.
 - **What a gesture takes:** an action's name (`hold: panic`), or a mapping with the keys of the button's action: `action:`, `cc:`, `note:`, `preset:`, `program:`, `mmc:`, `sysex:`, `mcu:`. What it leaves out is the button's, so `hold: { cc: 21 }` is the button's `cc_momentary` on CC 21. It sends on the button's `channel:`, with its `min:`, `max:` and `bank:`.
-- **Latency.** A button without a gesture fires at the press, as before; only a button with one waits. A tap is known when the button is let go, so its action is pressed and let go together then: a `cc_momentary` tap sends its 127 and its 0 at once. A hold is known after `hold_time`, and lets go when the button does.
+- **Latency.** A button without a gesture fires at the press, as before; only a button with one waits. A tap is known when the button is let go, so its action is pressed and let go together then: a `cc_momentary` tap sends its 127 and its 0 at once. A hold is known after `hold_time`, and lets go when the button does. With `double_tap:`, a single tap waits `tap_time` more after the release, unless another button is pressed first: that press sends the tap at once, before its own action. A double tap is known at the second press.
 - **EVENTs** (`debug.events`) still come at the press and the release, as they happen.
 - **Nothing hangs.** A hold that sent a note or a CC lets go of it when the button is released, or at a preset switch (`buttons_off`), as a button's own note does. A press still being told apart at a preset switch is dropped: its release sends nothing.
 - **Not for every action.** A gesture can't run `cc_ramp`, `bend_down` or `bend_up` (they work for as long as the button is held) or `cc_toggle` (its on/off state is the button's, which its LED and host echoes show). A button whose own action is `cc_ramp` or a pitch bend can't have a gesture, and a preset can't give it one of those actions.
-- **The same in every preset**, like modes: presets can't set `hold:`. The gestures are YAML only; their timing is the params below.
+- **The same in every preset**, like modes: presets can't set `hold:` or `double_tap:`. The gestures are YAML only; their timing is the params below.
 - **Layer twins** ([modes](../modes/README.md#button-layers)) have no gestures: while a twin is live the switch is the twin's, and fires at the press.
-- **Params**, global (stored once, the same in every preset), only on a device with that gesture: `button.hold_time` (100..5000 ms, default 200), in the "Buttons" group. The YAML's `button_settings:` sets the default; a key for a gesture no button has is a warning.
+- **Params**, global (stored once, the same in every preset), only on a device with that gesture: `button.tap_time` (50..1000 ms, default 200) and `button.hold_time` (100..5000 ms, default 200), in the "Buttons" group. The YAML's `button_settings:` sets the default; a key for a gesture no button has is a warning.
 
-**Generated code:** `GM_BTN_HOLD` in `gm_device_config.h` (the buttons with `hold:`, one bit each; 0 or left out: the gesture code isn't compiled in), `GM_BTN_HOLD_TIME_DEFAULT`, and `gm_btn_gestures[GM_N_BUTTONS]` (`gm_device.h` `gm_btn_gesture_t`: each button's `hold` as `{ action, number }`, `GM_BTN_NO_ACT` for none). The runtime keeps 5 bytes per button (a state and the time of the press), only on such a device.
+**Generated code:** `GM_BTN_HOLD` and `GM_BTN_DOUBLE` in `gm_device_config.h` (the buttons with `hold:` and with `double_tap:`, one bit each; 0 or left out: the gesture code isn't compiled in), `GM_BTN_HOLD_TIME_DEFAULT` and `GM_BTN_TAP_TIME_DEFAULT`, and `gm_btn_gestures[GM_N_BUTTONS]` (`gm_device.h` `gm_btn_gesture_t`: each button's `hold` and `double_tap` as `{ action, number }`, `GM_BTN_NO_ACT` for none). The runtime keeps 5 bytes per button (a state and the time of the press or release), only on such a device.
 
 ## Files
 

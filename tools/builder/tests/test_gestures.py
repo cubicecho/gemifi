@@ -38,10 +38,11 @@ class TestHold(unittest.TestCase):
     def test_none_is_left_out(self):
         """No gesture: no gesture define, table or param, so the image stays as it was."""
         dev, h, c = self.gen(BASE)
-        self.assertNotIn("GM_BTN_HOLD", h)
+        for define in ("GM_BTN_HOLD", "GM_BTN_DOUBLE"):
+            self.assertNotIn(define, h)
         self.assertNotIn("gm_btn_gestures", c)
         self.assertEqual([n for n, _i, _s, count in gd.PARAMS if n.startswith("button.") and n[7:] in
-                          ("hold_time",) and count(dev)], [])
+                          gd.buttons.BUTTON_SETTINGS and count(dev)], [])
 
     def test_hold_generates(self):
         """hold: takes the button's action and number unless it gives its own; a string names an action."""
@@ -49,13 +50,32 @@ class TestHold(unittest.TestCase):
                                           "button_settings: { hold_time: 350ms }\n"))
         self.assertIn("#define GM_BTN_HOLD 0x3ull /* hold: a, b */", h)
         self.assertIn("#define GM_BTN_HOLD_TIME_DEFAULT 350 ", h)
-        self.assertIn("{ { 1, 21 } }, /* a */", c)                      # cc_momentary, CC 21
-        self.assertIn(f"{{ {{ {gd.ACTION_IDS['panic']}, 0 }} }}, /* b */", c)   # panic takes no number
-        self.assertIn("{ { GM_BTN_NO_ACT, 0 } }, /* c */", c)
+        none = "{ GM_BTN_NO_ACT, 0 }"
+        self.assertIn(f"{{ {{ 1, 21 }}, {none} }}, /* a */", c)              # cc_momentary, CC 21
+        self.assertIn(f"{{ {{ {gd.ACTION_IDS['panic']}, 0 }}, {none} }}, /* b */", c)   # panic takes no number
+        self.assertIn(f"{{ {none}, {none} }}, /* c */", c)
+        self.assertNotIn("GM_BTN_DOUBLE", h)
         self.assertIn("#define GM_MSG_PANIC 1", h)                     # a gesture's message kind is compiled in
         self.assertEqual([n for n, _i, s, count in gd.PARAMS if n == "button.hold_time" and count(dev)],
                          ["button.hold_time"])
         self.assertEqual(dev.btn_set["hold_time"], 350)
+
+    def test_double_tap_generates(self):
+        """double_tap: like hold:, with its own mask, table column, param and default."""
+        dev, h, c = self.gen(with_gesture("double_tap: { cc: 22 }, hold: { action: note, note: 70 }",
+                                          extra="button_settings: { tap_time: 250ms }\n"))
+        self.assertIn("#define GM_BTN_DOUBLE 0x1ull /* double_tap: a */", h)
+        self.assertIn("#define GM_BTN_TAP_TIME_DEFAULT 250 ", h)
+        self.assertIn("#define GM_BTN_HOLD 0x1ull /* hold: a */", h)
+        self.assertIn("{ { 4, 70 }, { 1, 22 } }, /* a */", c)
+        self.assertEqual(sorted(n for n, _i, s, count in gd.PARAMS if n in ("button.tap_time", "button.hold_time")
+                                and count(dev) and s == gd.GLOBAL), ["button.hold_time", "button.tap_time"])
+        dev, h, _c = self.gen(with_gesture("double_tap: program_next"))
+        self.assertNotIn("GM_BTN_HOLD", h)
+        self.assertNotIn("button.hold_time", [n for n, _i, _s, count in gd.PARAMS if count(dev)])
+        self.assertError(with_gesture("double_tap: { action: cc_ramp }"), "a gesture can't run action cc_ramp")
+        self.assertError(with_gesture("double_tap: panic", extra="button_settings: { tap_time: 2s }\n"),
+                         "out of range")
 
     def test_hold_checks(self):
         self.assertError(with_gesture("hold: {}"), "give the action it runs")
@@ -107,7 +127,9 @@ class TestGesturesCompile(unittest.TestCase):
 
     def test_compiles(self):
         """Each gesture alone, and all of them, compile warning-free with the core."""
-        for tag, text in (("hold", with_gesture("hold: { cc: 21 }")),):
+        for tag, text in (("hold", with_gesture("hold: { cc: 21 }")),
+                          ("double_tap", with_gesture("double_tap: { cc: 21 }")),
+                          ("both", with_gesture("double_tap: { cc: 21 }, hold: panic"))):
             with self.subTest(tag):
                 dev, diags = tb.load(text)
                 self.assertIsNotNone(dev, [str(d) for d in diags])
@@ -120,7 +142,8 @@ class TestGestureSchema(unittest.TestCase):
         import gemifi_schema as gs
         s = gs.device_schema()
         button = s["properties"]["buttons"]["anyOf"][0]["items"]["properties"]
-        self.assertIn("hold", button)
+        for g in ("hold", "double_tap"):
+            self.assertIn(g, button)
         self.assertNotIn("cc_toggle", button["hold"]["anyOf"][0]["anyOf"][0]["enum"])
         settings = s["properties"]["button_settings"]["anyOf"][0]["properties"]
         self.assertEqual(sorted(settings), sorted(gd.buttons.BUTTON_SETTINGS))

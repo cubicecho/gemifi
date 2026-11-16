@@ -10,7 +10,7 @@ pad_settings:
   channel: 10
 ```
 
-Its YAML (`pads:`, `pad_settings:`): "YAML" below.
+<!-- keys -->
 
 ## YAML
 
@@ -28,17 +28,13 @@ pads:
   - { id: kick,  pin: { cd74hc4051: pad_mux, number: 0 }, note: 36 }
   - { id: snare, pin: { cd74hc4051: pad_mux, number: 1 }, note: 38 }
   - { name: Hat, pin: { number: PA2, inverted: true }, note: 42 }   # pressure lowers this one's reading
-pad_settings:                  # all optional; these are the param defaults
-  channel: 10                  # 1..16, or 0 (the default): midi.channel   (pad.channel, per preset)
-  curve: normal                # normal | soft | hard | fixed              (pad.curve, per preset)
-  aftertouch: false            # poly pressure while held                 (pad.aftertouch, per preset)
-  # octave: 0                  # presets only: -4..4, the notes + 12 each  (pad.octave, per preset)
-  threshold: 200               # reading that starts a hit, 1..4095       (pad.threshold, global)
-  release: 100                 # the pad is let go below this             (pad.release, global)
-  full: 3000                   # peak reading for velocity 127            (pad.full, global)
-  window: 3ms                  # 1..50ms: peak search after the threshold (pad.window, global)
-  retrigger: 20ms              # 0..500ms: no new hit after a release     (pad.retrigger, global)
+pad_settings:                  # all optional: the starting values of the pad.* params
+  channel: 10
+  threshold: 250
+  full: 3200
 ```
+
+`pad_settings:` key `x` sets the param `pad.x`: `channel`, `curve` and `aftertouch` per preset, the sensing (`threshold`, `release`, `full`, `window`, `retrigger`) the same in every preset. `pad.octave` is set by presets and the pad octave buttons only.
 
 - **Sampling.** Every pad is read once a millisecond from the main loop, in the same context as the analog inputs: they often share a mux's select lines and the ADC, so reading pads from the scan interrupt would race with the analog reads. Pads on muxes are read sorted by channel, so muxes with the same select lines switch them once per channel (the Code 61: 8 switches for 16 pads). On an STM32F1 a 16-pad scan takes about 0.15 ms (16 conversions of ~6 us plus 8 settles of 10 us).
 - **A hit.** Readings are 0..4095 (after `inverted`). When a pad reaches `pad.threshold`, its peak over the next `pad.window` ms is taken (4 readings at 3 ms) and Note On goes out with velocity 1..127, linear from `threshold` to `full`, then shaped by `pad.curve` like the keys' curves (soft, hard; fixed = `velocity.fixed`). A pad let go within the window plays at once with the peak so far. It is released (Note Off) below `pad.release`, and can't start a new hit for `pad.retrigger` ms after that (bounce, double hits). The thresholds are live params: tune them from the web app. A soft hit (a peak under twice `pad.threshold`) that falls below `pad.release` again within 3 ms is noise, not a hit: pads see such spikes while a pad board's LEDs change.

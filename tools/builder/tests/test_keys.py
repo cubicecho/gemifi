@@ -10,23 +10,27 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import analog, encoders, tm1637  # noqa: E402
+from components import analog, encoders, pads, tm1637  # noqa: E402
+from components.keys import Enum  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
         "usb: { vid: 0x1209, pid: 0x0002 }\n")
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))
 
 
-def errors(section, item):
-    """The errors of a device whose `section` list is [item]: [(path, message)]."""
-    _, diags = gd.load_device("x.yaml", HEAD + f"{section}:\n  - {json.dumps(item)}\n")
+def errors(section, item, more=""):
+    """The errors of a device whose `section` is [item] (or item, when `section` ends in ':'), plus the YAML
+    `more`: [(path, message)]."""
+    body = f"{section[:-1]}: {json.dumps(item)}\n" if section.endswith(":") else f"{section}:\n  - {json.dumps(item)}\n"
+    _, diags = gd.load_device("x.yaml", HEAD + more + body)
     return [(d.path, d.msg) for d in diags if d.level == "error"]
 
 
 class EdgesAgree(unittest.TestCase):
-    def edges(self, section, base, path, keys, context=None, nest=None):
-        """Each key of keys (a Keys) whose type has edges: those in pass, those past fail at path.key.
-        context: key -> keys the item needs for that key's edges; nest: put the key in base[nest]."""
+    def edges(self, section, base, path, keys, context=None, nest=None, more=""):
+        """Each key of keys (a Keys) whose type has edges: those in pass (no error at path.key), those past
+        fail there. context: key -> keys the item needs for that key's edges ("-": keys to drop); nest: put
+        the key in base[nest]; more: other YAML the device needs."""
         context = context or {}
         checked = 0
         for k in keys:
@@ -42,10 +46,10 @@ class EdgesAgree(unittest.TestCase):
                         item[k.name] = value
                     for d in drop:
                         item.pop(d, None)
-                    errs = errors(section, item)
+                    errs = errors(section, item, more)
                     at = f"{path}.{nest}.{k.name}" if nest else f"{path}.{k.name}"
-                    if ok:
-                        self.assertEqual(errs, [], item)
+                    if ok:          # (rules between keys may still refuse it, at the item)
+                        self.assertNotIn(at, [p for p, _ in errs], (item, errs))
                     else:
                         self.assertIn(at, [p for p, _ in errs], (item, errs))
                     checked += 1
@@ -74,6 +78,14 @@ class EdgesAgree(unittest.TestCase):
             "adc_min": {"adc_max": 100}, "adc_max": {"adc_min": 100}})
         self.assertGreater(n, 25)
 
+    def test_pads(self):
+        n = self.edges("pads", {"id": "p", "pin": "PA0", "note": 36}, "pads[0]", pads.PAD)
+        n += self.edges("pad_settings:", {}, "pad_settings", pads.PAD_SETTINGS,
+                        more="pads:\n  - { id: p, pin: PA0, note: 36 }\n", context={
+                            "threshold": {"release": 0, "full": 4095}, "release": {"threshold": 4094, "full": 4095},
+                            "full": {"release": 0, "threshold": 1}})
+        self.assertGreater(n, 25)
+
     def test_tm1637(self):
         base = {"id": "d", "platform": "tm1637", "clk_pin": "PB6", "dio_pin": "PB7"}
         self.assertGreater(self.edges("led_driver", base, "led_driver[0]", tm1637.SPEC.without("platform")), 6)
@@ -94,6 +106,16 @@ class KeyData(unittest.TestCase):
             self.assertTrue(sections, name)
             for s in sections:
                 walk(s["keys"], f"{name}: {s['section']}")
+
+    def test_pad_defaults_are_the_params(self):
+        """pad_settings:'s documented defaults are the pad.* param defaults the C gets (PAD_DEFAULTS)."""
+        for k in pads.PAD_SETTINGS:
+            x = k.default
+            if isinstance(k.type, Enum):
+                x = k.type.values.index(x)
+            elif isinstance(x, str):        # a period, in ms
+                x = int(x.removesuffix("ms"))
+            self.assertEqual(int(x), pads.PAD_DEFAULTS[k.name], k.name)
 
     def test_the_validator_lists_the_spec_keys(self):
         self.assertEqual(encoders.ENCODER_KEYS, encoders.ENCODER.names)

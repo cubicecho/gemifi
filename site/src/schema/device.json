@@ -2559,36 +2559,41 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`). Default: from the id."
               },
               "pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "What it reads: an ADC pin or a multiplexer channel (`inverted: true` when pressure lowers the reading)."
               },
               "note": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 127
-                      },
-                      {
-                        "$ref": "#/definitions/substitution"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
                   },
                   {
-                    "type": "string"
+                    "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The note it plays. Can be changed on the device."
               },
               "led": {
                 "type": "string",
-                "description": "the id of another component"
+                "description": "An LED lit while the pad is held."
               }
             },
             "additionalProperties": false
@@ -2615,7 +2620,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The MIDI channel the pads play on (0: `midi.channel`). Per preset. Default: 0: midi.channel. Can be changed on the device.",
+              "default": 0
             },
             "curve": {
               "anyOf": [
@@ -2630,7 +2637,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset. Default: normal. Can be changed on the device.",
+              "default": "normal"
             },
             "aftertouch": {
               "anyOf": [
@@ -2640,7 +2649,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Polyphonic aftertouch while a pad is held. Per preset. Default: false. Can be changed on the device.",
+              "default": false
             },
             "threshold": {
               "anyOf": [
@@ -2652,7 +2663,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`. Default: 200. Can be changed on the device.",
+              "default": 200
             },
             "release": {
               "anyOf": [
@@ -2664,7 +2677,9 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "Below this reading the pad is let go. Default: 100. Can be changed on the device.",
+              "default": 100
             },
             "full": {
               "anyOf": [
@@ -2676,13 +2691,27 @@
                 {
                   "$ref": "#/definitions/substitution"
                 }
-              ]
+              ],
+              "description": "The peak reading that plays velocity 127. Default: 3000. Can be changed on the device.",
+              "default": 3000
             },
             "window": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long after the threshold a hit's peak is looked for. Default: 3ms. Can be changed on the device.",
+              "default": "3ms"
             },
             "retrigger": {
-              "$ref": "#/definitions/period"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/period"
+                }
+              ],
+              "description": "How long after a release the pad can't start a new hit (against bounce and double hits). Default: 20ms. Can be changed on the device.",
+              "default": "20ms"
             }
           },
           "additionalProperties": false

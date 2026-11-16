@@ -351,6 +351,121 @@
       ]
     }
   ],
+  "pads": [
+    {
+      "section": "pads",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What the rest of the file calls it. May be left out when `name:` is given: it is then made from the name (`Oct down` -> `oct_down`)."
+        },
+        {
+          "key": "name",
+          "type": "text",
+          "required": false,
+          "default": "from the id",
+          "doc": "Its name on the web page and in the CLI. Left out, it is made from the id (`oct_down` -> `Oct down`)."
+        },
+        {
+          "key": "pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "What it reads: an ADC pin or a multiplexer channel (`inverted: true` when pressure lowers the reading)."
+        },
+        {
+          "key": "note",
+          "type": "integer 0..127",
+          "required": true,
+          "default": null,
+          "doc": "The note it plays.",
+          "live": true
+        },
+        {
+          "key": "led",
+          "type": "LED id",
+          "required": false,
+          "default": null,
+          "doc": "An LED lit while the pad is held."
+        }
+      ]
+    },
+    {
+      "section": "pad_settings",
+      "list": false,
+      "keys": [
+        {
+          "key": "channel",
+          "type": "integer 0..16",
+          "required": false,
+          "default": "`0`: `midi.channel`",
+          "doc": "The MIDI channel the pads play on (0: `midi.channel`). Per preset.",
+          "live": true
+        },
+        {
+          "key": "curve",
+          "type": "`normal`, `soft`, `hard`, `fixed`",
+          "required": false,
+          "default": "`normal`",
+          "doc": "How a hit's strength becomes velocity (`fixed`: `velocity.fixed`). Per preset.",
+          "live": true
+        },
+        {
+          "key": "aftertouch",
+          "type": "`true` or `false`",
+          "required": false,
+          "default": "`false`",
+          "doc": "Polyphonic aftertouch while a pad is held. Per preset.",
+          "live": true
+        },
+        {
+          "key": "threshold",
+          "type": "integer 1..4095",
+          "required": false,
+          "default": "`200`",
+          "doc": "The reading that starts a hit (readings are 0..4095). Between `release` and `full`.",
+          "see": "YAML",
+          "live": true
+        },
+        {
+          "key": "release",
+          "type": "integer 0..4094",
+          "required": false,
+          "default": "`100`",
+          "doc": "Below this reading the pad is let go.",
+          "live": true
+        },
+        {
+          "key": "full",
+          "type": "integer 2..4095",
+          "required": false,
+          "default": "`3000`",
+          "doc": "The peak reading that plays velocity 127.",
+          "live": true
+        },
+        {
+          "key": "window",
+          "type": "time 1ms..50ms",
+          "required": false,
+          "default": "`3ms`",
+          "doc": "How long after the threshold a hit's peak is looked for.",
+          "live": true
+        },
+        {
+          "key": "retrigger",
+          "type": "time 0us..500ms",
+          "required": false,
+          "default": "`20ms`",
+          "doc": "How long after a release the pad can't start a new hit (against bounce and double hits).",
+          "live": true
+        }
+      ]
+    }
+  ],
   "tm1637": [
     {
       "section": "led_driver",

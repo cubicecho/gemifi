@@ -40,4 +40,6 @@ A component of its own, `components/<platform>/`, as [ssd1306](../ssd1306/) does
 3. **`__init__.py`**: a `ScreenType` subclass (`platform`, `enum`, `num`, its keys as data in `spec` and their names in `keys`, `i2c`, `c_header`, `c_config`, `c_ops`, `validate`, `c_fields`), listed in `DISPLAY_PLATFORMS`, with `DEPENDENCIES = ("display",)`. Add its `GM_SCREEN_*` value to `gm_screen.h`. Then `gemifi_build.py schema -o site/src/schema/device.json`.
 4. **`test/`**: a host test with its YAML, built by `core/test/Makefile`.
 
+Outside gemifi, as an external component ([core/README.md "External components"](../../core/README.md#external-components)): the same, less the `GM_SCREEN_*` value and the `enum` and `num` (the builder numbers it), plus `GEMIFI_API`.
+
 Not yet: screens that take text rather than pixels (HD44780 character LCDs: they'd add a text op to `gm_screen_ops_t`), SPI panels, graphics.

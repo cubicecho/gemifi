@@ -5,6 +5,13 @@ a component's __init__.py can import it at load time; the builder (tools/builder
 imports components, and passes the rest (the validator, the platform) to their calls.
 """
 
+# The component API version: what this module, the base components' classes (components/hub HubType,
+# components/display ScreenType, led_strip LedStrip, led_driver LedDriver) and the validator calls they get
+# (components/README.md "Writing a component") give a component. An external component declares the one it
+# was written for as GEMIFI_API; the builder refuses another. It goes up when one of those changes in a way
+# that can break a component.
+API_VERSION = 1
+
 # gm_pin_t.flags (core/include/gm_pin.h)
 INVERT, PULLUP, PULLDOWN, OPEN_DRAIN = 1, 2, 4, 8
 

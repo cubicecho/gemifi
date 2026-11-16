@@ -26,6 +26,7 @@ SPEC = Keys(
 
 class Decoder(HubType):
     """A 74HC138-style one-of-N decoder: outputs only, and only as matrix rows."""
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     key, enum, num = "decoder", "GM_HUB_DECODER", 6
     spec = SPEC
     keys = tuple(SPEC.names)

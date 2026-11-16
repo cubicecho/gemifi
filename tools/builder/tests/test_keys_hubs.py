@@ -55,7 +55,7 @@ class EdgesAgree(unittest.TestCase):
         return checked
 
     def hub(self, typ, base, n, **kw):
-        t = gd.HUB_DEFS[typ]
+        t = gd.REG.HUB_DEFS[typ]
         sec = t.domain or t.key
         if t.domain:
             base = {**base, "platform": typ}
@@ -101,7 +101,7 @@ class EdgesAgree(unittest.TestCase):
 
 
     def test_ssd1306(self):
-        t = gd.DISPLAY_PLATFORMS["ssd1306"]
+        t = gd.REG.DISPLAY_PLATFORMS["ssd1306"]
         # width and height are checked together too: each edge with a size the panel has
         n = self.edges("display", {"id": "d", "platform": "ssd1306"}, "display[0]", t.spec.without("platform"),
                        head=ESP, context={"width": lambda w: {"height": 48 if w == 64 else 64},
@@ -112,8 +112,8 @@ class EdgesAgree(unittest.TestCase):
 class Specs(unittest.TestCase):
     def specs(self):
         """(name, its spec, its YAML key names) of every hub type, display platform and i2c: bus."""
-        return [*((typ, t.spec, gd.HUB_KEYS[typ]) for typ, t in gd.HUB_DEFS.items()),
-                *((p, t.spec, t.keys) for p, t in gd.DISPLAY_PLATFORMS.items()),
+        return [*((typ, t.spec, gd.REG.HUB_KEYS[typ]) for typ, t in gd.REG.HUB_DEFS.items()),
+                *((p, t.spec, t.keys) for p, t in gd.REG.DISPLAY_PLATFORMS.items()),
                 ("i2c", gd.i2c_buses.BUS, gd.i2c_buses.BUS_KEYS)]
 
     def test_every_hub_and_screen_has_one(self):

@@ -1233,12 +1233,18 @@ static const gm_hub_ops_t no_ops = { 0 };
 
 GM_HUB_OPS_EXTERNS          /* the hub types in components/ (gm_components.h) */
 
-static const gm_hub_ops_t *const hub_ops[GM_HUB_N_TYPES] = {
+/* With external hub types (core/README.md "External components"), gm_components.h numbers them after
+ * GM_HUB_N_TYPES and sets GM_HUB_N_ALL. */
+#ifndef GM_HUB_N_ALL
+#define GM_HUB_N_ALL GM_HUB_N_TYPES
+#endif
+
+static const gm_hub_ops_t *const hub_ops[GM_HUB_N_ALL] = {
     GM_HUB_OPS
 };
 
 static const gm_hub_ops_t *hub_ops_of(uint32_t type)
 {
-    const gm_hub_ops_t *o = type < GM_HUB_N_TYPES ? hub_ops[type] : 0;
+    const gm_hub_ops_t *o = type < GM_HUB_N_ALL ? hub_ops[type] : 0;
     return o ? o : &no_ops;
 }

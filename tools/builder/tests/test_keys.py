@@ -195,7 +195,7 @@ class KeyData(unittest.TestCase):
 
     def test_the_validator_lists_the_spec_keys(self):
         self.assertEqual(encoders.ENCODER_KEYS, encoders.ENCODER.names)
-        self.assertEqual(list(gd.HUB_KEYS["tm1637"]), tm1637.SPEC.names)
+        self.assertEqual(list(gd.REG.HUB_KEYS["tm1637"]), tm1637.SPEC.names)
 
 
 if __name__ == "__main__":

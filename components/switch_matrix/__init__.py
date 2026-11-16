@@ -29,6 +29,7 @@ SPEC = Keys(
 class SwitchMatrix(HubType):
     """A switch matrix scanned from the scan interrupt: inputs only, pin n = row n / columns,
     column n % columns."""
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     key, enum, num = "switch_matrix", "GM_HUB_SWMATRIX", 8
     spec = SPEC
     keys = tuple(SPEC.names)

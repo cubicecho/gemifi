@@ -5,6 +5,11 @@ ScreenType instances in DISPLAY_PLATFORMS. The C side is gm_screen.h and screen.
 """
 
 
+# gm_screen.h GM_SCREEN_N_TYPES: one more than the last built-in GM_SCREEN_*. External display platforms
+# (core/README.md "External components") are numbered from here (tests/test_external.py checks the header).
+BUILTIN_TYPES = 2
+
+
 class ScreenType:
     platform = ""               # the YAML platform: name, and the component that has it
     enum = ""                   # gm_screen.h GM_SCREEN_*

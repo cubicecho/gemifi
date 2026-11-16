@@ -29,6 +29,7 @@ SPEC = Keys(
 
 class TM1628(LedDriver):
     """A TM1628-class LED driver, bit-banged from the main loop: pin = display RAM bit."""
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     key, enum, num = "tm1628", "GM_HUB_TM1628", 7
     old_keys = ("tm1628",)
     spec = SPEC

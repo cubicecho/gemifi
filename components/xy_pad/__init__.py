@@ -27,6 +27,7 @@ SPEC = Keys(
 
 class XYPad(HubType):
     key, enum, num = "xy_pad", "GM_HUB_XY", 10
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     spec = SPEC
     keys = tuple(SPEC.names)
     lines = {"x_plus_pin": "xy_xp", "x_minus_pin": "xy_xm", "y_plus_pin": "xy_yp", "y_minus_pin": "xy_ym"}

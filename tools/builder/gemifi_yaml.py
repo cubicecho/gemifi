@@ -490,7 +490,8 @@ def canonical(data):
     return json.dumps(plain(data), ensure_ascii=False, separators=(",", ":"))
 
 
-def config_hash(data):
-    """The first 31 bits of the canonical config's SHA-256 (a positive s32: param config.hash)."""
-    digest = hashlib.sha256(canonical(data).encode("utf-8")).digest()
+def config_hash(data, extra=b""):
+    """The first 31 bits of the canonical config's SHA-256 (a positive s32: param config.hash). extra: what
+    else the build depends on (the external components' files: gemifi_external.config_digest)."""
+    digest = hashlib.sha256(canonical(data).encode("utf-8") + extra).digest()
     return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF

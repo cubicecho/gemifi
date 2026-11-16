@@ -124,6 +124,39 @@ A **control** is called by name from the builder and the controller, not found t
 
 What each kind implements: [Adding a hub type](../components/hub/README.md#adding-a-hub-type), [Adding a strip platform](../components/led_strip/README.md#adding-a-strip-platform), [Adding a driver platform](../components/led_driver/README.md#adding-a-driver-platform), [Adding a display platform](../components/display/README.md#adding-a-display-platform).
 
+### External components
+
+A device can use components from outside gemifi's `components/` folder, as ESPHome's `external_components:` does: a display platform, a hub type, an LED strip or an LED driver that isn't in gemifi (yet), or your own version of one that is. They only apply to the device that names them.
+
+```yaml
+external_components:
+  - source: ../my_components             # a folder of component folders
+    components: [st7567, tca9555]        # only these (default: all of them)
+  - source: { type: local, path: ~/gemifi-parts }   # a folder with a components/ folder works too
+
+display:
+  - { id: lcd, platform: st7567, address: 0x3F }
+tca9555:
+  - { id: io, address: 0x21 }
+```
+
+- **`source:`** is a local folder, relative to the file that names it (a package can bring external components too). It holds component folders, or a `components/` folder of them, as a gemifi checkout does. Git sources (`github://owner/repo@ref`, with `refresh:`) are planned (#169) and refused for now.
+- **What an external component can be:** a platform of an existing base. That is, display platforms (`DISPLAY_PLATFORMS`, on [display](../components/display/README.md)) and hub types (`HUB_TYPES`, on [hub](../components/hub/README.md); [led_strip](../components/led_strip/README.md) and [led_driver](../components/led_driver/README.md) platforms are hub types too). New bases and new controls need code in the core, so a component with `in_device`, `REQUIRED` or `KEY_SECTIONS` is refused.
+- **Replacing one of gemifi's own:** an external component with the name of one of gemifi's platform components (`pcf8574`, `ws2812`, `ssd1306` ...) is used instead of it, with a warning. It keeps that component's `GM_HUB_*` / `GM_SCREEN_*` numbers and YAML keys, and only its C is compiled. The hub types `core/src/vpin.c` has code of its own for, by their number (`cd74hc4051` / `cd74hc4067`, `decoder`, `switch_matrix`, `tm1628`, `xy_pad`: `HubType.core_paths`), can't be replaced. A replacement couldn't give that code, and would either be read as the built-in's config or skipped by it. Neither can the bases and the controls.
+- **Numbers:** the builder numbers an external component's own hub types and display platforms after the built-in ones (`GM_HUB_EXT_<KEY>` from `GM_HUB_N_TYPES`, `GM_SCREEN_EXT_<PLATFORM>` from `GM_SCREEN_N_TYPES`), in `gm_components.h`, with the dispatch tables' sizes (`GM_HUB_N_ALL`, `GM_SCREEN_N_ALL`). `gm_device_config.c` checks that the C enums end where the builder counted from. A device has at most 16 external hub types.
+- **Build:** their C sources and include folder go into `gm_components.mk` / `.cmake` by absolute path. make can't take a path with spaces, so keep them out of the folder's path. The config hash ("Config hash" below) covers their files: editing an external driver changes the device's `config.hash`.
+- **The JSON schema** knows `external_components:` but not the keys an external component adds: VS Code marks them as unknown.
+
+Writing one is writing a component of gemifi's own ("Adding a component" above; [Adding a hub type](../components/hub/README.md#adding-a-hub-type), [Adding a display platform](../components/display/README.md#adding-a-display-platform)), less the edits to gemifi's headers, plus:
+
+- **`GEMIFI_API = 1`** in its `__init__.py`: the component API it was written for (`components/api.py` `API_VERSION`). The builder refuses another version, saying both.
+- **`PLATFORMS = ("esp32", "esp32s3", ...)`**, optional: the targets it builds on. A device that uses it on another target is an error.
+- No `enum` or `num` on its types: the builder sets them. Its types' keys and platform names are lower_snake_case and can't be one of gemifi's own (nor a top-level key).
+- **The component API** is what it may use: `components/api.py` (the pin model `Pin`, `NO_PIN` and the pin flags, `Hub`, `LDict` / `LList`, `c_str` and the text helpers); the base classes, `components.hub` (`HubType`, `ShiftRegister`, `I2CExpander`, `c_comment`), `components.display` (`ScreenType`), `components.led_strip` (`LedStrip`) and `components.led_driver` (`LedDriver`); `components.keys` for keys as data; and these calls on the validator `v` its `validate` gets: `v.err`, `v.warn`, `v.integer`, `v.boolean`, `v.string`, `v.period`, `v.seq`, `v.pin`, and `v.plat` (the platform: `v.plat.name`). Anything else of the builder's can change without notice. The C side is the base's interface (`gm_hub_ops_t` in `gm_hub.h` with what the end of that header gives a driver, `gm_screen_ops_t` in `gm_screen.h`) and `gm_hal.h`.
+- An import error in it is reported at the `external_components:` item, with its own message and file:line.
+
+`core/test/external/` is a worked example (a TCA9555 expander and an ST7567 LCD), run by `core/test` (`test_external`) and `tools/builder/tests/test_external.py`.
+
 ## Controls
 
 The controls (buttons, LEDs, analog inputs, pads, encoders, the key matrix, and the modes that change what they do) are what the player plays. Each is a component: [buttons](../components/buttons/README.md), [leds](../components/leds/README.md), [analog](../components/analog/README.md), [pads](../components/pads/README.md), [encoders](../components/encoders/README.md), [key_matrix](../components/key_matrix/README.md) and [modes](../components/modes/README.md), built when the device has that control (its `in_device(dev)`), except leds, which every device builds (`REQUIRED`: the status LED and the lamp test). Each control's keys are in the key table on its docs page (made from its key spec, `components/keys.py`, as the editor schema is); its README has the longer explanations (button actions, LED looks, pitch wheels, pads, encoder modes and acceleration, the key matrix, modes, layers and cycles) and how it runs. The controller and the controls share state through `include/gm_controls.h`.

@@ -82,6 +82,12 @@ KEY_TYPES = {
     "nrpn": INT14, "rpn": INT14,
 }
 KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
+# an action list (components/buttons/README.md "Action lists"), on a button, a gesture, a combo, a twin, a preset
+KEY_TYPES["actions"] = lst(one_of(enum(gd.buttons.ITEM_ACTIONS),
+                                  obj(gd.buttons.ITEM_KEYS, {"action": enum(gd.buttons.ITEM_ACTIONS), "value": INT7,
+                                                             "channel": T("integer", minimum=1, maximum=16)})),
+                           "messages sent in order at the press: an action's name, or { cc / note / program / "
+                           "mmc / sysex, value, bank, channel }")
 # channel:, min: and max: on a button, analog input or encoder (build time only)
 CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
 

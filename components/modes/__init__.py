@@ -7,7 +7,7 @@ import difflib
 import re
 
 from components.api import CURVES, PRESETS_OFF, WHITE, Hub, LDict, c_str, errors, with_article
-from components.buttons import ACTION_IDS, button_action
+from components.buttons import ACTION_IDS, LIST_ACTION, button_action, list_button_keys
 from components.hub import c_comment
 from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, colour_exact, colour_look,
                              colour_look_needs, colour_mask, full_colour_hubs, led_full_colour, led_kind,
@@ -28,7 +28,8 @@ STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (com
 MAX_STEPS = 8
 MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
 # modes[].layer.<button, pad or encoder id>: what its twin is (components/modes/README.md "Button layers")
-LAYER_KEYS = ["name", "action", "cc", "note", "preset", "program", "mmc", "sysex", "daw", "idle", "active"]
+LAYER_KEYS = ["name", "action", "actions", "cc", "note", "preset", "program", "mmc", "sysex", "daw", "idle",
+              "active"]
 LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
 LAYER_ENCODER_KEYS = ["name", "cc", "daw"]
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
@@ -426,8 +427,10 @@ def mode_toggle(v, dev, m, d, p, key="toggle"):
         v.mode_modifiers[idx] = m.id
         m.toggle, m.modifier = idx, True
     elif b.action_name != "none":
+        what = ("its actions:" if b.action_name == LIST_ACTION else
+                f"`action: {b.action_name}` (and its cc:/note:)")
         v.err(f"{p}.{key}", tl, f"button '{b.id}' {verb} this mode, so its own action would never run: remove "
-                                f"`action: {b.action_name}` (and its cc:/note:) from the button")
+                                f"{what} from the button")
     else:
         v.mode_toggles[idx] = m.id
         m.toggle = idx
@@ -522,6 +525,8 @@ def mode_layer(v, dev, m, layer, lp, ll):
                 v.err(path, line, f"button '{bid}' is also in this mode's buttons:; give it one of the two")
                 continue
             act, num = button_action(v, dev, e, path, base=(b.action_name, b.number))
+            if act == LIST_ACTION:
+                list_button_keys(v, e, path)
             tid = v.register(f"{b.id}_{m.id}", path, line, "button", len(dev.buttons))
             if tid is None:
                 continue

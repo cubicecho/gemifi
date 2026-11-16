@@ -86,13 +86,32 @@ static btn_bits_t read_buttons(btn_bits_t *any)
 {
     btn_bits_t s = 0, a = 0;
     vpin_span_take();
-    for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
+    for (uint32_t i = 0; i < GM_N_OWN_BUTTONS && i < 64; i++) {
         int seen;
         if (vpin_read_span(gm_device.buttons[i].pin, &seen))
             s |= (btn_bits_t)1 << i;
         if (seen)
             a |= (btn_bits_t)1 << i;
     }
+#if GM_BTN_TWINS
+    /* A layer twin is its base's pin: it takes its base's reading. Bases
+     * come first, so each is read by now. One 32-bit word per test, and a
+     * mask moved one bit a twin: no variable 64-bit shifts. */
+    btn_bits_t m = (btn_bits_t)1 << GM_N_OWN_BUTTONS;
+    for (uint32_t i = GM_N_OWN_BUTTONS; i < GM_N_BUTTONS && i < 64; i++, m <<= 1) {
+        uint32_t b = gm_device.buttons[i].base;
+#if GM_N_BUTTONS > 32
+        uint32_t ws = b < 32u ? (uint32_t)s : (uint32_t)(s >> 32);
+        uint32_t wa = b < 32u ? (uint32_t)a : (uint32_t)(a >> 32);
+#else
+        uint32_t ws = s, wa = a;
+#endif
+        if ((ws >> (b & 31u)) & 1u)
+            s |= m;
+        if ((wa >> (b & 31u)) & 1u)
+            a |= m;
+    }
+#endif
     *any = a;
     return s;
 }

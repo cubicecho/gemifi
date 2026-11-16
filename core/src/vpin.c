@@ -840,14 +840,18 @@ void gm_adc_sweep(const uint16_t *v)
     for (uint32_t i = 0; i < n; i++)
         adc_last[i] = (uint16_t)(v[i] & 0xFFFu);
 #if ADC_PEAK_PINS > 0
-    uint32_t first = adc_n[g] == 0;
     uint16_t *hi = adc_hi[g], *lo = adc_lo[g];
-    for (uint32_t c = 0; c < n_peak_cells; c++) {
-        uint16_t x = adc_last[peak_src[c]];
-        if (first || x > hi[c])
-            hi[c] = x;
-        if (first || x < lo[c])
-            lo[c] = x;
+    if (adc_n[g] == 0) {
+        for (uint32_t c = 0; c < n_peak_cells; c++)
+            hi[c] = lo[c] = adc_last[peak_src[c]];      /* the generation's first sweep */
+    } else {
+        for (uint32_t c = 0; c < n_peak_cells; c++) {
+            uint16_t x = adc_last[peak_src[c]];
+            if (x > hi[c])
+                hi[c] = x;
+            if (x < lo[c])
+                lo[c] = x;
+        }
     }
 #endif
     adc_n[g]++;

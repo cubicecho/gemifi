@@ -3510,7 +3510,9 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "CC 0's value. Default: 0.",
+                            "default": 0
                           },
                           "lsb": {
                             "anyOf": [
@@ -3522,7 +3524,9 @@
                               {
                                 "$ref": "#/definitions/substitution"
                               }
-                            ]
+                            ],
+                            "description": "CC 32's value. Default: 0.",
+                            "default": 0
                           }
                         },
                         "additionalProperties": false

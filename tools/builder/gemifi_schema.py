@@ -27,10 +27,10 @@ REUSE_KEYS = ["substitutions", "packages", "min_version"]   # gemifi_yaml.py use
 
 
 def obj(keys, types=None, desc=None, extra=None):
-    """A mapping with exactly `keys` (the validator's list), typed from `types` where known."""
+    """A mapping with exactly `keys` (the validator's list), typed from `types` where known. (A component's
+    keys are typed by its spec, components/keys.py; this is for the device's own sections.)"""
     types = types or {}
-    s = {"type": "object", "properties": {k: types.get(k, KEY_TYPES.get(k, {})) for k in keys},
-         "additionalProperties": False}
+    s = {"type": "object", "properties": {k: types.get(k, {}) for k in keys}, "additionalProperties": False}
     if desc:
         s["description"] = desc
     if extra:
@@ -40,33 +40,11 @@ def obj(keys, types=None, desc=None, extra=None):
 
 
 INT7 = T("integer", minimum=0, maximum=127)
-INT14 = T("integer", minimum=0, maximum=16383)
-NOTE = one_of(T("integer", minimum=0, maximum=127), {"type": "string"})
 PERIOD = ref("period")
 BOOL = T("boolean")
 STR = {"type": "string"}
 ID_REF = {"type": "string", "description": "the id of another component"}
-LOOK = {"type": ["string", "boolean"], "description": "an LED look: off, on, or a colour (" +
-        ", ".join(n for n in gd.LED_LOOK_NAMES if n != "off") + ")"}
-
-# What a key means wherever it appears, unless the section says otherwise (obj(types=...)).
-KEY_TYPES = {
-    "id": ref("id"), "name": STR, "pin": ref("pin"), "pin2": ref("pin"), "pin3": ref("pin"),
-    "pin_a": ref("pin"), "pin_b": ref("pin"), "cc": INT7, "note": NOTE, "preset": T("integer", minimum=1),
-    "action": enum(gd.ACTIONS), "led": ID_REF, "daw": STR, "mcu": STR, "idle": LOOK, "active": LOOK,
-    "channel": T("integer", minimum=0, maximum=16), "settle": PERIOD, "delay": PERIOD, "timer": {},
-    "dma": BOOL, "address": T("integer"), "count": T("integer", minimum=1),
-    # MIDI messages (core/README.md "MIDI messages")
-    "program": INT7, "mmc": one_of(enum(gd.MMC_COMMANDS), T("integer", minimum=1, maximum=127)),
-    "sysex": {"type": "string", "description": "the id of a midi_messages.sysex string"},
-    "nrpn": INT14, "rpn": INT14,
-}
-KEY_TYPES["bank"] = one_of(INT14, obj(gd.BANK_KEYS, {"msb": INT7, "lsb": INT7}))
-# an action list (components/buttons/README.md "Action lists"), on a button, a gesture, a combo, a twin, a preset
-# (one definition, action_list(), that each of them refers to)
-KEY_TYPES["actions"] = ref("action_list")
-# channel:, min: and max: on a button, analog input or encoder (build time only)
-CTL_TYPES = {"channel": T("integer", minimum=1, maximum=16), "min": INT14, "max": INT14}
+LOOK = gd.leds.Look().schema()
 
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
@@ -159,7 +137,7 @@ def presets():
             types[k] = (enum(kind) if isinstance(kind, list) else PERIOD if kind == "ms" else BOOL
                         if kind == "bool" else T("integer", minimum=lo, maximum=hi))
         globs[sec] = obj(list(keys), types)
-    item = obj(gd.PRESET_KEYS, {"program": INT7, **globs, **comps})
+    item = obj(gd.PRESET_KEYS, {"name": STR, "program": INT7, "bank": gd.buttons.BANK.schema(), **globs, **comps})
     return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=2, maximum=gd.MAX_PRESETS),
                                  "revision": T("integer", minimum=0, maximum=gd.PRESET_REVISION_MAX),
                                  "list": lst(item)}, "preset slots (core/README.md \"Presets\")")
@@ -173,9 +151,10 @@ def modes():
     layer_types = {k: next(sp[k].schema() for sp in specs if k in sp.by_name) for k in layer_keys
                    if any(k in sp.by_name for sp in specs)}
     layer_entry = obj(layer_keys, {**layer_types, "cc": one_of(INT7, {"const": "none"})})
-    step = obj(gd.STEP_KEYS, {"enabled": BOOL, "colour": LOOK, "layer": {"type": "object",
-                                                                          "additionalProperties": layer_entry}})
+    step = obj(gd.STEP_KEYS, {"id": ref("id"), "name": STR, "enabled": BOOL, "colour": LOOK,
+                              "layer": {"type": "object", "additionalProperties": layer_entry}})
     item = obj(gd.MODE_KEYS, {
+        "id": ref("id"), "name": STR, "daw": STR,
         "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})),
         "one_shot": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
         "parent": ID_REF, "preset_blink": {},
@@ -241,8 +220,9 @@ def device_schema():
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
-            "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),
-            "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS))}),
+            "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL, "settle": PERIOD,
+                                                   "timer": {}}),
+            "analog": one_of(BOOL, obj(gd.HW_SCAN_ANALOG_KEYS, {"timer": {}}))}),
         "boot_combo": lst(ID_REF),
         # safety (core/README.md "Factory-reset combo", "Physical unlock", "Status LED")
         "factory_reset_combo": one_of(
@@ -262,7 +242,8 @@ def device_schema():
         "presets": presets(),
         "modes": modes(),
         "display": screen(),
-        "displays": lst(obj(gd.DISPLAY_KEYS, {"type": enum(gd.DISPLAY_TYPES), "shows": enum(gd.DISPLAY_SHOWS),
+        "displays": lst(obj(gd.DISPLAY_KEYS, {"id": ref("id"), "daw": STR, "type": enum(gd.DISPLAY_TYPES),
+                                              "shows": enum(gd.DISPLAY_SHOWS),
                                               "segment_step": T("integer", minimum=1, maximum=64),
                                               "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
                                                                                 for n in ns})),
@@ -276,11 +257,11 @@ def device_schema():
                                               "length": T("integer", minimum=1, maximum=gd.MAX_TEXT_CHARS)})),
         "din_midi": obj(gd.DIN_KEYS, {"tx_pin": ref("pin"), "rx_pin": ref("pin"), "mode": enum(gd.DIN_MODES),
                                       "port_name": STR, "thru": BOOL, "controller_out": BOOL,
-                                      "usb_to_din": BOOL}),
+                                      "usb_to_din": BOOL, "dma": BOOL}),
         "midi_messages": obj(gd.MIDI_MESSAGES_KEYS, {
             "enable": lst(enum([*gd.MSG_FEATURES, *gd.MSG_ALIASES])), "null_rpn": BOOL,
             "mmc_device_id": INT7,
-            "sysex": lst(obj(gd.SYSEX_KEYS, {"data": {"type": "string", "description": "hex bytes F0 .. F7, "
+            "sysex": lst(obj(gd.SYSEX_KEYS, {"id": ref("id"), "data":{"type": "string", "description": "hex bytes F0 .. F7, "
                                                       "with v, msb, lsb, ch and [ ... ] cs placeholders"}}))},
             "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"),
         "layout": layout(),

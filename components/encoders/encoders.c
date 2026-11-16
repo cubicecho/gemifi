@@ -21,6 +21,7 @@ static int8_t enc_acc[GM_ARR(NE_HW)];
 volatile uint16_t enc_count[GM_ARR(NE_HW)];
 static uint16_t enc_seen[GM_ARR(NE_HW)];   /* enc_count at encoders_poll's last look */
 uint8_t enc_i2c[GM_ARR(NE_HW)];
+uint8_t enc_matrix[GM_ARR(NE_HW)];
 int16_t enc_value[NE];
 /* One-load reads of A and B (vpin_in_reg), electrical levels; 0 = vpin_read. */
 static const volatile uint32_t *enc_ra[GM_ARR(NE_HW)], *enc_rb[GM_ARR(NE_HW)];
@@ -251,6 +252,7 @@ void encoders_init(void)
         vpin_input(e->a);
         vpin_input(e->b);
         enc_i2c[i] = (uint8_t)(vpin_on_i2c(e->a) || vpin_on_i2c(e->b));
+        enc_matrix[i] = (uint8_t)((vpin_pin_caps(e->a) & VPIN_MATRIX) && (vpin_pin_caps(e->b) & VPIN_MATRIX));
         enc_ra[i] = vpin_in_reg(e->a, &enc_ma[i]);
         enc_rb[i] = vpin_in_reg(e->b, &enc_mb[i]);
         enc_inv[i] = (uint8_t)(((e->a.flags & GM_PIN_INVERT) ? 2u : 0u) | ((e->b.flags & GM_PIN_INVERT) ? 1u : 0u));

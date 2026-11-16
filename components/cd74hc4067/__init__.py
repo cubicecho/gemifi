@@ -10,6 +10,7 @@ from components.keys import Id, Key, Keys, Period, Pin
 class Mux(HubType):
     """CD74HC4051 (3 select lines, 8 channels) / 4067 (4, 16): one common pin routed to a channel;
     analog or digital inputs."""
+    core_paths = True           # vpin.c handles it by number (components/hub HubType.core_paths)
     enum, num = "GM_HUB_MUX", 3
     lines = {"common_pin": "common", "enable_pin": "enable",
              "pin_s0": "s0", "pin_s1": "s1", "pin_s2": "s2", "pin_s3": "s3"}

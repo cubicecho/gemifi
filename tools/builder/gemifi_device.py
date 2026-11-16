@@ -444,6 +444,8 @@ class _CurrentTables:
 
 REG = _CurrentTables()
 
+# external_components: (gemifi_external.py), read before the rest; like packages: it is in no Core area.
+EXTERNAL_KEY = "external_components"
 TOP_KEYS_BEFORE_HUBS = ["gemifi", "name", "friendly_name", "description", "project", "board_id", "platform", "chip",
                         "board", "usb", "midi", "i2c", "scan_interval", "hardware_scan", "boot_combo",
                         "factory_reset_combo", "unlock", "status_led", "feedback", "mcu"]
@@ -962,6 +964,7 @@ PLATFORMS = {p.name: p for p in [
 
 class Device:
     def __init__(self):
+        self.registry = None         # validate(): its components.Registry (external_components:)
         self.msg = set()             # MIDI message kinds compiled in (MSG_FEATURES, "sysex"): msg_features()
         self.msg_used = set()        # ... those the YAML uses
         self.pad_action_uses = []    # (path, line, action): pad_octave_* (checked once pads: is read)
@@ -1727,14 +1730,41 @@ MIDI_KEYS = _Keys(
 
 
 def validate(data, file=None):
-    """data: the loaded YAML (LDict). Returns (Device or None, [Diag])."""
+    """data: the loaded YAML (LDict). Returns (Device or None, [Diag]). The device's external_components:
+    (gemifi_external.py) are loaded first; the rest is checked with them (dev.registry)."""
+    import gemifi_external
     v = _V(file)
+    reg = gemifi_external.registry(v, data, file) if isinstance(data, dict) else components.builtin()
+    if reg is None:
+        return None, v.diags
+    with components.using(reg):
+        dev, diags = _validate(v, data)
+        if dev is not None:
+            dev.registry = reg
+            gemifi_external.check_used(v, dev, reg, data.line_of("external_components"))
+            if errors(v.diags):
+                dev = None
+    return dev, diags
+
+
+def with_registry(fn):
+    """fn(dev, ...) run with dev's components registry current (its external components)."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(dev, *a, **kw):
+        with components.using(getattr(dev, "registry", None) or components.builtin()):
+            return fn(dev, *a, **kw)
+    return run
+
+
+def _validate(v, data):
     dev = Device()
     if not isinstance(data, dict):
         v.err("", getattr(data, "line", 1), f"the top level must be a mapping (gemifi: {FORMAT_VERSION}, "
                                             "name: ..., ...)")
         return None, v.diags
-    v.mapping(data, "", data.line, REG.TOP_KEYS, renamed=REG.RENAMED_TOP)
+    v.mapping(data, "", data.line, REG.TOP_KEYS + [EXTERNAL_KEY], renamed=REG.RENAMED_TOP)
 
     fmt = v.integer(data, "gemifi", "", 0, 1000, required=True)
     if fmt == 1:
@@ -2051,6 +2081,7 @@ def dma_clash(v, dev, scans, serial, taken):
                 hint = ""                   # once is enough
 
 
+@with_registry
 def dma_text(dev):
     """'1 ADC1 (hardware_scan.analog), 3 TIM1_CH2 (...), ...; free: 2, 6' for the build output."""
     if dev.platform.name != "stm32f1":
@@ -2060,6 +2091,7 @@ def dma_text(dev):
     return f"DMA1 channels: {used}; free: {', '.join(free) or 'none'}"
 
 
+@with_registry
 def timers_text(dev):
     """'timers: TIM1 hardware_scan.matrix, TIM2 scan tick, ...' for the build output."""
     if not dev.scan_timers:
@@ -2258,6 +2290,7 @@ def validate_board(v, dev, data):
     return board
 
 
+@with_registry
 def board_mismatch(dev, board=None):
     """Why dev's image can't be built for its board (board_id vs the profile's own), or None."""
     board = board or dev.board
@@ -3992,6 +4025,7 @@ def check_budget(v, dev, data):
 def load_device(path, text=None, subs=None, preset_dir=None):
     """Load, resolve (packages, !include, substitutions: gemifi_yaml.py) and validate a device YAML.
     subs: {name: text} that override substitutions: (the CLI's -s). Returns (Device or None, [Diag])."""
+    import gemifi_external
     import gemifi_yaml      # it builds on this module's loader
     try:
         if text is None:
@@ -4014,7 +4048,8 @@ def load_device(path, text=None, subs=None, preset_dir=None):
     for d in diags:
         d.file = d.src or path          # a problem in a package or !include names that file
     if dev is not None:
-        dev.config_hash = digest
+        dev.config_hash = digest if not dev.registry.external else gemifi_yaml.config_hash(
+            res.data, gemifi_external.config_digest(dev.registry))      # the external components' files count
         dev.sources = res.files
     return dev, diags
 
@@ -4025,6 +4060,7 @@ def load_device(path, text=None, subs=None, preset_dir=None):
 # c_str: components/api.py (imported above).
 
 
+@with_registry
 def generate(dev, source="device.yaml"):
     """-> {"gm_device_config.h": str, "gm_device_config.c": str, "gm_components.h": str}"""
     src = c_comment(source)
@@ -4445,6 +4481,7 @@ def preset_tables(dev):
     return c
 
 
+@with_registry
 def component_lists(dev, source):
     """gm_components.mk / gm_components.cmake: the components the device builds, their C sources and include
     dirs, under the repo root (GM_ROOT, set by the Makefile or CMakeLists that includes them)."""
@@ -4466,6 +4503,7 @@ def component_lists(dev, source):
     return {"gm_components.mk": "\n".join(mk), "gm_components.cmake": "\n".join(cm)}
 
 
+@with_registry
 def component_header(dev, source):
     """gm_components.h: the C side of the components the device builds: the headers of its hub types whose
     code is in components/ (HubType.c_ops; c_header, if it has one), and what they add to the hub base:
@@ -4501,6 +4539,7 @@ def component_header(dev, source):
     return {"gm_components.h": "\n".join(lines)}
 
 
+@with_registry
 def write_generated(dev, out_dir, source):
     os.makedirs(out_dir, exist_ok=True)
     files = {**generate(dev, source), **component_lists(dev, source)}

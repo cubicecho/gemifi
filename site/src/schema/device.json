@@ -48,6 +48,63 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "description": "the oldest gemifi builder that can build this file"
     },
+    "external_components": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "description": "a local folder of components (or a repo with a components/ folder), relative to this file",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "local"
+                        ]
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "only these components of the source (default: all)"
+              },
+              "refresh": {
+                "type": "string",
+                "description": "for git sources (not supported yet)"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "source"
+            ]
+          },
+          "description": "components from outside gemifi's components/: display platforms and hub types (core/README.md \"External components\")"
+        },
+        {
+          "type": "string",
+          "description": "!include file.yaml"
+        }
+      ]
+    },
     "gemifi": {
       "enum": [
         2

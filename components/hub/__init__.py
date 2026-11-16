@@ -15,6 +15,11 @@ from components.keys import Id, Int, Key, Keys, Pin
 REQUIRED = True
 
 
+# gm_device.h GM_HUB_N_TYPES: one more than the last built-in GM_HUB_* (15 is retired). External hub types
+# (core/README.md "External components") are numbered from here (tests/test_external.py checks the header).
+BUILTIN_TYPES = 16
+
+
 class HubType:
     key = ""                    # the YAML list key, and the pin key ({ <key>: <hub id>, number: n })
     pin_key = None              # ... unless the pin key differs (mcp23017: mcp23xxx)
@@ -35,6 +40,10 @@ class HubType:
     # Its LEDs show any colour (vpin.c: the type has an `rgb` op): an LED is colour_pins(hub) pins in a
     # row from LED * colour_pins (red, green, blue[, white]), and takes full-colour looks.
     full_colour = False
+    # core/src/vpin.c has code of its own for this type, by its GM_HUB_* number, beyond its gm_hub_ops_t (the mux's
+    # channel reads and analog scan, the decoder's rows, the switch matrix's scan, the TM1628's fade, the XY pad's
+    # touch): an external component can't replace it.
+    core_paths = False
     pullup = False              # its pins have a pull-up (pin mode INPUT_PULLUP)
     i2c = False                 # on the i2c: bus (address:)
     what = "pin"                # a pin's name in messages

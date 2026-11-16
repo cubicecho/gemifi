@@ -24,6 +24,7 @@ SCHEMA_URL = "https://cubicecho.github.io/gemifi/schema/device.json"
 SCHEMA_FILE = "site/src/schema/device.json"     # relative to the repo
 KEYS_FILE = "site/src/_data/component_keys.json"
 REUSE_KEYS = ["substitutions", "packages", "min_version"]   # gemifi_yaml.py uses them up
+EXTERNAL_KEYS = [gd.EXTERNAL_KEY]       # gemifi_external.py reads it before the rest
 
 
 def obj(keys, types=None, desc=None, extra=None):
@@ -175,7 +176,19 @@ def device_schema():
                         "description": "the oldest gemifi builder that can build this file"},
     }
     assert list(reuse) == REUSE_KEYS
-    props = {**reuse, **{k: top_types.get(k, {}) for k in gd.REG.TOP_KEYS}}
+    import gemifi_external as ge
+    local = {"type": "object", "properties": {"type": {"enum": ["local"]}, "path": {"type": "string"}},
+             "required": ["path"], "additionalProperties": False}
+    external = {gd.EXTERNAL_KEY: lst(obj(ge.ITEM_KEYS, {
+        "source": {"description": "a local folder of components (or a repo with a components/ folder), "
+                                  "relative to this file", "anyOf": [{"type": "string"}, local]},
+        "components": {"type": "array", "items": {"type": "string"},
+                       "description": "only these components of the source (default: all)"},
+        "refresh": {"type": "string", "description": "for git sources (not supported yet)"}}, extra={"required": ["source"]}),
+        "components from outside gemifi's components/: display platforms and hub types (core/README.md "
+        "\"External components\")")}
+    assert list(external) == EXTERNAL_KEYS
+    props = {**reuse, **external, **{k: top_types.get(k, {}) for k in gd.REG.TOP_KEYS}}
     # a section may be an `!include file.yaml` (a string to the editor)
     for k, s in props.items():
         if k not in reuse and s.get("type") in ("object", "array"):

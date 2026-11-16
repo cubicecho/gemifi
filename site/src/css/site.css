@@ -14,6 +14,22 @@
   --hairline: color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 
+/* On a phone the header's nav wrapped to three loose rows above the page: closer rows, and the two
+   off-site links (also in the footer) left out. */
+@media (max-width: 40rem) {
+  .site-header {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    gap: 0.5rem;
+  }
+  .site-header nav {
+    gap: 0.25rem 1rem;
+  }
+  .site-header nav .off-site {
+    display: none;
+  }
+}
+
 /* The theme's `.hero p { margin: 0 }` outranks `.cta`'s top margin, which
    leaves the buttons touching the tagline. */
 .hero .cta {
@@ -183,7 +199,6 @@
   font-size: 0.95rem;
 }
 
-.status-list,
 .link-list {
   list-style: none;
   margin: 0;
@@ -191,14 +206,19 @@
   display: grid;
   gap: 0.75rem;
 }
-.status-list li {
-  display: grid;
-  grid-template-columns: 8rem 1fr;
-  align-items: center;
-  gap: 1rem;
+/* The homepage's count of devices per status. */
+.status-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
 }
-.status-list .status {
-  justify-self: start;
+.status-counts li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .link-list li {
   color: var(--muted-fg);
@@ -473,6 +493,37 @@ summary.docs-nav-head:hover {
   border-top: 1px solid var(--hairline);
   font-size: 0.9rem;
   color: var(--muted-fg);
+}
+/* Previous and next pages in the menu (lib/pager.js): two boxes, next on the right. */
+.pager {
+  margin: 2rem 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.pager a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: 0.5rem;
+  color: var(--foreground);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.pager a:hover {
+  border-color: color-mix(in oklab, var(--foreground) 35%, transparent);
+  text-decoration: none;
+}
+.pager a span {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted-fg);
+}
+.pager-next {
+  grid-column: 2;
+  text-align: right;
 }
 .table-scroll {
   overflow-x: auto;

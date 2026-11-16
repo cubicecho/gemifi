@@ -181,14 +181,16 @@ key_matrix:
   <p class="section-intro">
     Early and experimental. Expect the YAML format and the protocol to change.
   </p>
-  <ul class="status-list">
-    {% for d in collections.devices %}
-    <li>
-      <span class="status status-{{ d.data.status }}">{{ statuses[d.data.status].label }}</span>
-      <a href="{{ d.url | url }}">{{ d.data.maker }} {{ d.data.model }}</a>
-    </li>
+  {#- A count per status; the devices themselves are on /devices/. -#}
+  <ul class="status-counts">
+    {% for key, s in statuses %}
+    {%- set n = (collections.devices | withStatus(key)).length -%}
+    {% if n %}
+    <li><span class="status status-{{ key }}">{{ s.label }}</span> {{ n }} device{% if n != 1 %}s{% endif %}</li>
+    {% endif %}
     {% endfor %}
   </ul>
+  <p class="more"><a href="{{ '/devices/' | url }}">Every device and where it stands</a></p>
 </section>
 
 <section class="section">

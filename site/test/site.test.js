@@ -13,6 +13,7 @@ import tested from "../src/_data/tested.js";
 import { buildDocs, GROUPS } from "../lib/docs-tree.js";
 import { REPO, componentFiles, componentSummary, docUrl, readRepo, resolveLink, slugify } from "../lib/repo-docs.js";
 import { componentKeys, keysEntry, withKeys } from "../lib/keys-table.js";
+import { MARKER, menuLinks, pagerHtml } from "../lib/pager.js";
 
 const OUT = path.resolve(import.meta.dirname, "../_site");
 const PREFIX = site.pathPrefix;
@@ -80,6 +81,42 @@ test("the docs menu opens the section that holds the page, and the search has it
   assert.ok(html.includes("data-pagefind-body"), "the page is indexed");
   assert.ok(!fs.readFileSync(path.join(OUT, "docs/index.html"), "utf8").includes("data-pagefind-body"), "the docs home is not");
   for (const f of ["pagefind-ui.js", "pagefind-ui.css", "pagefind-entry.json"]) assert.ok(fs.existsSync(path.join(OUT, "pagefind", f)), f);
+});
+
+test("pagerHtml links a page's neighbours in the menu", () => {
+  const page = (here) =>
+    `<nav class="docs-nav" aria-label="Docs"><ul>` +
+    ["a", "b", "c", "a"].map((x) => `<li><a href="/p/${x}/"${x === here ? ' aria-current="page"' : ""}>Page ${x}</a></li>`).join("") +
+    `</ul></nav>`;
+  assert.deepEqual(menuLinks(page("b")).map((l) => l.href), ["/p/a/", "/p/b/", "/p/c/"], "a page named twice counts once");
+  assert.match(pagerHtml(page("b")), /href="\/p\/a\/" rel="prev"><span>Previous<\/span>Page a<.*href="\/p\/c\/" rel="next"/);
+  assert.ok(!pagerHtml(page("a")).includes('rel="prev"'), "the first page has no previous");
+  assert.ok(!pagerHtml(page("c")).includes('rel="next"'), "the last page has no next");
+  assert.equal(pagerHtml(page("x")), "", "a page the menu doesn't hold has no pager");
+});
+
+test("every docs page in the menu links its menu neighbours as previous and next", () => {
+  const read = (href) => fs.readFileSync(servedFile(href), "utf8");
+  const menu = menuLinks(read(`${PREFIX}docs/`)).map((l) => l.href);
+  const bad = [];
+  for (const [i, href] of menu.entries()) {
+    const html = read(href);
+    // /devices/ is in the menu but isn't a docs page: no menu, so no pager.
+    if (!html.includes('class="docs-nav"')) continue;
+    assert.ok(!html.includes(MARKER), `${href}: the marker is replaced`);
+    const prev = html.match(/<a class="pager-prev" href="([^"]+)"/)?.[1];
+    const next = html.match(/<a class="pager-next" href="([^"]+)"/)?.[1];
+    if (prev !== menu[i - 1] || next !== menu[i + 1]) bad.push(`${href}: ${prev} / ${next}`);
+  }
+  assert.ok(menu.length > 50, "the menu has the docs");
+  assert.deepEqual(bad, []);
+});
+
+test("the homepage counts the devices per status and links the list", () => {
+  const html = fs.readFileSync(path.join(OUT, "index.html"), "utf8");
+  const counts = [...html.matchAll(/<span class="status status-([a-z-]+)">[^<]+<\/span> (\d+) device/g)];
+  assert.equal(counts.reduce((n, m) => n + Number(m[2]), 0), fs.readdirSync(path.resolve(OUT, "../src/devices")).filter((f) => f.endsWith(".md")).length);
+  assert.ok(html.includes(`href="${PREFIX}devices/">Every device`));
 });
 
 test("a link to a docs page says the page's name, not its repo path", () => {

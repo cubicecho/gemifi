@@ -2,6 +2,13 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+## [0.56.1](https://github.com/cubicecho/gemifi/compare/v0.56.0...v0.56.1) (2026-11-16)
+
+
+### Performance Improvements
+
+* **core:** host feedback finds a CC's or note's components through an index ([c4d68fc](https://github.com/cubicecho/gemifi/commit/c4d68fcd26f61774dbda79282f5906c1fc801bac)), closes [#68](https://github.com/cubicecho/gemifi/issues/68)
+
 # [0.56.0](https://github.com/cubicecho/gemifi/compare/v0.55.0...v0.56.0) (2026-11-16)
 
 

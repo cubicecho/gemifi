@@ -105,7 +105,7 @@ modes:
       b2: { cc: 52, daw: arm_1, active: red }   # B2 in the arm layer: CC 52, red while on
 ```
 
-- **What a twin leaves out is the button's:** `action:` (so `cc:` alone keeps a `cc_toggle` a toggle), `cc:` / `note:` / `preset:`, and the LED looks. `name:` defaults to "<button name> <mode id>" ("B2 arm"). `daw:` is the twin's own, or none.
+- **What a twin leaves out is the button's:** `action:` (so `cc:` alone keeps a `cc_toggle` a toggle), `cc:` / `note:` / `preset:`, and the LED looks. A twin can send an action list (`actions:`, [buttons "Action lists"](../buttons/README.md#action-lists)); a twin of a list button that gives neither `action:` nor `actions:` sends the same list. `name:` defaults to "<button name> <mode id>" ("B2 arm"). `daw:` is the twin's own, or none.
 - **One live at a time.** While the mode is active the twin takes the button's presses and drives the LED; otherwise the button does. A press's release goes to whichever took the press, even if the layer changed in between. When layers that are on at once have twins of the same component, the first of these wins: the held hold mode, the toggled key mode, a cycle's current step, then layer-only toggles; between steps of different cycles, or between layer-only toggles, the one earlier in `modes:`.
 - **A twin reads no pin of its own.** Each button sample reads the YAML's own buttons, and a twin takes its button's reading, so twins add no pin reads to the scan.
 - **Each keeps its state.** Toggling B2 in the arm layer leaves its mute state alone; switching layers redraws the LED with the live one's state.

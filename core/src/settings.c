@@ -110,7 +110,9 @@ static const char *const stored_opts[] = {
 #endif
 /* The highest action this device has, + 1: the option list runs from 0 to
  * it, and an action it doesn't have is "" (params_set refuses it). */
-#if GM_N_PADS > 0
+#if GM_BTN_LISTS
+#define N_ACTIONS (ACT_LIST + 1)
+#elif GM_N_PADS > 0
 #define N_ACTIONS (ACT_PAD_OCTAVE_UP + 1)
 #elif GM_N_SYSEX
 #define N_ACTIONS (ACT_SYSEX + 1)
@@ -148,6 +150,9 @@ static const char *const action_opts[N_ACTIONS] = {
 #if GM_N_PADS > 0
     [ACT_PAD_OCTAVE_DOWN] = "Pad octave down",
     [ACT_PAD_OCTAVE_UP] = "Pad octave up",
+#endif
+#if GM_BTN_LISTS
+    [ACT_LIST] = "Action list",     /* button.number: the list */
 #endif
 };
 #if GM_MSG_PROGRAM || GM_MSG_MMC || GM_N_SYSEX

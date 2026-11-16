@@ -1,10 +1,10 @@
 /*
  * buttons.c: the buttons (buttons:), a control component (README.md here):
- * sampling and debouncing them, their actions, the CC ramps and the pitch
- * bend buttons' glide. The main loop (core/src/controller.c gm_poll) calls
- * buttons_sample and ramps_ms; a button a mode takes goes to the modes
- * (mode_toggle_button, mode_function_button). Shares its state through
- * gm_controls.h.
+ * sampling and debouncing them, their actions and action lists, the CC
+ * ramps and the pitch bend buttons' glide. The main loop
+ * (core/src/controller.c gm_poll) calls buttons_sample and ramps_ms; a
+ * button a mode takes goes to the modes (mode_toggle_button,
+ * mode_function_button). Shares its state through gm_controls.h.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -76,6 +76,114 @@ static void panic(void)
         midi3((uint8_t)(0xB0u | c), 123, 0);
         midi3((uint8_t)(0xB0u | c), 121, 0);
     }
+}
+#endif
+
+#if GM_MSG_MMC
+/* An MMC command (F0 7F dev 06 command F7). */
+static void mmc_send(uint32_t command)
+{
+    const uint8_t m[6] = { 0xF0, 0x7F, GM_MMC_DEVICE, 0x06, (uint8_t)(command & 0x7Fu), 0xF7 };
+    sysex_out(m, 6);
+}
+#endif
+
+#if GM_N_SYSEX
+/* SysEx string num of button i on channel ch: at the press the value max:
+ * (top by default), at the release min: (0), if the string has a value at
+ * all. */
+static void sysex_button(uint32_t i, uint32_t num, int down, uint8_t ch)
+{
+    if (num < GM_N_SYSEX && (down || (gm_sysex[num].flags & GM_SX_HAS_VALUE))) {
+        uint32_t top = (gm_sysex[num].flags & GM_SX_WIDE) ? 16383u : 127u;
+        sysex_send(num, BTN_OUT(i, down ? top : 0u, (int32_t)top), ch);
+    }
+}
+#endif
+
+#if GM_BTN_LISTS
+/* Action lists (components/buttons/README.md "Action lists"): the lists
+ * are in flash (gm_btn_lists[], gm_btn_items[]); a button keeps only which
+ * list it has down, so its release lets go of that one whatever the
+ * button's action is by then. */
+#define LIST_NONE 0xFFu
+static uint8_t list_down[NB];       /* the list whose releases button i owes, or LIST_NONE */
+
+/* Item it of a list on button i, pressed (down) or let go, on its channel
+ * (the button's when it has none), with the button's min: and max:. */
+static void item_run(uint32_t i, const gm_btn_item_t *it, int down)
+{
+    uint8_t ch = it->channel ? (uint8_t)(it->channel - 1u) : BTN_CH(i);
+    uint32_t num = it->number;
+    switch (it->action) {
+    case ACT_CC_MOMENTARY:
+        if (it->value == GM_BTN_NO_VALUE)
+            midi3((uint8_t)(0xB0u | ch), num, BTN_OUT(i, down ? 127 : 0, 127));
+        else if (down)
+            midi3((uint8_t)(0xB0u | ch), num, it->value);     /* a value: sent once */
+        break;
+    case ACT_NOTE:
+        if (down)
+            midi3((uint8_t)(0x90u | ch), num, (uint32_t)gm_cfg.vel_fixed);
+        else
+            midi3((uint8_t)(0x80u | ch), num, 0);
+        break;
+#if GM_MSG_PROGRAM
+    case ACT_PROGRAM:
+        if (down) {
+            if (it->value != GM_BTN_NO_VALUE) {
+                midi3((uint8_t)(0xB0u | ch), 0, (uint32_t)it->value >> 7);
+                midi3((uint8_t)(0xB0u | ch), 32, it->value);
+            }
+            program = (int32_t)num;         /* program next / previous go on from it */
+            midi2((uint8_t)(0xC0u | ch), num);
+        }
+        break;
+#endif
+#if GM_MSG_PANIC
+    case ACT_PANIC:
+        if (down)
+            panic();
+        break;
+#endif
+#if GM_MSG_MMC
+    case ACT_MMC:
+        if (down)
+            mmc_send(num);
+        break;
+#endif
+#if GM_N_SYSEX
+    case ACT_SYSEX:
+        sysex_button(i, num, down, ch);
+        break;
+#endif
+    default:
+        break;
+    }
+}
+
+/* Let go of the list button i has down, if any. */
+static void list_release(uint32_t i)
+{
+    uint32_t list = list_down[i];
+    if (list == LIST_NONE)
+        return;
+    list_down[i] = LIST_NONE;
+    for (uint32_t k = gm_btn_lists[list]; k < gm_btn_lists[list + 1u]; k++)
+        item_run(i, &gm_btn_items[k], 0);
+}
+
+/* Button i sends list `list`, its items in order. It is down before the
+ * first item goes: a panic in it lets go of the items before it (the
+ * builder keeps an item that holds something from coming after one). */
+static void list_press(uint32_t i, uint32_t list)
+{
+    list_release(i);                /* one list down per button */
+    if (list >= GM_BTN_LISTS)
+        return;                     /* a button.number the host set: no such list */
+    list_down[i] = (uint8_t)list;
+    for (uint32_t k = gm_btn_lists[list]; k < gm_btn_lists[list + 1u]; k++)
+        item_run(i, &gm_btn_items[k], 1);
 }
 #endif
 
@@ -163,6 +271,10 @@ void step_and_show(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset
  * the button's. */
 static void run_action(uint32_t i, int32_t act, uint32_t num, int down)
 {
+#if GM_BTN_LISTS
+    if (!down)
+        list_release(i);            /* the list it pressed, whatever its action is by now */
+#endif
     switch (act) {
     case ACT_CC_MOMENTARY:
         BTN_CC(i, num, down ? 127 : 0);
@@ -233,20 +345,19 @@ static void run_action(uint32_t i, int32_t act, uint32_t num, int down)
 #endif
 #if GM_MSG_MMC
     case ACT_MMC:
-        if (down) {
-            const uint8_t m[6] = { 0xF0, 0x7F, GM_MMC_DEVICE, 0x06, (uint8_t)(num & 0x7Fu), 0xF7 };
-            sysex_out(m, 6);
-        }
+        if (down)
+            mmc_send(num);
         break;
 #endif
 #if GM_N_SYSEX
     case ACT_SYSEX:
-        /* press: the value max: (top by default), release: min: (0), if the
-         * string has a value at all */
-        if (num < GM_N_SYSEX && (down || (gm_sysex[num].flags & GM_SX_HAS_VALUE))) {
-            uint32_t top = (gm_sysex[num].flags & GM_SX_WIDE) ? 16383u : 127u;
-            sysex_send(num, BTN_OUT(i, down ? top : 0u, (int32_t)top), BTN_CH(i));
-        }
+        sysex_button(i, num, down, BTN_CH(i));
+        break;
+#endif
+#if GM_BTN_LISTS
+    case ACT_LIST:                  /* its release: above */
+        if (down)
+            list_press(i, num);
         break;
 #endif
     case ACT_PRESET_NEXT:
@@ -639,13 +750,23 @@ static void gestures_ms(uint32_t now)
     if (combo_timed_out)
         combo_settle();
 #endif
+#if GM_BTN_HOLD || GM_BTN_DOUBLE
     for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
         uint32_t i = (uint32_t)__builtin_ctzll(m);
         uint32_t age = now - gs_since[i];
         int is_pressed = gs_state[i] == GS_PRESSED;
+        /* without one of the gestures its time is 0: its test is left out (always true) */
+#if GM_BTN_HOLD
         int is_hold = is_pressed && HAS(GM_BTN_HOLD, i) && age >= HOLD_MS;
+#else
+        const int is_hold = 0;
+#endif
+#if GM_BTN_DOUBLE
         int is_long_press = is_pressed && !HAS(GM_BTN_HOLD, i) && age >= TAP_MS;
         int is_single_tap = gs_state[i] == GS_TAPPED && age >= TAP_MS;
+#else
+        const int is_long_press = 0, is_single_tap = 0;
+#endif
         if (is_hold) {
             gs_state[i] = GS_HOLD;
             app_log(LOG_DEBUG, gm_device.buttons[i].name, ": hold");
@@ -658,6 +779,7 @@ static void gestures_ms(uint32_t now)
             tap(i);
         }
     }
+#endif
 }
 
 /* Button i's release skipped the gestures (held through a preset switch):
@@ -827,6 +949,9 @@ void buttons_init(void)
     for (uint32_t i = 0; i < NB; i++) {
         btn_note[i] = NOTE_NONE;
         ramp_sent[i] = 0;
+#if GM_BTN_LISTS
+        list_down[i] = LIST_NONE;
+#endif
     }
 }
 
@@ -840,6 +965,9 @@ void buttons_off(void)
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
         int held = ((btn_held & ~(uint64_t)own_up) >> i) & 1u;   /* with its own action down */
         int32_t act = gm_cfg.btn_action[i];
+#if GM_BTN_LISTS
+        list_release(i);
+#endif
         if (btn_note[i] != NOTE_NONE) {
             midi3(0x80 | btn_chan[i], btn_note[i], 0);
             btn_note[i] = NOTE_NONE;

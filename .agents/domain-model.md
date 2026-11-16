@@ -85,6 +85,7 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 | No heap, no floating point, no libc beyond `<stdint.h>` in core | convention (`core/README.md`), the NUC120's 4 KB RAM / 32 KB flash |
 | A param id never changes meaning | convention, `core/src/settings.c` id list |
 | A button without a gesture runs its action at the press; whatever a gesture or combo has down is let go at its button's release or at a preset switch | `components/buttons/buttons.c` (`gesture_input`, `gestures_off`, `gesture_forget`), `core/test/test_gestures.c` |
+| What an action list holds is let go once, at its button's release or at a preset switch, whatever list the button has by then; nothing after a panic in a list holds anything | `buttons.c` `list_down` (`list_release`, `buttons_off`), builder `items_after_panic_ok`, `core/test/test_lists.c` |
 
 ## Glossary
 
@@ -193,6 +194,13 @@ stored slot --select (button, mode, host)--> active --edit (host)--> dirty --sav
 ### Behaviour
 
 - **Action:** what a button does when pressed. Owner: `button.action` param values.
+- **Action list:** several messages one press sends, in order, each on its own channel (`actions:`
+  instead of `action:`): CCs (held, or a fixed `value:` sent once), notes, programs, MMC, SysEx and
+  panic. The release lets go of the items that hold something. A button, a gesture, a combo, a layer
+  twin or a preset can have one. The lists are in flash and come from the YAML only; a button runs one
+  with action 23 and `button.number` the list. Owner: `gm_btn_lists[]` / `gm_btn_item_t` (generated,
+  `GM_BTN_LISTS`); the `buttons` component (`action_list` in `__init__.py`, `list_press` /
+  `list_release` in `buttons.c`).
 - **Gesture:** a second action of one button, told apart from its own by timing: held (`hold:`), pressed
   twice (`double_tap:`), or run again while held (`repeat:`, auto-repeat); and a **combo**, buttons pressed
   together running an action of their own. A **tap** is a press let go before it became a gesture. They

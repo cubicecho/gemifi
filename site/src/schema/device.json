@@ -1142,6 +1142,9 @@
                   }
                 ]
               },
+              "actions": {
+                "$ref": "#/definitions/action_list"
+              },
               "cc": {
                 "anyOf": [
                   {
@@ -1400,6 +1403,9 @@
                           }
                         ]
                       },
+                      "actions": {
+                        "$ref": "#/definitions/action_list"
+                      },
                       "cc": {
                         "anyOf": [
                           {
@@ -1573,6 +1579,9 @@
                             "$ref": "#/definitions/substitution"
                           }
                         ]
+                      },
+                      "actions": {
+                        "$ref": "#/definitions/action_list"
                       },
                       "cc": {
                         "anyOf": [
@@ -2742,6 +2751,9 @@
                   }
                 ]
               },
+              "actions": {
+                "$ref": "#/definitions/action_list"
+              },
               "cc": {
                 "anyOf": [
                   {
@@ -3135,6 +3147,9 @@
                               "$ref": "#/definitions/substitution"
                             }
                           ]
+                        },
+                        "actions": {
+                          "$ref": "#/definitions/action_list"
                         },
                         "cc": {
                           "anyOf": [
@@ -3571,6 +3586,9 @@
                         }
                       ]
                     },
+                    "actions": {
+                      "$ref": "#/definitions/action_list"
+                    },
                     "active": {
                       "type": [
                         "string",
@@ -3765,6 +3783,9 @@
                                 "$ref": "#/definitions/substitution"
                               }
                             ]
+                          },
+                          "actions": {
+                            "$ref": "#/definitions/action_list"
                           },
                           "active": {
                             "type": [
@@ -4792,6 +4813,210 @@
           "additionalProperties": false
         }
       ]
+    },
+    "action_list": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "enum": [
+                  "cc_momentary",
+                  "note",
+                  "program",
+                  "panic",
+                  "mmc",
+                  "sysex"
+                ]
+              },
+              {
+                "$ref": "#/definitions/substitution"
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "cc_momentary",
+                      "note",
+                      "program",
+                      "panic",
+                      "mmc",
+                      "sysex"
+                    ]
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "cc": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "note": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "program": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 127
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              },
+              "bank": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16383
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "msb": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      },
+                      "lsb": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 127
+                          },
+                          {
+                            "$ref": "#/definitions/substitution"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "mmc": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "stop",
+                          "play",
+                          "deferred_play",
+                          "fast_forward",
+                          "rewind",
+                          "record",
+                          "record_exit",
+                          "record_pause",
+                          "pause",
+                          "eject",
+                          "chase",
+                          "reset"
+                        ]
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 127
+                      },
+                      {
+                        "$ref": "#/definitions/substitution"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sysex": {
+                "type": "string",
+                "description": "the id of a midi_messages.sysex string"
+              },
+              "channel": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "messages sent in order at the press: an action's name, or { cc / note / program / mmc / sysex, value, bank, channel }"
     }
   }
 }

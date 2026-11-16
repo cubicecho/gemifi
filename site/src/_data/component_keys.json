@@ -455,6 +455,71 @@
       "platform": "maudio_pads"
     }
   ],
+  "max7219": [
+    {
+      "section": "led_driver",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ led_driver: <id>, number: n }`."
+        },
+        {
+          "key": "platform",
+          "type": "`max7219`",
+          "required": true,
+          "default": null,
+          "doc": "This chip."
+        },
+        {
+          "key": "clk_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The clock pin (CLK). Chains can share it."
+        },
+        {
+          "key": "din_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The data pin, to the first chip's DIN. Chains can share it."
+        },
+        {
+          "key": "cs_pin",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The chip select (LOAD / CS), one per chain."
+        },
+        {
+          "key": "num_chips",
+          "type": "integer 1..8",
+          "required": false,
+          "default": "`1`",
+          "doc": "The chips in the chain, 64 pins each."
+        },
+        {
+          "key": "intensity",
+          "type": "integer 0..15",
+          "required": false,
+          "default": "`15`",
+          "doc": "The brightness, the same on every chip."
+        },
+        {
+          "key": "scan_limit",
+          "type": "integer 1..8",
+          "required": false,
+          "default": "`8`",
+          "doc": "The digits each chip lights, DIG0 first; fewer light longer."
+        }
+      ],
+      "platform": "max7219"
+    }
+  ],
   "mcp23017": [
     {
       "section": "mcp23017",

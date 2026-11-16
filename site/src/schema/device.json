@@ -1033,10 +1033,20 @@
                 "default": false
               },
               "din_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin, to the first chip's DIN. Chains can share it."
               },
               "cs_pin": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The chip select (LOAD / CS), one per chain."
               },
               "num_chips": {
                 "anyOf": [
@@ -1048,7 +1058,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The chips in the chain, 64 pins each. Default: 1.",
+                "default": 1
               },
               "scan_limit": {
                 "anyOf": [
@@ -1060,7 +1072,9 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The digits each chip lights, DIG0 first; fewer light longer. Default: 8.",
+                "default": 8
               },
               "length": {
                 "anyOf": [

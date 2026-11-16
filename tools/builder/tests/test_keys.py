@@ -10,7 +10,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components/, on the path)
 import gemifi_schema as gs  # noqa: E402
-from components import analog, buttons, encoders, key_matrix, leds, pads, tm1637  # noqa: E402
+from components import analog, buttons, encoders, key_matrix, leds, modes, pads, tm1637  # noqa: E402
 from components.keys import Enum  # noqa: E402
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
@@ -30,7 +30,7 @@ class EdgesAgree(unittest.TestCase):
     def edges(self, section, base, path, keys, context=None, nest=None, more=""):
         """Each key of keys (a Keys) whose type has edges: those in pass (no error at path.key), those past
         fail there. context: key -> keys the item needs for that key's edges ("-": keys to drop); nest: put
-        the key in base[nest]; more: other YAML the device needs."""
+        the key in base[nest] (a dotted path: deeper); more: other YAML the device needs."""
         context = context or {}
         checked = 0
         for k in keys:
@@ -39,8 +39,11 @@ class EdgesAgree(unittest.TestCase):
                     item = json.loads(json.dumps(base))
                     extra = dict(context.get(k.name, {}))
                     drop = extra.pop("-", ())
-                    if nest:
-                        item[nest] = {**item.get(nest, {}), **extra, k.name: value}
+                    if nest:                # "a.b": in item["a"]["b"]
+                        at_ = item
+                        for part in nest.split("."):
+                            at_ = at_.setdefault(part, {})
+                        at_.update({**extra, k.name: value})
                     else:
                         item.update(extra)
                         item[k.name] = value
@@ -112,6 +115,13 @@ class EdgesAgree(unittest.TestCase):
         n = self.edges("button_settings:", {}, "button_settings", buttons.BUTTON_SETTINGS_SPEC,
                        more="buttons:\n  - { id: a, pin: PB0, action: panic }\n")
         self.assertEqual(n, 20)
+
+    def test_mode_layers(self):
+        """A button twin's keys (modes[].layer.<button id>), checked as the button's are."""
+        more = self.BUTTONS_MORE + "buttons:\n  - { id: t, pin: PB1 }\n  - { id: b, pin: PB0, action: cc_momentary, cc: 20 }\n"
+        base = {"id": "m", "toggle": "t", "layer": {"b": {}}}
+        n = self.edges("modes", base, "modes[0]", modes.LAYER, nest="layer.b", context=self.ACTION_CONTEXT, more=more)
+        self.assertGreater(n, 5)
 
     def test_leds(self):
         base = {"id": "l", "pin": "PB0"}

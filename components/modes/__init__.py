@@ -6,10 +6,12 @@ c_rgb_defines(), c_layer_defines(), c_defines() and c_tables() where gm_device_c
 import difflib
 import re
 
+from components import buttons, leds
 from components.api import CURVES, PRESETS_OFF, WHITE, Hub, LDict, c_str, errors, with_article
 from components.buttons import ACTION_IDS, LIST_ACTION, button_action, list_button_keys
 from components.hub import c_comment
-from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, colour_exact, colour_look,
+from components.keys import CONTROL_DAW, Bool, ById, Id, IdRef, Int, Key, Keys, List, Map, OneOf, Raw, Section, Str
+from components.leds import (LED_DEFAULT_LOOK, LED_LOOK_NAMES, LED_LOOKS, Look, colour_exact, colour_look,
                              colour_look_needs, colour_mask, full_colour_hubs, led_full_colour, led_kind,
                              look_word, resolve_led_default)
 
@@ -20,18 +22,87 @@ MODE_ACTIONS = {"preset_select": (1, "preset"), "preset_next": (2, None), "prese
                 "channel": (10, "channel"), "velocity_curve": (11, "curve"),
                 "channel_up": (13, None), "channel_down": (14, None)}
 MK_MODE = 12                   # GM_MK_MODE: go to a sub-mode
-MODE_KEYS = ["id", "toggle", "hold", "one_shot", "parent", "cycle", "led", "preset_blink", "keys", "buttons", "layer",
-             "steps"]
 # gm_mode_t.hold (gm_device.h): 1 a hold mode, GM_HOLD_ONE_SHOT a one-shot (components/modes/README.md "One-shot layers")
 HOLD_ONE_SHOT = 2
-STEP_KEYS = ["id", "name", "colour", "enabled", "layer"]     # cycle: steps (components/modes/README.md "Cycles")
 MAX_STEPS = 8
 MODE_NAME_LEN = 16             # a step's name: on the display when it is switched to
-# modes[].layer.<button, pad or encoder id>: what its twin is (components/modes/README.md "Button layers")
-LAYER_KEYS = ["name", "action", "actions", "cc", "note", "preset", "program", "mmc", "sysex", "daw", "idle",
-              "active"]
+
+# modes[].layer.<button, pad or encoder id>: what its twin is (README.md "Button layers"), checked by
+# mode_layer(). A twin leaves out what is its base's; a button twin takes the button's action keys, a pad twin
+# name, daw, idle, active, an encoder twin name, cc, daw.
+
+
+def _button_twin(k, param):
+    return k.elsewhere("components/buttons/README.md").but(param=param, default=None, shown_default="the button's")
+
+
+def _led_twin(k, doc):
+    return k.elsewhere("components/leds/README.md").but(shown_default="the LED's", doc=doc)
+
+
+LAYER = Keys(
+    Key("name", Str(), shown_default="`<its name> <mode id>`", doc="The twin's name on the web page and in the CLI."),
+    _button_twin(buttons.ACTION, "layer.button.action").but(doc="A button twin's action."),
+    _button_twin(buttons.ACTIONS_KEY, "layer.button.action"),
+    Key("cc", OneOf(Int(0, 127), Raw({"const": "none"}, "`none`")), shown_default="its base's",
+        doc="A button twin's CC (with a CC action), or an encoder twin's (`layer.encoder.cc`): `none` sends no CC, "
+            "only its EVENTs."),
+    *(_button_twin(k, "layer.button.number") for k in (buttons.NOTE, buttons.PRESET, buttons.PROGRAM, buttons.MMC,
+                                                       buttons.SYSEX)),
+    CONTROL_DAW.but(doc="The twin's own role for the DAW scripts (left out: none)."),
+    _led_twin(leds.LED["idle"], "What the twin's LED shows while off (a button's or pad's twin)."),
+    _led_twin(leds.LED["active"], "What the twin's LED shows while on."),
+)
+LAYER_KEYS = LAYER.names
 LAYER_PAD_KEYS = ["name", "daw", "idle", "active"]
 LAYER_ENCODER_KEYS = ["name", "cc", "daw"]
+LAYER_TYPE = ById("button, pad or encoder", Map(LAYER))
+_LAYER_DOC = "By button, pad or encoder id, what that control's twin is while the mode is on."
+# cycle: steps (README.md "Cycles"), checked by mode_cycle()
+STEP = Keys(
+    Key("id", Id(), required=True, doc="Its mode id, unique among the modes, cycles and steps."),
+    Key("name", Str(), shown_default="the id",
+        doc=f"Its name, up to {MODE_NAME_LEN} ASCII characters: the display shows it when the step is switched to."),
+    Key("colour", Look(), shown_default="the LED's active look", see="Cycles",
+        doc="What the cycle's LED shows on this step: a look of that LED, or a full colour (`\"#ff8000\"`, "
+            "`blue 20%`)."),
+    Key("enabled", Bool(), default=True, param="layer.enabled", doc="Whether a press of the cycle's button stops at it."),
+    # (its entries are a mode's, listed there once)
+    Key("layer", ById("button, pad or encoder", Raw(Map(LAYER).schema(), "mapping, as `layer.<id>`")),
+        see="Button layers", doc=_LAYER_DOC),
+)
+STEP_KEYS = STEP.names
+_BUTTON = Key("button", IdRef("button"), required=True, doc="The button.")
+_WITH = Key("with", IdRef("button"), doc="A button held with it (Shift): a plain press is the button's own action.")
+_PRESS = OneOf(IdRef("button"), Map(Keys(_BUTTON)))                 # hold:, one_shot:
+_PRESS_WITH = OneOf(IdRef("button"), Map(Keys(_BUTTON, _WITH)))     # toggle:, cycle:
+# One modes: item (README.md "Modes"), checked by validate(): exactly one of toggle, hold, one_shot, parent, cycle.
+MODE = Keys(
+    Key("id", Id(), required=True, doc="What `parent:` and a key's `{ mode: <id> }` call it; unique among the modes, "
+                                       "cycles and steps."),
+    Key("toggle", _PRESS_WITH, see="Modes",
+        doc="The button that enters the mode and, pressed again, leaves it (from a sub-mode too)."),
+    Key("hold", _PRESS, see="Modes", doc="The button that keeps the mode on while it is held."),
+    Key("one_shot", _PRESS, see="One-shot layers", doc="The button whose tap arms the layer for the next press."),
+    Key("parent", IdRef("mode"), see="Modes",
+        doc="Makes it a sub-mode of that mode: entered from one of its keys, back to it after one action."),
+    Key("cycle", _PRESS_WITH, see="Cycles", doc="Makes it a cycle: the button that moves to the next enabled step."),
+    Key("led", OneOf(IdRef("LED"), Raw({"type": "object", "description": "{ <LED id>: blink }"},
+                                       "`{ <LED id>: blink }`")),
+        shown_default="the toggle button's LED; a sub-mode's: its parent's, blinking",
+        doc="The LED lit while it is on (a cycle's shows the step's colour)."),
+    Key("preset_blink", Raw({}, "list of 1 or 2 LED ids"), shown_default="its parent's",
+        doc="After a preset switch from the mode, the first blinks the slot number, then both flash once."),
+    Key("keys", Raw({}, "key → action"), see="Modes",
+        doc="What the keys do while it is on, by the key's note at octave 0 (C4 = 60) or MIDI note number: an "
+            "action, `{ action, ... }`, `{ mode: <sub-mode id> }`, or one range. Needs a key matrix."),
+    Key("buttons", Raw({"type": "object", "description": "button id: what it does in the mode"}, "button id → action"),
+        see="Modes", doc="What buttons do instead of their own action while it is on: an action or `{ action, ... }`."),
+    Key("layer", LAYER_TYPE, see="Button layers", doc=_LAYER_DOC + " A root mode only."),
+    Key("steps", List(Map(STEP)), see="Cycles", doc=f"A cycle's steps, 2 to {MAX_STEPS}, taken in turn."),
+)
+MODE_KEYS = MODE.names
+KEY_SECTIONS = (Section("modes", MODE, desc="modes, layers and cycles (components/modes/README.md \"Modes\")"),)
 RANGE_KEYS = ("white_from", "from", "action", "count")      # the range form inside keys:
 RANGE_ACTIONS = ("preset_select", "channel")
 MAX_MODES = 64
@@ -327,8 +398,8 @@ def mode_cycle(v, dev, d, p, cid, given, cycles, new_id, new_mode):
         m = new_mode(sid, sp, s)
         m.step, m.cycle, m.root = True, group, m.index
         m.toggle, m.with_, m.led = cyc.toggle, cyc.with_, led
-        m.enabled = v.boolean(s, "enabled", sp, default=True)
-        name = v.string(s, "name", sp)
+        m.enabled = STEP.get(v, s, "enabled", sp)
+        name = STEP.get(v, s, "name", sp)
         if name is not None and (len(name) > MODE_NAME_LEN or any(not 32 <= ord(c) <= 126 for c in name)):
             v.err(f"{sp}.name", s.line_of("name"), f"'{name}': at most {MODE_NAME_LEN} ASCII characters (the display "
                                                    "shows as much as fits)")
@@ -533,7 +604,7 @@ def mode_layer(v, dev, m, layer, lp, ll):
             led = layer_led(v, dev, m, b.led, e, path, line, ("button", act), f"button '{bid}'")
             if led is None:
                 continue
-            name = v.string(e, "name", path)
+            name = LAYER.get(v, e, "name", path)
             dev.buttons.append(Hub(id=tid, name=name if name is not None else f"{b.name} {m.id}", pin=b.pin,
                                    action=ACTION_IDS[act], action_name=act, number=num, led=led,
                                    daw=v.daw_role(dev, e, path), layer=m.index + 1, base=idx,
@@ -572,7 +643,7 @@ def layer_pad(v, dev, m, idx, e, path, line):
     led = layer_led(v, dev, m, x.led, e, path, line, ("pad", None), f"pad '{x.id}'")
     if led is None:
         return
-    name = v.string(e, "name", path)
+    name = LAYER.get(v, e, "name", path)
     dev.pad_twins.append(Hub(id=tid, name=name if name is not None else f"{x.name} {m.id}", led=led,
                              daw=v.daw_role(dev, e, path), layer=m.index + 1, base=idx))
 
@@ -591,7 +662,7 @@ def layer_encoder(v, dev, m, idx, e, path, line):
     tid = v.register(f"{x.id}_{m.id}", path, line, "encoder", len(dev.encoders))
     if tid is None:
         return
-    name = v.string(e, "name", path)
+    name = LAYER.get(v, e, "name", path)
     dev.encoders.append(Hub(id=tid, name=name if name is not None else f"{x.name} {m.id}", a=x.a, b=x.b,
                             cc=cc, steps=x.steps, mcu=None, ring=[], ring_center=None,
                             daw=v.daw_role(dev, e, path), layer=m.index + 1, base=idx, mode=0, ctl=x.ctl))

@@ -24,6 +24,7 @@ A leaf module, like api.py: components import it at load time.
 """
 
 import copy
+import re
 
 MISSING = object()
 
@@ -250,14 +251,18 @@ class Raw(Type):
 
 
 class ById(Type):
-    """A mapping from a component's id (of a kind: 'button', 'LED', 'component') to a value of a type."""
+    """A mapping from a component's id (of a kind: 'button', 'LED', 'component') to a value of a type; names: a
+    regular expression the ids match, for the schema (the validator's own messages name a wrong one)."""
 
-    def __init__(self, kind, value):
-        self.kind, self.value = kind, value
+    def __init__(self, kind, value, names=None):
+        self.kind, self.value, self.names = kind, value, names
         self.text = f"{kind} id → {value.text}"
 
     def schema(self):
-        return {"type": "object", "description": f"{self.kind} id: ...", "additionalProperties": self.value.schema()}
+        s = {"type": "object", "description": f"{self.kind} id: ...", "additionalProperties": self.value.schema()}
+        if self.names:
+            s["propertyNames"] = {"pattern": f"^{self.names}$"}
+        return s
 
     def sub(self):
         s = self.value.sub()
@@ -339,6 +344,13 @@ class Key:
             assert hasattr(k, f), f
             setattr(k, f, x)
         return k
+
+    def elsewhere(self, readme):
+        """This key in another page's table (a preset's overrides, a mode's layer entries): a `see` naming a
+        heading of its own component's README (readme, from the repo root) names that README too."""
+        if self.see and not re.match(r"[\w./-]+\.md", self.see):
+            return self.but(see=f'{readme} "{self.see}"')
+        return self
 
     def schema(self):
         """The key's JSON schema: its type's, with the doc line and default for the editor's hover."""

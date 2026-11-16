@@ -76,9 +76,24 @@ export const CORE_YAML = {
       summary: "How often the controls are read, and the stm32f1's scans by timers and DMA instead of the CPU.",
     },
     {
+      file: "core/yaml/presets.md",
+      title: "Presets",
+      summary: "The preset slots and what each preset changes: the channel, the curves, the controls' numbers and modes.",
+    },
+    {
       file: "core/yaml/feedback.md",
       title: "DAW feedback",
       summary: "What the device does with the MIDI the host sends back: LED owners, DAW scripts, Mackie Control.",
+    },
+    {
+      file: "core/yaml/displays.md",
+      title: "Text displays",
+      summary: "Segment displays on a hub's pins and text displays on a screen: their characters, what they show.",
+    },
+    {
+      file: "core/yaml/layout.md",
+      title: "Layout",
+      summary: "Where each control is on the device, for the web page's drawing of it.",
     },
     {
       file: "core/yaml/safety.md",

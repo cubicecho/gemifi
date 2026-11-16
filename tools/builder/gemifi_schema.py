@@ -44,7 +44,6 @@ PERIOD = ref("period")
 BOOL = T("boolean")
 STR = {"type": "string"}
 ID_REF = {"type": "string", "description": "the id of another component"}
-LOOK = gd.leds.Look().schema()
 
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
@@ -138,72 +137,6 @@ def action_list():
                "value, bank, channel }")
 
 
-def presets():
-    comps = {}
-    for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
-        spec = section_keys(sec)
-        comps[sec] = {"type": "object", "description": f"per {sec[:-1] if sec.endswith('s') else sec} id",
-                      "additionalProperties": obj(allowed, {k: spec[k].schema() for k in allowed})}
-    globs = {}
-    for sec, keys in gd.PRESET_GLOBALS.items():
-        types = {}
-        for k, (_p, _d, kind, lo, hi) in keys.items():
-            types[k] = (enum(kind) if isinstance(kind, list) else PERIOD if kind == "ms" else BOOL
-                        if kind == "bool" else T("integer", minimum=lo, maximum=hi))
-        globs[sec] = obj(list(keys), types)
-    item = obj(gd.PRESET_KEYS, {"name": STR, "program": INT7, "bank": gd.buttons.BANK.schema(), **globs, **comps})
-    return obj(gd.PRESETS_KEYS, {"slots": T("integer", minimum=2, maximum=gd.MAX_PRESETS),
-                                 "revision": T("integer", minimum=0, maximum=gd.PRESET_REVISION_MAX),
-                                 "list": lst(item)}, "preset slots (core/README.md \"Presets\")")
-
-
-def modes():
-    toggle = one_of(ID_REF, obj(["button", "with"], {"button": ID_REF, "with": ID_REF}))
-    # a layer entry takes keys of a button, a pad or an encoder (components/modes), typed as theirs
-    layer_keys = sorted(set(gd.LAYER_KEYS) | set(gd.LAYER_PAD_KEYS) | set(gd.LAYER_ENCODER_KEYS))
-    specs = [section_keys(s) for s in ("buttons", "pads", "encoders", "leds")]   # idle:/active: are an LED's
-    layer_types = {k: next(sp[k].schema() for sp in specs if k in sp.by_name) for k in layer_keys
-                   if any(k in sp.by_name for sp in specs)}
-    layer_entry = obj(layer_keys, {**layer_types, "cc": one_of(INT7, {"const": "none"})})
-    step = obj(gd.STEP_KEYS, {"id": ref("id"), "name": STR, "enabled": BOOL, "colour": LOOK,
-                              "layer": {"type": "object", "additionalProperties": layer_entry}})
-    item = obj(gd.MODE_KEYS, {
-        "id": ref("id"), "name": STR, "daw": STR,
-        "toggle": toggle, "hold": one_of(ID_REF, obj(["button"], {"button": ID_REF})),
-        "one_shot": one_of(ID_REF, obj(["button"], {"button": ID_REF})), "cycle": toggle,
-        "parent": ID_REF, "preset_blink": {},
-        "led": one_of(ID_REF, {"type": "object", "description": "{ <LED id>: blink }"}),
-        "keys": {}, "buttons": {"type": "object", "description": "button id: what it does in the mode"},
-        "layer": {"type": "object", "description": "component id: what it does on the layer",
-                  "additionalProperties": layer_entry},
-        "steps": lst(step)})
-    return lst(item, "modes, layers and cycles (components/modes/README.md \"Modes\")")
-
-
-def layout():
-    """layout: (core/README.md "Layout"): [x, y], [x, y, w, h] or { x, y, w, h, shape } per control id."""
-    unit = T("integer", minimum=0, maximum=gd.LAYOUT_MAX)
-    size = T("integer", minimum=1, maximum=gd.LAYOUT_MAX)
-    def ints(n):
-        return {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": gd.LAYOUT_MAX},
-                "minItems": n, "maxItems": n}
-    at = [ints(2), ints(4)]          # [x, y] or [x, y, w, h]
-    place = obj(gd.LAYOUT_ITEM_KEYS, {"x": unit, "y": unit, "w": size, "h": size,
-                                      "shape": enum(s for s in gd.LAYOUT_SHAPES if s != "keys")},
-                extra={"required": ["x", "y"]})
-    rect = one_of(*at, place)
-    return obj(gd.LAYOUT_KEYS, {
-        "size": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": gd.LAYOUT_MAX},
-                 "minItems": 2, "maxItems": 2, "description": "[w, h]: the drawing's size in units"},
-        "keys": one_of(*at, obj(gd.LAYOUT_ITEM_KEYS, {"x": unit, "y": unit, "w": size, "h": size,
-                                                       "shape": enum(["keys"])}, extra={"required": ["x", "y"]})),
-        "controls": {"type": "object", "description": "control id -> [x, y], [x, y, w, h] or { x, y, w, h, shape }",
-                     "propertyNames": {"pattern": "^" + gd.ID_RE.pattern + "$"},
-                     "additionalProperties": rect},
-    }, "where the controls are, in units of about 5 mm from the top left, for drawing the device "
-       "(core/README.md \"Layout\")")
-
-
 def pin():
     return one_of(
         {"type": "string", "description": "an MCU pin: PA1, GPIO5, 5"},
@@ -218,23 +151,7 @@ def device_schema():
     top_types = {
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "presets": presets(),
-        "modes": modes(),
         "display": screen(),
-        "displays": lst(obj(gd.DISPLAY_KEYS, {"id": ref("id"), "daw": STR, "type": enum(gd.DISPLAY_TYPES),
-                                              "shows": enum(gd.DISPLAY_SHOWS),
-                                              "segment_step": T("integer", minimum=1, maximum=64),
-                                              "segment_order": lst(enum(sorted({n for ns in gd.SEG_NAMES.values()
-                                                                                for n in ns})),
-                                                                   "the segments in pin order"),
-                                              "chars": lst(one_of(ref("pin"), lst(ref("pin"))),
-                                                           "each character's first pin, or its segments' pins"),
-                                              "display": ref("id"),
-                                              "line": T("integer", minimum=0, maximum=7),
-                                              "x": T("integer", minimum=0, maximum=127),
-                                              "scale": T("integer", minimum=1, maximum=4),
-                                              "length": T("integer", minimum=1, maximum=gd.MAX_TEXT_CHARS)})),
-        "layout": layout(),
     }
     # the device's own keys, by area (gemifi_device.py CORE_AREAS), and the components' sections (KEY_SECTIONS)
     for area in gd.CORE_AREAS.values():

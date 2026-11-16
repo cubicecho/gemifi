@@ -110,7 +110,7 @@ buttons:
 
 A folder, `components/<name>/`, named after its YAML key (or, on a base, its `platform:` name):
 
-1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `in_device(dev)` (whether a device has it, so whether it's built), `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`). Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them. Its keys are data (`components/keys.py`; every control, hub type, display platform and the I2C buses has them, the modes not yet): a `Keys(Key(name, type, default=, doc=, see=, param=), ...)` that `validate` checks values with (`KEYS.get(v, d, "length", p)`), and that the JSON schema and the key table on its docs page are made from. `param=` names the device param a key starts (`encoder.cc`): the web page can change it, and a preset can set the per-preset ones. A control lists where its keys go in `KEY_SECTIONS`, a hub type or screen platform sets `spec`; `tools/builder/tests/test_keys.py` and `test_keys_hubs.py` check the validator takes what each type says.
+1. **`__init__.py`**: what the builder needs. A hub type lists `HubType` subclasses in `HUB_TYPES`, a screen platform `ScreenType` subclasses in `DISPLAY_PLATFORMS`; `DEPENDENCIES` names the components it builds on (`("led_strip",)`), `REQUIRED = True` builds it into every device. A control has `in_device(dev)` (whether a device has it, so whether it's built), `validate(v, dev, data)` for its YAML and functions for its generated C (`c_defines(dev)`, `c_tables(dev)`). Components reach what they share with the rest of the device (DAW roles, Mackie Control, MIDI messages) through the validator `v`, and the pin model, the record type and the YAML values through `components/api.py`. A chip that moves onto a base keeps its old keys in `old_keys`: they are refused with the new form, and `gemifi_build.py migrate` rewrites them. Its keys are data (`components/keys.py`; every component has them, and the device's own keys do too, by area: `gemifi_device.py` `CORE_AREAS`, the docs' Core pages, `core/yaml/<area>.md`): a `Keys(Key(name, type, default=, doc=, see=, param=), ...)` that `validate` checks values with (`KEYS.get(v, d, "length", p)`), and that the JSON schema and the key table on its docs page are made from. `param=` names the device param a key starts (`encoder.cc`): the web page can change it, and a preset can set the per-preset ones. A control lists where its keys go in `KEY_SECTIONS`, a hub type or screen platform sets `spec`; `tools/builder/tests/test_keys.py` and `test_keys_hubs.py` check the validator takes what each type says.
 2. **Its C** (`<name>.c`, and `<name>.h` if others need its types), compiled only into devices that use it. Its folder is an include dir when it has headers.
 3. **`README.md`**: in this order, as the others do: a first paragraph that says what it is (it opens `A control (…):`, `A hub type ([hub](../hub/README.md)):`, `The base component of …` or names its base with a link, which is how the site's docs group it), a short YAML example, where its keys are described (with keys as data, `<!-- keys -->` on a line of its own: the docs site puts the key table there, and the README doesn't list them again); then the longer explanations, pins and behaviour; then `## Files`, how it runs and its tests.
 4. **Tests**: a builder test of its validation and C, and a core test of its driver (in its `test/`, or `core/test/`).
@@ -254,7 +254,7 @@ The UARTs gain little from DMA: at 31250 baud a DIN MIDI byte takes 320 us, and 
 A display is a row of segment characters on output pins of hubs (a TM1628, MAX7219, TM1637, 74HC595 ...), or a row of text on a screen (`display:`, an OLED). Up to 4 displays, of up to 16 characters each (a text display up to 21), one row each.
 
 - **Types.** `segment14` (the default; the Code 61's): 15 pins a character, segments a b c d e f g1 g2 h i j k l m, then the dot. `segment7`: 8 pins a character, segments a b c d e f g, then the point. Both are drawn in `core/include/gm_display.h`. `text`: 5 × 7 characters on a screen (below). Letters show as capitals (on 7 segments as best they can: b, d, n, r and t in lower case, K M W X approximated), a `.` lights the previous character's dot, and characters with no glyph are blank. The fonts are `gm_seg14_glyph()` and `gm_seg7_glyph()` in `core/src/display.c`.
-- **Text displays** (`type: text`, the default when `display:` is given): `display:` the id of the screen it is on, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), `line:` the text line its top is on (8 pixels a line from the top: 0–7 on a 64-pixel panel, 0–3 on a 32-pixel one), `x:` the pixel column it starts at (default 0), `scale:` 1–4 (default 1: each character 6 × 8 pixels with its gap, so 21 a row on 128 pixels; scale 2: 12 × 16 pixels, 2 lines tall, 10 a row), `length:` the characters (default as many as fit). Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap. `chars:`, `segment_step:` and `segment_order:` are for segment displays only.
+- **Text displays** (`type: text`) are on a screen, a `display:` item ([components/display](../components/display/README.md); an OLED is `platform: ssd1306`, [components/ssd1306](../components/ssd1306/README.md)), placed by text line (8 pixels a line from the top) and pixel column ([the display keys](yaml/displays.md#keys)). At scale 1 a character is 6 × 8 pixels with its gap, so 21 fit a row on 128 pixels; at scale 2 it is 12 × 16 pixels, 2 lines tall, 10 a row. Every printable ASCII character has a glyph, lower case too (the classic public-domain 5 × 7 font, `gm_text_glyph()` in `core/src/display.c`), and a `.` takes a place. Several text displays can share a screen, one per line or side by side; the builder refuses ones that overlap.
 - **Pins.** Each item of `chars:` is a character, left to right:
   - its first pin (segment a): the others are the pins after it, in a row (a character's segments on one digit's lines, the usual wiring);
   - with `segment_step: n` on the display, segment k is n × k pins after the first: characters on the SEG lines and segments on the grids (a TM1628 in 7-grid mode: `segment_step: 16`, character i's first pin `number: i`). The point is only wired where it fits on the hub;
@@ -281,8 +281,8 @@ A display is a row of segment characters on output pins of hubs (a TM1628, MAX72
 ```yaml
 displays:
   - id: display
-    type: segment14            # the default
-    daw: param                 # optional: what a DAW script shows on it (time, track_name, param, status)
+    type: segment14
+    daw: param                 # what a DAW script shows on it
     chars:                     # left to right: each character's segment a
       - { led_driver: leds_a, number: 48 }
       - { led_driver: leds_a, number: 64 }
@@ -294,6 +294,8 @@ displays:
     chars: [{ led_driver: leds_b, number: 0 }, { led_driver: leds_b, number: 1 }]
 ```
 
+Each key, its range and default: [the display keys](yaml/displays.md#keys).
+
 Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one display a line), graphics, and the TM1640. See #120.
 
 ## Layout
@@ -302,8 +304,8 @@ Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one
 
 ```yaml
 layout:
-  size: [80, 30]               # optional: the drawing's size; default: just big enough
-  keys: [0, 12, 76, 14]        # optional: where key_matrix goes; default: under the controls
+  size: [80, 30]
+  keys: [0, 12, 76, 14]        # where key_matrix goes
   controls:
     volume: { x: 1, y: 1, w: 4, h: 4 }        # by id
     fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }
@@ -311,6 +313,8 @@ layout:
     stop: [11, 4, 3, 2]        # [x, y, w, h]
     xy_x: { x: 20, y: 1, w: 10, h: 10, shape: xy }   # one axis of an xy_pad draws the pad for both
 ```
+
+Each key, its range and default: [the layout keys](yaml/layout.md#keys).
 
 - **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
 - **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. An id that names no control is a warning and isn't drawn, so a device built on a package can `!remove` a control the package's layout places. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.
@@ -366,7 +370,7 @@ Format 2 (`gemifi: 2`). It follows ESPHome's conventions where ESPHome has one: 
 
 For what a choice costs at run time (scan rates, settles, hubs, analog rates), see [performance.md](performance.md).
 
-The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the feedback keys](yaml/feedback.md#keys), [the safety keys](yaml/safety.md#keys).
+The device's own keys, the ones that aren't a component's, are described an area a page: [the device keys](yaml/device.md#keys), [the MIDI keys](yaml/midi.md#keys), [the scanning keys](yaml/scanning.md#keys), [the preset keys](yaml/presets.md#keys), [the feedback keys](yaml/feedback.md#keys), [the text display keys](yaml/displays.md#keys), [the layout keys](yaml/layout.md#keys), [the safety keys](yaml/safety.md#keys). A component's are on its own page.
 
 ```yaml
 gemifi: 2                      # format version
@@ -611,28 +615,30 @@ A preset is a named set of *behaviours*: what the controls send, not how they ar
 
 ```yaml
 presets:
-  slots: 8                 # optional, 2..64, at least the number listed; default: the number listed
-  revision: 1              # optional, 0..16383: bump it when the YAML presets change (the updater asks then)
+  slots: 8
+  revision: 1
   list:
     - name: Default        # slot 1: the components' own values (above); only name: and program:
-    - name: Drums          # <= 16 printable ASCII, unique; default "Preset N"
-      program: 9           # optional 0..127: the Program Change sent when it is selected
+    - name: Drums
+      program: 9
       midi: { channel: 10, transpose: 0, octave: 0 }   # start values (the octave buttons still move them)
-      velocity: { curve: hard, fixed: 100 }            # curve: normal | soft | hard | fixed
-      bend: { glide: 50ms }                            # 0..2s
-      ramp: { time: 300ms }                            # 0..5s
+      velocity: { curve: hard, fixed: 100 }
+      bend: { glide: 50ms }
+      ramp: { time: 300ms }
       buttons:                                         # by id, with the button's own keys
         sustain: { action: note, note: 36 }
         edit:    { note: 38 }                          # action left out: keeps the button's
       analog:   { volume: { cc: 11 } }
-      encoders: { encoder_1: { cc: 21, mode: relative_offset } }   # absolute | relative_twos | relative_offset
-      pads: { kick: { note: 35 } }                     # pads: only note:
+      encoders: { encoder_1: { cc: 21, mode: relative_offset } }
+      pads: { kick: { note: 35 } }
       pad_settings: { channel: 10, curve: soft, aftertouch: true }
 ```
 
+Each key, its range and default: [the preset keys](yaml/presets.md#keys).
+
 - **Slot 1** is the first list entry (or "Default" when the list is empty, with `slots:`); its values are the rest of the file. **Other presets** list only what differs from slot 1, by component id; an override equal to slot 1's value is dropped with a warning. **Empty slots** (`slots` minus the listed ones) start as copies of slot 1, named "Preset N", for the user to fill in.
 - **Presets in use.** A fresh device has the listed presets in use; the other slots are free, and the preset buttons and keys step through only the ones in use (with one in use, they only reload it). A host makes a new preset in the next free slot (PRESET_NAME or PRESET_SAVE) and deletes one with PRESET_DELETE: the presets after it move up a slot, so the free slots are always last. The count is the read-only global `preset.count`, stored with the globals (protocol/sysex.md §4.5 "Presets in use"). PRESET_MOVE reorders them: a preset moves to another slot and the ones between shift by one.
-- **What a preset can set** is the mapping: `button.action`/`button.number` (`action`, `actions`, `cc`, `note`, `preset`, `mcu`, `program`, `mmc`, `sysex`; `actions:` gives the button another action list, written as its `button.number`, components/buttons/README.md "Action lists"), `analog.cc`/`analog.mode` (`cc`, `mode`, `nrpn`, `rpn`, `sysex`), `encoder.cc`/`encoder.mode` (`cc`, `mode`, `nrpn`, `rpn`), `bank` (`preset.bank`, with `program`: "MIDI messages"), `pad.note`, and the per-preset globals above (`midi.channel`, `midi.transpose`, `midi.octave`, `velocity.curve`, `velocity.fixed`, `bend.glide`, `ramp.time`, `pad.channel`, `pad.curve`, `pad.aftertouch`, `pad.octave`), plus `program` (`preset.program`). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
+- **What a preset can set** is the mapping: the keys that start a per-preset param ([the preset keys](yaml/presets.md#keys) lists them with their params; `actions:` gives a button another action list, written as its `button.number`, components/buttons/README.md "Action lists"). The hardware side stays global and is refused in a preset, with where to set it: pins, LEDs, names, a control's `channel`/`min`/`max` and a button's `bank`, `hold`, `double_tap` and `repeat` (gestures are the same in every preset), `adc_min`/`adc_max`, `takeover`, `steps_per_detent`, the key-time calibration (`key_matrix.velocity`), the pad sensing (`pad_settings` `threshold`, `release`, `full`, `window`, `retrigger`), `midi.transport`.
 - **Power-up** loads the globals, then preset 1, or with `write_to_flash: { last_preset: true }` the preset used last ("Writes the device makes on its own"). A switch on the device stores nothing unless `last_preset` is on.
 - **Storage.** The builder checks that every preset's worst-case stored record (every per-preset value changed, and a name) fits the platform's store, errors with the largest `slots` that fits, and warns above 85% (tools/builder/README.md "Storage budget"). The store keeps records in `include/config_store.h`'s v2 format (2 words a value), except on the STM32F1, which packs them (v3: one group per param, a byte or a halfword a value, `platform/stm32f1/src/config_store.c`) to fit its 3 config pages of 1 KB: there the Code 61 fits up to 5 slots.
 

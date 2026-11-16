@@ -13,7 +13,7 @@ modes:
       D#3: octave_up
 ```
 
-Its YAML (`modes:`): "Modes", "Button layers" and "Cycles" below.
+<!-- keys -->
 
 ## Modes
 
@@ -105,7 +105,7 @@ modes:
       b2: { cc: 52, daw: arm_1, active: red }   # B2 in the arm layer: CC 52, red while on
 ```
 
-- **What a twin leaves out is the button's:** `action:` (so `cc:` alone keeps a `cc_toggle` a toggle), `cc:` / `note:` / `preset:`, and the LED looks. A twin can send an action list (`actions:`, [buttons "Action lists"](../buttons/README.md#action-lists)); a twin of a list button that gives neither `action:` nor `actions:` sends the same list. `name:` defaults to "<button name> <mode id>" ("B2 arm"). `daw:` is the twin's own, or none.
+- **What a twin leaves out is the button's:** `action:` (so `cc:` alone keeps a `cc_toggle` a toggle), `cc:` / `note:` / `preset:`, and the LED looks. A twin can send an action list (`actions:`, [buttons "Action lists"](../buttons/README.md#action-lists)); a twin of a list button that gives neither `action:` nor `actions:` sends the same list.
 - **One live at a time.** While the mode is active the twin takes the button's presses and drives the LED; otherwise the button does. A press's release goes to whichever took the press, even if the layer changed in between. When layers that are on at once have twins of the same component, the first of these wins: the held hold mode, the toggled key mode, a cycle's current step, then layer-only toggles; between steps of different cycles, or between layer-only toggles, the one earlier in `modes:`.
 - **A twin reads no pin of its own.** Each button sample reads the YAML's own buttons, and a twin takes its button's reading, so twins add no pin reads to the scan.
 - **Each keeps its state.** Toggling B2 in the arm layer leaves its mute state alone; switching layers redraws the LED with the live one's state.
@@ -158,7 +158,7 @@ modes:
 ```
 
 - **`cycle: { button, with }`** (`with:` optional; or `cycle: <button id>`) instead of `toggle:` / `hold:` / `parent:`. Each press (with `with:` held, if given) moves to the next enabled step, round the end, skipping disabled ones; with only one enabled, the press shows its name again. With `with:`, a plain press is the button's own action, as for `toggle:`; without it, the button has no action of its own.
-- **Steps** (2 to 8): `id`, `name` (up to 16 characters; the display shows it, as much as fits, when the step is switched to; default: the id), `colour` (an LED look for the cycle's LED, resolved for its kind like `led_defaults:`, or a full colour, `"#ff8000"` or `blue 20%`: as it is on an LED that can show any colour, the nearest on/off colour elsewhere; default: its active look), `enabled` (default true) and `layer:` (as "Button layers"). No `keys:` or `buttons:`. A step is a root mode with its own mode index, in `modes:` order where the cycle is, so its twins' `layer` is that index + 1.
+- **Steps** (2 to 8, [their keys](#keys)) have no `keys:` or `buttons:`. The display shows a step's name, as much as fits, when the step is switched to. Its `colour` is resolved for the cycle's LED's kind like `led_defaults:`; a full colour shows as it is on an LED that can show any colour, as the nearest on/off colour elsewhere. A step is a root mode with its own mode index, in `modes:` order where the cycle is, so its twins' `layer` is that index + 1.
 - **The LED** (`led:`, default the button's LED) shows the current step's colour all the time, over a host's level.
 - **Power-on** starts each cycle at its first enabled step; the step isn't remembered across power-off. A preset switch doesn't change it.
 - **Disabled steps** (`layer.enabled` 0, "Modes"; the YAML's `enabled:` is its default) are skipped. With every step of a cycle disabled the first step counts as enabled. Changing `layer.enabled` takes effect at the next press.

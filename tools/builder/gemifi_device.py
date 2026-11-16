@@ -29,8 +29,8 @@ from components.hub import c_comment  # noqa: E402
 import components.i2c as i2c_buses  # noqa: E402
 from components.keys import (T as _T, Bool as _Bool, Enum as _Enum, Hex as _Hex, Id as _Id,  # noqa: E402
                              IdRef as _IdRef, Int as _Int, Key as _Key, Keys as _Keys, List as _List, Map as _Map,
-                             Null as _Null, OneOf as _OneOf, Period as _Period, Pin as _Pin, Raw as _Raw, Str as _Str,
-                             ById as _ById)
+                             Null as _Null, OneOf as _OneOf, Period as _Period, Pin as _Pin, Raw as _Raw, Ref as _Ref,
+                             Str as _Str, ById as _ById, CONTROL_DAW as _CONTROL_DAW)
 from components.cd74hc4067 import Mux  # noqa: E402
 from components.tm1628 import TM1628  # noqa: E402
 from components.xy_pad import XYPad  # noqa: E402
@@ -195,27 +195,50 @@ def stored_counts(dev):
     return out[PRESET], out[GLOBAL]
 
 
-# The per-preset globals a preset may set (§10.2): YAML section -> key -> (param, default, kind, lo, hi).
-# Defaults and ranges as in core/src/settings.c. kind: "int", "ms" (a time period, whole ms) or the
-# enum's YAML names in value order.
 # encoder.mode (gm_settings.h ENC_*), analog.mode (AN_MODE_*). From cc14 on they need a message kind
 # (MODE_FEATURE), and the number key that gives encoder.cc / analog.cc follows the mode (MODE_NUMBER_KEY).
 MODE_FEATURE = {"cc14": "cc14", "nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "nrpn", "rpn14": "nrpn", "sysex": "sysex"}
 MODE_NUMBER_KEY = {"nrpn": "nrpn", "nrpn14": "nrpn", "rpn": "rpn", "rpn14": "rpn", "sysex": "sysex"}
+# The per-preset globals a preset may set (§10.2), as data (components/keys.py): YAML section -> its keys,
+# each starting a per-preset param. Defaults and ranges as in core/src/settings.c; a time is whole ms. A
+# key without a default (pad_settings') starts at the device's own value (the top-level pad_settings:).
 PRESET_GLOBALS = {
-    "midi": {"channel": ("midi.channel", 1, "int", 1, 16),
-             "transpose": ("midi.transpose", 0, "int", -24, 24),
-             "octave": ("midi.octave", 0, "int", -4, 4)},
-    "velocity": {"curve": ("velocity.curve", 0, CURVES, 0, 3),
-                 "fixed": ("velocity.fixed", 100, "int", 1, 127)},
-    "bend": {"glide": ("bend.glide", 80, "ms", 0, 2000)},
-    "ramp": {"time": ("ramp.time", 300, "ms", 0, 5000)},
-    # default: the device's own pad_settings: (a function of the device)
-    "pad_settings": {"channel": ("pad.channel", lambda d: d.pad_set["channel"], "int", 0, 16),
-                     "curve": ("pad.curve", lambda d: d.pad_set["curve"], CURVES, 0, 3),
-                     "aftertouch": ("pad.aftertouch", lambda d: d.pad_set["aftertouch"], "bool", 0, 1),
-                     "octave": ("pad.octave", 0, "int", -4, 4)},
+    "midi": _Keys(
+        _Key("channel", _Int(1, 16), default=1, param="midi.channel", doc="The MIDI channel the device plays on."),
+        _Key("transpose", _Int(-24, 24), default=0, param="midi.transpose",
+             doc="Semitones the keys' notes are moved by (the transpose buttons step it)."),
+        _Key("octave", _Int(-4, 4), default=0, param="midi.octave",
+             doc="Octaves the keys' notes are moved by (the octave buttons step it)."),
+    ),
+    "velocity": _Keys(
+        _Key("curve", _Enum(CURVES), default="normal", param="velocity.curve",
+             doc="How a key's speed becomes velocity (`fixed`: `velocity.fixed`). A velocity key matrix only."),
+        _Key("fixed", _Int(1, 127), default=100, param="velocity.fixed",
+             doc="The velocity of curve `fixed`, and of the `note` buttons."),
+    ),
+    "bend": _Keys(_Key("glide", _Period(0, 2_000_000, step_us=1000, example="80ms"), default="80ms",
+                       param="bend.glide", doc="How long the pitch-bend buttons take to glide to full bend and back.")),
+    "ramp": _Keys(_Key("time", _Period(0, 5_000_000, step_us=1000, example="80ms"), default="300ms",
+                       param="ramp.time", doc="How long a `cc_ramp` button takes to glide from 0 to 127 and back.")),
+    "pad_settings": _Keys(
+        *(pads.PAD_SETTINGS[k].but(default=None, shown_default="`pad_settings:`'s").elsewhere(
+            "components/pads/README.md") for k in
+          ("channel", "curve", "aftertouch")),
+        _Key("octave", _Int(-4, 4), default=0, param="pad.octave",
+             doc="Octaves the pads' notes are moved by (the pad octave buttons step it)."),
+    ),
 }
+
+
+def preset_base(dev, key):
+    """Slot 1's value of a per-preset global (an override equal to it is dropped), in its param's units."""
+    if key.default is None:                     # pad_settings': the device's own
+        return dev.pad_set[key.name]
+    if isinstance(key.type, _Enum):
+        return key.type.values.index(key.default)
+    if isinstance(key.type, _Period):
+        return int(key.default.removesuffix("ms"))
+    return key.default
 # Keys that look per-preset but aren't: they get this message instead of "unknown key".
 PRESET_NOT_HERE = {
     "midi": {"transport": "the MIDI transport is the device's (the same in every preset): set it in the "
@@ -232,17 +255,52 @@ def _preset_keys(spec):
     return [k.name for k in spec if k.param], [k.name for k in spec if not k.param]
 
 
+PRESET_SPECS = {"buttons": buttons.BUTTON, "analog": analog.ANALOG, "encoders": encoders.ENCODER, "pads": pads.PAD}
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", *_preset_keys(buttons.BUTTON)),
     "analog": ("analog input", "analog inputs", *_preset_keys(analog.ANALOG)),
     "encoders": ("encoder", "encoders", *_preset_keys(encoders.ENCODER)),
     "pads": ("pad", "pads", *_preset_keys(pads.PAD)),
 }
-PRESET_KEYS = ["name", "program", "bank", *PRESET_GLOBALS, *PRESET_COMPONENTS]
-PRESETS_KEYS = ["slots", "revision", "list"]
 MAX_PRESETS = 64
 PRESET_NAME_LEN = 16           # config_store.h CS_NAME_LEN
 PRESET_REVISION_MAX = 0x3FFF
+_SLOT_1 = " Not in slot 1, which is the rest of the file."
+
+
+def _override(k, sec):
+    """A component's key as a preset sets it: left out, the component's own value."""
+    return k.elsewhere(f"components/{sec}/README.md").but(required=False, default=None, shown_default=None)
+
+
+# One presets.list item (core/README.md "Presets"), checked by validate_presets(): its name, its Program
+# Change, and what differs from slot 1: the per-preset globals and, by component id, the component keys that
+# start a per-preset param (each the component's own Key).
+PRESET_ITEM = _Keys(
+    _Key("name", _Str(), shown_default="`Default` (slot 1), `Preset N`",
+         doc=f"Its name: up to {PRESET_NAME_LEN} printable ASCII characters, unique."),
+    _Key("program", _Int(0, 127), param="preset.program", doc="The Program Change sent when it is selected."),
+    _Key("bank", buttons.BANK, param="preset.bank", see='core/README.md "MIDI messages"',
+         doc="With `program:`: the Bank Select sent before it, 0..16383 or `{ msb, lsb }`."),
+    *(_Key(sec, _Map(keys), doc=f"What it changes of the per-preset `{sec}` settings.{_SLOT_1}")
+      for sec, keys in PRESET_GLOBALS.items()),
+    *(_Key(sec, _ById(kind, _Map(_Keys(*(_override(k, sec) for k in PRESET_SPECS[sec] if k.name in allowed)))),
+           doc=f"By {kind} id, what differs from the {kind}'s own keys.{_SLOT_1}")
+      for sec, (kind, _pl, allowed, _hw) in PRESET_COMPONENTS.items()),
+)
+PRESET_KEYS = PRESET_ITEM.names
+PRESETS_SPEC = _Keys(
+    _Key("slots", _Int(2, MAX_PRESETS), shown_default="the number listed",
+         doc="The preset slots, at least the number listed: the ones not listed start as copies of slot 1."),
+    _Key("revision", _Int(0, PRESET_REVISION_MAX), default=0,
+         doc="Bump it when the YAML's presets change: the updater then offers to load them."),
+    _Key("list", _List(_Map(PRESET_ITEM)), doc="The presets, slot 1 first: its values are the rest of the file."),
+)
+PRESETS_KEYS = PRESETS_SPEC.names
+# The Core area (core/yaml/presets.md)
+PRESETS_AREA = _Keys(_Key("presets", _Map(PRESETS_SPEC), see='core/README.md "Presets"',
+                          doc="Presets on: the preset slots, 2 or more, and the presets in them. Left out, presets "
+                              "are off (one slot)."))
 
 # ---- storage budget (§10.5) ----
 # Worst-case record, in 32-bit words: header (magic, seq, slot|flags|revision, count) + a name + 2 per
@@ -2438,8 +2496,6 @@ def validate_version(v, data):
 # ---------------------------------------------------------------------------------------------
 # displays (core/README.md "Displays")
 
-DISPLAY_KEYS = ["id", "type", "chars", "segment_step", "segment_order", "shows", "daw",
-                "display", "line", "x", "scale", "length"]
 TEXT_KEYS = {"display", "line", "x", "scale", "length"}         # type text only
 RENAMED_DISPLAY = {"ssd1306": "replaced: name the screen with `display: <id>`, the id of a display: item "
                               "(an OLED is `display: [{ id: oled, platform: ssd1306 }]` now)" + MIGRATE_HINT}
@@ -2460,6 +2516,38 @@ MAX_DISPLAYS = 4                     # RAM: 4 bytes a character of the widest, p
 DISPLAY_SHOWS = {"last_message": 0, "preset_number": 1, "preset_name": 2, "channel": 3, "none": 4}
 DISPLAY_SHOWS_C = {0: "GM_SHOWS_LAST_MESSAGE", 1: "GM_SHOWS_PRESET_NUMBER", 2: "GM_SHOWS_PRESET_NAME",
                    3: "GM_SHOWS_CHANNEL", 4: "GM_SHOWS_NONE"}
+_SEG = " A segment display's."
+_TEXT = " A text display's."
+# One displays: item, checked by validate_displays(): the segment types' keys, then the text type's. The
+# ranges of line: and x: (the screen's size), and the type and shows names (their messages), stay as code.
+DISPLAY = _Keys(
+    _Key("id", _Ref("id", "id"), required=True, doc="What the rest of the file and a host's FB_TEXT call it."),
+    _Key("type", _Enum(DISPLAY_TYPES), shown_default="`text` with `display:`, else `segment14`",
+         doc="Its characters: 14 or 7 segments on hub pins, or text on a screen."),
+    _Key("chars", _List(_OneOf(_Pin(), _List(_Pin()))),
+         doc="Each character's first pin, or its segments' pins, left to right (hub pins)." + _SEG),
+    _Key("segment_step", _Int(1, 64), default=1,
+         doc="Segment k of a character is this many pins times k after its first pin." + _SEG),
+    _Key("segment_order", _List(_Enum(sorted({n for ns in SEG_NAMES.values() for n in ns}))),
+         shown_default="a, b, ... in gm_display.h order",
+         doc="The segments in pin order from each first pin; ones left out aren't wired." + _SEG),
+    _Key("shows", _Enum(DISPLAY_SHOWS), shown_default="`last_message` on the first display, else `none`",
+         doc="What it shows of its own while no host writes to it."),
+    _CONTROL_DAW.but(doc="What a DAW script shows on it (`time`, `track_name`, `param`, `status`)."),
+    _Key("display", _Ref("id", "display id"), doc="The screen it is on: a `display:` item's id." + _TEXT),
+    _Key("line", _Int(0, 7), default=0,
+         doc="The text line its top is on, 8 pixels a line from the top (0..3 on a 32-pixel screen)." + _TEXT),
+    _Key("x", _Int(0, 127), default=0, doc="The pixel column it starts at." + _TEXT),
+    _Key("scale", _Int(1, 4), default=1,
+         doc="Its size: a character is 6 × 8 pixels (with its gap) times this, and this many lines tall." + _TEXT),
+    _Key("length", _Int(1, MAX_TEXT_CHARS), shown_default="as many as fit",
+         doc="How many characters it has." + _TEXT),
+)
+DISPLAY_KEYS = DISPLAY.names
+# The Core area (core/yaml/displays.md)
+DISPLAYS_AREA = _Keys(_Key("displays", _List(_Map(DISPLAY)), see='core/README.md "Displays"',
+                           doc=f"The displays, up to {MAX_DISPLAYS}: a row of segment characters on hub pins, or a "
+                               "row of text on a screen."))
 
 
 def validate_displays(v, dev, data):
@@ -2503,7 +2591,7 @@ def validate_displays(v, dev, data):
                 dev.displays.append(Hub(**x))
             continue
         nseg, what = DISPLAY_SEGS[t]
-        step = v.integer(d, "segment_step", p, 1, 64, default=1)
+        step = DISPLAY.get(v, d, "segment_step", p)
         order = segment_order(v, d, p, t)
         chars = v.seq(d.get("chars"), f"{p}.chars", d.line_of("chars"))
         if not chars:
@@ -2579,7 +2667,7 @@ def validate_text_display(v, dev, d, p):
         return None
     scr.used = True
     lines = scr.height // TEXT_H
-    scale = v.integer(d, "scale", p, 1, 4, default=1)
+    scale = DISPLAY.get(v, d, "scale", p)
     line = v.integer(d, "line", p, 0, lines - 1, default=0)
     x = v.integer(d, "x", p, 0, scr.width - 1, default=0)
     if line + scale > lines:
@@ -2592,7 +2680,7 @@ def validate_text_display(v, dev, d, p):
         v.err(f"{p}.x", d.line_of("x"), f"no room for a character from x {x} at scale {scale} "
                                         f"({TEXT_W * scale} pixels; '{scr.id}' is {scr.width} wide)")
         return None
-    n = v.integer(d, "length", p, 1, MAX_TEXT_CHARS, default=min(room, MAX_TEXT_CHARS))
+    n = DISPLAY.get(v, d, "length", p, default=min(room, MAX_TEXT_CHARS))
     if n > room:
         v.err(f"{p}.length", d.line_of("length"), f"{n} characters at scale {scale} from x {x} are "
                                                   f"{n * TEXT_W * scale} pixels: '{scr.id}' has room for {room}")
@@ -2729,11 +2817,49 @@ def display_tables(dev):
 # layout: where the controls are, for drawing the device (sysex.md 4.7, core/README.md "Layout")
 
 LAYOUT_VERSION = 1
-LAYOUT_KEYS = ["size", "keys", "controls"]
-LAYOUT_ITEM_KEYS = ["x", "y", "w", "h", "shape"]
 LAYOUT_MAX = 255                     # units: the blob's u8 fields
 LAYOUT_SHAPES = {"button": 0, "round_button": 1, "knob": 2, "encoder": 3, "fader": 4, "wheel": 5, "pad": 6,
                  "display": 7, "keys": 8, "xy": 9}
+
+
+def _units(n, lo=0):
+    """[x, y] / [x, y, w, h] / [w, h]: n whole units."""
+    return {"type": "array", "items": {"type": "integer", "minimum": lo, "maximum": LAYOUT_MAX}, "minItems": n,
+            "maxItems": n}
+
+
+def _place(shapes, shape_doc):
+    """A place as a mapping (layout_rect()), x and y required: its Keys, and its type (the lists, or it)."""
+    keys = _Keys(
+        _Key("x", _Int(0, LAYOUT_MAX), required=True, doc="Its left edge, in units from the left."),
+        _Key("y", _Int(0, LAYOUT_MAX), required=True, doc="Its top edge, in units from the top."),
+        _Key("w", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its width, in units."),
+        _Key("h", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its height, in units."),
+        _Key("shape", _Enum(shapes), doc=shape_doc),
+    )
+    as_map = _Raw({**keys.schema(), "required": ["x", "y"]}, "mapping", keys=keys)
+    return keys, _OneOf(_Raw(_units(2), "`[x, y]`"), _Raw(_units(4), "`[x, y, w, h]`"), as_map)
+
+
+# layout:, checked by validate_layout(): a control's place is checked by layout_rect(), its shape (the kind's)
+# and the size: (what is placed) as code.
+LAYOUT_PLACE, _PLACE = _place([x for x in LAYOUT_SHAPES if x != "keys"],
+                              "How it is drawn (the shapes its kind can be).")
+_KEYS_PLACE = _place(["keys"], "Always `keys`.")[1]
+LAYOUT = _Keys(
+    _Key("size", _Raw(_units(2, 1), "`[w, h]`"), shown_default="just big enough",
+         doc=f"[w, h]: the drawing's size in units, 1..{LAYOUT_MAX}, at least what is placed."),
+    _Key("keys", _KEYS_PLACE, shown_default="under the controls",
+         doc="Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }."),
+    _Key("controls", _ById("control", _PLACE, names=ID_RE.pattern),
+         doc="Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }."),
+)
+LAYOUT_KEYS = LAYOUT.names
+LAYOUT_ITEM_KEYS = LAYOUT_PLACE.names
+# The Core area (core/yaml/layout.md)
+LAYOUT_AREA = _Keys(_Key("layout", _Map(LAYOUT), see='core/README.md "Layout"',
+                         doc="Where the controls are, in units of about 5 mm from the top left, for drawing the "
+                             "device."))
 LAYOUT_SIZES = {"button": (3, 2), "round_button": (2, 2), "knob": (3, 3), "encoder": (3, 3), "fader": (2, 8),
                 "wheel": (2, 7), "pad": (4, 4), "display": (10, 3), "xy": (8, 8)}
 LAYOUT_KINDS = {"button": 1, "keys": 2, "analog input": 3, "encoder": 4, "display": 6, "pad": 7}   # GET_COMPONENT
@@ -2764,8 +2890,8 @@ def layout_rect(v, x, p, line, default_wh):
         d = v.mapping(x, p, line, LAYOUT_ITEM_KEYS)
         if d is None:
             return None
-        got = [v.integer(d, k, p, 0, LAYOUT_MAX, required=True) for k in "xy"]
-        got += [v.integer(d, k, p, 1, LAYOUT_MAX, default=dflt) for k, dflt in zip("wh", default_wh)]
+        got = [LAYOUT_PLACE.get(v, d, k, p) for k in "xy"]
+        got += [LAYOUT_PLACE.get(v, d, k, p, default=dflt) for k, dflt in zip("wh", default_wh)]
         if None in got:
             return None
         vals = got
@@ -2988,7 +3114,7 @@ def preset_slots(v, dev, data):
     # isn't reported as well; the build stops on the error anyway.
     dev.slots_invalid = is_slots_bad or is_one_slot
     dev.n_presets = MAX_PRESETS if dev.slots_invalid else min(slots or max(n_list, 1), MAX_PRESETS)
-    dev.presets_revision = v.integer(ps, "revision", "presets", 0, PRESET_REVISION_MAX, default=0)
+    dev.presets_revision = PRESETS_SPEC.get(v, ps, "revision", "presets")
 
 
 def validate_presets(v, dev, data):
@@ -3022,7 +3148,7 @@ def validate_presets(v, dev, data):
             v.err(f"{p}.name" if "name" in d else p, d.line_of("name"),
                   f"'{name}' is already the name of {pth} (line {ln}): preset names are unique")
         names.setdefault(name.lower(), (p, d.line_of("name")))
-        program = v.integer(d, "program", p, 0, 127, default=-1)
+        program = PRESET_ITEM.get(v, d, "program", p, default=-1)
         vals = preset_bank(v, dev, d, p, program)
         if slot == 1:
             for k in d:
@@ -3073,10 +3199,11 @@ def preset_values(v, dev, d, p):
         if sec not in d:
             continue
         sp, sl = f"{p}.{sec}", d.line_of(sec)
-        g = v.mapping(d[sec], sp, sl, list(keys), renamed=PRESET_NOT_HERE.get(sec))
+        g = v.mapping(d[sec], sp, sl, keys.names, renamed=PRESET_NOT_HERE.get(sec))
         if g is None:
             continue
-        for k, (param, default, kind, lo, hi) in keys.items():
+        for key in keys:
+            k, param, typ = key.name, key.param, key.type
             if k not in g:
                 continue
             kp, kl = f"{sp}.{k}", g.line_of(k)
@@ -3086,20 +3213,14 @@ def preset_values(v, dev, d, p):
                        if param.startswith("pad.") else "the device has no buttons")
                 v.err(kp, kl, f"{param} doesn't exist on this device: {why}")
                 continue
-            if callable(default):
-                default = default(dev)
-            if kind == "int":
-                val, shown = v.integer(g, k, sp, lo, hi), None
-            elif kind == "bool":
+            if isinstance(typ, _Bool):         # (Bool's check reads a wrong value as false)
                 val = v.boolean(g, k, sp, default=None)
                 val, shown = (None, None) if val is None else (int(val), str(val).lower())
-            elif kind == "ms":
-                val = v.period(g, k, sp, lo * 1000, hi * 1000, step_us=1000, example="80ms")
-                shown = f"{val} ms"
             else:
-                val = v.enum_value(g, k, kp, kind)
-                shown = None if val is None else kind[val]
-            put(param, 0, val, default, kp, kl, param, shown)
+                val = keys.get(v, g, k, sp, default=None)
+                shown = (None if val is None or isinstance(typ, _Int) else f"{val} ms" if isinstance(typ, _Period)
+                         else typ.values[val])
+            put(param, 0, val, preset_base(dev, key), kp, kl, param, shown)
 
     for sec, (kind, plural, allowed, hw) in PRESET_COMPONENTS.items():
         if sec not in d:
@@ -4378,6 +4499,9 @@ CORE_AREAS = {
     "device": DEVICE_KEYS,
     "midi": MIDI_AREA,
     "scanning": SCAN_AREA,
+    "presets": PRESETS_AREA,
     "feedback": FEEDBACK_AREA,
+    "displays": DISPLAYS_AREA,
+    "layout": LAYOUT_AREA,
     "safety": SAFETY_AREA,
 }

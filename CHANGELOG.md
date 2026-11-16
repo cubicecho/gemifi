@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.59.0](https://github.com/cubicecho/gemifi/compare/v0.58.0...v0.59.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **buttons:** build gestures_ms warning-free with only hold: or only double_tap: ([e6c9575](https://github.com/cubicecho/gemifi/commit/e6c95757a188696bab3e23f2646eec65f0959dad))
+
+
+### Features
+
+* **builder:** actions: lists on buttons, gestures, combos, twins and presets ([c27c835](https://github.com/cubicecho/gemifi/commit/c27c83523d775c245d23e8e43ca2b4d28166f364))
+* **buttons:** run action lists, one press sending several messages ([06847f8](https://github.com/cubicecho/gemifi/commit/06847f84222cdd834ae295bfedc51770d4cd41ea))
+
 # [0.58.0](https://github.com/cubicecho/gemifi/compare/v0.57.1...v0.58.0) (2026-11-16)
 
 

@@ -122,7 +122,7 @@ The app also answers the Universal Identity Request `F0 7E 7F 06 01 F7` with a s
 - bit 1: config (`GET_SCHEMA` …)
 - bit 2: LOG messages
 - bit 3: EVENT messages
-- bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, params 17–19)
+- bit 5: presets (§4.5: PRESET_* commands, PRESET_CHANGED, the `preset.*` params). Only in an app with 2 or more preset slots: with one, presets are off (§4.5).
 - bit 6: host feedback (§4.6: GET_COMPONENT, the FB_* notifications and BOOTED)
 - bit 7: gemifi bootloader: REBOOT(1) leads to a gemifi bootloader (role 1). Only meaningful on boards that may instead carry a vendor bootloader (the Code 61: M-Audio's, with its own update protocol). An app sets it when it finds the gemifi bootloader's marker; without it, hosts use the board's vendor path.
 - bit 8: physical layout (§4.7: GET_LAYOUT). Only in an app built from a YAML with `layout:`.
@@ -211,6 +211,8 @@ The schema for each firmware is listed in its README (`firmware/<family>/<app>/R
 
 A **preset** is a named set of values for what the controls do: which CC or note they send, on which channel, with which curve. A device with presets sets HELLO caps bit 5. Design background: `research/core/presets-design.md`.
 
+**Presets off.** A device built with one slot (no `presets:` in its YAML) has presets off. Its one slot only holds its settings: GET/SET_PARAM(S) and COMMIT work as on any device, and COMMIT stores the per-preset values and the globals as it would for the active preset. HELLO leaves out caps bit 5, the PRESET_* commands answer BAD_CMD, PRESET_CHANGED is never sent, and the schema has none of the params below, no "Presets" group and no preset button actions (their `button.action` options are left out, §4.4). A host shows plain settings.
+
 **Slots.**
 - Presets are numbered 1..`count`. The firmware fixes `count` (YAML `presets: { slots }`); PRESET_INFO reports it.
 - Preset 1 holds the components' own defaults.
@@ -245,7 +247,7 @@ A **preset** is a named set of values for what the controls do: which CC or note
 | 33 | `preset.count` | global, READ_ONLY | int 1..`count` | The presets in use (above). Changed by PRESET_SAVE, PRESET_NAME, PRESET_DELETE and PRESET_RESET 0, and stored with the globals by the device itself. |
 | 41 | `preset.bank` | per preset | int −1..16383 | Bank Select sent before the Program Change: CC 0 = bank >> 7, then CC 32 = bank & 127; −1 = none. Only on devices built with bank select (`core/README.md` "MIDI messages"). |
 
-They are in the group "Presets". When `count` is 1, only `preset.active` is there.
+They are in the group "Presets". A device with presets off has neither the group nor any of them.
 
 **Select** = SET_PARAM `preset.active` = slot.
 1. The device releases everything held: Note Off for held keys and note buttons, CC-momentary buttons, bend and ramps.

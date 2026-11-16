@@ -5,7 +5,7 @@ c_tables() where gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
+from components.api import NO_PIN, PRESETS_OFF, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
 from components.leds import led_ref
 
@@ -82,10 +82,9 @@ def button_action(v, dev, d, p, base=None):
         dev.msg_used.add(MSG_ACTIONS[act])
     if act in PAD_ACTIONS:
         dev.pad_action_uses.append((f"{p}.action", d.line_of("action") if "action" in d else d.line, act))
-    if act in PRESET_ACTIONS and dev.n_presets < 2:
+    if act in PRESET_ACTIONS and not dev.has_presets:
         v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
-              f"action {act} switches presets, but this device has {dev.n_presets} preset slot: add "
-              "presets: (with 2 or more slots)")
+              f"action {act} switches presets, but {PRESETS_OFF}")
         return act, (base[1] if base else 0)
     if act == "mcu" or "mcu" in d:
         if base and act == base[0] == "mcu" and "mcu" not in d:

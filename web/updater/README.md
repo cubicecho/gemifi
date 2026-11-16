@@ -65,7 +65,9 @@ an older one lists every slot). A device with a display shows the name when the 
 and at once when the active one is renamed. Under the card, the settings are split: what each
 preset has its own of ("In "<name>"") and what is the same in every preset. The page follows
 switches made on the device (PRESET_CHANGED) and reads the values again. Save to device stores the
-active preset with the shared settings.
+active preset with the shared settings. A device with presets off (no `presets:` in its YAML, caps
+bit 5 clear) has no Presets card: the view is called Settings and shows its settings in one list,
+and Save to device stores them.
 
 **Demo device.** `npm run dev` with `?demo` in the URL (`http://localhost:3000/?demo&view=presets`)
 connects a pretend Code 61 (`src/dev/demo-device.ts`): HELLO, the config and the presets in

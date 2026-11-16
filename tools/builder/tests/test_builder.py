@@ -2312,9 +2312,13 @@ list:
 
     def test_preset_action_errors(self):
         btn = MINIMAL_NUC.replace("action: cc_momentary, cc: 1", "%s")
-        self.assertError(btn % "action: preset_next", r"this device has 1 preset slot: add presets:")
-        self.assertError(btn % "action: preset_select, preset: 2" + "presets: { slots: 1 }\n",
-                         r"switches presets.*1 preset slot")
+        self.assertError(btn % "action: preset_next",
+                         r"switches presets, but presets are off on this device \(no presets:\): add presets: "
+                         r"with 2 or more slots")
+        # presets: with one slot is refused, and only there: not the preset_select too
+        es = self.errs(btn % "action: preset_select, preset: 2" + "presets: { slots: 1 }\n")
+        self.assertEqual([e.path for e in es], ["presets.slots"], [str(e) for e in es])
+        self.assertRegex(es[0].msg, r"one preset slot is presets off")
         withp = btn + "presets: { slots: 3 }\n"
         self.assertClean(withp % "action: preset_select, preset: 3")
         self.assertError(withp % "action: preset_select, preset: 4", r"4 is out of range \(1\.\.3\)")
@@ -2332,31 +2336,54 @@ list:
         self.assertError(presets("slots: 65"), r"65 is out of range \(1\.\.64\)")
         self.assertError(presets("slots: 1\nlist: [{ name: A }, { name: B }]"),
                          r"1 slot can't hold the 2 presets in presets.list")
-        self.assertError(presets("revision: 16384"), r"16384 is out of range \(0\.\.16383\)")
+        self.assertError(presets("slots: 2\nrevision: 16384"), r"16384 is out of range \(0\.\.16383\)")
         # #115: an invalid slots: is the only error, not every preset: above the list's length too
         for bad in ("slots: 0", "slots: many", "slots: 1\nlist: [{ name: A }, { name: B }]"):
             t = PRESET_NUC.replace("  - { id: c, pin: PA3, action: octave_up }\n",
                                    "  - { id: c, pin: PA3, action: preset_select, preset: 5 }\n")
             es = self.errs(presets(bad, base=t))
             self.assertEqual([e.path for e in es], ["presets.slots"], [str(e) for e in es])
-        self.assertClean(presets("revision: 16383"))
+        self.assertClean(presets("slots: 2\nrevision: 16383"))
         self.assertError(presets("list: { name: A }"), r"must be a list", path="presets.list")
+
+    def test_one_slot_is_presets_off(self):
+        """presets: with one slot does nothing a device without presets: doesn't: refused, once, saying so."""
+        for body, path in (("slots: 1", "presets.slots"), ("list: [{ name: Live, program: 4 }]", "presets"),
+                           ("revision: 2", "presets")):
+            with self.subTest(body):
+                es = self.errs(presets(body))
+                self.assertEqual([e.path for e in es], [path], [str(e) for e in es])
+                self.assertRegex(es[0].msg, r"one preset slot is presets off, the same as leaving presets: out: "
+                                            r"give 2 or more slots")
+        self.assertClean(presets("list: [{ name: Live }, { name: Two }]"))
+
+    def test_presets_off_params(self):
+        """Without presets: the builder's param table has no preset.* params (settings.c GM_HAS_PRESETS)."""
+        dev, _h, _c = self.gen(MINIMAL_NUC)
+        counts = {n: c(dev) for n, _i, _s, c in gd.PARAMS if n.startswith("preset.")}
+        self.assertFalse(dev.has_presets)
+        self.assertEqual(set(counts.values()), {0}, counts)
+        dev, _h, _c = self.gen(presets("slots: 2"))
+        self.assertTrue(dev.has_presets)
+        self.assertEqual({n: c(dev) for n, _i, _s, c in gd.PARAMS if n.startswith("preset.")},
+                         {"preset.active": 1, "preset.program": 1, "preset.dirty": 1, "preset.count": 1,
+                          "preset.bank": 0})
 
     def test_names(self):
         self.assertError(presets("list: [{ name: A }, { name: a }]"), r"'a' is already the name of presets.list\[0\]")
         self.assertError(presets("slots: 3\nlist: [{ name: A }, { name: Preset 3 }]"),
                          r"'Preset 3' is the name of empty slot 3")
-        self.assertError(presets("list: [{ name: 12345678901234567 }]"), r"17 characters: at most 16")
+        self.assertError(presets("list: [{ name: 12345678901234567 }, {}]"), r"17 characters: at most 16")
         self.assertClean(presets("list: [{ name: 1234567890123456 }, { name: 808 }]"))
-        self.assertError(presets("list: [{ name: Café }]"), r"printable ASCII")
-        self.assertError(presets("list: [{ name: '  ' }]"), r"non-empty")
-        dev, _ = load(presets("list: [{ name: 808 }]"))
+        self.assertError(presets("list: [{ name: Café }, {}]"), r"printable ASCII")
+        self.assertError(presets("list: [{ name: '  ' }, {}]"), r"non-empty")
+        dev, _ = load(presets("list: [{ name: 808 }, {}]"))
         self.assertEqual(dev.presets[0].name, "808")
 
     def test_preset_1_only_name_and_program(self):
-        self.assertError(presets("list:\n  - { name: A, midi: { channel: 2 } }"),
+        self.assertError(presets("list:\n  - { name: A, midi: { channel: 2 } }\n  - {}"),
                          r"preset 1 is the component defaults", path="presets.list[0].midi")
-        self.assertError(presets("list:\n  - { name: A, program: 128 }"), r"128 is out of range \(0\.\.127\)")
+        self.assertError(presets("list:\n  - { name: A, program: 128 }\n  - {}"), r"128 is out of range \(0\.\.127\)")
         self.assertError(presets("list:\n  - {}\n  - { leds: {} }"), r"unknown key", path="presets.list[1].leds")
 
     def test_override_errors(self):
@@ -2470,12 +2497,12 @@ list:
             .replace("action: preset_prev", "action: program_prev") + "\n"
         dev, diags = gd.load_device(path, text)
         bd = dev.budget
-        self.assertEqual((bd["preset_values"], bd["global_values"]), (153, 13))
+        self.assertEqual((bd["preset_values"], bd["global_values"]), (153, 12))   # presets off: no preset.active
         # preset: 9 int8 singles (2 words), bend.glide + ramp.time (2), button.action/number 41 values
         # (1 + 2 + 11 each), analog cc and mode 14 each (1 + 1 + 4 each), encoder cc/mode 8 (1 + 1 + 2 each), pad.note 16
         # (1 + 1 + 4) = 66 group words; + 4 header, 4 name, 1 crc
-        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (10 + 66), 4 * (9 + 19)))   # globals + midi.thru, midi.din_out, midi.usb_to_din (din_midi:)
-        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (416, 2048 - 304, 1024))
+        self.assertEqual((bd["preset_record"], bd["global_record"]), (4 * (10 + 66), 4 * (9 + 18)))   # globals + midi.thru, midi.din_out, midi.usb_to_din (din_midi:)
+        self.assertEqual((bd["used"], bd["capacity"], bd["record_limit"]), (412, 2048 - 304, 1024))
         self.assertFalse([d for d in diags if "config page" in d.msg], [str(d) for d in diags])
         self.assertEqual((bd["max_slots"], bd["max_slots_calm"]), (5, 4))
         with_slots = lambda n: text + f"\npresets: {{ slots: {n} }}\n"   # noqa: E731
@@ -2597,7 +2624,7 @@ class TestWriteToFlash(unittest.TestCase):
     def test_one_preset(self):
         """Nothing to remember: a warning, and the code is left out."""
         text = MINIMAL_NUC + "write_to_flash: true\n"
-        self.assertTrue(any("one preset" in w for w in self.warns(text)))
+        self.assertTrue(any("nothing to remember" in w and "presets are off" in w for w in self.warns(text)))
         self.assertEqual(self.defines(text)[0], 0)
 
     def test_devices_leave_it_off(self):
@@ -3124,7 +3151,7 @@ class TestModes(unittest.TestCase):
                          r"goes to a sub-mode does nothing else")
         self.assertError(modes(ROOT + "    C3: 5"), r"must be an action")
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
-        self.assertError(modes(ROOT + "    C3: preset_next", base=nopre), r"preset_next switches presets.*1 preset slot")
+        self.assertError(modes(ROOT + "    C3: preset_next", base=nopre), r"preset_next switches presets, but presets are off")
         sw = MODES_NUC.replace("type: velocity", "type: switch").replace("columns: [PB0, PB1, PB2, PB3, PB4, PB5, PB8, PB12]",
                                                                         "columns: [PB0, PB1, PB2, PB3]")
         self.assertError(modes(ROOT + "    C3: { action: velocity_curve, curve: hard }", base=sw), r"needs a velocity key matrix")
@@ -3178,7 +3205,7 @@ class TestModes(unittest.TestCase):
         self.assertError(modes("- { id: x, hold: menu, buttons: [a] }"), r"must be a mapping of button ids")
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
         self.assertError(modes("- { id: x, hold: menu, buttons: { a: preset_next } }", base=nopre),
-                         r"preset_next switches presets.*1 preset slot")
+                         r"preset_next switches presets, but presets are off")
 
     def test_modifier(self):
         # a hold mode with only a layer: is a modifier: its button keeps its action (CC 1), modifier = 1
@@ -3239,7 +3266,7 @@ class TestModes(unittest.TestCase):
         _dev, _h, c = self.gen(modes(base + "  led: { lamp: on }\n  preset_blink: [lamp]"))
         self.assertIn("{ 1, GM_MODE_NONE, 0, 1, 0, 1, -1, 1, mode_1_keys, 0, 0, 0, 0, 0, 0x00, \"menu\", 0 }", c)
         nopre = MODES_NUC.replace("presets: { slots: 4 }\n", "")
-        self.assertTrue(any("1 preset slot" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
+        self.assertTrue(any("presets are off" in w for w in self.warns(modes(base + "  preset_blink: [lamp]", base=nopre))))
 
 
 PADS_STM = """\

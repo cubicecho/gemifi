@@ -72,6 +72,9 @@ enum {
     P_DIAG_LOOP_MAX = 69,
     P_DIAG_SCAN_PERIOD = 70,
     P_DIAG_UPTIME = 71,
+    /* button gestures (GM_BTN_GESTURES): global, stored once
+     * (components/buttons/README.md "Gestures"): 75-79 */
+    P_BTN_HOLD_TIME = 76,
 };
 
 #ifndef GM_N_PADS
@@ -129,6 +132,14 @@ enum {
 #define GM_N_SYSEX 0                 /* midi_messages.sysex: gm_sysex[] */
 #endif
 #define GM_MSG_WIDE (GM_MSG_CC14 || GM_MSG_NRPN)   /* 14-bit values */
+
+/* Button gestures (components/buttons/README.md "Gestures"): which buttons
+ * have each, one bit per button; 0 = none, and the gesture code and its
+ * params are left out. */
+#ifndef GM_BTN_HOLD
+#define GM_BTN_HOLD 0                /* hold: an action of its own when held */
+#endif
+#define GM_BTN_GESTURES (GM_BTN_HOLD != 0)
 /* Presets are on with 2 or more slots (YAML presets:). One slot (no presets:)
  * is presets off: the slot only holds the settings, and HELLO caps bit 5, the
  * PRESET_* commands, the preset.* params and the preset actions are left out. */
@@ -223,6 +234,9 @@ typedef struct {
     int32_t din_thru;                /* DIN In -> DIN Out              */
     int32_t din_out;                 /* the controller -> DIN Out      */
     int32_t din_usb;                 /* usb_merge: host -> DIN Out     */
+#endif
+#if GM_BTN_HOLD
+    int32_t btn_hold_time;           /* ms: held this long is a hold, sooner a tap */
 #endif
 #if GM_LAYER_PARAMS
     int32_t layer_enabled[GM_N_MODES];   /* 0: a cycle skips the step, a toggle / hold can't enter */

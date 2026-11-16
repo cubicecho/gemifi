@@ -168,6 +168,12 @@ def accel():
                                                                "curve": enum(gd.ACCEL_CURVES)}))
 
 
+def gesture():
+    """A button's hold: (components/buttons/README.md "Gestures"): an action's name, or the keys of an action."""
+    return one_of(enum(a for a in gd.ACTIONS if a not in gd.buttons.NOT_GESTURE_ACTIONS),
+                  obj(gd.buttons.GESTURE_KEYS))
+
+
 def presets():
     comps = {}
     for sec, (_kind, _pl, allowed, _hw) in gd.PRESET_COMPONENTS.items():
@@ -280,7 +286,9 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "buttons": lst(obj(gd.BUTTON_KEYS, CTL_TYPES)),
+        "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES}})),
+        "button_settings": obj(gd.buttons.BUTTON_SETTINGS_KEYS, {k: PERIOD for k in gd.buttons.BUTTON_SETTINGS_KEYS},
+                               "the gestures' timing (components/buttons/README.md \"Gestures\")"),
         "led_defaults": obj(gd.LED_DEFAULTS_KEYS),
         "leds": lst(obj(gd.LED_KEYS, {
             "feedback": obj([*gd.LED_SOURCES, "channel"], {"channel": T("integer", minimum=1, maximum=16)}),

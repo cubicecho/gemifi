@@ -1,0 +1,26 @@
+# Test device for core/test/test_gestures.c: button gestures
+# (components/buttons/README.md "Gestures"). Not a real board; the pins only
+# need to be distinct for the simulated HAL.
+gemifi: 2
+name: gestures-test
+friendly_name: Gestures Test
+board_id: 0x3F17
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+presets:
+  slots: 4
+  list: [{ name: One }, { name: Two }, { name: Three }, { name: Four }]
+
+buttons:
+  # no gesture: CC 10 at the press, no waiting
+  - { id: plain, pin: { number: PB0, inverted: true }, action: cc_momentary, cc: 10 }
+  # tap: CC 20; held: CC 21 (the button's cc_momentary with another number)
+  - { id: tap_hold, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 20, hold: { cc: 21 } }
+  # tap: note 60; held: the next preset
+  - { id: note_hold, pin: { number: PB2, inverted: true }, action: note, note: 60, hold: preset_next }
+
+button_settings:
+  hold_time: 300ms

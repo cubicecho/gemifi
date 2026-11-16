@@ -1,11 +1,12 @@
-"""buttons: the buttons (`buttons:`), a control: buttons.c samples them and runs their actions, this file
-validates their YAML (and a preset's or a layer's button action) and writes their C (README.md here). The
-builder (gemifi_device.py) calls validate() after the LEDs, and c_defines(), c_param_defaults() and
-c_tables() where gm_device_config.h / .c have them.
+"""buttons: the buttons (`buttons:`, `button_settings:`), a control: buttons.c samples them and runs their
+actions and gestures, this file validates their YAML (and a preset's or a layer's button action) and writes
+their C (README.md here). The builder (gemifi_device.py) calls validate() after the LEDs,
+validate_gestures() after the modes, and c_defines(), c_param_defaults() and c_tables() where
+gm_device_config.h / .c have them.
 """
 import difflib
 
-from components.api import NO_PIN, PRESETS_OFF, RENAMED_ID, Hub, c_param_array, c_str, sysex_wide, twin_c
+from components.api import NO_PIN, PRESETS_OFF, RENAMED_ID, Hub, LDict, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
 from components.leds import led_ref
 
@@ -30,7 +31,20 @@ MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "re
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
-               "bank", "channel", "min", "max"]
+               "bank", "channel", "min", "max", "hold"]
+# Gestures (README.md "Gestures"): a button's hold: takes the keys of its action; what it leaves out is the
+# button's.
+GESTURES = ("hold",)
+GESTURE_KEYS = ["action", "cc", "note", "preset", "program", "mmc", "sysex", "mcu"]
+# Actions that work for as long as the button is held: a gesture can't run them, and a button with one can't
+# have a gesture (its press would wait to be told apart).
+HELD_ACTIONS = {"cc_ramp", "bend_down", "bend_up"}
+# ... nor cc_toggle: its on/off state is the button's own, which the button's LED and host echoes show.
+NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
+# button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
+# key -> (default, lo, hi, the gesture that uses it).
+BUTTON_SETTINGS = {"hold_time": (200, 100, 5000, "hold")}
+BUTTON_SETTINGS_KEYS = list(BUTTON_SETTINGS)
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
 
@@ -56,9 +70,44 @@ def validate(v, dev, data):
         act, num = button_action(v, dev, d, p)
         led = led_ref(v, dev, d, p, ("button", act))
         top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
+        gestures = {g: gesture_action(v, dev, d, p, g, (act, num)) for g in GESTURES if d.get(g) is not None}
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
                                action_name=act, number=num, led=led, daw=v.daw_role(dev, d, p),
-                               ctl=v.control_out(d, p, top), bank=button_bank(v, dev, d, p, act)))
+                               ctl=v.control_out(d, p, top), bank=button_bank(v, dev, d, p, act),
+                               gestures={g: a for g, a in gestures.items() if a is not None}, path=p,
+                               line=d.line))
+
+
+def gesture_action(v, dev, d, p, key, base):
+    """A button's hold: (README.md "Gestures"): the action it runs instead of the button's own, as
+    (action name, button.number), or None. A string names the action; a mapping takes the keys of the
+    button's action, and what it leaves out is the button's (base: its (action, number))."""
+    path, line = f"{p}.{key}", d.line_of(key)
+    g = d[key]
+    if isinstance(g, str):
+        g = LDict(action=g)
+        g.line = line
+    g = v.mapping(g, path, line, GESTURE_KEYS)
+    if g is None:
+        return None
+    if not g:
+        v.err(path, line, f"give the action it runs: `{key}: panic`, or `{key}: {{ cc: 21 }}` for the "
+                          "button's own action with another number")
+        return None
+    if base[0] in HELD_ACTIONS:
+        v.err(path, line, f"action {base[0]} works for as long as the button is held, so its press can't wait "
+                          f"to be told apart from a {key}: give the {key}: to another button")
+        return None
+    act, num = button_action(v, dev, g, path, base=base)
+    if number_key(act) is None and act != "mcu":
+        num = 0                     # the button's number is for its own action, not this one
+    if act in NOT_GESTURE_ACTIONS:
+        why = ("its on/off state is the button's own" if act == "cc_toggle" else
+               "it works for as long as the button is held, and a gesture is only known later")
+        v.err(f"{path}.action" if "action" in g else path, g.line_of("action"),
+              f"a gesture can't run action {act}: {why}")
+        return None
+    return act, num
 
 
 def button_action(v, dev, d, p, base=None):
@@ -201,10 +250,91 @@ def button_bank(v, dev, d, p, act):
     return bank
 
 
+def validate_gestures(v, dev, data):
+    """After the modes (they say which buttons switch them): a button a mode switches with has no
+    gestures; then button_settings: -> dev.btn_set, the timing params' defaults."""
+    for idx, b in enumerate(dev.buttons):
+        for g in getattr(b, "gestures", {}):
+            why = mode_use(v, dev, idx)
+            if why:
+                v.err(f"{b.path}.{g}", b.line, f"button '{b.id}' {why}, so it can't have {g}:")
+    button_settings(v, dev, data)
+
+
+def mode_use(v, dev, idx):
+    """Why button idx can't have gestures or be in a combo: the way a mode uses it (or None). A mode's
+    toggle, hold or cycle button has no action of its own, and a modifier or a `with:` button is held for
+    the others' presses, which go to the mode at once (components/modes/README.md)."""
+    if idx in v.mode_toggles:
+        return f"switches mode '{v.mode_toggles[idx]}' and has no action of its own"
+    if idx in v.mode_modifiers:
+        return (f"is held for mode '{v.mode_modifiers[idx]}' (a modifier: its layer is \"Shift + a button\"), "
+                "and a held modifier can't wait to be told apart")
+    if idx in v.mode_with_buttons:
+        return (f"is the with: button of mode '{v.mode_with_buttons[idx]}' (held for \"Shift + a button\"), "
+                "and a held with: button can't wait to be told apart")
+    return None
+
+
+def held_action_problem(dev, idx, act):
+    """Why button idx can't take action act from a preset (or None): act works for as long as the
+    button is held (HELD_ACTIONS), and the button's presses wait for a gesture."""
+    gestures = getattr(dev.buttons[idx], "gestures", {})
+    if act not in HELD_ACTIONS or not gestures:
+        return None
+    return (f"action {act} works for as long as the button is held, and button '{dev.buttons[idx].id}' has "
+            f"{', '.join(g + ':' for g in gestures)}, so its presses wait to be told apart")
+
+
+def gestures_used(dev):
+    """The gestures the device's buttons have (README.md "Gestures"), each once."""
+    return {g for b in dev.buttons for g in getattr(b, "gestures", {})}
+
+
+def button_settings(v, dev, data):
+    """button_settings: the gestures' timing (README.md "Gestures") -> dev.btn_set {key: ms}. A key for a
+    gesture no button has is a warning: its param isn't there."""
+    dev.btn_set = {k: x[0] for k, x in BUTTON_SETTINGS.items()}
+    if data.get("button_settings") is None:
+        return
+    p, line = "button_settings", data.line_of("button_settings")
+    s = v.mapping(data["button_settings"], p, line, BUTTON_SETTINGS_KEYS)
+    if s is None:
+        return
+    used = gestures_used(dev)
+    for k, (default, lo, hi, gesture) in BUTTON_SETTINGS.items():
+        ms = v.period(s, k, p, lo * 1000, hi * 1000, step_us=1000, example=f"{default}ms")
+        if ms is None:
+            continue
+        dev.btn_set[k] = ms
+        if gesture not in used:
+            v.warn(f"{p}.{k}", s.line_of(k), f"no button has {gesture}:, so {k} does nothing (it isn't a param "
+                                             "on this device)")
+
+
+def gesture_mask(dev, gesture):
+    """The buttons with a gesture, one bit each (gm_settings.h GM_BTN_HOLD ...)."""
+    return sum(1 << i for i, b in enumerate(dev.buttons) if gesture in getattr(b, "gestures", {}))
+
+
+def gesture_names(dev, mask):
+    return ", ".join(dev.buttons[i].id for i in range(len(dev.buttons)) if (mask >> i) & 1)
+
+
 def c_defines(dev):
-    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any."""
+    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any; the gesture masks and
+    their timing defaults (button_settings:), when a button has one."""
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
-    return [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
+    h = [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
+    hold = gesture_mask(dev, "hold")
+    if not hold:
+        return h
+    s = getattr(dev, "btn_set", {})
+    h += ["/* button gestures (components/buttons/README.md \"Gestures\"): one bit per button */",
+          f"#define GM_BTN_HOLD 0x{hold:X}ull /* hold: {c_comment(gesture_names(dev, hold))} */",
+          f"#define GM_BTN_HOLD_TIME_DEFAULT {s.get('hold_time', BUTTON_SETTINGS['hold_time'][0])} "
+          "/* ms, button_settings.hold_time */"]
+    return h
 
 
 def c_param_defaults(dev):
@@ -217,11 +347,22 @@ def c_param_defaults(dev):
 
 
 def c_tables(dev):
-    """gm_button_t buttons[] (gm_device.h)."""
+    """gm_button_t buttons[] (gm_device.h), and gm_btn_gestures[] when a button has a gesture."""
     c = []
     if dev.buttons:
         c.append("static const gm_button_t buttons[GM_N_BUTTONS] = {")
         c += [f"    {{ {b.pin.c()}, {c_str(b.name)}, {b.led}{twin_c(b)} }}, "
               f"/* {c_comment(b.id)}: {c_comment(b.pin.desc)} */" for b in dev.buttons]
         c += ["};", ""]
+    if gestures_used(dev):
+        c += ["/* button gestures: { hold } as { action, number }, GM_BTN_NO_ACT = none */",
+              "const gm_btn_gesture_t gm_btn_gestures[GM_N_BUTTONS] = {",
+              *[f"    {{ {c_gesture_act(b, 'hold')} }}, /* {c_comment(b.id)} */" for b in dev.buttons],
+              "};", ""]
     return c
+
+
+def c_gesture_act(b, gesture):
+    """A gm_btn_act_t initializer: the button's gesture's { action, number }, or none."""
+    a = getattr(b, "gestures", {}).get(gesture)
+    return f"{{ {ACTION_IDS[a[0]]}, {a[1]} }}" if a else "{ GM_BTN_NO_ACT, 0 }"

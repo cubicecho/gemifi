@@ -52,6 +52,12 @@ int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c 
 #define GM_PAD_RETRIGGER_DEFAULT 20
 #endif
 
+/* Gesture timing defaults, in ms: the YAML's button_settings:
+ * (components/buttons/README.md "Gestures"). */
+#ifndef GM_BTN_HOLD_TIME_DEFAULT
+#define GM_BTN_HOLD_TIME_DEFAULT 200
+#endif
+
 /* Presets in use on a fresh device: the YAML's list (sysex.md §4.5). */
 #ifdef GM_N_YAML_PRESETS
 #define GM_PRESETS_IN_USE GM_N_YAML_PRESETS
@@ -256,6 +262,12 @@ static const param_def_t params[] = {
     { .id = P_RAMP_TIME, .flags = PF_PRESET, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 0, .max = 5000, .def = 300, .unit = "ms",
       .name = "ramp.time", .label = "CC ramp time", .values = &gm_cfg.ramp_time },
+#endif
+    /* gestures: global, the same in every preset */
+#if GM_BTN_HOLD
+    { .id = P_BTN_HOLD_TIME, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+      .min = 100, .max = 5000, .def = GM_BTN_HOLD_TIME_DEFAULT, .unit = "ms",
+      .name = "button.hold_time", .label = "Hold after", .values = &gm_cfg.btn_hold_time },
 #endif
 
 #if GM_N_ANALOGS > 0

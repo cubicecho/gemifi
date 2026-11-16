@@ -46,6 +46,7 @@
 #                  (components/ws2812/test/)
 # test_keys_only:  a key matrix and nothing else: no buttons, LEDs, analog
 #                  inputs or encoders (keys-only-test.yaml)
+# test_gestures:   button gestures on fake time (gestures-test.yaml)
 
 ROOT  := ../..
 BUILD ?= build
@@ -95,6 +96,8 @@ WS_DEVICE := $(ROOT)/components/ws2812/test/ws2812-test.yaml
 WS_DEV    := $(BUILD)/device-ws2812
 KO_DEVICE := keys-only-test.yaml
 KO_DEV    := $(BUILD)/device-keys-only
+GES_DEVICE := gestures-test.yaml
+GES_DEV    := $(BUILD)/device-gestures
 WTF_DEVICE := $(BUILD)/keystation-write-to-flash.yaml
 WTF_DEV    := $(BUILD)/device-wtf
 GEN_OUT := $(shell mkdir -p $(BUILD) && { cat $(KS_YAML); echo 'unlock: true'; } > $(DEVICE).new && \
@@ -197,6 +200,10 @@ GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(KO_D
 ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
 $(error $(KO_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
 endif
+GEN_OUT := $(shell python3 $(ROOT)/tools/builder/gemifi_build.py generate $(GES_DEVICE) -o $(GES_DEV) 2>&1 >/dev/null || echo GEN_FAILED)
+ifneq ($(findstring GEN_FAILED,$(GEN_OUT)),)
+$(error $(GES_DEVICE): $(subst GEN_FAILED,,$(GEN_OUT)))
+endif
 
 CFLAGS := -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Werror \
           -I$(ROOT)/core/include -I$(ROOT)/platform/nuvoton-nuc1xx/include
@@ -214,7 +221,7 @@ include $(2)/gm_components.mk
 $(1)_COMP_SRCS := $$(GM_COMPONENT_SRCS)
 endef
 CONFIG_DIRS := DEV WTF_DEV FB_DEV MX_DEV HW_DEV TM_DEV TMA_DEV SEG_DEV PAD_DEV PADHW_DEV DINP_DEV DINM_DEV \
-               LED_DEV LEDL_DEV LEDM_DEV ENC_DEV I2C_DEV OLED_DEV MSG_DEV MODES_DEV WS_DEV KO_DEV
+               LED_DEV LEDL_DEV LEDM_DEV ENC_DEV I2C_DEV OLED_DEV MSG_DEV MODES_DEV WS_DEV KO_DEV GES_DEV
 $(foreach c,$(CONFIG_DIRS),$(eval $(call load_components,$(c),$($(c)))))
 CFLAGS += $(addprefix -I,$(sort $(dir $(wildcard $(ROOT)/components/*/*.h))))
 
@@ -242,9 +249,10 @@ MSG_SRCS := test_msg.c $(CORE_SRCS) $(MSG_DEV)/gm_device_config.c $(MSG_DEV_COMP
 MODES_SRCS := test_modes.c $(CORE_SRCS) $(MODES_DEV)/gm_device_config.c $(MODES_DEV_COMP_SRCS)
 WS_SRCS := $(ROOT)/components/ws2812/test/test_ws2812.c $(CORE_SRCS) $(WS_DEV)/gm_device_config.c $(WS_DEV_COMP_SRCS)
 KO_SRCS := test_keys_only.c $(CORE_SRCS) $(KO_DEV)/gm_device_config.c $(KO_DEV_COMP_SRCS)
+GES_SRCS := test_gestures.c $(CORE_SRCS) $(GES_DEV)/gm_device_config.c $(GES_DEV_COMP_SRCS)
 
 .PHONY: test clean
-test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812 $(BUILD)/test_keys_only
+test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedback $(BUILD)/test_matrix $(BUILD)/test_matrix_hw $(BUILD)/test_tm1628 $(BUILD)/test_tm1628_ack $(BUILD)/test_seg_hubs $(BUILD)/test_pads $(BUILD)/test_pads_hw $(BUILD)/test_display $(BUILD)/test_displays $(BUILD)/test_din_port $(BUILD)/test_din_merge $(BUILD)/test_leds $(BUILD)/test_leds_local $(BUILD)/test_leds_many $(BUILD)/test_encoders $(BUILD)/test_i2c $(BUILD)/test_oled $(BUILD)/test_msg $(BUILD)/test_modes $(BUILD)/test_ws2812 $(BUILD)/test_keys_only $(BUILD)/test_gestures
 	$(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_COLS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
 	GM_TEST_SLOW_ROWS=1 $(BUILD)/test_controller $(BUILD)/schema.bin
@@ -277,6 +285,7 @@ test: $(BUILD)/test_controller $(BUILD)/test_controller_wtf $(BUILD)/test_feedba
 	$(BUILD)/test_modes
 	$(BUILD)/test_ws2812
 	$(BUILD)/test_keys_only
+	$(BUILD)/test_gestures
 
 $(BUILD)/test_controller: $(SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) fake_config_store.h $(DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
@@ -376,3 +385,7 @@ $(BUILD)/test_ws2812: $(WS_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/com
 $(BUILD)/test_keys_only: $(KO_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(KO_DEV)/gm_device_config.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(KO_DEV) $(KO_SRCS) -o $@
+
+$(BUILD)/test_gestures: $(GES_SRCS) $(wildcard $(ROOT)/core/include/*.h $(ROOT)/components/*/*.h) $(GES_DEV)/gm_device_config.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(GES_DEV) $(GES_SRCS) -o $@

@@ -17,6 +17,7 @@
 #include "gm_safety.h"
 #include "gm_mcu.h"
 #include "gm_vpin.h"
+#include "gm_hal.h"
 #include "params.h"
 
 #if GM_N_BUTTONS > 0
@@ -137,12 +138,12 @@ void step_and_show(int32_t *v, int32_t step, int32_t lim, uint16_t id, int reset
     gm_display_message(t);
 }
 
-static void button_changed(uint32_t i, int down)
+/* Action act with number num of button i, pressed (down) or let go: the
+ * button's own action, or one of its gestures'. It sends with the button's
+ * channel:, min:, max: and bank:, and keeps its note and toggle state in
+ * the button's. */
+static void run_action(uint32_t i, int32_t act, uint32_t num, int down)
 {
-    int32_t act = gm_cfg.btn_action[i];
-    uint32_t num = (uint32_t)gm_cfg.btn_number[i];
-    send_event(EV_BUTTON, i, (uint32_t)down);
-    app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? " down" : " up");
     switch (act) {
     case ACT_CC_MOMENTARY:
         BTN_CC(i, num, down ? 127 : 0);
@@ -248,11 +249,111 @@ static void button_changed(uint32_t i, int down)
     }
 }
 
+/* A press or release as it happens: its EVENT and log line. */
+static void report_change(uint32_t i, int down)
+{
+    send_event(EV_BUTTON, i, (uint32_t)down);
+    app_log(LOG_DEBUG, gm_device.buttons[i].name, down ? " down" : " up");
+}
+
+static void button_changed(uint32_t i, int down)
+{
+    int32_t act = gm_cfg.btn_action[i];
+    uint32_t num = (uint32_t)gm_cfg.btn_number[i];
+    report_change(i, down);
+    run_action(i, act, num, down);
+}
+
+#if GM_BTN_GESTURES
+/* Gestures (components/buttons/README.md "Gestures"). A button with one
+ * doesn't run its action at the press: gesture_input takes its presses and
+ * releases, and gestures_ms (every sample) times them. The other buttons
+ * never wait. */
+#define GESTURE_BUTTONS ((btn_bits_t)(GM_BTN_HOLD))
+enum {
+    GS_IDLE,                        /* up, nothing to decide */
+    GS_PRESSED,                     /* down: a tap if let go before hold_time */
+    GS_HOLD,                        /* held past hold_time: its hold action is down */
+};
+static uint8_t gs_state[NB];
+static uint32_t gs_pressed_at[NB];  /* ms */
+
+/* The button's own action (button.action, button.number). */
+static void own_action(uint32_t i, int down)
+{
+    run_action(i, gm_cfg.btn_action[i], (uint32_t)gm_cfg.btn_number[i], down);
+}
+
+static void hold_action(uint32_t i, int down)
+{
+    const gm_btn_act_t *a = &gm_btn_gestures[i].hold;
+    run_action(i, a->action, a->number, down);
+}
+
+/* Button i's press or release, if it has a gesture: 1 if it took it. */
+static int gesture_input(uint32_t i, int down, uint32_t now)
+{
+    int has_gesture = (GESTURE_BUTTONS >> i) & 1u;
+    if (!has_gesture)
+        return 0;
+    report_change(i, down);         /* the EVENT now; the action may come later */
+    if (down) {
+        gs_state[i] = GS_PRESSED;
+        gs_pressed_at[i] = now;
+        return 1;
+    }
+    uint8_t was = gs_state[i];
+    gs_state[i] = GS_IDLE;
+    if (was == GS_PRESSED) {        /* let go before hold_time: a tap */
+        own_action(i, 1);
+        own_action(i, 0);
+    } else if (was == GS_HOLD) {
+        hold_action(i, 0);
+    }
+    return 1;
+}
+
+/* Every sample: a press held for hold_time is a hold. */
+static void gestures_ms(uint32_t now)
+{
+    for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
+        uint32_t i = (uint32_t)__builtin_ctzll(m);
+        int is_held_long = gs_state[i] == GS_PRESSED && now - gs_pressed_at[i] >= (uint32_t)gm_cfg.btn_hold_time;
+        if (is_held_long) {
+            gs_state[i] = GS_HOLD;
+            app_log(LOG_DEBUG, gm_device.buttons[i].name, ": hold");
+            hold_action(i, 1);
+        }
+    }
+}
+
+/* A preset switch: let go of what a gesture holds, and forget the
+ * presses still being decided (their releases are silent). Returns the
+ * buttons whose own action a gesture kept up. */
+static btn_bits_t gestures_off(void)
+{
+    btn_bits_t own_up = 0;
+    for (btn_bits_t m = GESTURE_BUTTONS; m; m &= m - 1u) {
+        uint32_t i = (uint32_t)__builtin_ctzll(m);
+        uint8_t was = gs_state[i];
+        gs_state[i] = GS_IDLE;
+        if (was == GS_HOLD)
+            hold_action(i, 0);
+        if (was != GS_IDLE)
+            own_up |= (btn_bits_t)1 << i;
+    }
+    return own_up;
+}
+#endif
+
 void buttons_sample(void)
 {
     /* A press counts once a sample saw it in every scan (a contact that
      * only flickered closed, or noise, doesn't press); any scan that saw it
      * closed keeps it held for BTN_STABLE more samples. */
+#if GM_BTN_GESTURES
+    uint32_t now_ms = hal_millis();
+#endif
     btn_bits_t seen;
     btn_bits_t now = read_buttons(&seen);
     btn_bits_t recent = seen;       /* seen pressed in any of the last BTN_STABLE samples */
@@ -295,9 +396,16 @@ void buttons_sample(void)
             if (mode_function_button(i, down))
                 continue;
 #endif
+#if GM_BTN_GESTURES
+            if (gesture_input(i, down, now_ms))
+                continue;
+#endif
             button_changed(i, down);
         }
     }
+#if GM_BTN_GESTURES
+    gestures_ms(now_ms);
+#endif
 }
 
 /* The buttons set to cc_ramp, worked out again when a param changes: the
@@ -357,8 +465,13 @@ void buttons_init(void)
 
 void buttons_off(void)
 {
+#if GM_BTN_GESTURES
+    btn_bits_t own_up = gestures_off();     /* first: a gesture's note is let go once */
+#else
+    const btn_bits_t own_up = 0;
+#endif
     for (uint32_t i = 0; i < GM_N_BUTTONS && i < 64; i++) {
-        int held = (btn_held >> i) & 1u;
+        int held = ((btn_held & ~(uint64_t)own_up) >> i) & 1u;   /* with its own action down */
         int32_t act = gm_cfg.btn_action[i];
         if (btn_note[i] != NOTE_NONE) {
             midi3(0x80 | btn_chan[i], btn_note[i], 0);

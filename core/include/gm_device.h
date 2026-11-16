@@ -325,6 +325,21 @@ extern const gm_ctl_t gm_encoder_ctl[];      /* GM_ENC_CTL */
 #define GM_BANK_NONE 0xFFFFu
 extern const uint16_t gm_button_bank[];      /* GM_BTN_BANK */
 
+/* Button gestures (components/buttons/README.md "Gestures"): an action a
+ * button runs instead of its own when it is held. It sends with the
+ * button's channel:, min:, max: and bank:. GM_BTN_NO_ACT = no gesture. */
+#define GM_BTN_NO_ACT 0xFFu
+typedef struct {
+    uint8_t action;              /* a button.action value (ACT_*)          */
+    uint8_t number;              /* its button.number: CC, note, slot ...  */
+} gm_btn_act_t;
+
+typedef struct {
+    gm_btn_act_t hold;           /* held for button.hold_time              */
+} gm_btn_gesture_t;
+
+extern const gm_btn_gesture_t gm_btn_gestures[];   /* GM_N_BUTTONS entries, with GM_BTN_HOLD */
+
 /* Custom SysEx strings (YAML midi_messages.sysex). data holds the message
  * from F0 to F7, with these placeholders (all >= 0x80, so never a data
  * byte): the value (7-bit), its top and bottom 7 bits (14-bit), the

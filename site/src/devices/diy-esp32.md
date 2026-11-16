@@ -12,7 +12,7 @@ facts:
   - [Controls, "Whatever you wire: buttons, LEDs, pots and faders, encoders, pressure pads, one key matrix (see <a href=\"../../components/\">Components</a>)"]
   - [Expanders, "74HC595, 74HC165, 74HC4051, 74HC4067, MCP23017, PCF8574"]
   - ["USB (gemifi)", "<code>1209:0002</code> “gemifi (&lt;name&gt;)” on the S2 and S3; on the others, the board's own USB-serial chip"]
-  - [gemifi platform, "<a href=\"../../platforms/#esp\"><code>esp32</code>, <code>esp32s2</code>, <code>esp32s3</code></a>; board ids <code>0x3F00</code>–<code>0x3FFF</code> are for DIY builds"]
+  - [gemifi platform, "<a href=\"../../docs/platforms/esp/\"><code>esp32</code>, <code>esp32s2</code>, <code>esp32s3</code></a>; board ids <code>0x3F00</code>–<code>0x3FFF</code> are for DIY builds"]
 yaml:
   - devices/esp32-example.yaml
   - devices/diy-esp32s3-faders.yaml
@@ -49,7 +49,7 @@ Start from one of these and change the pins to match your wiring:
 
 Every button can send a CC (momentary, toggle or ramp), a note, octave or
 transpose shifts, pitch bend or program changes, and all of that can be changed
-later from the web page without rebuilding. [Components]({{ '/components/' | url }})
+later from the web page without rebuilding. [The docs]({{ '/docs/' | url }})
 gives an overview of what a YAML can hold; the full format is in
 [`core/README.md`]({{ "core/README.md" | repoLink }}).
 

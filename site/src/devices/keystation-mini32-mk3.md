@@ -15,7 +15,7 @@ facts:
   - ["USB (stock)", "<code>0763:3111</code>, class-compliant USB MIDI"]
   - ["USB (gemifi app)", "<code>1209:0002</code> “gemifi (Keystation Mini 32)”"]
   - ["USB (gemifi bootloader)", "<code>1209:0001</code> “gemifi boot (Keystation Mini 32)”"]
-  - [gemifi platform, "<a href=\"../../platforms/#nuvoton-nuc1xx\"><code>nuvoton-nuc1xx</code></a>, board id <code>0x0001</code>"]
+  - [gemifi platform, "<a href=\"../../docs/platforms/nuvoton-nuc1xx/\"><code>nuvoton-nuc1xx</code></a>, board id <code>0x0001</code>"]
 yaml:
   - devices/keystation-mini32-mk3.yaml
 photos: Our test unit was photographed during bring-up, but those photos aren't on this site yet.

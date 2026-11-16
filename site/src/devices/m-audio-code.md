@@ -13,7 +13,7 @@ facts:
   - [Controls, "61 keys with velocity, an aftertouch strip, pitch and mod wheels, 9 faders, 8 encoders, 16 pads with RGB LEDs, an XY pad, the panel buttons with their LEDs, a 6-character display, 5-pin MIDI In and Out, a sustain pedal input, a soft power button"]
   - ["USB (gemifi app)", "<code>1209:0002</code> “gemifi (Code 61)”"]
   - ["USB (gemifi bootloader)", "<code>1209:0001</code> “gemifi boot (Code 61)”"]
-  - [gemifi platform, "<a href=\"../../platforms/#stm32f1\"><code>stm32f1</code></a>, board id <code>0x0002</code>"]
+  - [gemifi platform, "<a href=\"../../docs/platforms/stm32f1/\"><code>stm32f1</code></a>, board id <code>0x0002</code>"]
 yaml:
   - devices/m-audio-code61.yaml
   - devices/m-audio-code61-ledmap.yaml

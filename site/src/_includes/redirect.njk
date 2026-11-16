@@ -1,0 +1,19 @@
+{#- A page that moved: sends old links on to `to`, or to `hashes[#anchor]` when the old link named a section. Pages has no redirects, so this is the page. -#}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>{{ title }} · {{ site.name }}</title>
+    <link rel="canonical" href="{{ to | url }}" />
+    <meta http-equiv="refresh" content="0; url={{ to | url }}" />
+    <script>
+      const to = {{ (hashes or {}) | dump | safe }}[location.hash.slice(1)];
+      if (to) location.replace({{ '/' | url | dump | safe }} + to.slice(1));
+    </script>
+  </head>
+  <body>
+    <p>{{ title }} has moved to <a href="{{ to | url }}">the docs</a>.</p>
+  </body>
+</html>

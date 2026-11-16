@@ -540,6 +540,73 @@
       ]
     }
   ],
+  "switch_matrix": [
+    {
+      "section": "switch_matrix",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its switches name: `{ switch_matrix: <id>, number: n }`."
+        },
+        {
+          "key": "rows",
+          "type": "list of pin or mapping",
+          "required": true,
+          "default": null,
+          "doc": "The row pins, driven in turn: MCU pins or decoder outputs, or a run of a decoder's outputs.",
+          "see": "core/README.md \"Matrices behind decoders\"",
+          "keys": [
+            {
+              "key": "decoder",
+              "type": "decoder id",
+              "required": true,
+              "default": null,
+              "doc": "The decoder hub whose outputs are the rows."
+            },
+            {
+              "key": "first",
+              "type": "integer 0..255",
+              "required": false,
+              "default": "`0`",
+              "doc": "Its output that is the first row."
+            },
+            {
+              "key": "count",
+              "type": "integer 1..255",
+              "required": true,
+              "default": null,
+              "doc": "The rows: its outputs from `first` on."
+            }
+          ]
+        },
+        {
+          "key": "columns",
+          "type": "list of pin",
+          "required": true,
+          "default": null,
+          "doc": "The column pins, read for each row: MCU inputs (at most 32)."
+        },
+        {
+          "key": "settle",
+          "type": "time 0us..255us",
+          "required": false,
+          "default": "`1us`",
+          "doc": "How long it waits after driving a row before it reads the columns."
+        },
+        {
+          "key": "rows_per_scan",
+          "type": "integer 1..32",
+          "required": false,
+          "default": "all rows",
+          "doc": "The rows read per scan, in turn, to spread a big panel over several scans."
+        }
+      ]
+    }
+  ],
   "tm1637": [
     {
       "section": "led_driver",

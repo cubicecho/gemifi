@@ -1099,7 +1099,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its switches name: `{ switch_matrix: <id>, number: n }`."
               },
               "rows": {
                 "anyOf": [
@@ -1114,43 +1119,55 @@
                     "properties": {
                       "decoder": {
                         "type": "string",
-                        "description": "the id of another component"
+                        "description": "The decoder hub whose outputs are the rows."
                       },
                       "first": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 0
+                            "minimum": 0,
+                            "maximum": 255
                           },
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its output that is the first row. Default: 0.",
+                        "default": 0
                       },
                       "count": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 1
+                            "minimum": 1,
+                            "maximum": 255
                           },
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "The rows: its outputs from `first` on."
                       }
                     },
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "description": "The row pins, driven in turn: MCU pins or decoder outputs, or a run of a decoder's outputs."
               },
               "columns": {
                 "type": "array",
                 "items": {
                   "$ref": "#/definitions/pin"
-                }
+                },
+                "description": "The column pins, read for each row: MCU inputs (at most 32)."
               },
               "settle": {
-                "$ref": "#/definitions/period"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/period"
+                  }
+                ],
+                "description": "How long it waits after driving a row before it reads the columns. Default: 1us."
               },
               "rows_per_scan": {
                 "anyOf": [
@@ -1162,7 +1179,8 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "The rows read per scan, in turn, to spread a big panel over several scans. Default: all rows."
               }
             },
             "additionalProperties": false

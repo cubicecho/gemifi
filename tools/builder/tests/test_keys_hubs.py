@@ -75,6 +75,9 @@ class EdgesAgree(unittest.TestCase):
         self.hub("cd74hc4051", {"id": "h", **sel}, 4)
         self.hub("cd74hc4067", {"id": "h", **sel, "pin_s3": "PB9"}, 4)
 
+    def test_switch_matrix(self):
+        self.hub("switch_matrix", {"id": "h", "rows": ["PB6", "PB7"], "columns": ["PB8", "PB9"]}, 8)
+
 
 class Specs(unittest.TestCase):
     def test_the_validator_lists_the_spec_keys(self):

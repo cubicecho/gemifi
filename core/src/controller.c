@@ -480,6 +480,7 @@ uint32_t gm_buttons_now(void)
     vpin_init();
     for (uint32_t i = 0; i < gm_device.n_buttons; i++)
         vpin_input(gm_device.buttons[i].pin);
+    vpin_flush_i2c();               /* the I2C hubs' directions and pull-ups, before they're read */
     hal_delay_us(50);
     vpin_refresh();
     vpin_refresh_i2c();
@@ -572,6 +573,9 @@ void gm_init(uint32_t fw_version, int safe_mode)
 #if GM_N_SCREENS > 0
     (void)gm_screen_send(0xFFFFFFFFu);
 #endif
+    /* The I2C hubs' first read, so the buttons' first sample doesn't take
+     * a cache nothing has read yet (an active-low button would press). */
+    vpin_refresh_i2c();
 }
 
 /* ---- main loop --------------------------------------------------------- */

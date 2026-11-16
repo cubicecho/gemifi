@@ -2,6 +2,26 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.61.0](https://github.com/cubicecho/gemifi/compare/v0.60.0...v0.61.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **builder:** an enum key's wrong value falls back to its default's index ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([e0236a8](https://github.com/cubicecho/gemifi/commit/e0236a8863905990c43487b8a241a4ea85e99de4))
+
+
+### Features
+
+* **builder,site:** a Core docs section, the device's own keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([be99cce](https://github.com/cubicecho/gemifi/commit/be99ccedbd2149ef441b3ebaa77f59782a7cf0d4))
+* **builder,site:** the DAW feedback keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([cc29d2d](https://github.com/cubicecho/gemifi/commit/cc29d2dbd7f19e289a505692081e9a883f02166d))
+* **builder,site:** the layout keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([5d969ea](https://github.com/cubicecho/gemifi/commit/5d969ea943b20f89f756d57dd855df6b0b7869c0))
+* **builder,site:** the MIDI and USB keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([5700132](https://github.com/cubicecho/gemifi/commit/5700132ec4444e065581bf012e7cd37cb294d8b9))
+* **builder,site:** the mode keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([5e65349](https://github.com/cubicecho/gemifi/commit/5e65349fbb1db8da97e3423c2460869aa06d3e79))
+* **builder,site:** the preset keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([ee88efd](https://github.com/cubicecho/gemifi/commit/ee88efdd6b0bf866ac7e39399b2bf9ea24a7a766))
+* **builder,site:** the safety and storage keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([5ad1feb](https://github.com/cubicecho/gemifi/commit/5ad1febd717a1ec01b638cdcebd14c588777e17c))
+* **builder,site:** the scanning keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([e742e83](https://github.com/cubicecho/gemifi/commit/e742e8399f47a4238e6c7efea66ab4b7fcc30d5d))
+* **builder,site:** the text display keys as data ([#161](https://github.com/cubicecho/gemifi/issues/161)) ([2cde6b6](https://github.com/cubicecho/gemifi/commit/2cde6b60adfe7fb3d43a5e8594ab358d1d3af70d))
+
 # [0.60.0](https://github.com/cubicecho/gemifi/compare/v0.59.0...v0.60.0) (2026-11-16)
 
 

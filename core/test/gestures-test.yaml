@@ -36,6 +36,10 @@ buttons:
   - { id: c3, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 43 }
   # the one-shot's button: no action of its own; its LED is lit while the layer is on
   - { id: fn, pin: { number: PB8, inverted: true }, led: fn_led }
+  # auto-repeat while held
+  - { id: oct, pin: { number: PB9, inverted: true }, action: octave_up, repeat: true }
+  - { id: prg, pin: { number: PB10, inverted: true }, action: program_next, repeat: true }
+  - { id: pnext, pin: { number: PB11, inverted: true }, action: preset_next, repeat: true }
 
 leds:
   - { id: fn_led, pin: PD0 }
@@ -52,3 +56,5 @@ button_settings:
   tap_time: 200ms
   hold_time: 300ms
   combo_time: 50ms
+  repeat_delay: 500ms
+  repeat_rate: 100ms

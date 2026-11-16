@@ -62,6 +62,28 @@ button_settings:
 
 **Generated code:** `GM_N_COMBOS`, `GM_COMBO_BUTTONS` (the buttons in any combo, one bit each), `GM_N_COMBO_BUTTONS` and `GM_BTN_COMBO_TIME_DEFAULT` in `gm_device_config.h`, and `gm_btn_combos[GM_N_COMBOS]` (`gm_device.h` `gm_btn_combo_t`: the buttons as a bit mask and `{ action, number }`). The runtime keeps the waiting presses in order (one byte per combo button) and 13 bytes more.
 
+## Auto-repeat
+
+A stepping button can step again while it is held: `repeat: true`.
+
+```yaml
+buttons:
+  - { id: oct_up, pin: PB6, action: octave_up, repeat: true }
+  - { id: next, pin: PB7, action: preset_next, repeat: true }
+button_settings:                 # optional; these are the defaults
+  repeat_delay: 500ms
+  repeat_rate: 50ms
+```
+
+- **What repeats:** `octave_down` / `octave_up`, `transpose_down` / `transpose_up`, `pad_octave_down` / `pad_octave_up`, `program_next` / `program_prev` and `preset_next` / `preset_prev`. The first step is at the press, as always; held for `repeat_delay`, the action runs again every `repeat_rate` until the button is let go. Octave and transpose stop at their limits (both octave buttons held: 0, as before), program and presets go round.
+- **It's the button's own action that repeats:** a preset or the host that gives the button another action decides whether it repeats (the action is read again each time), and the YAML's action not being one of these is a warning. A mode's binding of the button (`buttons:`) and a layer twin don't repeat.
+- **Through preset switches:** `preset_next` held steps on through the presets it switches to; any held repeat goes on after a preset switch, with that preset's action.
+- **No EVENTs** for the repeats: the press and the release are the button's EVENTs.
+- **Not with** `hold:` or `double_tap:` (they wait to tell a press apart), nor on a mode's switching button, a modifier or a `with:` button. It may be in a combo: it repeats once its press goes on as its own.
+- **Params**, global, only on a device with `repeat:`: `button.repeat_delay` (100..2000 ms, default 500) and `button.repeat_rate` (20..1000 ms between repeats, default 50), in the "Buttons" group.
+
+**Generated code:** `GM_BTN_REPEAT` (the buttons with `repeat: true`, one bit each), `GM_BTN_REPEAT_DELAY_DEFAULT` and `GM_BTN_REPEAT_RATE_DEFAULT` in `gm_device_config.h`. The runtime keeps the time of the next repeat, 4 bytes per button.
+
 ## Files
 
 - `buttons.c`: sampling and debouncing the buttons, their actions, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.
@@ -78,7 +100,7 @@ Each press or release goes, in this order:
 2. to the live one of a button and its layer twins; a press then first sends a single tap still waiting for a double tap, and decides a combo it isn't in (`gestures_before_press`);
 3. to the modes: a mode's toggle, hold or cycle button (`mode_toggle_button`), or a function button of the active mode (`mode_function_button`);
 4. to the gestures, for a button with one or in a combo (`gesture_input`, "Gestures", "Combos"): `gestures_ms`, at the end of each sample, times them;
-5. to the button's own action (`button_changed`).
+5. to the button's own action (`button_changed`), and with `repeat:` its repeats ("Auto-repeat": `repeats_ms`, at the end of each sample).
 
 A preset switch (`gm_release_all`) calls `buttons_off`, which lets go of every note and CC the buttons hold. Buttons held through it release silently.
 

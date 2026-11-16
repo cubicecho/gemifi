@@ -264,6 +264,68 @@ static void button_changed(uint32_t i, int down)
     run_action(i, act, num, down);
 }
 
+#if GM_BTN_REPEAT
+/* Auto-repeat (components/buttons/README.md "Auto-repeat"): a button with
+ * repeat: whose own action is one of these runs it again every
+ * repeat_rate once it has been held for repeat_delay. Only the press goes
+ * again: these actions do nothing on release. */
+static btn_bits_t repeating;
+static uint32_t repeat_at[NB];      /* ms: the next one */
+
+static int is_repeatable(int32_t act)
+{
+    switch (act) {
+    case ACT_OCTAVE_DOWN:
+    case ACT_OCTAVE_UP:
+    case ACT_TRANSPOSE_DOWN:
+    case ACT_TRANSPOSE_UP:
+    case ACT_PROGRAM_NEXT:
+    case ACT_PROGRAM_PREV:
+    case ACT_PRESET_NEXT:
+    case ACT_PRESET_PREV:
+    case ACT_PAD_OCTAVE_DOWN:
+    case ACT_PAD_OCTAVE_UP:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Button i's own action went down (pressed at pressed_at): it repeats
+ * while the button is held, if it has repeat: and the action is one that
+ * does. */
+static void repeat_start(uint32_t i, uint32_t pressed_at)
+{
+    int has_repeat = ((btn_bits_t)GM_BTN_REPEAT >> i) & 1u;
+    int repeats = has_repeat && is_repeatable(gm_cfg.btn_action[i]);
+    if (!repeats)
+        return;
+    repeating |= (btn_bits_t)1 << i;
+    repeat_at[i] = pressed_at + (uint32_t)gm_cfg.btn_repeat_delay;
+}
+
+/* Every sample: the held repeating buttons whose time has come. A preset
+ * switch doesn't stop them (preset next held steps on); the action is
+ * read again each time, and a button let go stops. */
+static void repeats_ms(uint32_t now)
+{
+    for (btn_bits_t m = repeating; m; m &= m - 1u) {
+        uint32_t i = (uint32_t)__builtin_ctzll(m);
+        int32_t act = gm_cfg.btn_action[i];
+        int goes_on = ((btn_held >> i) & 1u) && is_repeatable(act);
+        if (!goes_on) {
+            repeating &= ~((btn_bits_t)1 << i);
+            continue;
+        }
+        int is_due = (int32_t)(now - repeat_at[i]) >= 0;
+        if (is_due) {
+            repeat_at[i] = now + (uint32_t)gm_cfg.btn_repeat_rate;
+            run_action(i, act, (uint32_t)gm_cfg.btn_number[i], 1);
+        }
+    }
+}
+#endif
+
 #if GM_BTN_GESTURES
 /* Gestures (components/buttons/README.md "Gestures"). A button with one,
  * or in a combo, doesn't run its action at the press: gesture_input takes
@@ -408,6 +470,9 @@ static void gesture_start(uint32_t i)
     }
     gs_state[i] = GS_OWN;
     own_action(i, 1);
+#if GM_BTN_REPEAT
+    repeat_start(i, gs_since[i]);
+#endif
 }
 
 #if GM_N_COMBOS
@@ -611,7 +676,7 @@ void buttons_sample(void)
     /* A press counts once a sample saw it in every scan (a contact that
      * only flickered closed, or noise, doesn't press); any scan that saw it
      * closed keeps it held for BTN_STABLE more samples. */
-#if GM_BTN_GESTURES
+#if GM_BTN_GESTURES || GM_BTN_REPEAT
     uint32_t now_ms = hal_millis();
 #endif
     btn_bits_t seen;
@@ -672,10 +737,17 @@ void buttons_sample(void)
                 continue;
 #endif
             button_changed(i, down);
+#if GM_BTN_REPEAT
+            if (down)
+                repeat_start(i, now_ms);
+#endif
         }
     }
 #if GM_BTN_GESTURES
     gestures_ms(now_ms);
+#endif
+#if GM_BTN_REPEAT
+    repeats_ms(now_ms);
 #endif
 }
 

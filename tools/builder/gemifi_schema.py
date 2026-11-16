@@ -287,7 +287,8 @@ def device_schema():
         "mcu": one_of({"type": "null"}, obj(gd.MCU_KEYS, {"extender": BOOL})),
         **{k: hub(k) for k in gd.HUB_LISTS if k not in gd.HUB_DOMAINS},
         **{d: hub_domain(d) for d in gd.HUB_DOMAINS},
-        "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES}})),
+        "buttons": lst(obj(gd.BUTTON_KEYS, {**CTL_TYPES, **{g: gesture() for g in gd.buttons.GESTURES},
+                                            "repeat": BOOL})),
         "combos": lst(obj(gd.buttons.COMBO_KEYS, {"buttons": lst(ID_REF)}),
                       "buttons pressed together that run an action of their own (components/buttons/README.md "
                       "\"Combos\")"),

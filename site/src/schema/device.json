@@ -1676,6 +1676,16 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "repeat": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "$ref": "#/definitions/substitution"
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -2607,6 +2617,12 @@
               "$ref": "#/definitions/period"
             },
             "combo_time": {
+              "$ref": "#/definitions/period"
+            },
+            "repeat_delay": {
+              "$ref": "#/definitions/period"
+            },
+            "repeat_rate": {
               "$ref": "#/definitions/period"
             }
           },

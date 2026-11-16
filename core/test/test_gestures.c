@@ -3,14 +3,17 @@
  * README.md "Gestures") with core/test/gestures-test.yaml, on fake time: a
  * button without one fires at the press; tap vs hold and the hold time;
  * double taps, and a single tap that waits for the double-tap window;
- * combos, and combo buttons pressed too far apart; a one-shot layer. Nothing a gesture sends is left hanging, a preset switch included.
+ * combos, and combo buttons pressed too far apart; a one-shot layer;
+ * auto-repeat. Nothing a gesture sends is left hanging, a preset switch included.
  *
  * Buttons (PB0.., inverted): 0 plain CC 10, 1 tap_hold CC 20 / held CC 21,
  * 2 note_hold note 60 / held preset_next, 3 dbl note 62 / twice note 63,
  * 4 both CC 30 / twice CC 31 / held CC 32, 5..7 c1 CC 40, c2 CC 41, c3
- * CC 43, 8 fn: the one-shot fn_layer, plain's twin CC 11. Combos: c1 + c2
- * CC 42, c1 + c2 + c3 note 70. button_settings:
- * tap_time 200 ms, hold_time 300 ms, combo_time 50 ms.
+ * CC 43, 8 fn: the one-shot fn_layer, plain's twin CC 11, 9..11 oct
+ * octave_up, prg program_next, pnext preset_next, each with repeat:.
+ * Combos: c1 + c2 CC 42, c1 + c2 + c3 note 70. button_settings:
+ * tap_time 200 ms, hold_time 300 ms, combo_time 50 ms, repeat_delay
+ * 500 ms, repeat_rate 100 ms.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -21,7 +24,8 @@
 #include "gm_device.h"
 #include "gm_settings.h"
 
-#if GM_N_BUTTONS != 10 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2 || !GM_MODE_ONE_SHOT
+#if GM_N_BUTTONS != 13 || GM_BTN_HOLD != 0x16 || GM_BTN_DOUBLE != 0x18 || GM_N_COMBOS != 2 || !GM_MODE_ONE_SHOT || \
+    GM_BTN_REPEAT != 0xE00
 #error "test_gestures.c needs the gestures-test.yaml config"
 #endif
 
@@ -62,7 +66,7 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 /* ---- helpers ---------------------------------------------------------- */
 
-enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN };
+enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN, OCT, PRG, PNEXT };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
 #define PIN_FN_LED 48               /* PD0 */
 /* A release counts once the contact has read open for BTN_STABLE (16)
@@ -71,6 +75,8 @@ enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN };
 #define HOLD_MS 300u                /* button_settings.hold_time */
 #define TAP_MS 200u                 /* button_settings.tap_time */
 #define COMBO_MS 50u                /* button_settings.combo_time */
+#define REPEAT_DELAY_MS 500u        /* button_settings.repeat_delay */
+#define REPEAT_RATE_MS 100u         /* button_settings.repeat_rate */
 
 static void run_ms(uint32_t ms)
 {
@@ -434,6 +440,67 @@ static void test_one_shot(void)
     CHECK(!strcmp(cc_values(11), "10") && !*cc_values(10), "plain's twin let go as CC 11 (got %s)", cc_values(11));
 }
 
+/* Program Changes since the last clear. */
+static int pcs(void)
+{
+    int n = 0;
+    for (int i = 0; i + 1 < out_n; i++) {
+        if (out[i] == 0xF0) {
+            while (i < out_n && out[i] != 0xF7)
+                i++;
+            continue;
+        }
+        if ((out[i] & 0xF0) == 0xC0)
+            n++;
+    }
+    return n;
+}
+
+static void test_repeat(void)
+{
+    /* the octave: once at the press, again after repeat_delay, then every repeat_rate, up to its limit */
+    gm_cfg.octave = 0;
+    press(OCT);
+    CHECK(gm_cfg.octave == 1, "oct pressed: octave 1 at once (got %d)", (int)gm_cfg.octave);
+    run_ms(REPEAT_DELAY_MS - 10u);
+    CHECK(gm_cfg.octave == 1, "oct held for less than repeat_delay: still 1");
+    run_ms(20);
+    CHECK(gm_cfg.octave == 2, "after repeat_delay: 2 (got %d)", (int)gm_cfg.octave);
+    run_ms(REPEAT_RATE_MS);
+    CHECK(gm_cfg.octave == 3, "and every repeat_rate: 3 (got %d)", (int)gm_cfg.octave);
+    run_ms(5u * REPEAT_RATE_MS);
+    CHECK(gm_cfg.octave == 4, "up to the octave's limit, 4");
+    release(OCT);
+    gm_cfg.octave = 0;
+    press(OCT);
+    release(OCT);
+    run_ms(REPEAT_DELAY_MS + 100u);
+    CHECK(gm_cfg.octave == 1, "let go: no more steps");
+    gm_cfg.octave = 0;
+
+    /* a program step per repeat, and button.repeat_rate is live */
+    out_n = 0;
+    press(PRG);
+    run_ms(REPEAT_DELAY_MS + 3u * REPEAT_RATE_MS + 10u);
+    CHECK(pcs() == 5, "prg held: the press and 4 repeats (got %d)", pcs());
+    release(PRG);
+    gm_cfg.btn_repeat_rate = 50;
+    out_n = 0;
+    press(PRG);
+    run_ms(REPEAT_DELAY_MS + 3u * 50u + 10u);
+    release(PRG);
+    CHECK(pcs() == 5, "repeat_rate 50: 4 repeats in 160 ms after the delay (got %d)", pcs());
+    gm_cfg.btn_repeat_rate = REPEAT_RATE_MS;
+
+    /* preset next held: it steps on through its own preset switches */
+    int from = (int)gm_cfg.preset_active;
+    press(PNEXT);
+    run_ms(REPEAT_DELAY_MS + REPEAT_RATE_MS + 10u);
+    release(PNEXT);
+    CHECK((int)gm_cfg.preset_active == (from + 2) % 4 + 1, "pnext held: 3 steps, %d -> %d", from,
+          (int)gm_cfg.preset_active);
+}
+
 /* A preset switch from a hold lets go of the other hold's CC; nothing
  * hangs and nothing more comes at the releases. */
 static void test_nothing_hangs(void)
@@ -500,6 +567,7 @@ int main(void)
     test_combos();
     test_one_shot();
     test_nothing_hangs();
+    test_repeat();                  /* last: it moves the preset on */
 
     printf("test_gestures: %d checks, %d failed\n", checks, fails);
     return fails != 0;

@@ -63,6 +63,12 @@ int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c 
 #ifndef GM_BTN_COMBO_TIME_DEFAULT
 #define GM_BTN_COMBO_TIME_DEFAULT 50
 #endif
+#ifndef GM_BTN_REPEAT_DELAY_DEFAULT
+#define GM_BTN_REPEAT_DELAY_DEFAULT 500
+#endif
+#ifndef GM_BTN_REPEAT_RATE_DEFAULT
+#define GM_BTN_REPEAT_RATE_DEFAULT 50
+#endif
 
 /* Presets in use on a fresh device: the YAML's list (sysex.md §4.5). */
 #ifdef GM_N_YAML_PRESETS
@@ -284,6 +290,14 @@ static const param_def_t params[] = {
     { .id = P_BTN_COMBO_TIME, .type = PT_INT, .group = G_BUTTONS, .count = 1,
       .min = 10, .max = 500, .def = GM_BTN_COMBO_TIME_DEFAULT, .unit = "ms",
       .name = "button.combo_time", .label = "Combo within", .values = &gm_cfg.btn_combo_time },
+#endif
+#if GM_BTN_REPEAT
+    { .id = P_BTN_REPEAT_DELAY, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+      .min = 100, .max = 2000, .def = GM_BTN_REPEAT_DELAY_DEFAULT, .unit = "ms",
+      .name = "button.repeat_delay", .label = "Repeat after", .values = &gm_cfg.btn_repeat_delay },
+    { .id = P_BTN_REPEAT_RATE, .type = PT_INT, .group = G_BUTTONS, .count = 1,
+      .min = 20, .max = 1000, .def = GM_BTN_REPEAT_RATE_DEFAULT, .unit = "ms",
+      .name = "button.repeat_rate", .label = "Repeat every", .values = &gm_cfg.btn_repeat_rate },
 #endif
 
 #if GM_N_ANALOGS > 0

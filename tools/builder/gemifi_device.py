@@ -143,6 +143,8 @@ PARAMS = [  # (name, id, scope, count(dev))
     ("button.tap_time", 75, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "double_tap") else 0),
     ("button.hold_time", 76, GLOBAL, lambda d: 1 if buttons.gesture_mask(d, "hold") else 0),
     ("button.combo_time", 77, GLOBAL, lambda d: 1 if getattr(d, "combos", []) else 0),
+    *((n, i, GLOBAL, (lambda d: 1 if buttons.repeat_mask(d) else 0)) for n, i in (
+        ("button.repeat_delay", 78), ("button.repeat_rate", 79))),
 ]
 # STM32F1 DMA1 (RM0008 table 78): every DMA request is wired to one channel. allocate_dma() hands
 # them out: the YAML's DMA users (hardware scans, maudio_pads, din_midi dma:) may not share one.
@@ -174,7 +176,8 @@ DIN_MODES = ["din_only", "separate_port", "usb_merge"]
 # from this, so keep it in step with settings.c (test_builder checks it).
 WIDE_PARAMS = {"velocity.fast", "velocity.slow", "bend.glide", "ramp.time",
                "pad.threshold", "pad.release", "pad.full", "pad.retrigger", "preset.bank",
-               "button.tap_time", "button.hold_time", "button.combo_time"}
+               "button.tap_time", "button.hold_time", "button.combo_time", "button.repeat_delay",
+               "button.repeat_rate"}
 # ... and these on a device with NRPN / RPN (GM_MSG_NRPN: their numbers go up to 16383)
 NRPN_WIDE_PARAMS = {"analog.cc", "encoder.cc", "layer.encoder.cc"}
 PARAM_ID = {n: i for n, i, _s, _c in PARAMS}
@@ -221,7 +224,8 @@ PRESET_NOT_HERE = {
 _HW = "the same in every preset: set it on the component itself"
 PRESET_COMPONENTS = {   # section -> (component kind, plural, allowed keys, refused keys)
     "buttons": ("button", "buttons", ["action", "cc", "note", "preset", "mcu", "program", "mmc", "sysex"],
-                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank", *buttons.GESTURES]),
+                ["id", "name", "pin", "led", "daw", "channel", "min", "max", "bank", *buttons.GESTURES,
+                 "repeat"]),
     "analog": ("analog input", "analog inputs", ["cc", "mode", "nrpn", "rpn", "sysex"],
                ["id", "name", "pin", "adc_min", "adc_max", "takeover", "mcu", "daw", "channel", "min", "max"]),
     "encoders": ("encoder", "encoders", ["cc", "mode", "nrpn", "rpn"],

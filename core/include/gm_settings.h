@@ -77,6 +77,8 @@ enum {
     P_BTN_TAP_TIME = 75,
     P_BTN_HOLD_TIME = 76,
     P_BTN_COMBO_TIME = 77,
+    P_BTN_REPEAT_DELAY = 78,
+    P_BTN_REPEAT_RATE = 79,
 };
 
 #ifndef GM_N_PADS
@@ -150,7 +152,11 @@ enum {
 #ifndef GM_COMBO_BUTTONS
 #define GM_COMBO_BUTTONS 0           /* ... the buttons in any of them */
 #endif
+/* The presses the gesture layer tells apart (buttons.c gesture_input). */
 #define GM_BTN_GESTURES (GM_BTN_HOLD != 0 || GM_BTN_DOUBLE != 0 || GM_N_COMBOS > 0)
+#ifndef GM_BTN_REPEAT
+#define GM_BTN_REPEAT 0              /* repeat: the action again while held (octave, program ...) */
+#endif
 /* Presets are on with 2 or more slots (YAML presets:). One slot (no presets:)
  * is presets off: the slot only holds the settings, and HELLO caps bit 5, the
  * PRESET_* commands, the preset.* params and the preset actions are left out. */
@@ -254,6 +260,10 @@ typedef struct {
 #endif
 #if GM_N_COMBOS
     int32_t btn_combo_time;          /* ms: a combo's buttons pressed within this of the first */
+#endif
+#if GM_BTN_REPEAT
+    int32_t btn_repeat_delay;        /* ms: held this long, the action repeats ... */
+    int32_t btn_repeat_rate;         /* ... every this many ms */
 #endif
 #if GM_LAYER_PARAMS
     int32_t layer_enabled[GM_N_MODES];   /* 0: a cycle skips the step, a toggle / hold can't enter */

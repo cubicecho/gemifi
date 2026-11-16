@@ -162,6 +162,40 @@ class TestCombos(unittest.TestCase):
         self.assertError(presets, "has a combo, so its presses wait")
 
 
+@unittest.skipUnless(gd.yaml, "needs PyYAML")
+class TestRepeat(unittest.TestCase):
+    errs = tb.TestValidation.errs
+    assertError = tb.TestValidation.assertError
+    assertClean = tb.TestValidation.assertClean
+    gen = TestHold.gen
+    warns = TestHold.warns
+    REPEAT = BASE.replace("action: note, note: 60 }", "action: octave_up, repeat: true }")
+
+    def test_generates(self):
+        dev, h, c = self.gen(self.REPEAT + "button_settings: { repeat_delay: 400ms, repeat_rate: 30ms }\n")
+        self.assertIn("#define GM_BTN_REPEAT 0x2ull /* repeat: b */", h)
+        self.assertIn("#define GM_BTN_REPEAT_DELAY_DEFAULT 400 ", h)
+        self.assertIn("#define GM_BTN_REPEAT_RATE_DEFAULT 30 ", h)
+        self.assertNotIn("gm_btn_gestures", c)
+        self.assertNotIn("GM_BTN_HOLD", h)
+        self.assertEqual([n for n, _i, _s, count in gd.PARAMS if n.startswith("button.") and n[7:] in
+                          gd.buttons.BUTTON_SETTINGS and count(dev)], ["button.repeat_delay", "button.repeat_rate"])
+        self.assertNotIn("GM_BTN_REPEAT", self.gen(BASE)[1])
+
+    def test_checks(self):
+        self.assertError(self.REPEAT.replace("repeat: true", "repeat: true, hold: panic"),
+                         "repeat: runs the action again while the button is held, and hold:")
+        self.assertError(self.REPEAT.replace("repeat: true", "repeat: 1"), "must be true or false")
+        self.assertTrue(any("action note doesn't repeat" in w for w in
+                            self.warns(BASE.replace("note: 60 }", "note: 60, repeat: true }"))))
+        self.assertError(self.REPEAT + "modes:\n  - { id: m, hold: b, layer: { c: { cc: 9 } } }\n",
+                         "is held for mode 'm'")
+        self.assertClean(self.REPEAT + "combos:\n  - { buttons: [a, b], action: panic }\n")
+        self.assertError(self.REPEAT + "presets:\n  slots: 2\n  list:\n    - { name: A }\n"
+                                       "    - { name: B, buttons: { b: { repeat: false } } }\n", "the same in every preset")
+        self.assertError(self.REPEAT + "button_settings: { repeat_rate: 5ms }\n", "out of range")
+
+
 ONE_SHOT = BASE + "  - { id: fn, pin: PA4 }\nmodes:\n"
 
 
@@ -217,6 +251,7 @@ class TestGesturesCompile(unittest.TestCase):
                           ("combos", BASE + "combos:\n  - { buttons: [a, b], action: panic }\n"),
                           ("all", with_gesture("double_tap: { cc: 21 }, hold: panic",
                                                extra="combos:\n  - { buttons: [a, b], action: panic }\n")),
+                          ("repeat", TestRepeat.REPEAT),
                           ("one_shot", ONE_SHOT.replace("{ id: fn, pin: PA4 }", "{ id: fn, pin: PA4, led: l }") +
                            "  - { id: f, one_shot: fn, layer: { a: { cc: 9 } } }\nleds:\n  - { id: l, pin: PB0 }\n")):
             with self.subTest(tag):
@@ -231,7 +266,7 @@ class TestGestureSchema(unittest.TestCase):
         import gemifi_schema as gs
         s = gs.device_schema()
         button = s["properties"]["buttons"]["anyOf"][0]["items"]["properties"]
-        for g in ("hold", "double_tap"):
+        for g in ("hold", "double_tap", "repeat"):
             self.assertIn(g, button)
         self.assertNotIn("cc_toggle", button["hold"]["anyOf"][0]["anyOf"][0]["enum"])
         settings = s["properties"]["button_settings"]["anyOf"][0]["properties"]

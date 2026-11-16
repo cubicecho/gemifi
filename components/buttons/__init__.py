@@ -31,7 +31,7 @@ MMC_COMMANDS = {"stop": 1, "play": 2, "deferred_play": 3, "fast_forward": 4, "re
                 "record_exit": 7, "record_pause": 8, "pause": 9, "eject": 10, "chase": 11, "reset": 13}
 
 BUTTON_KEYS = ["id", "name", "pin", "action", "cc", "note", "preset", "led", "mcu", "daw", "program", "mmc", "sysex",
-               "bank", "channel", "min", "max", "hold", "double_tap"]
+               "bank", "channel", "min", "max", "hold", "double_tap", "repeat"]
 # Gestures (README.md "Gestures"): a button's hold: and double_tap: take the keys of its action; what they
 # leave out is the button's.
 GESTURES = ("hold", "double_tap")
@@ -41,13 +41,17 @@ GESTURE_KEYS = ["action", "cc", "note", "preset", "program", "mmc", "sysex", "mc
 HELD_ACTIONS = {"cc_ramp", "bend_down", "bend_up"}
 # ... nor cc_toggle: its on/off state is the button's own, which the button's LED and host echoes show.
 NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
+# repeat: true (README.md "Auto-repeat"): the actions that repeat while the button is held.
+REPEAT_ACTIONS = {"octave_down", "octave_up", "transpose_down", "transpose_up", "program_next", "program_prev",
+                  "preset_next", "preset_prev", "pad_octave_down", "pad_octave_up"}
 # combos: (README.md "Combos"): a combo's buttons and its action, with the keys of a gesture.
 COMBO_KEYS = ["buttons", *GESTURE_KEYS]
 MAX_COMBOS = 32                 # buttons.c combo_down: one bit each
 # button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
 # key -> (default, lo, hi, the gesture that uses it: a button key, or combos).
 BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold"),
-                   "combo_time": (50, 10, 500, "combos")}
+                   "combo_time": (50, 10, 500, "combos"), "repeat_delay": (500, 100, 2000, "repeat"),
+                   "repeat_rate": (50, 20, 1000, "repeat")}
 BUTTON_SETTINGS_KEYS = list(BUTTON_SETTINGS)
 RENAMED_BUTTON = dict(RENAMED_ID, number="renamed: use `cc:` (cc_momentary / cc_toggle / cc_ramp) or "
                                          "`note:` (action note)")
@@ -78,8 +82,26 @@ def validate(v, dev, data):
         dev.buttons.append(Hub(id=ident or "", name=name, pin=pin or NO_PIN, action=ACTION_IDS[act],
                                action_name=act, number=num, led=led, daw=v.daw_role(dev, d, p),
                                ctl=v.control_out(d, p, top), bank=button_bank(v, dev, d, p, act),
-                               gestures={g: a for g, a in gestures.items() if a is not None}, path=p,
-                               line=d.line))
+                               gestures={g: a for g, a in gestures.items() if a is not None},
+                               repeat=button_repeat(v, d, p, act, gestures), path=p, line=d.line))
+
+
+def button_repeat(v, d, p, act, gestures):
+    """repeat: true (README.md "Auto-repeat"): the button's action again while it is held. Not with a
+    gesture, which waits to tell a press apart; an action that doesn't repeat is a warning (a preset or
+    the host may give it one that does)."""
+    if not v.boolean(d, "repeat", p):
+        return False
+    if gestures:
+        v.err(f"{p}.repeat", d.line_of("repeat"), f"repeat: runs the action again while the button is held, and "
+                                                  f"{' and '.join(g + ':' for g in gestures)} wait to tell a press "
+                                                  "apart: give the button one or the other")
+        return False
+    if act not in REPEAT_ACTIONS:
+        v.warn(f"{p}.repeat", d.line_of("repeat"), f"action {act} doesn't repeat (only {', '.join(sorted(REPEAT_ACTIONS))} "
+                                                   "do): repeat: only works where a preset or the host gives the "
+                                                   "button one of those")
+    return True
 
 
 def gesture_action(v, dev, d, p, key, base):
@@ -259,7 +281,7 @@ def validate_gestures(v, dev, data):
     gestures; then combos: -> dev.combos and button_settings: -> dev.btn_set, the timing params'
     defaults."""
     for idx, b in enumerate(dev.buttons):
-        for g in getattr(b, "gestures", {}):
+        for g in [*getattr(b, "gestures", {}), *(["repeat"] if getattr(b, "repeat", False) else [])]:
             why = mode_use(v, dev, idx)
             if why:
                 v.err(f"{b.path}.{g}", b.line, f"button '{b.id}' {why}, so it can't have {g}:")
@@ -369,7 +391,8 @@ def button_settings(v, dev, data):
     s = v.mapping(data["button_settings"], p, line, BUTTON_SETTINGS_KEYS)
     if s is None:
         return
-    used = gestures_used(dev) | ({"combos"} if dev.combos else set())
+    used = (gestures_used(dev) | ({"combos"} if dev.combos else set()) |
+            ({"repeat"} if repeat_mask(dev) else set()))
     for k, (default, lo, hi, gesture) in BUTTON_SETTINGS.items():
         ms = v.period(s, k, p, lo * 1000, hi * 1000, step_us=1000, example=f"{default}ms")
         if ms is None:
@@ -385,6 +408,11 @@ def gesture_mask(dev, gesture):
     return sum(1 << i for i, b in enumerate(dev.buttons) if gesture in getattr(b, "gestures", {}))
 
 
+def repeat_mask(dev):
+    """The buttons with repeat: true, one bit each (gm_settings.h GM_BTN_REPEAT)."""
+    return sum(1 << i for i, b in enumerate(dev.buttons) if getattr(b, "repeat", False))
+
+
 def gesture_names(dev, mask):
     return ", ".join(dev.buttons[i].id for i in range(len(dev.buttons)) if (mask >> i) & 1)
 
@@ -395,7 +423,8 @@ def c_defines(dev):
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     h = [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
     combos = getattr(dev, "combos", [])
-    if not gestures_used(dev) and not combos:
+    repeat = repeat_mask(dev)
+    if not gestures_used(dev) and not combos and not repeat:
         return h
     s = getattr(dev, "btn_set", {})
 
@@ -416,6 +445,9 @@ def c_defines(dev):
         h += [f"#define GM_N_COMBOS {len(combos)} /* combos: gm_btn_combos[] */",
               f"#define GM_COMBO_BUTTONS 0x{members:X}ull /* in a combo: {c_comment(gesture_names(dev, members))} */",
               f"#define GM_N_COMBO_BUTTONS {bin(members).count('1')}", default("combo_time")]
+    if repeat:
+        h += [f"#define GM_BTN_REPEAT 0x{repeat:X}ull /* repeat: {c_comment(gesture_names(dev, repeat))} */",
+              default("repeat_delay"), default("repeat_rate")]
     return h
 
 

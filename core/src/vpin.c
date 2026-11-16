@@ -131,6 +131,26 @@ static void sm_fast_init(uint32_t i, const gm_hub_t *h)
     sm_inv[i] = inv;
     sm_reg[i] = reg;
 }
+
+/* Switch matrices whose rows are all decoder outputs: the scan doesn't
+ * release a row, the next select replaces it (vpin_write(row, 0) on a
+ * decoder row does nothing). */
+static uint8_t sm_rows_dec[N_HUBS];
+
+/* After every hub's init: vpin_is_decoder reads the flags it sets. */
+static void sm_rows_init(void)
+{
+    for (uint32_t i = 0; i < gm_device.n_hubs; i++) {
+        const gm_hub_t *h = &gm_device.hubs[i];
+        if (h->type != GM_HUB_SWMATRIX)
+            continue;
+        uint8_t rows_dec = h->sm.n_rows > 0;
+        for (uint32_t r = 0; r < h->sm.n_rows; r++)
+            if (!vpin_is_decoder(h->sm.rows[r]))
+                rows_dec = 0;
+        sm_rows_dec[i] = rows_dec;
+    }
+}
 #if GM_HUB_RAM > 0
 uint8_t gm_hub_ram[GM_HUB_RAM];
 uint8_t gm_hub_ram_sent[GM_HUB_RAM];   /* what the chip / LED board has (its bytes of gm_hub_ram) */
@@ -259,6 +279,8 @@ void vpin_init(void)
             o->init(h, s);
         fast_init(i, h);
     }
+    if (USES(GM_HUB_SWMATRIX))
+        sm_rows_init();
 }
 
 void vpin_input(gm_pin_t p)
@@ -917,7 +939,7 @@ void vpin_scan_matrices(void)
                         row |= 1u << c;
             }
             v = (v & ~(all << bit)) | (row << bit);
-            if (!vpin_is_decoder(h->sm.rows[r]))
+            if (!sm_rows_dec[i])
                 vpin_write(h->sm.rows[r], 0);
         }
         s->channel = (int8_t)r;

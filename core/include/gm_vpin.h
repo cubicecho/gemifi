@@ -89,8 +89,8 @@ void vpin_span_take(void);
 int vpin_read_span(gm_pin_t p, int *any);
 /* Pads (components/pads/pads.c pads_scan): vpin_analog_peaks() once per pass, then
  * vpin_analog_peak(p) per pad = its strongest reading (after INVERT) since
- * the last pass, with the hardware analog scan (gm_adc_plan); otherwise just
- * vpin_analog(p). */
+ * the last pass, with the hardware analog scan (gm_adc_plan); otherwise, or
+ * for a pin whose ADC pin has no pad on it, just vpin_analog(p). */
 void vpin_analog_peaks(void);
 int32_t vpin_analog_peak(gm_pin_t p);
 /* Main loop, every pass: each hub's poll (MAUDIO_PADS: one changed LED at

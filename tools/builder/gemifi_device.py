@@ -3840,7 +3840,8 @@ def hw_scan_sizes(dev):
     GM_HW_SCAN_ROWS = key rows + switch-matrix rows (vpin_scan_plan: those within the 32-bit
     cache; shared selects only make it fewer), even; GM_HW_ADC_PINS / _STEPS = the distinct
     MCU ADC pins (direct, or a mux's common) and the most mux steps among the analog inputs
-    and pads (xy_pad: read in software)."""
+    and pads (xy_pad: read in software); GM_HW_ADC_PEAK_PINS = those of them the pads are on
+    (core/src/vpin.c keeps a sweep's highest and lowest readings for those pins' cells only)."""
     out = []
     if dev.hw_scan:
         rows = len(dev.matrix.rows) if dev.matrix else 0
@@ -3850,19 +3851,26 @@ def hw_scan_sizes(dev):
         rows = min(max(rows + (rows & 1), 2), HW_SCAN_MAX_ROWS)
         out.append(f"#define GM_HW_SCAN_ROWS {rows} /* hardware scan plan: rows at most */")
     if dev.hw_adc:
-        pins, steps = set(), 1
-        for x in [*dev.analogs, *dev.pads]:
-            pin = x.pin
+        pins, pad_pins, steps = set(), set(), 1
+        sources = [(a.pin, False) for a in dev.analogs] + [(p.pin, True) for p in dev.pads]
+        for pin, pad in sources:
+            adc = None
             if pin.hub == 0:
-                pins.add(pin.num)
+                adc = pin.num
             elif 0 < pin.hub <= len(dev.hubs):
                 h = dev.hubs[pin.hub - 1]
                 if h.type in MUX_HUBS and h.common is not None and h.common.hub == 0:
-                    pins.add(h.common.num)
+                    adc = h.common.num
                     steps = max(steps, 1 << h.n_sel)
+            if adc is not None:
+                pins.add(adc)
+                if pad:
+                    pad_pins.add(adc)
         out.append(f"#define GM_HW_ADC_PINS {min(max(len(pins), 1), HW_ADC_MAX_PINS)} "
                    "/* hardware analog scan: ADC pins at most */")
         out.append(f"#define GM_HW_ADC_STEPS {min(steps, HW_ADC_MAX_STEPS)} /* ... mux steps at most */")
+        out.append(f"#define GM_HW_ADC_PEAK_PINS {min(len(pad_pins), HW_ADC_MAX_PINS)} "
+                   "/* ... of them with pads: peaks kept */")
     return out
 
 

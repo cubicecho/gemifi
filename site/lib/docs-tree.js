@@ -75,6 +75,11 @@ export const CORE_YAML = {
       title: "Displays",
       summary: "Segment displays on a hub's pins and text displays on a screen: their characters, what they show.",
     },
+    {
+      file: "core/yaml/layout.md",
+      title: "Layout",
+      summary: "Where each control is on the device, for the web page's drawing of it.",
+    },
   ],
 };
 

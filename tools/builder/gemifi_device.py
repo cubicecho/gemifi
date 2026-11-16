@@ -2732,11 +2732,49 @@ def display_tables(dev):
 # layout: where the controls are, for drawing the device (sysex.md 4.7, core/README.md "Layout")
 
 LAYOUT_VERSION = 1
-LAYOUT_KEYS = ["size", "keys", "controls"]
-LAYOUT_ITEM_KEYS = ["x", "y", "w", "h", "shape"]
 LAYOUT_MAX = 255                     # units: the blob's u8 fields
 LAYOUT_SHAPES = {"button": 0, "round_button": 1, "knob": 2, "encoder": 3, "fader": 4, "wheel": 5, "pad": 6,
                  "display": 7, "keys": 8, "xy": 9}
+
+
+def _units(n, lo=0):
+    """[x, y] / [x, y, w, h] / [w, h]: n whole units."""
+    return {"type": "array", "items": {"type": "integer", "minimum": lo, "maximum": LAYOUT_MAX}, "minItems": n,
+            "maxItems": n}
+
+
+def _place(shapes, shape_doc):
+    """A place as a mapping (layout_rect()), x and y required: its Keys, and its type (the lists, or it)."""
+    keys = _Keys(
+        _Key("x", _Int(0, LAYOUT_MAX), required=True, doc="Its left edge, in units from the left."),
+        _Key("y", _Int(0, LAYOUT_MAX), required=True, doc="Its top edge, in units from the top."),
+        _Key("w", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its width, in units."),
+        _Key("h", _Int(1, LAYOUT_MAX), shown_default="its shape's", doc="Its height, in units."),
+        _Key("shape", _Enum(shapes), doc=shape_doc),
+    )
+    as_map = _Raw({**keys.schema(), "required": ["x", "y"]}, "mapping", keys=keys)
+    return keys, _OneOf(_Raw(_units(2), "`[x, y]`"), _Raw(_units(4), "`[x, y, w, h]`"), as_map)
+
+
+# layout:, checked by validate_layout(): a control's place is checked by layout_rect(), its shape (the kind's)
+# and the size: (what is placed) as code.
+LAYOUT_PLACE, _PLACE = _place([x for x in LAYOUT_SHAPES if x != "keys"],
+                              "How it is drawn (the shapes its kind can be).")
+_KEYS_PLACE = _place(["keys"], "Always `keys`.")[1]
+LAYOUT = _Keys(
+    _Key("size", _Raw(_units(2, 1), "`[w, h]`"), shown_default="just big enough",
+         doc=f"[w, h]: the drawing's size in units, 1..{LAYOUT_MAX}, at least what is placed."),
+    _Key("keys", _KEYS_PLACE, shown_default="under the controls",
+         doc="Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }."),
+    _Key("controls", _ById("control", _PLACE, names=ID_RE.pattern),
+         doc="Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }."),
+)
+LAYOUT_KEYS = LAYOUT.names
+LAYOUT_ITEM_KEYS = LAYOUT_PLACE.names
+# The Core area (core/yaml/layout.md)
+LAYOUT_AREA = _Keys(_Key("layout", _Map(LAYOUT), see='core/README.md "Layout"',
+                         doc="Where the controls are, in units of about 5 mm from the top left, for drawing the "
+                             "device."))
 LAYOUT_SIZES = {"button": (3, 2), "round_button": (2, 2), "knob": (3, 3), "encoder": (3, 3), "fader": (2, 8),
                 "wheel": (2, 7), "pad": (4, 4), "display": (10, 3), "xy": (8, 8)}
 LAYOUT_KINDS = {"button": 1, "keys": 2, "analog input": 3, "encoder": 4, "display": 6, "pad": 7}   # GET_COMPONENT
@@ -2767,8 +2805,8 @@ def layout_rect(v, x, p, line, default_wh):
         d = v.mapping(x, p, line, LAYOUT_ITEM_KEYS)
         if d is None:
             return None
-        got = [v.integer(d, k, p, 0, LAYOUT_MAX, required=True) for k in "xy"]
-        got += [v.integer(d, k, p, 1, LAYOUT_MAX, default=dflt) for k, dflt in zip("wh", default_wh)]
+        got = [LAYOUT_PLACE.get(v, d, k, p) for k in "xy"]
+        got += [LAYOUT_PLACE.get(v, d, k, p, default=dflt) for k, dflt in zip("wh", default_wh)]
         if None in got:
             return None
         vals = got
@@ -4306,4 +4344,5 @@ CORE_AREAS = {
     "device": DEVICE_KEYS,
     "presets": PRESETS_AREA,
     "displays": DISPLAYS_AREA,
+    "layout": LAYOUT_AREA,
 }

@@ -127,5 +127,22 @@ class EdgesAgree(unittest.TestCase):
             {**esp, "displays": [{**text, k: x}]}, f"displays[0].{k}"))
         self.assertGreater(n, 10)
 
+    def test_layout(self):
+        """A control's place as a mapping, and the keys' (the lists' ranges are the schema's, checked as code)."""
+        ctl = {"buttons": [{"id": "b", "pin": "PB0", "action": "cc_momentary", "cc": 20}],
+               "key_matrix": {"type": "switch", "rows": ["PB1", "PB2"], "columns": ["PA0", "PA1"]}}
+        n = 0
+        for where in ("controls", "keys"):
+            keys = gd.LAYOUT_PLACE if where == "controls" else gd.LAYOUT_PLACE.without("shape")
+            at = {"controls": "layout.controls.b", "keys": "layout.keys"}[where]
+
+            def put(k, x):
+                place = {"x": 0, "y": 0, k: x}
+                return {**ctl, "layout": {"controls": {"b": place}} if where == "controls" else {"keys": place}}, \
+                    f"{at}.{k}"
+            n += self.deep(keys, put)
+        self.assertGreater(n, 30)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3553,5 +3553,119 @@
         }
       ]
     }
+  ],
+  "core/layout": [
+    {
+      "section": "",
+      "list": false,
+      "keys": [
+        {
+          "key": "layout",
+          "type": "mapping",
+          "required": false,
+          "default": null,
+          "doc": "Where the controls are, in units of about 5 mm from the top left, for drawing the device.",
+          "see": "core/README.md \"Layout\"",
+          "keys": [
+            {
+              "key": "size",
+              "type": "`[w, h]`",
+              "required": false,
+              "default": "just big enough",
+              "doc": "[w, h]: the drawing's size in units, 1..255, at least what is placed."
+            },
+            {
+              "key": "keys",
+              "type": "`[x, y]` or `[x, y, w, h]` or mapping",
+              "required": false,
+              "default": "under the controls",
+              "doc": "Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }.",
+              "keys": [
+                {
+                  "key": "x",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its left edge, in units from the left."
+                },
+                {
+                  "key": "y",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its top edge, in units from the top."
+                },
+                {
+                  "key": "w",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its width, in units."
+                },
+                {
+                  "key": "h",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its height, in units."
+                },
+                {
+                  "key": "shape",
+                  "type": "`keys`",
+                  "required": false,
+                  "default": null,
+                  "doc": "Always `keys`."
+                }
+              ]
+            },
+            {
+              "key": "controls",
+              "type": "control id → `[x, y]` or `[x, y, w, h]` or mapping",
+              "required": false,
+              "default": null,
+              "doc": "Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }.",
+              "keys": [
+                {
+                  "key": "x",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its left edge, in units from the left."
+                },
+                {
+                  "key": "y",
+                  "type": "integer 0..255",
+                  "required": true,
+                  "default": null,
+                  "doc": "Its top edge, in units from the top."
+                },
+                {
+                  "key": "w",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its width, in units."
+                },
+                {
+                  "key": "h",
+                  "type": "integer 1..255",
+                  "required": false,
+                  "default": "its shape's",
+                  "doc": "Its height, in units."
+                },
+                {
+                  "key": "shape",
+                  "type": "`button`, `round_button`, `knob`, `encoder`, `fader`, `wheel`, `pad`, `display`, `xy`",
+                  "required": false,
+                  "default": null,
+                  "doc": "How it is drawn (the shapes its kind can be)."
+                }
+              ],
+              "sub": ".<id>"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

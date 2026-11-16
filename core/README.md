@@ -305,8 +305,8 @@ Not yet: HD44780 character LCDs, SPI OLEDs, more than one row a display (use one
 
 ```yaml
 layout:
-  size: [80, 30]               # optional: the drawing's size; default: just big enough
-  keys: [0, 12, 76, 14]        # optional: where key_matrix goes; default: under the controls
+  size: [80, 30]
+  keys: [0, 12, 76, 14]        # where key_matrix goes
   controls:
     volume: { x: 1, y: 1, w: 4, h: 4 }        # by id
     fader_1: { x: 7, y: 1, w: 2, h: 10, shape: fader }
@@ -314,6 +314,8 @@ layout:
     stop: [11, 4, 3, 2]        # [x, y, w, h]
     xy_x: { x: 20, y: 1, w: 10, h: 10, shape: xy }   # one axis of an xy_pad draws the pad for both
 ```
+
+Each key, its range and default: [the layout keys](yaml/layout.md#keys).
 
 - **Units.** Whole units of about 5 mm, from the top left, at most 255 each way. The page scales the drawing to fit.
 - **Controls.** Buttons, analog inputs, encoders, pads and displays, each once, by its `id`. A control left out isn't drawn; the page lists it under the drawing. An id that names no control is a warning and isn't drawn, so a device built on a package can `!remove` a control the package's layout places. Layer twins are the same physical control as their base, so they aren't listed: the page shows them where the base is.

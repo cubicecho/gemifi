@@ -248,14 +248,18 @@ class Raw(Type):
 
 
 class ById(Type):
-    """A mapping from a component's id (of a kind: 'button', 'LED', 'component') to a value of a type."""
+    """A mapping from a component's id (of a kind: 'button', 'LED', 'component') to a value of a type; names: a
+    regular expression the ids match, for the schema (the validator's own messages name a wrong one)."""
 
-    def __init__(self, kind, value):
-        self.kind, self.value = kind, value
+    def __init__(self, kind, value, names=None):
+        self.kind, self.value, self.names = kind, value, names
         self.text = f"{kind} id → {value.text}"
 
     def schema(self):
-        return {"type": "object", "description": f"{self.kind} id: ...", "additionalProperties": self.value.schema()}
+        s = {"type": "object", "description": f"{self.kind} id: ...", "additionalProperties": self.value.schema()}
+        if self.names:
+            s["propertyNames"] = {"pattern": f"^{self.names}$"}
+        return s
 
     def sub(self):
         s = self.value.sub()

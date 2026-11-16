@@ -44,7 +44,6 @@ PERIOD = ref("period")
 BOOL = T("boolean")
 STR = {"type": "string"}
 ID_REF = {"type": "string", "description": "the id of another component"}
-LOOK = gd.leds.Look().schema()
 
 def hub(typ):
     return lst(obj(gd.HUB_KEYS[typ], hub_key_types(typ)), f"{typ} hubs (core/README.md \"Components\")")
@@ -138,30 +137,6 @@ def action_list():
                "value, bank, channel }")
 
 
-def layout():
-    """layout: (core/README.md "Layout"): [x, y], [x, y, w, h] or { x, y, w, h, shape } per control id."""
-    unit = T("integer", minimum=0, maximum=gd.LAYOUT_MAX)
-    size = T("integer", minimum=1, maximum=gd.LAYOUT_MAX)
-    def ints(n):
-        return {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": gd.LAYOUT_MAX},
-                "minItems": n, "maxItems": n}
-    at = [ints(2), ints(4)]          # [x, y] or [x, y, w, h]
-    place = obj(gd.LAYOUT_ITEM_KEYS, {"x": unit, "y": unit, "w": size, "h": size,
-                                      "shape": enum(s for s in gd.LAYOUT_SHAPES if s != "keys")},
-                extra={"required": ["x", "y"]})
-    rect = one_of(*at, place)
-    return obj(gd.LAYOUT_KEYS, {
-        "size": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": gd.LAYOUT_MAX},
-                 "minItems": 2, "maxItems": 2, "description": "[w, h]: the drawing's size in units"},
-        "keys": one_of(*at, obj(gd.LAYOUT_ITEM_KEYS, {"x": unit, "y": unit, "w": size, "h": size,
-                                                       "shape": enum(["keys"])}, extra={"required": ["x", "y"]})),
-        "controls": {"type": "object", "description": "control id -> [x, y], [x, y, w, h] or { x, y, w, h, shape }",
-                     "propertyNames": {"pattern": "^" + gd.ID_RE.pattern + "$"},
-                     "additionalProperties": rect},
-    }, "where the controls are, in units of about 5 mm from the top left, for drawing the device "
-       "(core/README.md \"Layout\")")
-
-
 def pin():
     return one_of(
         {"type": "string", "description": "an MCU pin: PA1, GPIO5, 5"},
@@ -208,7 +183,6 @@ def device_schema():
             "sysex": lst(obj(gd.SYSEX_KEYS, {"id": ref("id"), "data":{"type": "string", "description": "hex bytes F0 .. F7, "
                                                       "with v, msb, lsb, ch and [ ... ] cs placeholders"}}))},
             "MIDI messages: 14-bit CC, NRPN/RPN, bank select, panic, MMC, SysEx (core/README.md \"MIDI messages\")"),
-        "layout": layout(),
         "write_to_flash": one_of(BOOL, obj(gd.WTF_KEYS, {**{k: BOOL for k in gd.WTF_ITEMS},
                                                          "delay": PERIOD, "idle": PERIOD})),
     }

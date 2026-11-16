@@ -5733,7 +5733,7 @@
               },
               "minItems": 2,
               "maxItems": 2,
-              "description": "[w, h]: the drawing's size in units"
+              "description": "[w, h]: the drawing's size in units, 1..255, at least what is placed. Default: just big enough."
             },
             "keys": {
               "anyOf": [
@@ -5770,7 +5770,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its left edge, in units from the left."
                     },
                     "y": {
                       "anyOf": [
@@ -5782,7 +5783,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its top edge, in units from the top."
                     },
                     "w": {
                       "anyOf": [
@@ -5794,7 +5796,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its width, in units. Default: its shape's."
                     },
                     "h": {
                       "anyOf": [
@@ -5806,7 +5809,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Its height, in units. Default: its shape's."
                     },
                     "shape": {
                       "anyOf": [
@@ -5818,7 +5822,8 @@
                         {
                           "$ref": "#/definitions/substitution"
                         }
-                      ]
+                      ],
+                      "description": "Always `keys`."
                     }
                   },
                   "additionalProperties": false,
@@ -5827,14 +5832,12 @@
                     "y"
                   ]
                 }
-              ]
+              ],
+              "description": "Where the key matrix's keys go: [x, y], [x, y, w, h] or { x, y, w, h }. Default: under the controls."
             },
             "controls": {
               "type": "object",
-              "description": "control id -> [x, y], [x, y, w, h] or { x, y, w, h, shape }",
-              "propertyNames": {
-                "pattern": "^[a-z][a-z0-9_]*$"
-              },
+              "description": "Each control's place, by id: [x, y] (with its shape's size), [x, y, w, h] or { x, y, w, h, shape }.",
               "additionalProperties": {
                 "anyOf": [
                   {
@@ -5870,7 +5873,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its left edge, in units from the left."
                       },
                       "y": {
                         "anyOf": [
@@ -5882,7 +5886,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its top edge, in units from the top."
                       },
                       "w": {
                         "anyOf": [
@@ -5894,7 +5899,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its width, in units. Default: its shape's."
                       },
                       "h": {
                         "anyOf": [
@@ -5906,7 +5912,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "Its height, in units. Default: its shape's."
                       },
                       "shape": {
                         "anyOf": [
@@ -5926,7 +5933,8 @@
                           {
                             "$ref": "#/definitions/substitution"
                           }
-                        ]
+                        ],
+                        "description": "How it is drawn (the shapes its kind can be)."
                       }
                     },
                     "additionalProperties": false,
@@ -5936,11 +5944,14 @@
                     ]
                   }
                 ]
+              },
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
               }
             }
           },
           "additionalProperties": false,
-          "description": "where the controls are, in units of about 5 mm from the top left, for drawing the device (core/README.md \"Layout\")"
+          "description": "Where the controls are, in units of about 5 mm from the top left, for drawing the device."
         },
         {
           "type": "string",

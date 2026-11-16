@@ -503,3 +503,8 @@ pre.code .line {
 .hljs-punctuation {
   color: var(--muted-fg);
 }
+
+/* A device page's "before you flash" note: room before the first section, which the docs layout starts tight. */
+.docs-main > .callout + .section {
+  padding-top: 1.5rem;
+}

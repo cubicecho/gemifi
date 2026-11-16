@@ -100,16 +100,36 @@ class EdgesAgree(unittest.TestCase):
         self.hub("switch_matrix", {"id": "h", "rows": ["PB6", "PB7"], "columns": ["PB8", "PB9"]}, 8)
 
 
+    def test_ssd1306(self):
+        t = gd.DISPLAY_PLATFORMS["ssd1306"]
+        # width and height are checked together too: each edge with a size the panel has
+        n = self.edges("display", {"id": "d", "platform": "ssd1306"}, "display[0]", t.spec.without("platform"),
+                       head=ESP, context={"width": lambda w: {"height": 48 if w == 64 else 64},
+                                          "height": lambda ht: {"width": 96 if ht == 16 else 128}})
+        self.assertGreaterEqual(n, 20)
+
+
 class Specs(unittest.TestCase):
+    def specs(self):
+        """(name, its spec, its YAML key names) of every hub type, display platform and i2c: bus."""
+        return [*((typ, t.spec, gd.HUB_KEYS[typ]) for typ, t in gd.HUB_DEFS.items()),
+                *((p, t.spec, t.keys) for p, t in gd.DISPLAY_PLATFORMS.items()),
+                ("i2c", gd.i2c_buses.BUS, gd.i2c_buses.BUS_KEYS)]
+
+    def test_every_hub_and_screen_has_one(self):
+        for name, spec, _ in self.specs():
+            self.assertIsNotNone(spec, f"{name}: give it a spec (components/keys.py)")
+
     def test_the_validator_lists_the_spec_keys(self):
-        for typ, t in gd.HUB_DEFS.items():
-            if t.spec is not None:
-                self.assertEqual(list(gd.HUB_KEYS[typ]), t.spec.names, typ)
+        for name, spec, keys in self.specs():
+            self.assertEqual(list(keys), spec.names, name)
 
     def test_every_key_says_what_it_does(self):
-        for typ, t in gd.HUB_DEFS.items():
-            for k in t.spec or ():
-                self.assertTrue(k.doc.strip(), f"{typ}.{k.name} has no doc=")
+        for name, spec, _ in self.specs():
+            for k in spec:
+                self.assertTrue(k.doc.strip(), f"{name}.{k.name} has no doc=")
+                for s in (k.sub_keys() or ()):
+                    self.assertTrue(s.doc.strip(), f"{name}.{k.name}.{s.name} has no doc=")
 
 
 if __name__ == "__main__":

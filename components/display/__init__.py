@@ -10,11 +10,12 @@ class ScreenType:
     enum = ""                   # gm_screen.h GM_SCREEN_*
     num = 0                     # ... its value
     keys = ("id", "platform")   # a screen's YAML keys
+    # Its keys as data (components/keys.py Keys: type, default, doc), as a hub type's spec: then `keys` is
+    # its names, and the JSON schema and the docs take each key's type from it.
+    spec = None
     old_keys = ()               # its keys before it was a platform: its list, and a text display's key
                                 # for its screen (gemifi_build.py migrate rewrites them)
     i2c = False                 # on the i2c: bus (address:)
-    schema = {}                 # key -> (min, max) for the JSON schema
-    enums = {}                  # key -> allowed values, for the JSON schema
     # The C side (gm_components.h): its header, its config in gm_screen_t's union (C type, member) and
     # its gm_screen_ops_t.
     c_header = None

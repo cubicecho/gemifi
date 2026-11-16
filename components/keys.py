@@ -132,7 +132,7 @@ class Enum(Type):
         return default if i is None else i
 
     def bad_values(self):
-        return [(self.values[0], True), ("not_" + self.values[0], False)]
+        return [(self.values[0], True), (f"not_{self.values[0]}", False)]
 
 
 class Bool(Type):

@@ -133,16 +133,15 @@ def hub_key_types(typ):
 
 
 def screen():
-    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys)."""
+    """display: the screens, each on a platform (components/<platform>, its ScreenType's keys: their types
+    from its spec, the wider where platforms share a key)."""
     plats = list(gd.DISPLAY_PLATFORMS.values())
     keys = list(dict.fromkeys(k for t in plats for k in t.keys))
-    types = {"id": ref("id"), "platform": enum(gd.DISPLAY_PLATFORMS), "i2c_id": ref("id")}
+    types = {}
     for t in plats:
-        types.update({k: T("integer", minimum=lo, maximum=hi) for k, (lo, hi) in t.schema.items()})
-        types.update({k: enum(vals) for k, vals in t.enums.items()})
-        if t.i2c:
-            # an OLED's 0x78 / 0x7A: its 8-bit address, as printed (the builder takes it, with a warning)
-            types["address"] = T("integer", minimum=0x08, maximum=0x7A)
+        for k, s in (t.spec.types() if t.spec is not None else {}).items():
+            types[k] = widest(types[k], s) if k in types else s
+    types["platform"] = enum(gd.DISPLAY_PLATFORMS)
     return lst(obj(keys, types), "screens, ESPHome style: { id, platform: " + " | ".join(gd.DISPLAY_PLATFORMS) +
                ", ... } (components/display/README.md); text displays name one with display: <id>")
 
@@ -373,12 +372,15 @@ def schema_text():
 def component_keys():
     """The key tables of the components whose keys are data (components/keys.py), for their docs pages:
     component name -> [its sections: where the keys go in the YAML, and each key's type, default, doc]. A
-    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES with a spec."""
+    component's sections are its KEY_SECTIONS, and one per hub type of its HUB_TYPES and display platform of
+    its DISPLAY_PLATFORMS with a spec."""
     out = {}
     for name, m in components.modules().items():
         secs = list(getattr(m, "KEY_SECTIONS", ()))
         secs += [Section(t.domain or t.key, t.spec, platform=t.key if t.domain else None)
                  for t in getattr(m, "HUB_TYPES", ()) if t.spec is not None]
+        secs += [Section("display", t.spec, platform=t.platform)
+                 for t in getattr(m, "DISPLAY_PLATFORMS", ()) if t.spec is not None]
         if secs:
             out[name] = [s.doc() for s in secs]
     return out

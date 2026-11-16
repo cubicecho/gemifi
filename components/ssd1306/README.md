@@ -1,6 +1,6 @@
 # ssd1306
 
-A display platform ([display](../display/README.md)): the small I2C OLEDs, 0.96" 128 × 64 and 0.91" 128 × 32 SSD1306 modules and 1.3" SH1106 ones, written from the main loop on the I2C bus (ESP only for now). `ssd1306.c` (the driver), `ssd1306.h` (its config), `__init__.py` (the YAML), `test/` (a host test on a fake bus, run by `core/test`).
+A display platform ([display](../display/README.md)): the small I2C OLEDs, 0.96" 128 × 64 and 0.91" 128 × 32 SSD1306 modules and 1.3" SH1106 ones, written from the main loop on the I2C bus (ESP only for now).
 
 ```yaml
 i2c: { sda: GPIO21, scl: GPIO22 }
@@ -10,6 +10,8 @@ displays:
   - { id: oled_main, display: oled, line: 1, scale: 2, shows: last_message }   # 10 big characters
   - { id: oled_channel, display: oled, line: 6, shows: channel }              # 21 small ones
 ```
+
+Its keys are below; the text displays on it (`displays:`, `display: <id>`) are in [core/README.md "Displays"](../../core/README.md#displays), and the screen base in [display](../display/README.md).
 
 | Key | |
 |---|---|
@@ -28,3 +30,10 @@ The display base keeps its framebuffer (1 KB for 128 × 64, and as much again fo
 - The writes aren't checked, as the I2C hubs' aren't: a missing panel costs its bytes once per change.
 
 An OLED used to be a hub, `ssd1306: [{ id: oled, ... }]`, and a text display named it with `ssd1306: oled`. The builder refuses both now, with the new form in the message.
+
+## Files
+
+- `ssd1306.c`: the driver.
+- `ssd1306.h`: its config.
+- `__init__.py`: the YAML.
+- `test/`: a host test on a fake bus, run by `core/test`.

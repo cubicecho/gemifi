@@ -13,6 +13,7 @@
       {{ item("Docs home", "/docs/") }}
       {{ item("Get started", "/get-started/") }}
       {% for c in docs.core %}{{ item(c.title, c.url) }}{% endfor %}
+      {{ item("DAW setup", "/daw-setup/") }}
     </ul>
     {% for g in [docs.base].concat(docs.groups) %}
     {{ head(g.title, g.key) }}
@@ -36,9 +37,16 @@
     </ul>
     {{ head("Devices", "devices") }}
     <ul>
+      {{ item("All devices", "/devices/") }}
       {{ item("Tested devices", "/docs/devices/") }}
       {% for d in collections.devices %}{{ item(d.data.maker + " " + d.data.model, d.url) }}{% endfor %}
     </ul>
+    {% for g in docs.guides %}
+    {{ head(g.title, g.key) }}
+    <ul>
+      {% for i in g.items %}{{ item(i.title, i.url) }}{% endfor %}
+    </ul>
+    {% endfor %}
   </nav>
 </details>
 {#- Open beside the page on a wide screen; folded above it on a phone, where it would push the page down. -#}

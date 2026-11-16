@@ -1,13 +1,12 @@
 ---
-layout: base.njk
+layout: docs.njk
 title: Get started
 description: Run the gemifi dashboard from its Docker image, build a device, and flash it from the browser.
 permalink: /get-started/
+crumb: Overview
+tone: overview
+lede: Run the dashboard, build a device, flash it from the browser.
 ---
-<section class="hero">
-  <h1>Get started</h1>
-  <p>Run the dashboard, build a device, flash it from the browser.</p>
-</section>
 
 <div class="prose">
 

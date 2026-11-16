@@ -35,12 +35,17 @@
   margin-bottom: 0.25rem;
 }
 
-.crumb {
-  margin: 1rem 0 0;
+/* a device page's status, under its summary */
+.device-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: -0.5rem 0 1.5rem;
   font-size: 0.95rem;
 }
-.device-hero {
-  padding-top: 1.5rem;
+.device-status .status-note {
+  color: var(--muted-fg);
 }
 
 /* status badge: the label is always text, the colour only supports it */
@@ -66,9 +71,6 @@
 .status-researched {
   color: var(--warning);
   background: color-mix(in oklab, var(--warning) 12%, transparent);
-}
-.hero .meta .status-note {
-  color: var(--muted-fg);
 }
 
 /* the "before you flash" note on every device page */
@@ -318,6 +320,9 @@ main:has(> .docs) {
 .tone-display { --tone-h: 215; }
 .tone-platforms { --tone-h: 25; }
 .tone-devices { --tone-h: 75; }
+.tone-tools { --tone-h: 275; }
+.tone-protocol { --tone-h: 5; }
+.tone-hosts { --tone-h: 125; }
 .tone-other { --tone: var(--muted-fg); }
 
 .docs-nav-head.tone {
@@ -437,4 +442,69 @@ table.tested .nowrap {
     font-weight: 600;
     padding: 0.5rem 0;
   }
+}
+
+/* ---- Code blocks (lib/highlight.js) ---------------------------------------
+   A line per span: a long one wraps with a hanging indent under its own
+   indentation (--indent, in spaces) instead of scrolling its end out of
+   sight. The colours are hues at one lightness, like the docs tones. */
+pre.code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  --hl-l: 0.5;
+  --hl-c: 0.14;
+}
+@media (prefers-color-scheme: dark) {
+  pre.code {
+    --hl-l: 0.78;
+    --hl-c: 0.12;
+  }
+}
+pre.code .line {
+  display: block;
+  padding-left: calc((var(--indent, 0) + 2) * 1ch);
+  text-indent: calc((var(--indent, 0) + 2) * -1ch);
+}
+.hljs-comment,
+.hljs-meta {
+  color: var(--muted-fg);
+  font-style: italic;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-section {
+  color: oklch(var(--hl-l) var(--hl-c) 250);
+}
+.hljs-string,
+.hljs-regexp {
+  color: oklch(var(--hl-l) var(--hl-c) 150);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol {
+  color: oklch(var(--hl-l) var(--hl-c) 55);
+}
+.hljs-keyword,
+.hljs-built_in,
+.hljs-type {
+  color: oklch(var(--hl-l) var(--hl-c) 300);
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: oklch(var(--hl-l) var(--hl-c) 215);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-subst {
+  color: oklch(var(--hl-l) var(--hl-c) 345);
+}
+.hljs-bullet,
+.hljs-punctuation {
+  color: var(--muted-fg);
+}
+
+/* A device page's "before you flash" note: room before the first section, which the docs layout starts tight. */
+.docs-main > .callout + .section {
+  padding-top: 1.5rem;
 }

@@ -1,0 +1,11 @@
+---
+# Every page, for search engines (the redirect stubs and the 404 page are left out of collections.all).
+permalink: /sitemap.xml
+eleventyExcludeFromCollections: true
+---
+<?xml version="1.0" encoding="utf-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{%- for p in collections.all | sort(false, false, "url") %}
+  <url><loc>{{ site.origin }}{{ p.url | url }}</loc></url>
+{%- endfor %}
+</urlset>

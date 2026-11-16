@@ -1,9 +1,19 @@
 # modes
 
-A control ([core/README.md "Controls"](../../core/README.md#controls)): modes that change what keys and buttons do while they're on, entered with a toggle, hold or cycle button. Its YAML (`modes:`): "Modes", "Button layers" and "Cycles" below.
+A control ([core/README.md "Controls"](../../core/README.md#controls)): modes that change what keys and buttons do while they're on, entered with a toggle, hold or cycle button.
 
-- `modes.c`: which modes are on, their key and button bindings, the layers and cycles, and the LEDs that show them. Built when the device has modes.
-- `__init__.py`: the builder part: `validate` (its YAML: toggle, hold and cycle buttons, keys, buttons, layers and their twins, steps) and `c_tables` (`gm_modes[]`, the key and button tables, `gm_mode_rgb[]`), and when it's built.
+```yaml
+modes:
+  - id: edit
+    toggle: { button: edit }
+    led: edit_led
+    keys:
+      C3: octave_reset
+      C#3: octave_down
+      D#3: octave_up
+```
+
+Its YAML (`modes:`): "Modes", "Button layers" and "Cycles" below.
 
 ## Modes
 
@@ -156,6 +166,11 @@ modes:
 - **The builder checks** that a cycle has 2 to 8 steps, that step ids are unique among all modes, that its button doesn't enter another mode (toggle, hold or cycle), that `colour` is a look of the cycle's LED (a look another kind of LED has is a warning: the nearest it can show), that the cycle has an LED for its colours, and that at least one step is enabled.
 
 **Generated code:** each step is a `gm_modes[]` row with the cycle's button as `toggle` / `with`, `cycle` = the cycle's number + 1, `colour` = 0x80 | the LED pins to light (bit 0 pin, 1 pin2, 2 pin3; 0 = the active look) and `name`; `GM_N_CYCLES` in `gm_device_config.h`. A step with a full colour on an LED that can show it also has `gm_mode_rgb[]` (`GM_LED_RGB(0xRRGGBB)`, 0 for the others; `GM_MODE_RGB 1`), and `colour` is its nearest on/off colour. The runtime keeps one byte per cycle (its current step).
+
+## Files
+
+- `modes.c`: which modes are on, their key and button bindings, the layers and cycles, and the LEDs that show them. Built when the device has modes.
+- `__init__.py`: the builder part: `validate` (its YAML: toggle, hold and cycle buttons, keys, buttons, layers and their twins, steps) and `c_tables` (`gm_modes[]`, the key and button tables, `gm_mode_rgb[]`), and when it's built.
 
 ## How it runs
 

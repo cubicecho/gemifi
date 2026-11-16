@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import MarkdownIt from "markdown-it";
+import { highlightBlocks } from "./highlight.js";
 
 export const REPO = path.resolve(import.meta.dirname, "../..");
 
@@ -118,7 +119,7 @@ export function markdown() {
   // Wide tables scroll on their own instead of the page.
   md.renderer.rules.table_open = () => '<div class="table-scroll"><table>\n';
   md.renderer.rules.table_close = () => "</table></div>\n";
-  return md;
+  return highlightBlocks(md);
 }
 
 /** Where a link in a doc goes on the site. */
@@ -139,7 +140,8 @@ export function resolveLink(href, env, raw = false) {
 
 /** A doc page: its Markdown rendered with the links resolved, its title and contents list. */
 export function renderDoc(md, file, env, { url, title } = {}) {
-  let text = readRepo(file);
+  // A licence comment (<!-- SPDX ... -->) may come before the title.
+  let text = readRepo(file).replace(/^<!--[\s\S]*?-->\s*/, "");
   const h1 = text.match(/^# (.*)\n/);
   if (h1) text = text.slice(h1[0].length);
   const pageEnv = { ...env, file };

@@ -1,0 +1,18 @@
+---
+# Pages serves this for any path under the site that has no page. Its links carry the path prefix, so they
+# work from any depth.
+layout: base.njk
+title: Page not found
+permalink: /404.html
+eleventyExcludeFromCollections: true
+noindex: true
+---
+<section class="hero">
+  <h1>Page not found</h1>
+  <p>There's no page here. It may have moved when the docs were collected into one place.</p>
+  <p class="cta">
+    <a class="button" href="{{ '/docs/' | url }}">The docs</a>
+    <a class="button secondary" href="{{ '/' | url }}">Home</a>
+    <a class="button secondary" href="{{ site.repo }}/issues" rel="noopener">Report a broken link ↗</a>
+  </p>
+</section>

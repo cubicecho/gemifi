@@ -1,18 +1,12 @@
 ---
-layout: base.njk
+layout: docs.njk
 ---
+{#- A device page, in the docs: docs.njk puts the maker (crumb), the model (title) and the summary (lede) on top. -#}
 {%- set st = statuses[status] -%}
-<p class="crumb"><a href="{{ '/devices/' | url }}">← All devices</a></p>
-
-<section class="hero device-hero">
-  <p class="eyebrow">{{ maker }}</p>
-  <h1>{{ model }}</h1>
-  <p>{{ summary }}</p>
-  <p class="meta">
-    <span class="status status-{{ status }}">{{ st.label }}</span>
-    <span class="status-note">{{ st.description }}</span>
-  </p>
-</section>
+<p class="device-status">
+  <span class="status status-{{ status }}">{{ st.label }}</span>
+  <span class="status-note">{{ st.description }}</span>
+</p>
 
 {% if warning !== false %}
 <aside class="callout callout-warning" role="note">

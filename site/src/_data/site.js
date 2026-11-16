@@ -5,6 +5,8 @@ export default {
   description:
     "gemifi is an ESPHome-style open-source firmware framework for MIDI controllers: describe the hardware in a YAML file, build the firmware, and flash it over Web MIDI.",
   url: "https://cubicecho.github.io/gemifi/",
+  // The host, for absolute page urls (canonical, og:url, the sitemap): this + a path with its prefix.
+  origin: "https://cubicecho.github.io",
   // Pages serves the site under this path (eleventy.config.js uses it too).
   pathPrefix: "/gemifi/",
   repo: "https://github.com/cubicecho/gemifi",

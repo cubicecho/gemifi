@@ -1,6 +1,20 @@
 # hub
 
-The base component of every **hub**: a chip or circuit that gives pins (shift registers, multiplexers, I/O expanders, matrices, LED strips and drivers). Every device builds it (`REQUIRED = True`). `gm_hub.h` (the driver interface and the per-hub state, and at its end what the base gives a driver), `__init__.py` (`HubType`, the class every hub type's builder part derives from, and the builder parts several types share: `ShiftRegister`, `I2CExpander`; the RGB ones, `rgb_curve` and `validate_rgb_calibration`, are in [led_strip](../led_strip/README.md)'s `__init__.py`). The pins a hub gives, and how the YAML names them: [core/README.md "Pins"](../../core/README.md#pins).
+The base component of every **hub**: a chip or circuit that gives pins (shift registers, multiplexers, I/O expanders, matrices, LED strips and drivers). Every device builds it (`REQUIRED = True`).
+
+```yaml
+sn74hc165:
+  - { id: switches, data_pin: PB12, clock_pin: PB13, load_pin: PB14, sr_count: 2 }
+buttons:
+  - { id: fs_1, pin: { sn74hc165: switches, number: 0, inverted: true }, action: cc_momentary, cc: 21 }
+```
+
+The pins a hub gives, and how the YAML names them: [core/README.md "Pins"](../../core/README.md#pins). Each hub type's keys are on its own page.
+
+## Files
+
+- `gm_hub.h`: the driver interface and the per-hub state, and at its end what the base gives a driver.
+- `__init__.py`: `HubType`, the class every hub type's builder part derives from, and the builder parts several types share: `ShiftRegister`, `I2CExpander`. The RGB ones, `rgb_curve` and `validate_rgb_calibration`, are in [led_strip](../led_strip/README.md)'s `__init__.py`.
 
 ## Hub drivers
 

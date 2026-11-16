@@ -23,6 +23,10 @@ on:
       - "bootloader/**/README.md"
       - "firmware/*/midi-controller/README.md"
       - "tools/README.md"
+      - "tools/builder/README.md"
+      - "web/updater/README.md"
+      - "protocol/*.md"
+      - "hosts/**/README.md"
       - "devices/*.yaml"
   workflow_dispatch:
 

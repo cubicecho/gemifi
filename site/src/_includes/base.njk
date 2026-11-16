@@ -8,7 +8,10 @@
     <meta property="og:title" content="{{ title or site.name }}" />
     <meta property="og:description" content="{{ description or site.description }}" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="{{ site.url }}" />
+    {#- This page's own address; the 404 page has none of its own. -#}
+    {%- set here = site.origin + (page.url | url) %}
+    <meta property="og:url" content="{{ here }}" />
+    {% if not noindex %}<link rel="canonical" href="{{ here }}" />{% else %}<meta name="robots" content="noindex" />{% endif %}
     <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | url }}" />
     <!-- The shared theme first, then this project's own rules on top of it. -->
     <link rel="stylesheet" href="{{ '/css/cubesite.css' | url }}" />

@@ -918,6 +918,7 @@ class Device:
         self.pad_twins = []          # Hub per pad layer twin (mode_layer): GET_COMPONENT pads after dev.pads
         self.btn_set = {}            # button_settings: the gesture timing params' defaults (buttons.button_settings)
         self.combos = []             # Hub per combo (buttons.validate_combos), in YAML order
+        self.btn_lists = []          # action lists (buttons.action_list): a tuple of items each, each list once
         self.pad_set = dict(PAD_DEFAULTS)   # pad_settings: the pad.* param defaults
         self.displays = []           # Hub per display (validate_displays), in YAML order
         self.layout = None           # (width, height, [Hub item]) from layout: (validate_layout)
@@ -1719,7 +1720,7 @@ def validate(data, file=None):
             v.err(kind, data.line_of(kind), f"{len(lst)} items: at most 255")
 
     if dev.mcu is not None and dev.mcu.cable == 0 and (
-            dev.matrix or any(b.action_name == "note" for b in dev.buttons)):
+            dev.matrix or any(b.action_name == "note" for b in dev.buttons) or buttons.lists_send_notes(dev)):
         v.warn("mcu", dev.mcu.line, "Mackie Control on the only port: hosts read every Note On there as an "
                                     "MCU button, keys included (a USB DAW port avoids that: usb.daw_port)")
     for h in dev.hubs:
@@ -3021,10 +3022,11 @@ def preset_values(v, dev, d, p):
                 why = buttons.held_action_problem(dev, idx, act)
                 if why:
                     v.err(f"{cp}.action", line("action"), why)
-                if "action" in o or act != b.action_name:
-                    put("button.action", idx, ACTION_IDS[act], b.action, f"{cp}.action", line("action"),
+                ak = "actions" if "actions" in o else "action"
+                if "action" in o or act != b.action_name:     # another list is only another number
+                    put("button.action", idx, ACTION_IDS[act], b.action, f"{cp}.{ak}", line(ak),
                         f"button.action[{cid}]", act)
-                nk = next((k for k in (*NUMBER_KEYS, "mcu") if k in o), None)
+                nk = next((k for k in (*NUMBER_KEYS, "mcu", "actions") if k in o), None)
                 if nk is not None or num != b.number:
                     put("button.number", idx, num, b.number, f"{cp}.{nk or 'action'}", line(nk or "action"),
                         f"button.number[{cid}]")

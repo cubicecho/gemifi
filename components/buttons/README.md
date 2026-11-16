@@ -15,7 +15,46 @@ Modes and layers change what buttons do: [modes](../modes/README.md).
 
 ## Button actions
 
-`button.action` values (YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with presets (2 or more slots; without them presets are off, these options are left out of the schema and the YAML refuses them, see [core/README.md "Presets"](../../core/README.md#presets)) 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). The MIDI message actions, only on devices that use them ([core/README.md "MIDI messages"](../../core/README.md#midi-messages)): 17 program (`program`, `program:` 0..127), 18 panic (`panic`), 19 MMC (`mmc`, `mmc: play` etc.), 20 SysEx (`sysex`, `sysex:` a string's id). On devices with pads: 21 pad octave down (`pad_octave_down`), 22 pad octave up (`pad_octave_up`): `pad.octave` ∓ 1, both held: back to 0, as the octave buttons. Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning).
+`button.action` values (YAML names in brackets): 0 none (`none`), 1 CC momentary (`cc_momentary`), 2 CC toggle (`cc_toggle`), 3 CC ramp (`cc_ramp`: glides to 127 while held, back to 0 on release), 4 note (`note`), 5 octave down (`octave_down`), 6 octave up (`octave_up`), 7 transpose down (`transpose_down`), 8 transpose up (`transpose_up`), 9 pitch bend down (`bend_down`), 10 pitch bend up (`bend_up`), 11 program next (`program_next`), 12 program previous (`program_prev`), and on devices with presets (2 or more slots; without them presets are off, these options are left out of the schema and the YAML refuses them, see [core/README.md "Presets"](../../core/README.md#presets)) 13 next preset (`preset_next`), 14 previous preset (`preset_prev`), 15 select preset (`preset_select`: `button.number` is the slot, 1..slots, from the YAML's `preset:`, e.g. `{ action: preset_select, preset: 3 }`), and on devices with `mcu:` only, 16 Mackie Control (`mcu`; it was 13 before presets, so a profile stored with it needs setting again). `button.number` is the CC or note number: the YAML's `cc:` for the CC actions, `note:` for `note`, the slot for `preset_select`, the MCU note for `mcu` (from `mcu: play` etc.). The MIDI message actions, only on devices that use them ([core/README.md "MIDI messages"](../../core/README.md#midi-messages)): 17 program (`program`, `program:` 0..127), 18 panic (`panic`), 19 MMC (`mmc`, `mmc: play` etc.), 20 SysEx (`sysex`, `sysex:` a string's id). On devices with pads: 21 pad octave down (`pad_octave_down`), 22 pad octave up (`pad_octave_up`): `pad.octave` ∓ 1, both held: back to 0, as the octave buttons. Other actions take neither (a `cc:`/`note:` there only sets the default number for when the action is changed in the config, with a warning). On devices with action lists ("Action lists"): 23 action list (`actions:`, not `action:`; `button.number` is the list).
+
+## Action lists
+
+A button can send several messages at one press: an **action list**, `actions:` instead of `action:`. A floor board's patch button can change the program on two devices, set a volume and start the transport at once.
+
+```yaml
+buttons:
+  - id: verse
+    pin: PB3
+    actions:                         # sent in this order at the press
+      - { program: 5, channel: 2 }   # the synth on channel 2
+      - { program: 12, bank: 3 }     # the amp, on the button's channel, Bank Select 3 first
+      - { cc: 7, value: 100 }        # CC 7 = 100, once
+      - { cc: 64 }                   # CC 64: 127 at the press, 0 at the release
+      - { note: 36, channel: 10 }    # a note held while the button is
+      - { mmc: play }
+  - { id: stop, pin: PB4, actions: [{ mmc: stop }, panic] }
+```
+
+- **An item** is a mapping with the keys of a button's action: `cc:`, `note:`, `program:` (with `bank:`), `mmc:` or `sysex:`, and `channel:` (1..16). `action:` may be left out, since the number key says it (`cc:` is `cc_momentary`), or given (`action: note`); an item that is only an action's name is a string (`panic`).
+- **What an item can be:** `cc_momentary`, `note`, `program`, `panic`, `mmc` and `sysex`. A CC with `value:` (0..127) sends that value once at the press and nothing at the release. The others are refused, each with its reason: `cc_toggle` (its on/off state is the button's), `cc_ramp` and the pitch bends (they work for as long as the button is held), octave, transpose, pad octave and program next / previous (they step a setting rather than send a fixed message), the preset actions (a preset switch lets go of everything held, the list's own messages too), `mcu` (one button on the DAW's surface) and `none`.
+- **Channels:** an item's `channel:`, else the button's `channel:`, else `midi.channel`. A held CC and a SysEx string's value go out with the button's `min:` and `max:`; the button's `bank:` is refused (it goes on the program items).
+- **Press and release:** the items go in list order at the press. At the release, in the same order, a held CC goes back to 0 (`min:`), a note sends its Note Off, and a SysEx string with a value sends 0; programs, MMC, a CC with `value:` and panic send nothing then.
+- **Nothing hangs.** The button remembers which list it pressed, so its release lets go of that list even if the host changed the button's action or list while it was held. A preset switch (`buttons_off`) lets go of every list held, once; the button's release then sends nothing. A panic in a list lets go of the items before it, as of everything else, so an item after a panic that holds something (a held CC, a note, a SysEx string with a value) is an error: put it before the panic.
+- **EVENTs** (`debug.events`) come at the press and the release, as for any button.
+- **Not with** `action:` or a number key on the same button (they go in the items), `repeat:`, or `daw:` (a DAW role names one CC or note). Host feedback leaves a list button alone: there is no one CC or note whose echo it would show, so a list button's LED is lit while it is held.
+
+**Where a list fits:** a list is an action, so `actions:` goes wherever an action does.
+- **`hold:` and `double_tap:`** ("Gestures"): `hold: { actions: [...] }`. A tap of a list button sends its list, and lets go of it, at the release.
+- **Combos** ("Combos"): `{ buttons: [b1, b2], actions: [...] }`, on the combo's first button's channel.
+- **Layer twins** ([modes](../modes/README.md#button-layers)): `layer: { b2: { actions: [...] } }`.
+- **Presets** ([core/README.md "Presets"](../../core/README.md#presets)): `buttons: { verse: { actions: [...] } }`, or `{ action: note, note: 61 }` to give a list button one action there.
+- What an override (a gesture, a twin, a preset) leaves out is the button's, as always: with no `action:` or `actions:`, a list button's override is the same list, and a `cc:` there is an error (there is no action for it to go with).
+
+**How it is stored.** The builder writes every list once into flash (`gm_btn_lists[]`, `gm_btn_items[]`, `gm_device.h` `gm_btn_item_t`), the same list on several buttons or presets once. A button with a list has action 23 (`actions`, "Action list" on the web page) and its `button.number` is the list, so a preset's list is a preset value like any other (`button.number`, and `button.action` where the button had another action). At most 128 different lists (`button.number` is 0..127), 32 items each.
+
+**Cost.** None on a device without lists: `GM_BTN_LISTS` (`gm_device_config.h`) is 0 or left out, and the list code, its RAM and the action option aren't compiled in. With lists: 6 bytes of flash per item and 2 per list, about 0.4 KB of code with every message kind on (Cortex-M0, `-Os`), and 1 byte of RAM per button, the list it has down.
+
+**YAML only.** The lists themselves aren't params: a host can point a button at another of the device's lists (`button.number`), but not change what a list sends. Editable lists would be a follow-up.
 
 ## Gestures
 
@@ -33,7 +72,7 @@ button_settings:                 # optional; these are the defaults
 
 - **`hold:`** runs when the button is held for `hold_time`. A press let go sooner is a **tap**, and runs the button's own action.
 - **`double_tap:`** runs when the button is pressed again within `tap_time` of letting go. The second press runs it, and its release lets go of it. A tap not followed by another within `tap_time` is a single tap. A first press held for `tap_time` (on a button without `hold:`) isn't a tap: the button's own action goes down then, and lets go with the button, so a `cc_momentary` or a `note` still works held. With `hold:` too, holding the first press is the hold. Triple taps aren't supported.
-- **What it leaves out is the button's,** so `hold: { cc: 21 }` is the button's `cc_momentary` on CC 21. It sends on the button's `channel:`, with its `min:`, `max:` and `bank:`.
+- **What it leaves out is the button's,** so `hold: { cc: 21 }` is the button's `cc_momentary` on CC 21, and `hold: { actions: [...] }` sends an action list. It sends on the button's `channel:`, with its `min:`, `max:` and `bank:`.
 - **Latency.** A button without a gesture fires at the press, as before; only a button with one waits. A tap is known when the button is let go, so its action is pressed and let go together then: a `cc_momentary` tap sends its 127 and its 0 at once. A hold is known after `hold_time`, and lets go when the button does. With `double_tap:`, a single tap waits `tap_time` more after the release, unless another button is pressed first: that press sends the tap at once, before its own action. A double tap is known at the second press.
 - **EVENTs** (`debug.events`) still come at the press and the release, as they happen.
 - **Nothing hangs.** A hold that sent a note or a CC lets go of it when the button is released, or at a preset switch (`buttons_off`), as a button's own note does. A press still being told apart at a preset switch is dropped: its release sends nothing.
@@ -92,6 +131,7 @@ Gestures give one button (or a set of buttons pressed together) a second action.
 
 | You want | Use |
 |---|---|
+| several messages from one press | `actions:` |
 | a second action on the same button, by holding it | `hold:` |
 | ... by pressing it twice | `double_tap:` |
 | two or more buttons pressed together to do something else | `combos:` |
@@ -105,8 +145,8 @@ The builder refuses the overlaps: gestures, `repeat:` and combos on a mode's tog
 
 ## Files
 
-- `buttons.c`: sampling and debouncing the buttons, their actions, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.
-- `__init__.py`: the builder part: the actions (`ACTION_IDS`), `validate` (its YAML), `button_action` (a button's action and number, also for a preset's override and a layer twin) and `c_tables` (`gm_button_t buttons[]`), and when it's built.
+- `buttons.c`: sampling and debouncing the buttons, their actions and action lists, the CC ramps and the pitch-bend buttons' glide. Built when the device has buttons.
+- `__init__.py`: the builder part: the actions (`ACTION_IDS`), `validate` (its YAML), `button_action` (a button's action and number, also for a gesture, a combo, a preset's override and a layer twin), `action_list` (an `actions:` list) and `c_tables` (`gm_button_t buttons[]`, the lists), and when it's built.
 
 ## How it runs
 
@@ -119,9 +159,9 @@ Each press or release goes, in this order:
 2. to the live one of a button and its layer twins; a press then first sends a single tap still waiting for a double tap, and decides a combo it isn't in (`gestures_before_press`);
 3. to the modes: a mode's toggle, hold or cycle button (`mode_toggle_button`), or a function button of the active mode (`mode_function_button`);
 4. to the gestures, for a button with one or in a combo (`gesture_input`, "Gestures", "Combos"): `gestures_ms`, at the end of each sample, times them;
-5. to the button's own action (`button_changed`), and with `repeat:` its repeats ("Auto-repeat": `repeats_ms`, at the end of each sample).
+5. to the button's own action (`button_changed`), and with `repeat:` its repeats ("Auto-repeat": `repeats_ms`, at the end of each sample). An action list goes out item by item (`list_press`), and its release lets go of the list the button pressed (`list_release`).
 
-A preset switch (`gm_release_all`) calls `buttons_off`, which lets go of every note and CC the buttons hold. Buttons held through it release silently.
+A preset switch (`gm_release_all`) calls `buttons_off`, which lets go of every note and CC the buttons hold, action lists' included. Buttons held through it release silently.
 
 ## What it shares
 
@@ -134,4 +174,4 @@ Through `core/include/gm_controls.h`:
 
 ## Tests
 
-In `core/test/`: `test_controller.c` (debounce, actions, ramps, presets), `test_modes.c` (modes, layers, cycles), `test_msg.c` (program, MMC, SysEx and panic actions) and `test_gestures.c` (the gestures, on fake time, with `gestures-test.yaml`). The builder's side: `tools/builder/tests/test_gestures.py`.
+In `core/test/`: `test_controller.c` (debounce, actions, ramps, presets), `test_modes.c` (modes, layers, cycles), `test_msg.c` (program, MMC, SysEx and panic actions) `test_gestures.c` (the gestures, on fake time, with `gestures-test.yaml`) and `test_lists.c` (action lists on a button, a gesture, a combo, a twin and per preset, with `lists-test.yaml`; `test_lists_fbi` again with host feedback's index on). The builder's side: `tools/builder/tests/test_gestures.py` and `test_lists.py`.

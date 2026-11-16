@@ -1,6 +1,6 @@
 """buttons: the buttons (`buttons:`, `button_settings:`), a control: buttons.c samples them and runs their
-actions and gestures, this file validates their YAML (and a preset's or a layer's button action) and writes
-their C (README.md here). The builder (gemifi_device.py) calls validate() after the LEDs,
+actions, action lists and gestures, this file validates their YAML (and a preset's or a layer's button
+action) and writes their C (README.md here). The builder (gemifi_device.py) calls validate() after the LEDs,
 validate_gestures() after the modes, and c_defines(), c_param_defaults() and c_tables() where
 gm_device_config.h / .c have them.
 """
@@ -9,7 +9,7 @@ import difflib
 from components.api import NO_PIN, PRESETS_OFF, RENAMED_ID, Hub, LDict, c_param_array, c_str, sysex_wide, twin_c
 from components.hub import c_comment
 from components.keys import (CONTROL_DAW, CONTROL_ID, CONTROL_NAME, CONTROL_OUT, Bool, Enum, IdRef, Int, Key, Keys,
-                             List, Map, OneOf, Period, Pin, Section, Str)
+                             List, Map, OneOf, Period, Pin, Ref, Section, Str)
 from components.leds import led_ref
 
 # components/buttons/README.md "Button actions": YAML name -> button.action value (gm_settings.h ACT_*). The preset
@@ -19,8 +19,10 @@ ACTION_IDS = {"none": 0, "cc_momentary": 1, "cc_toggle": 2, "cc_ramp": 3, "note"
               "octave_up": 6, "transpose_down": 7, "transpose_up": 8, "bend_down": 9, "bend_up": 10,
               "program_next": 11, "program_prev": 12, "preset_next": 13, "preset_prev": 14,
               "preset_select": 15, "mcu": 16, "program": 17, "panic": 18, "mmc": 19, "sysex": 20,
-              "pad_octave_down": 21, "pad_octave_up": 22}
-ACTIONS = list(ACTION_IDS)
+              "pad_octave_down": 21, "pad_octave_up": 22, "actions": 23}
+# action 23: the button sends an action list (README.md "Action lists"), given as actions:, not action:
+LIST_ACTION = "actions"
+ACTIONS = [a for a in ACTION_IDS if a != LIST_ACTION]     # the names action: takes
 CC_ACTIONS = {"cc_momentary", "cc_toggle", "cc_ramp"}
 PRESET_ACTIONS = {"preset_next", "preset_prev", "preset_select"}
 PROGRAM_ACTIONS = {"program_next", "program_prev", "program"}     # these take bank:
@@ -44,15 +46,57 @@ NOT_GESTURE_ACTIONS = HELD_ACTIONS | {"cc_toggle"}
 REPEAT_ACTIONS = {"octave_down", "octave_up", "transpose_down", "transpose_up", "program_next", "program_prev",
                   "preset_next", "preset_prev", "pad_octave_down", "pad_octave_up"}
 MAX_COMBOS = 32                 # buttons.c combo_down: one bit each
+SX_HAS_VALUE = 2                # gm_device.h GM_SX_HAS_VALUE: a SysEx string with a value
 # button_settings: the gesture timing params' defaults, in ms (core/src/settings.c GM_BTN_*_DEFAULT):
 # key -> (default, lo, hi, the gesture that uses it: a button key, or combos).
 BUTTON_SETTINGS = {"tap_time": (200, 50, 1000, "double_tap"), "hold_time": (200, 100, 5000, "hold"),
                    "combo_time": (50, 10, 500, "combos"), "repeat_delay": (500, 100, 2000, "repeat"),
                    "repeat_rate": (50, 20, 1000, "repeat")}
+# Action lists (README.md "Action lists"): the actions an item may have and, for an item without action:,
+# the action its number key gives it.
+ITEM_ACTIONS = ("cc_momentary", "note", "program", "panic", "mmc", "sysex")
+ITEM_ACTION_OF = {"cc": "cc_momentary", "note": "note", "program": "program", "mmc": "mmc", "sysex": "sysex"}
+ITEM_KEY_OF = {act: k for k, act in ITEM_ACTION_OF.items()}
+# Why an action can't be in a list.
+NOT_ITEM_WHY = {
+    "cc_toggle": "its on/off state is the button's own, which its LED and host echoes show",
+    **dict.fromkeys(("cc_ramp", "bend_down", "bend_up"), "it works for as long as the button is held"),
+    **dict.fromkeys(("octave_down", "octave_up", "transpose_down", "transpose_up", "pad_octave_down",
+                     "pad_octave_up", "program_next", "program_prev"),
+                    "it steps a setting rather than sending a fixed message"),
+    **dict.fromkeys(("preset_next", "preset_prev", "preset_select"),
+                    "a preset switch lets go of everything held, the list's own messages too"),
+    "mcu": "a Mackie Control button is one button on the DAW's surface",
+    "none": "it sends nothing",
+}
+MAX_LISTS = 128                 # button.number (0..127) picks the list
+MAX_LIST_ITEMS = 32
+NO_VALUE = 0xFFFF               # gm_device.h GM_BTN_NO_VALUE
 
 # The keys of an action and its number: a button's, a gesture's (what it leaves out is the button's) and a
 # combo's. Checked by button_action() and button_number(), whose ranges depend on the action and the device.
 MIDI = 'core/README.md "MIDI messages"'
+BANK = OneOf(Int(0, 16383), Map(Keys(Key("msb", Int(0, 127), default=0, doc="CC 0's value."),
+                                     Key("lsb", Int(0, 127), default=0, doc="CC 32's value."))))
+MMC_TYPE = OneOf(Enum(MMC_COMMANDS), Int(1, 127))
+# An action list's item (checked by list_item()); the schema has it once, as the definition action_list.
+ITEM = Keys(
+    Key("action", Enum(ITEM_ACTIONS), doc="The item's action; left out, its number key says it (`cc:` is "
+                                          "`cc_momentary`)."),
+    Key("cc", Int(0, 127), doc="A CC: 127 at the press and 0 at the release, or `value:` once."),
+    Key("value", Int(0, 127), doc="With `cc:`: the value it sends once, at the press."),
+    Key("note", Int(0, 127), doc="A note, held while the button is."),
+    Key("program", Int(0, 127), see=MIDI, doc="A Program Change."),
+    Key("bank", BANK, see=MIDI, doc="With `program:`: the Bank Select sent first."),
+    Key("mmc", MMC_TYPE, see=MIDI, doc="An MMC command: a name or 1..127."),
+    Key("sysex", IdRef("SysEx string"), see=MIDI, doc="The id of a `midi_messages.sysex` string."),
+    Key("channel", Int(1, 16), doc="Its channel, instead of the button's."),
+)
+ITEM_KEYS = ITEM.names
+ACTION_LIST = Ref("action_list", "action list: items (an action's name, or a mapping)", keys=ITEM)
+ACTIONS_KEY = Key("actions", ACTION_LIST, param="button.action", see="Action lists",
+                  doc="Messages sent in order at the press, instead of `action:`: each an action's name or a "
+                      "mapping.")
 ACTION = Key("action", Enum(ACTIONS), default="none", shown_default="`none`; `mcu` with `mcu:`", param="button.action",
              see="Button actions", doc="What a press does.")
 CC = Key("cc", Int(0, 127), param="button.number", doc="The CC, with the actions `cc_momentary`, `cc_toggle` and `cc_ramp`.")
@@ -60,13 +104,13 @@ NOTE = Key("note", Int(0, 127), param="button.number", doc="The note, with actio
 PRESET = Key("preset", Int(1, None), param="button.number", see='core/README.md "Presets"',
              doc="The preset slot (1..slots), with action `preset_select`.")
 PROGRAM = Key("program", Int(0, 127), param="button.number", see=MIDI, doc="The Program Change it sends, with action `program`.")
-MMC = Key("mmc", OneOf(Enum(MMC_COMMANDS), Int(1, 127)), param="button.number", see=MIDI,
+MMC = Key("mmc", MMC_TYPE, param="button.number", see=MIDI,
           doc="The MMC command it sends, with action `mmc`: a name or 1..127.")
 SYSEX = Key("sysex", IdRef("SysEx string"), param="button.number", see=MIDI,
             doc="The id of the `midi_messages.sysex` string it sends, with action `sysex`.")
 MCU = Key("mcu", Str(), param="button.number", see='core/README.md "Second USB port and Mackie Control"',
           doc="The Mackie Control button it is, with action `mcu` (`play`, `rec_1`, `f1` ...).")
-GESTURE = Keys(ACTION, CC, NOTE, PRESET, PROGRAM, MMC, SYSEX, MCU)
+GESTURE = Keys(ACTION, ACTIONS_KEY, CC, NOTE, PRESET, PROGRAM, MMC, SYSEX, MCU)
 GESTURE_KEYS = GESTURE.names
 GESTURE_TYPE = OneOf(Enum([a for a in ACTIONS if a not in NOT_GESTURE_ACTIONS]), Map(GESTURE))
 
@@ -74,12 +118,10 @@ GESTURE_TYPE = OneOf(Enum([a for a in ACTIONS if a not in NOT_GESTURE_ACTIONS]),
 BUTTON = Keys(
     CONTROL_ID, CONTROL_NAME,
     Key("pin", Pin(), required=True, doc="Its input pin: an MCU pin, a hub's or a switch matrix's."),
-    ACTION, CC, NOTE, PRESET,
+    ACTION, ACTIONS_KEY, CC, NOTE, PRESET,
     Key("led", IdRef("LED"), doc="An LED that shows its state (on while held, or the toggle's state)."),
     MCU, CONTROL_DAW, PROGRAM, MMC, SYSEX,
-    Key("bank", OneOf(Int(0, 16383), Map(Keys(Key("msb", Int(0, 127), default=0, doc="CC 0's value."),
-                                              Key("lsb", Int(0, 127), default=0, doc="CC 32's value.")))),
-        see=MIDI, doc="Bank Select sent before the Program Change, with the program actions: 0..16383 or "
+    Key("bank", BANK, see=MIDI, doc="Bank Select sent before the Program Change, with the program actions: 0..16383 or "
                       "`{ msb, lsb }`."),
     *CONTROL_OUT,
     Key("hold", GESTURE_TYPE, see="Gestures",
@@ -92,8 +134,9 @@ BUTTON = Keys(
 BUTTON_KEYS = BUTTON.names
 COMBO = Keys(Key("buttons", List(IdRef("button")), required=True,
                  doc="The buttons pressed together: 2 or more of the YAML's own, each once."),
-             Key("action", ACTION.type, required=True, see="Button actions",
-                 doc="What it does: an action from the list, with its number key."),
+             Key("action", ACTION.type, see="Button actions",
+                 doc="What it does: an action from the list, with its number key (`action:` or `actions:` is "
+                     "required)."),
              *GESTURE.without("action"))
 COMBO_KEYS = COMBO.names
 # button_settings: the timing params (global, only on a device with that gesture), from BUTTON_SETTINGS.
@@ -138,6 +181,8 @@ def validate(v, dev, data):
         v.unique_name(names, "button", name, p, d)
         pin = v.pin(d.get("pin"), f"{p}.pin", d.line_of("pin"), "in")
         act, num = button_action(v, dev, d, p)
+        if act == LIST_ACTION:
+            list_button_keys(v, d, p)
         led = led_ref(v, dev, d, p, ("button", act))
         top = 16383 if act == "sysex" and sysex_wide(dev, num) else 127
         gestures = {g: gesture_action(v, dev, d, p, g, (act, num)) for g in GESTURES if d.get(g) is not None}
@@ -153,6 +198,10 @@ def button_repeat(v, d, p, act, gestures):
     gesture, which waits to tell a press apart; an action that doesn't repeat is a warning (a preset or
     the host may give it one that does)."""
     if not BUTTON.get(v, d, "repeat", p):
+        return False
+    if act == LIST_ACTION:
+        v.err(f"{p}.repeat", d.line_of("repeat"), "repeat: steps the button's action again while it is held, "
+                                                  "and an action list sends fixed messages once: drop repeat:")
         return False
     if gestures:
         v.err(f"{p}.repeat", d.line_of("repeat"), f"repeat: runs the action again while the button is held, and "
@@ -187,7 +236,7 @@ def gesture_action(v, dev, d, p, key, base):
                           f"to be told apart from a {key}: give the {key}: to another button")
         return None
     act, num = button_action(v, dev, g, path, base=base)
-    if number_key(act) is None and act != "mcu":
+    if not takes_number(act):
         num = 0                     # the button's number is for its own action, not this one
     if act in NOT_GESTURE_ACTIONS:
         why = ("its on/off state is the button's own" if act == "cc_toggle" else
@@ -201,9 +250,16 @@ def gesture_action(v, dev, d, p, key, base):
 def button_action(v, dev, d, p, base=None):
     """A button's action and default button.number, from action: and cc: / note: / preset: / mcu:.
     base: (action, number) of the component, for a preset's override of it: what the override leaves
-    out stays as the component has it. Returns (action name, number)."""
+    out stays as the component has it. actions: is an action list (action_list). Returns (action name,
+    number)."""
+    if "actions" in d:
+        return LIST_ACTION, action_list(v, dev, d, p)
     if "action" in d:
         act = d["action"]
+        if act == LIST_ACTION:
+            v.err(f"{p}.action", d.line_of("action"), "a list of messages goes in actions: (e.g. `actions: "
+                                                       "[{ program: 5 }, { cc: 7, value: 100 }]`), not action:")
+            return base or ("none", 0)
         if act not in ACTIONS:
             close = difflib.get_close_matches(str(act), ACTIONS, 1)
             hint = f"did you mean '{close[0]}'? " if close else ""
@@ -212,6 +268,8 @@ def button_action(v, dev, d, p, base=None):
             return base or ("none", 0)
     else:
         act = base[0] if base else "mcu" if "mcu" in d else "none"
+        if act == LIST_ACTION:
+            return list_base_kept(v, d, p, base)
     if act in MSG_ACTIONS:
         if act == "sysex" and not dev.sysex:
             v.err(f"{p}.action", d.line_of("action") if "action" in d else d.line,
@@ -229,6 +287,130 @@ def button_action(v, dev, d, p, base=None):
         num = button_mcu(v, dev, d, p, act)
         return (act if act == "mcu" else base[0] if base else "none"), num
     return act, button_number(v, dev, d, p, act, base)
+
+
+def list_base_kept(v, d, p, base):
+    """An override (a gesture, a layer twin, a preset) of a button whose action is a list, without action:
+    or actions: of its own: a number key there is an error (there is no action for it to go with), and
+    without one it is the same list. Returns base."""
+    given = [k for k in (*NUMBER_KEYS, "mcu") if k in d]
+    if given:
+        k = given[0]
+        v.err(f"{p}.{k}", d.line_of(k), f"the button sends an action list (actions:), so {k}: has no action to "
+                                        "go with: give action: too, or actions:")
+    return base
+
+
+def action_list(v, dev, d, p):
+    """actions: [ item, ... ] (README.md "Action lists") -> the list's index in dev.btn_lists, the same list
+    once (0 after an error). An item is an action's name or a mapping of ITEM_KEYS."""
+    path, line = f"{p}.actions", d.line_of("actions")
+    for k in ("action", *NUMBER_KEYS, "mcu"):
+        if k in d:
+            v.err(f"{p}.{k}", d.line_of(k), "give action: or actions:, not both" if k == "action" else
+                  f"{k}: goes in an item of actions: (each item has its own)")
+    lst = v.seq(d["actions"], path, line)
+    if not lst:
+        v.err(path, line, "give the messages it sends, in order, e.g. `actions: [{ program: 5 }, "
+                          "{ cc: 7, value: 100 }, { note: 36, channel: 10 }]`")
+        return 0
+    if len(lst) > MAX_LIST_ITEMS:
+        v.err(path, line, f"{len(lst)} items: at most {MAX_LIST_ITEMS}")
+        return 0
+    items = [list_item(v, dev, lst[k], f"{path}[{k}]", lst.line_of(k)) for k in range(len(lst))]
+    if None in items or not items_after_panic_ok(v, dev, items, lst, path):
+        return 0
+    lists = dev.btn_lists
+    key = tuple(items)
+    if key in lists:
+        return lists.index(key)
+    if len(lists) >= MAX_LISTS:
+        v.err(path, line, f"more than {MAX_LISTS} different action lists (button.number picks one)")
+        return 0
+    lists.append(key)
+    return len(lists) - 1
+
+
+def list_item(v, dev, x, path, line):
+    """One item of an action list -> (action name, number, channel (0: the button's), value (NO_VALUE: none)),
+    or None. Without action:, the item's number key gives it (ITEM_ACTION_OF)."""
+    if isinstance(x, str):
+        x = LDict(action=x)
+        x.line = line
+    d = v.mapping(x, path, line, ITEM_KEYS)
+    if d is None:
+        return None
+    if "action" in d:
+        act = d["action"]
+        if act in NOT_ITEM_WHY:
+            v.err(f"{path}.action", d.line_of("action"), f"an action list can't send action {act}: "
+                                                          f"{NOT_ITEM_WHY[act]} (an item is one of "
+                                                          f"{', '.join(ITEM_ACTIONS)})")
+            return None
+    else:
+        given = [k for k in ITEM_ACTION_OF if k in d]
+        if len(given) != 1:
+            v.err(path, d.line, f"give the item's message: one of {', '.join(k + ':' for k in ITEM_ACTION_OF)}, "
+                                "or action: (e.g. `action: panic`)")
+            return None
+        act = ITEM_ACTION_OF[given[0]]
+    # a base whose action isn't the item's: a number left out, or one the action doesn't take, is an error
+    act, num = button_action(v, dev, d, path, base=("none" if "action" in d else act, 0))
+    if act not in ITEM_ACTIONS:
+        return None             # an unknown action: reported
+    channel = v.integer(d, "channel", path, 1, 16, default=0) or 0
+    return act, num, channel, item_value(v, d, path, act)
+
+
+def item_value(v, d, path, act):
+    """An item's value: (a CC's, sent once) or bank: (a program's) -> the value, NO_VALUE for none."""
+    for k, owner, what in (("value", "cc_momentary", "a CC (cc:)"), ("bank", "program", "a program")):
+        if k in d and act != owner:
+            v.err(f"{path}.{k}", d.line_of(k), f"{k}: goes with {what}, not action {act}")
+    if act == "cc_momentary" and "value" in d:
+        x = v.integer(d, "value", path, 0, 127)
+        return NO_VALUE if x is None else x
+    if act == "program" and "bank" in d:
+        bank = v.bank_value(d, path)
+        return NO_VALUE if bank is None else bank
+    return NO_VALUE
+
+
+def item_has_release(dev, item):
+    """The item holds something until the button is let go: a CC without value:, a note, a SysEx string
+    with a value."""
+    act, num, _channel, value = item
+    return ((act == "cc_momentary" and value == NO_VALUE) or act == "note" or
+            (act == "sysex" and 0 <= num < len(dev.sysex) and bool(dev.sysex[num].flags & SX_HAS_VALUE)))
+
+
+def items_after_panic_ok(v, dev, items, lst, path):
+    """A panic lets go of everything gemifi holds, so an item after it that holds something would hang:
+    an error. Returns whether there is none."""
+    panics = [k for k, it in enumerate(items) if it[0] == "panic"]
+    late = [k for k, it in enumerate(items) if panics and k > panics[0] and item_has_release(dev, it)]
+    for k in late:
+        v.err(f"{path}[{k}]", lst.line_of(k), f"comes after the panic in {path}[{panics[0]}], which lets go of "
+                                              "everything held, this list's messages too, so its release would "
+                                              "never go: put it before the panic")
+    return not late
+
+
+def list_button_keys(v, d, p):
+    """The keys of a button with an action list that mean nothing for one."""
+    if d.get("daw") is not None:
+        v.err(f"{p}.daw", d.line_of("daw"), "a DAW role names one control's CC or note, and an action list "
+                                            "sends several: give the role to a button with one action")
+
+
+def lists_send_notes(dev):
+    """An action list sends a note."""
+    return any(item[0] == "note" for x in getattr(dev, "btn_lists", []) for item in x)
+
+
+def takes_number(act):
+    """An action whose button.number means something: a CC, note, slot, MCU note or list."""
+    return number_key(act) is not None or act in ("mcu", LIST_ACTION)
 
 
 def number_key(act):
@@ -328,6 +510,9 @@ def button_bank(v, dev, d, p, act):
     """bank: 0..16383 (or { msb, lsb }) on a program action -> its Bank Select, or None."""
     if "bank" not in d:
         return None
+    if act == LIST_ACTION:
+        v.err(f"{p}.bank", d.line_of("bank"), "bank: goes in the list's program items (`{ program: 5, bank: 2 }`)")
+        return None
     if act not in PROGRAM_ACTIONS:
         v.err(f"{p}.bank", d.line_of("bank"), f"bank: goes with the actions {', '.join(sorted(PROGRAM_ACTIONS))}, "
                                              f"not {act}")
@@ -365,11 +550,12 @@ def validate_combos(v, dev, data):
         if d is None:
             continue
         mask = combo_buttons(v, dev, d, p)
-        if "action" not in d:
-            v.err(p, d.line, "needs action: (what the buttons pressed together do, e.g. `action: panic`)")
+        if "action" not in d and "actions" not in d:
+            v.err(p, d.line, "needs action: (what the buttons pressed together do, e.g. `action: panic`) "
+                             "or actions:")
             continue
         act, num = button_action(v, dev, d, p)
-        if number_key(act) is None and act != "mcu":
+        if not takes_number(act):
             num = 0
         if act in NOT_GESTURE_ACTIONS:
             v.err(f"{p}.action", d.line_of("action"), f"a combo can't run action {act}: it works for as long as "
@@ -480,10 +666,16 @@ def gesture_names(dev, mask):
 
 
 def c_defines(dev):
-    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any; the gesture masks and
-    their timing defaults (button_settings:), when a button has one."""
+    """GM_BTN_TWINS: the layer twins at the end of buttons[], when there are any; GM_BTN_LISTS and
+    GM_N_BTN_ITEMS, when there are action lists; the gesture masks and their timing defaults
+    (button_settings:), when a button has one."""
     twins = sum(1 for b in dev.buttons if getattr(b, "layer", 0))
     h = [f"#define GM_BTN_TWINS {twins} /* the last buttons: layer twins (layer.button.*) */"] if twins else []
+    lists = getattr(dev, "btn_lists", [])
+    if lists:
+        h += [f"#define GM_BTN_LISTS {len(lists)} /* actions: lists, gm_btn_lists[] (components/buttons/README.md "
+              "\"Action lists\") */",
+              f"#define GM_N_BTN_ITEMS {sum(len(x) for x in lists)} /* their messages, gm_btn_items[] */"]
     combos = getattr(dev, "combos", [])
     repeat = repeat_mask(dev)
     if not gestures_used(dev) and not combos and not repeat:
@@ -523,13 +715,15 @@ def c_param_defaults(dev):
 
 
 def c_tables(dev):
-    """gm_button_t buttons[] (gm_device.h), and gm_btn_gestures[] when a button has a gesture."""
+    """gm_button_t buttons[] (gm_device.h), gm_btn_lists[] and gm_btn_items[] when there are action lists,
+    and gm_btn_gestures[] when a button has a gesture."""
     c = []
     if dev.buttons:
         c.append("static const gm_button_t buttons[GM_N_BUTTONS] = {")
         c += [f"    {{ {b.pin.c()}, {c_str(b.name)}, {b.led}{twin_c(b)} }}, "
               f"/* {c_comment(b.id)}: {c_comment(b.pin.desc)} */" for b in dev.buttons]
         c += ["};", ""]
+    c += c_action_lists(dev)
     if getattr(dev, "combos", []):
         c += ["/* combos: { buttons (one bit each), { action, number } } */",
               "const gm_btn_combo_t gm_btn_combos[GM_N_COMBOS] = {",
@@ -550,3 +744,42 @@ def c_gesture_act(b, gesture):
     """A gm_btn_act_t initializer: the button's gesture's { action, number }, or none."""
     a = getattr(b, "gestures", {}).get(gesture)
     return f"{{ {ACTION_IDS[a[0]]}, {a[1]} }}" if a else "{ GM_BTN_NO_ACT, 0 }"
+
+
+def c_action_lists(dev):
+    """gm_btn_lists[] (where each list starts in gm_btn_items[]) and gm_btn_items[], when there are action
+    lists (README.md "Action lists")."""
+    lists = getattr(dev, "btn_lists", [])
+    if not lists:
+        return []
+    starts, n = [], 0
+    for x in lists:
+        starts.append(n)
+        n += len(x)
+    items = []
+    for k, x in enumerate(lists):
+        for j, item in enumerate(x):
+            act, num, channel, value = item
+            shown = "GM_BTN_NO_VALUE" if value == NO_VALUE else str(value)
+            items.append(f"    {{ {shown}, {ACTION_IDS[act]}, {num}, {channel} }}, "
+                         f"/* list {k}[{j}]: {c_comment(item_text(dev, item))} */")
+    return ["/* action lists: list k is gm_btn_items[gm_btn_lists[k] .. gm_btn_lists[k + 1]) */",
+            f"const uint16_t gm_btn_lists[GM_BTN_LISTS + 1] = {{ {', '.join(str(x) for x in [*starts, n])} }};",
+            "/* { value (a CC's, or a program's bank), action, number, channel (0: the button's) } */",
+            "const gm_btn_item_t gm_btn_items[GM_N_BTN_ITEMS] = {", *items, "};", ""]
+
+
+def item_text(dev, item):
+    """An action list's item as the YAML says it: `cc 7 = 100`, `program 3 bank 130`, `mmc play`,
+    `note 36 channel 10`."""
+    act, num, channel, value = item
+    if act == "mmc":
+        shown = next((name for name, c in MMC_COMMANDS.items() if c == num), num)
+    elif act == "sysex" and num < len(dev.sysex):
+        shown = dev.sysex[num].id
+    else:
+        shown = num
+    text = act if act == "panic" else f"{ITEM_KEY_OF.get(act, act)} {shown}"
+    if value != NO_VALUE:
+        text += f" = {value}" if act == "cc_momentary" else f" bank {value}"
+    return text + (f" channel {channel}" if channel else "")

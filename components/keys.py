@@ -186,6 +186,17 @@ class IdRef(Type):
                                                  f"{self.kind}"}
 
 
+class Ref(Type):
+    """A type the schema has once, as a definition (#/definitions/<name>) that each key using it refers to;
+    keys: its mapping's keys, for the docs (as Map's)."""
+
+    def __init__(self, name, text, keys=None):
+        self.name, self.text, self.keys = name, text, keys
+
+    def schema(self):
+        return ref(self.name)
+
+
 class Null(Type):
     """`null` (in a list: "nothing here")."""
     text = "`null`"
@@ -277,7 +288,7 @@ class Key:
 
     def sub_keys(self):
         t = self.type
-        return t.keys if isinstance(t, Map) else t.keys() if isinstance(t, OneOf) else None
+        return t.keys if isinstance(t, (Map, Ref)) else t.keys() if isinstance(t, OneOf) else None
 
     def doc_row(self):
         """The key's row in the docs table (gemifi_build.py keys: site/src/_data/component_keys.json)."""

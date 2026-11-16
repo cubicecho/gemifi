@@ -1,0 +1,72 @@
+# Test device for core/test/test_lists.c: buttons that send action lists
+# (components/buttons/README.md "Action lists"), on a button, a hold:, a
+# combo, a layer twin and per preset. Not a real board; the pins only need
+# to be distinct for the simulated HAL.
+gemifi: 2
+name: lists-test
+friendly_name: Lists Test
+board_id: 0x3F1B
+platform: nuvoton-nuc1xx
+chip: NUC120LC1BN
+usb: { vid: 0x1209, pid: 0x0002 }
+scan_interval: 500us
+
+midi_messages:
+  mmc_device_id: 0x10
+  sysex:
+    - { id: vol, data: "F0 41 10 42 12 [40 00 04 v] cs F7" }   # Roland GS master volume: a value
+
+buttons:
+  # a floor board's patch change: two devices, a fixed CC, a held CC and note, the transport
+  - id: multi
+    pin: { number: PB0, inverted: true }
+    actions:
+      - { program: 5, channel: 2 }
+      - { cc: 7, value: 100 }               # once, at the press
+      - { cc: 64 }                          # 127 at the press, 0 at the release
+      - { note: 36, channel: 10 }
+      - { mmc: play }
+  # no list: as before
+  - { id: plain, pin: { number: PB1, inverted: true }, action: cc_momentary, cc: 10 }
+  # items without channel: take the button's
+  - id: chan
+    pin: { number: PB2, inverted: true }
+    channel: 3
+    actions: [{ cc: 30 }, { note: 60, channel: 4 }, { sysex: vol }, { program: 3, bank: 130 }]
+  # a panic in a list: what comes before it is let go, what comes after holds nothing
+  - id: pan
+    pin: { number: PB3, inverted: true }
+    actions: [{ note: 40 }, panic, { program: 9 }]
+  # tap: CC 20; held: a list
+  - id: held
+    pin: { number: PB4, inverted: true }
+    action: cc_momentary
+    cc: 20
+    hold: { actions: [{ cc: 21 }, { note: 50 }] }
+  # the modifier: while held, plain's twin sends a list
+  - { id: fn, pin: { number: PB5, inverted: true } }
+  # a combo with a list
+  - { id: c1, pin: { number: PB6, inverted: true }, action: cc_momentary, cc: 41 }
+  - { id: c2, pin: { number: PB7, inverted: true }, action: cc_momentary, cc: 42 }
+
+modes:
+  - { id: shift, hold: fn, layer: { plain: { actions: [{ cc: 12 }, { cc: 13, value: 5 }] } } }
+
+combos:
+  - { buttons: [c1, c2], actions: [{ cc: 43 }, { note: 70 }] }
+
+presets:
+  slots: 3
+  list:
+    - { name: One }
+    - name: Two
+      buttons:
+        multi: { actions: [{ cc: 90 }, { note: 37, channel: 5 }] }   # another list
+        plain: { actions: [{ program: 1 }, { cc: 11, value: 64 }] }  # a list on a button without one
+    - name: Three
+      buttons:
+        multi: { action: note, note: 61 }                            # one action again
+
+button_settings:
+  hold_time: 300ms
+  combo_time: 50ms

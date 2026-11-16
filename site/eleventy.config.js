@@ -5,6 +5,9 @@
 // link and asset — a bare "/css/cubesite.css" 404s on Pages and works in dev,
 // which is the worst way for it to break.
 
+import path from "node:path";
+import * as pagefind from "pagefind";
+
 import site from "./src/_data/site.js";
 import { buildDocs, resetDocs } from "./lib/docs-tree.js";
 import { highlightBlocks } from "./lib/highlight.js";
@@ -13,6 +16,18 @@ export default function (eleventyConfig) {
   eleventyConfig.on("eleventy.before", resetDocs);
   // The site's own .md pages colour their code blocks as the repo docs do (lib/highlight.js).
   eleventyConfig.amendLibrary("md", highlightBlocks);
+
+  // The docs search (the box over the docs menu): Pagefind indexes the built pages after every build, dev
+  // server included, into _site/pagefind/. Only what's inside data-pagefind-body (the docs layout's page)
+  // is indexed.
+  eleventyConfig.on("eleventy.after", async ({ dir }) => {
+    const { index } = await pagefind.createIndex();
+    const added = await index.addDirectory({ path: dir.output });
+    const written = await index.writeFiles({ outputPath: path.join(dir.output, "pagefind") });
+    await pagefind.close();
+    const errors = [...added.errors, ...written.errors];
+    if (errors.length) throw new Error(`pagefind: ${errors.join("; ")}`);
+  });
   // A repo path (with an optional #anchor) as a link: its /docs/ page if it has one, else GitHub.
   // `{{ "core/README.md#presets" | repoLink }}`, already with the path prefix.
   eleventyConfig.addFilter("repoLink", (repoPath) => buildDocs().link(repoPath));
@@ -32,6 +47,11 @@ export default function (eleventyConfig) {
   eleventyConfig.addPassthroughCopy({ "src/nojekyll": ".nojekyll" });
 
   eleventyConfig.addShortcode("year", () => `${new Date().getFullYear()}`);
+
+  // Whether a docs menu section holds the page at `url` (its items, or their children): the section is open then.
+  eleventyConfig.addFilter("holds", (items, url) =>
+    items.some((i) => i.url === url || (i.children ?? []).some((c) => c.url === url)),
+  );
 
   // One markdown file per device in src/devices/, ordered by `order:`.
   eleventyConfig.addCollection("devices", (api) =>

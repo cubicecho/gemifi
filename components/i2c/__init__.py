@@ -5,9 +5,25 @@ drives the buses (gm_hal.h hal_i2c_*, a bus index first). README.md here.
 """
 from types import SimpleNamespace
 
-from components.hub import c_comment
+from components.keys import Hex, Id, IdRef, Key, Keys, Pin, Section
 
-BUS_KEYS = ["id", "sda", "scl"]
+# A bus's keys: `i2c:` is one of them, or a list (then each needs its id).
+BUS = Keys(
+    Key("id", Id(), doc="What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."),
+    Key("sda", Pin(), required=True, doc="The data pin (SDA), an MCU pin."),
+    Key("scl", Pin(), required=True, doc="The clock pin (SCL), an MCU pin."),
+)
+BUS_KEYS = BUS.names
+KEY_SECTIONS = (Section("i2c", BUS, is_list=False),)
+
+# The keys every component on a bus has (an I2C hub's, display's ...).
+I2C_ID = Key("i2c_id", IdRef("I2C bus"), see="components/i2c/README.md",
+             doc="The id of the `i2c:` bus it is on. It may be left out when the device has one bus.")
+
+
+def address(default, doc, hi=0x77):
+    """An I2C component's address: key, 7-bit (0x08..0x77, or up to hi), with the chip's usual default."""
+    return Key("address", Hex(0x08, hi), default=default, shown_default=f"`0x{default:02X}`", doc=doc)
 
 
 def validate_buses(v, dev, data, on_i2c, max_buses):
@@ -70,6 +86,7 @@ def _what(dev, x):
 
 def c_defines(dev):
     """gm_device_config.h: the buses' pins, GPIO numbers, for the platform (hal_i2c_*: bus = index)."""
+    from components.hub import c_comment      # here: the hub base imports this module's keys
     if not dev.i2c_buses:
         return []
     pins = ", ".join(f"{{ {b.sda.num}, {b.scl.num} }}" for b in dev.i2c_buses)

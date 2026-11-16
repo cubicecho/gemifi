@@ -12,11 +12,14 @@ import gemifi_device as gd  # noqa: E402  (puts the repo root, and so components
 
 HEAD = ("gemifi: 2\nname: x\nboard_id: 0x3F01\nplatform: stm32f1\nchip: STM32F103RC\n"
         "usb: { vid: 0x1209, pid: 0x0002 }\n")
+# I2C components: ESP only for now (components/i2c/README.md)
+ESP = ("gemifi: 2\nname: x\nboard_id: 0x3F02\nplatform: esp32\nchip: some-board\nmidi: { transport: serial }\n"
+       "i2c: { sda: GPIO21, scl: GPIO22 }\n")
 
 
-def errors(yaml):
-    """The errors of a device (HEAD + yaml): [(path, message)]."""
-    _, diags = gd.load_device("x.yaml", HEAD + yaml)
+def errors(yaml, head=HEAD):
+    """The errors of a device (head + yaml): [(path, message)]."""
+    _, diags = gd.load_device("x.yaml", head + yaml)
     return [(d.path, d.msg) for d in diags if d.level == "error"]
 
 
@@ -25,10 +28,10 @@ def section(name, item, many=True):
 
 
 class EdgesAgree(unittest.TestCase):
-    def edges(self, sec, base, path, keys, context=None, extra="", skip=(), many=True):
+    def edges(self, sec, base, path, keys, context=None, extra="", skip=(), many=True, head=HEAD):
         """Each key of keys (a Keys) whose type has edges: those in pass, those past fail at path.key.
         context: key -> the keys the item needs for that key's edges, or a function of the value giving
-        them; extra: more YAML the device needs (a bus, ...); skip: keys checked elsewhere."""
+        them; extra: more YAML the device needs; skip: keys checked elsewhere; head: the device's start."""
         context = context or {}
         checked = 0
         for k in keys:
@@ -40,7 +43,7 @@ class EdgesAgree(unittest.TestCase):
                     more = context.get(k.name, {})
                     item.update(more(value) if callable(more) else more)
                     item[k.name] = value
-                    errs = errors(section(sec, item, many) + extra)
+                    errs = errors(section(sec, item, many) + extra, head)
                     if ok:
                         self.assertEqual(errs, [], item)
                     else:
@@ -53,6 +56,8 @@ class EdgesAgree(unittest.TestCase):
         sec = t.domain or t.key
         if t.domain:
             base = {**base, "platform": typ}
+        if t.i2c:
+            kw.setdefault("head", ESP)
         self.assertGreaterEqual(self.edges(sec, base, f"{sec}[0]", t.spec.without("platform"), **kw), n)
 
     def test_sn74hc595(self):
@@ -60,6 +65,10 @@ class EdgesAgree(unittest.TestCase):
 
     def test_sn74hc165(self):
         self.hub("sn74hc165", {"id": "h", "data_pin": "PB12", "clock_pin": "PB13", "load_pin": "PB14"}, 4)
+
+    def test_i2c_expanders(self):
+        self.hub("mcp23017", {"id": "h"}, 4)
+        self.hub("pcf8574", {"id": "h"}, 4)
 
 
 class Specs(unittest.TestCase):

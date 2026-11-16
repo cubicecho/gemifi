@@ -212,13 +212,28 @@
           "type": "object",
           "properties": {
             "id": {
-              "$ref": "#/definitions/id"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/id"
+                }
+              ],
+              "description": "What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."
             },
             "sda": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The data pin (SDA), an MCU pin."
             },
             "scl": {
-              "$ref": "#/definitions/pin"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/pin"
+                }
+              ],
+              "description": "The clock pin (SCL), an MCU pin."
             }
           },
           "additionalProperties": false,
@@ -230,13 +245,28 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."
               },
               "sda": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The data pin (SDA), an MCU pin."
               },
               "scl": {
-                "$ref": "#/definitions/pin"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/pin"
+                  }
+                ],
+                "description": "The clock pin (SCL), an MCU pin."
               }
             },
             "additionalProperties": false
@@ -691,7 +721,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ mcp23xxx: <id>, number: n }`."
               },
               "address": {
                 "anyOf": [
@@ -703,10 +738,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27. Default: 0x20.",
+                "default": 32
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
             "additionalProperties": false
@@ -727,7 +765,12 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/definitions/id"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/id"
+                  }
+                ],
+                "description": "What its pins name: `{ pcf8574: <id>, number: n }`."
               },
               "address": {
                 "anyOf": [
@@ -739,10 +782,13 @@
                   {
                     "$ref": "#/definitions/substitution"
                   }
-                ]
+                ],
+                "description": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27, PCF8574A 0x38-0x3F. Default: 0x20.",
+                "default": 32
               },
               "i2c_id": {
-                "$ref": "#/definitions/id"
+                "type": "string",
+                "description": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus."
               }
             },
             "additionalProperties": false

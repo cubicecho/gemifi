@@ -249,10 +249,9 @@ def device_schema():
         "usb": obj(gd.USB_KEYS, {"vid": T("integer", minimum=0, maximum=0xFFFF),
                                  "pid": T("integer", minimum=0, maximum=0xFFFF), "daw_port": BOOL}),
         "midi": obj(gd.MIDI_KEYS, {"transport": enum(gd.MIDI_TRANSPORT_MACRO)}),
-        "i2c": one_of(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")},
-                          "one I2C bus (its id optional)"),
-                      lst(obj(gd.i2c_buses.BUS_KEYS, {"id": ref("id"), "sda": ref("pin"), "scl": ref("pin")}),
-                          "I2C buses, each with an id that I2C components name with i2c_id:")),
+        "i2c": one_of(gd.i2c_buses.BUS.schema("one I2C bus (its id optional)"),
+                      lst(gd.i2c_buses.BUS.schema(), "I2C buses, each with an id that I2C components name with "
+                                                     "i2c_id:")),
         "scan_interval": PERIOD,
         "hardware_scan": obj(gd.HW_SCAN_KEYS, {
             "matrix": obj(gd.HW_SCAN_MATRIX_KEYS, {"row_time": PERIOD, "precharge": BOOL}),

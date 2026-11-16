@@ -8,6 +8,7 @@ The C side is gm_hub.h here (gm_hub_ops_t) and core/src/vpin.c; README.md here.
 """
 import re
 
+from components.i2c import I2C_ID, address
 from components.keys import Id, Int, Key, Keys, Pin
 
 # The core's pin dispatch (core/src/vpin.c) is always built, so this is too.
@@ -148,7 +149,6 @@ class I2CExpander(HubType):
     """MCP23017 (16 GPIO) / PCF8574 (8 quasi-bidirectional) on the i2c: bus, read and written from
     the main loop: the two share it (components/mcp23017, pcf8574), and their config (.i2c) and pin
     state (gm_hub.h u.io, gm_hub_i2c_*)."""
-    keys = ("id", "address", "i2c_id")
     roles = frozenset({"in", "out"})
     i2c = True
 
@@ -156,9 +156,14 @@ class I2CExpander(HubType):
         self.key, self.enum, self.num, self.n_pins = key, enum, num, n_pins
         self.addrs, self.addr_text, self.pin_key, self.c_ops = addrs, addr_text, pin_key, c_ops
         self.pullup = key == "mcp23017"
+        self.spec = Keys(
+            Key("id", Id(), required=True, doc=f"What its pins name: `{{ {pin_key or key}: <id>, number: n }}`."),
+            address(0x20, f"Its I2C address, set by its A0..A2 pins: usually {addr_text}."),
+            I2C_ID)
+        self.keys = tuple(self.spec.names)
 
     def validate(self, v, dev, hub, h, p, line, ctl):
-        hub.addr = v.integer(h, "address", p, 0x08, 0x77, default=0x20)
+        hub.addr = self.spec.get(v, h, "address", p)
         hub.n_pins = self.n_pins
         if hub.addr not in self.addrs:
             v.warn(f"{p}.address", h.line_of("address"), f"0x{hub.addr:02X} is unusual for a {self.key} "

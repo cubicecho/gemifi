@@ -208,6 +208,95 @@
       ]
     }
   ],
+  "i2c": [
+    {
+      "section": "i2c",
+      "list": false,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": false,
+          "default": null,
+          "doc": "What `i2c_id:` names. Required when `i2c:` is a list, optional on a single bus."
+        },
+        {
+          "key": "sda",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The data pin (SDA), an MCU pin."
+        },
+        {
+          "key": "scl",
+          "type": "pin",
+          "required": true,
+          "default": null,
+          "doc": "The clock pin (SCL), an MCU pin."
+        }
+      ]
+    }
+  ],
+  "mcp23017": [
+    {
+      "section": "mcp23017",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ mcp23xxx: <id>, number: n }`."
+        },
+        {
+          "key": "address",
+          "type": "integer 0x08..0x77",
+          "required": false,
+          "default": "`0x20`",
+          "doc": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27."
+        },
+        {
+          "key": "i2c_id",
+          "type": "I2C bus id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus.",
+          "see": "components/i2c/README.md"
+        }
+      ]
+    }
+  ],
+  "pcf8574": [
+    {
+      "section": "pcf8574",
+      "list": true,
+      "keys": [
+        {
+          "key": "id",
+          "type": "id",
+          "required": true,
+          "default": null,
+          "doc": "What its pins name: `{ pcf8574: <id>, number: n }`."
+        },
+        {
+          "key": "address",
+          "type": "integer 0x08..0x77",
+          "required": false,
+          "default": "`0x20`",
+          "doc": "Its I2C address, set by its A0..A2 pins: usually 0x20-0x27, PCF8574A 0x38-0x3F."
+        },
+        {
+          "key": "i2c_id",
+          "type": "I2C bus id",
+          "required": false,
+          "default": null,
+          "doc": "The id of the `i2c:` bus it is on. It may be left out when the device has one bus.",
+          "see": "components/i2c/README.md"
+        }
+      ]
+    }
+  ],
   "sn74hc165": [
     {
       "section": "sn74hc165",

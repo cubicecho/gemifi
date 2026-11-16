@@ -505,7 +505,7 @@ static int write_state(void)
     int has = config_store_read(CS_SLOT_GLOBAL, &info, collect_cb, &c);
     uint16_t revision = has ? info.revision : GM_PRESETS_REVISION;
     set_entry(e, &c.n, P_PRESET_ACTIVE, (int32_t)cur);
-#if GM_N_PRESETS > 1
+#if GM_HAS_PRESETS
     set_entry(e, &c.n, P_PRESET_COUNT, (int32_t)used());
 #endif
     active_pending = 0;

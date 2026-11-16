@@ -127,7 +127,11 @@ static uint16_t caps(void)
 {
     uint16_t c = GSX_CAP_LOG | GSX_CAP_EVENT | hal_extra_caps();
     if (has_config)
-        c |= GSX_CAP_CONFIG | GSX_CAP_PRESETS;
+        c |= GSX_CAP_CONFIG;
+#if GM_HAS_PRESETS
+    if (has_config)
+        c |= GSX_CAP_PRESETS;
+#endif
 #if GM_HOST_FB
     if (has_config)
         c |= GSX_CAP_FEEDBACK;
@@ -217,12 +221,17 @@ void app_param_changed(uint16_t id, uint16_t index)
 
 void app_preset_changed(uint32_t slot, uint32_t dirty)
 {
+#if GM_HAS_PRESETS
     uint8_t buf[FRAME(2 + 1)];
     gsx_tx_t t;
     gsx_tx_begin(&t, buf, GSX_MSG_PRESET_CHANGED, unsol_seq++ & 0x7F);
     gsx_put_u(&t, slot, 2);
     gsx_put(&t, (uint8_t)(dirty ? 1 : 0));
     hal_midi_send(buf, gsx_tx_end(&t));
+#else
+    (void)slot;                         /* presets off: no PRESET_CHANGED (it comes with caps bit 5) */
+    (void)dirty;
+#endif
 }
 
 #if GM_UNLOCK
@@ -450,6 +459,7 @@ static int cmd_set_params(const gsx_frame_t *f, gsx_tx_t *t)
 
 /* ---- presets (research/core/presets-design.md §10.4) -------------------- */
 
+#if GM_HAS_PRESETS
 static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
 {
     if (f->len < 2)
@@ -506,6 +516,7 @@ static int cmd_preset(const gsx_frame_t *f, gsx_tx_t *t)
     }
     }
 }
+#endif
 
 /* ---- firmware upload in the app (A/B platforms) ----------------------- */
 
@@ -853,6 +864,7 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
         app_on_param_set(0, 0);
         return st;
     }
+#if GM_HAS_PRESETS
     case GSX_CMD_PRESET_INFO:
     case GSX_CMD_PRESET_SAVE:
     case GSX_CMD_PRESET_RESET:
@@ -860,6 +872,7 @@ static int dispatch(const gsx_frame_t *f, gsx_tx_t *t)
     case GSX_CMD_PRESET_DELETE:
     case GSX_CMD_PRESET_MOVE:
         return cmd_preset(f, t);
+#endif
 #if GM_HOST_FB
     case GSX_CMD_GET_COMPONENT:
         return cmd_get_component(f, t);

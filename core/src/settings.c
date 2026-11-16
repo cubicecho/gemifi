@@ -59,10 +59,14 @@ int32_t gm_diag_param[GM_DIAG_N];  /* the diag.* values (gm_safety.h): safety.c 
 #define GM_PRESETS_IN_USE 1
 #endif
 
-enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS, G_PADS };
+enum { G_MIDI, G_VELOCITY, G_BUTTONS, G_ANALOG, G_ENCODERS, G_DEBUG, G_PRESETS };
+#define G_PADS (G_PRESETS + GM_HAS_PRESETS)
 #define G_LAYERS (G_PADS + (GM_N_PADS > 0))
 static const char *const groups[] = {
-    "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug", "Presets",
+    "MIDI", "Velocity", "Buttons", "Analog", "Encoders", "Debug",
+#if GM_HAS_PRESETS
+    "Presets",                       /* only with presets: none of its params is there without */
+#endif
 #if GM_N_PADS > 0
     "Pads",                          /* only with pads: other schemas stay as they were */
 #endif
@@ -105,7 +109,9 @@ static const char *const action_opts[N_ACTIONS] = {
     "None", "CC momentary", "CC toggle", "CC ramp", "Note",
     "Octave down", "Octave up", "Transpose down", "Transpose up",
     "Pitch bend down", "Pitch bend up", "Program next", "Program previous",
-    "Preset next", "Preset previous", "Preset select",
+#if GM_HAS_PRESETS
+    "Preset next", "Preset previous", "Preset select",   /* left out with presets off */
+#endif
 #if GM_MCU
     [ACT_MCU] = "Mackie Control",
 #endif
@@ -308,10 +314,10 @@ static const param_def_t params[] = {
       .name = "config.hash", .label = "Config hash", .values = &config_hash },
 #endif
 
+#if GM_HAS_PRESETS
     { .id = P_PRESET_ACTIVE, .type = PT_INT, .group = G_PRESETS, .count = 1,
       .min = 1, .max = GM_N_PRESETS, .def = 1,
       .name = "preset.active", .label = "Active preset", .values = &gm_cfg.preset_active },
-#if GM_N_PRESETS > 1
     { .id = P_PRESET_PROGRAM, .flags = PF_PRESET, .type = PT_INT, .group = G_PRESETS, .count = 1,
       .min = -1, .max = 127, .def = -1,
       .name = "preset.program", .label = "Program Change on select (-1 = none)",

@@ -2,6 +2,19 @@
 
 Every gemifi release, newest first. Generated from the commit log by semantic-release: `feat:` commits are Features, `fix:` commits are Bug Fixes.
 
+# [0.64.0](https://github.com/cubicecho/gemifi/compare/v0.63.0...v0.64.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **builder:** the dashboard's config hash and stale check count external components ([#169](https://github.com/cubicecho/gemifi/issues/169)) ([d76af91](https://github.com/cubicecho/gemifi/commit/d76af914607e0091b1227d12bc3b62b7b730ba5f))
+
+
+### Features
+
+* **builder:** external_components: from local folders ([#169](https://github.com/cubicecho/gemifi/issues/169)) ([b7111a8](https://github.com/cubicecho/gemifi/commit/b7111a8b756d5fc0d14d75733f8a5a5634f4a140))
+* **core,builder:** external hub types and display platforms in the C build ([#169](https://github.com/cubicecho/gemifi/issues/169)) ([1c3b38a](https://github.com/cubicecho/gemifi/commit/1c3b38a38ec681406afa5cdde2b51bc83370693b))
+
 # [0.63.0](https://github.com/cubicecho/gemifi/compare/v0.62.0...v0.63.0) (2026-11-16)
 
 

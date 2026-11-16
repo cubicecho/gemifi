@@ -30,7 +30,7 @@ The device has a DAW port only when its YAML has `mcu:` (and it's on USB).
 On Windows, a device with two USB-MIDI ports can hang Chrome's Web MIDI, and
 with it the web updater ([#54]({{ site.repo }}/issues/54)); flash such a build
 with `gemifi.py` there, or expect it. Plain feedback and the script are on by
-default. What each one needs in the YAML: [Components]({{ '/components/' | url }}#feedback). The exact messages are in
+default. What each one needs in the YAML: [DAW feedback]({{ '/docs/core/' | url }}#daw-feedback). The exact messages are in
 [`protocol/host-feedback.md`]({{ site.blob }}protocol/host-feedback.md); the YAML
 is in [`core/README.md`]({{ "core/README.md#daw-feedback" | repoLink }}).
 

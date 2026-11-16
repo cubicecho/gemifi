@@ -22,6 +22,7 @@
     {% endfor %}
     {{ head("Platforms", "platforms") }}
     <ul>
+      {{ item("All platforms", "/docs/platforms/") }}
       {% for p in docs.platforms %}
       <li>
         <a href="{{ p.url | url }}"{% if page.url == p.url %} aria-current="page"{% endif %}>{{ p.title }}</a>

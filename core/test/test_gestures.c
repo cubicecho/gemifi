@@ -69,7 +69,7 @@ const hal_fw_ops_t *hal_fw_ops(void) { return 0; }
 
 enum { PLAIN, TAP_HOLD, NOTE_HOLD, DBL, BOTH, C1, C2, C3, FN, OCT, PRG, PNEXT, FN2 };
 #define PIN_BTN(b) (16 + (b))       /* PB0.. */
-#define PIN_FN_LED 48               /* PD0 */
+#define PIN_FN_LED 48               /* PD0 (fn_led; test_gestures_no_leds has none) */
 /* A release counts once the contact has read open for BTN_STABLE (16)
  * samples: let go, then this long until it is seen. */
 #define RELEASE_MS 20u
@@ -447,7 +447,9 @@ static void test_one_shot_preset_switch(void)
     run_ms(HOLD_MS);
     CHECK((int)gm_cfg.preset_active == from % 4 + 1, "note_hold held: the next preset");
     release(NOTE_HOLD);
+#if GM_N_LEDS > 0
     CHECK(level[PIN_FN_LED] == 1, "fn still armed after the switch: its LED lit");
+#endif
     CHECK(plain_cc() == 11, "the next press after the switch: plain is fn's CC 11");
     CHECK(plain_cc() == 10, "then its own");
 }
@@ -462,10 +464,14 @@ static void test_one_shot(void)
     release(FN);
     run_ms(20);
     CHECK(count(0xB0, -1, 0) == 0, "fn sends nothing");
+#if GM_N_LEDS > 0
     CHECK(level[PIN_FN_LED] == 1, "fn tapped: its LED lit, the layer waits for the next press");
+#endif
     CHECK(plain_cc() == 11, "after fn: plain's twin, CC 11");
     run_ms(20);
+#if GM_N_LEDS > 0
     CHECK(level[PIN_FN_LED] == 0, "used: the LED off");
+#endif
     CHECK(plain_cc() == 10, "and back: CC 10");
 
     /* fn held: the layer for every press while it is held, and off with it */

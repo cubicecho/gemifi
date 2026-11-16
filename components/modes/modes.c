@@ -523,6 +523,7 @@ void layers_update(void)
     for (uint32_t i = 0; i < GM_N_OWN_BUTTONS && i < 64; i++)
         live |= 1ull << bl[i];
     btn_live = live;
+#if GM_N_LEDS > 0                       /* no LEDs: nothing changes hands */
     uint8_t lr[GM_ARR(GM_N_LEDS)], ll[GM_ARR(GM_N_LEDS)];
     for (uint32_t i = 0; i < GM_N_LEDS; i++) {
         lr[i] = 0;
@@ -544,6 +545,7 @@ void layers_update(void)
             led_redraw(i);              /* drawn again once it is live */
         }
     }
+#endif
 #undef RANK
 #endif
     uint64_t on = 0;
